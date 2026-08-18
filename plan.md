@@ -36,8 +36,13 @@
 > nothing**: a false green of the same class as the truncated Desktop run below.
 > **Quote the FOUR numbers, never the total alone — a green total with the wrong per-project counts is a
 > CONTAMINATED RUN, not a pass** (§6.2).
-> **Phase 11 and the REST of Phase 10 — TallyVault, Security Control / roles, Edit Log / Tally Audit,
-> split-by-FY, group company, repair/rewrite — remain EXCLUDED by standing user decision.**
+> ~~**Phase 11 and the REST of Phase 10 — TallyVault, Security Control / roles, Edit Log / Tally Audit,
+> split-by-FY, group company, repair/rewrite — remain EXCLUDED by standing user decision.**~~
+> **▶ 🔴 REPEALED 2026-08-19 BY USER RULING 10 (R12 — §5). THE SIX NAMED HERE ARE THE CENSUS'S §4 SET AND THEY
+> ARE NOW IN SCOPE**, as build rows in the census's named list, with states derived from the CODE. **Phase 11
+> (hardening / packaging / release) is NOT among them** — it is process, not a capability, and it was never
+> one of §4's seven. **And one of the six is now the NEXT thing built after the voucher lifecycle:** the
+> **Edit Log**, under ruling 11.
 > **`backup/restore` was CARVED OUT of Phase 10 and is BUILT** (user decision 2026-08-02) — this closes the
 > contradiction where the plan named it as the mitigation for its own top-ranked data-loss risk **R-7** (§9.1)
 > while placing it inside an excluded phase.
@@ -70,6 +75,17 @@
 > 66; and **schema is `v51`, not v50** — `src/Apex.Persistence.Sqlite/Schema.cs:159` reads
 > `public const int CurrentVersion = 51;`, moved by **WF-1 in `e49b88e`**. The 2026-08-14 lines above stay as
 > the dated measurement record they are; these are the current values. **`origin/main` is still `c655dc2`.**
+>
+> **▶ 🔴 FOUR FURTHER STANDING USER RULINGS WERE TAKEN 2026-08-19 (R12) — and they change the SHAPE of the
+> remaining work, not merely its order.** **9 · DONE = FULL PARITY *AND* CORPUS VERIFICATION** (both halves;
+> and where the corpus is silent the capability ships as a documented divergence labelled as OURS, never as a
+> fidelity claim). **10 · BOTH HELD-OUT SETS COME INTO SCOPE — the census denominator goes 200 → 216**
+> (`200 + 9 + 7`), which **REPEALS the 2026-08-10 obsolete-by-law decision** and the standing exclusion two
+> paragraphs above and in **§1.3**; both are marked repealed in place, not deleted. **11 · THE EDIT LOG COMES
+> NEXT, before more breadth** — today an alteration or deletion of a posted voucher leaves **no record**, and
+> attribution is **unrecordable**. **12 · REAL PRINTING PLUS AN IMAGE PRIMITIVE** — there is **no physical
+> printing anywhere** today; this settles **WHAT**, and **does NOT reinstate** the parallelism ruling 7 lost.
+> Recorded beside the other eight in **§5** — search **`FOUR FURTHER USER RULINGS (R12, 2026-08-19)`**.
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -121,9 +137,17 @@ baseline (R8).
   multi-tasking, Save View, More Details side-panel. (Connected-GST / IMS / WhatsApp: see out-of-scope.)
 
 ### 1.3 Out of scope (explicit)
-- **Legacy VAT / CST / Service Tax / Excise** `[legacy]` (catalog §15). *Note (verification §A25): real Tally
+- ~~**Legacy VAT / CST / Service Tax / Excise** `[legacy]` (catalog §15). *Note (verification §A25): real Tally
   Prime still ships these as optional F11 modules, but they are superseded by GST and out of scope for this
-  clone unless the user later requests historical fidelity.*
+  clone unless the user later requests historical fidelity.*~~
+  **▶ 🔴 REPEALED 2026-08-19 BY USER RULING 10 (R12 — §5 banner `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`).
+  THE USER HAS NOW REQUESTED EXACTLY THE HISTORICAL FIDELITY THIS BULLET DEFERRED**, and the A25 note is the
+  argument that carried it: real TallyPrime still ships these as downloadable tax-extension modules. The nine
+  pre-GST capabilities move **into** the denominator as build rows — census §3, now an area of the named list.
+  **The bullet is struck rather than deleted** so that what was excluded, and then included, stays legible.
+  **▶ THE CARVE-OUT INSIDE THE OLD DECISION SURVIVES: TDS and TCS were never in this group** — their mechanism
+  is current law and only 7.2's sections, rates, thresholds and forms are stale. **Clone the mechanism, never
+  the numbers.** Nothing here touches Phase 7 or Phase 10.10's WF-2.
 - **TDL** (Tally Definition Language add-on ecosystem) — catalog §23.
 - **Tally.NET / remote access / ODBC / synchronisation / browser (Tally) / mobile Tally** — catalog §23.
 - **Cloud/online-only statutory automations** that require live third-party portals or accounts:
@@ -189,6 +213,15 @@ per-feature pipeline:
    §1.3 have ever been compared to a source, and **§1.3 is where that count is maintained; do not copy the
    digits into this file.** This step is how the rest close as a by-product of ordinary work. **§8's R11 carries the matching
    Definition-of-Done clause.**
+   **▶ 🔴 TIGHTENED 2026-08-19 BY USER RULING 9 (R12; §5 banner `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`)
+   — RULING 5 IS NOT REPLACED, IT IS GIVEN ITS SECOND HALF.** Step 5a now discharges **two** obligations, and a
+   slice that meets one is not done: **(a) FULL PARITY** — the whole of what the reference product does under
+   that name, not a reachable subset — **and (b) the comparison to a source.** **▶ AND THE RECORD IT WRITES
+   MUST DECLARE WHICH OF TWO R7 CATEGORIES IT IS IN, never blurring them:** *"the corpus is SILENT, so this is
+   OURS by design"* is a **different claim** from *"the corpus ATTESTS X and we deliberately ship a narrower
+   Y"*. They rest on different pages and are re-opened by different evidence. **Conflating them already
+   shipped a defect on this branch** (D-6, whose whole record rested on an absence that was not absent).
+   **A14 writes the category name into the row; a row that does not name one is not a discharged step 5a.**
 6. **GitHub Expert** — the **exclusive** owner of all git/GitHub: branch, small conventional commits, PR,
    review-gated merge, tags, releases, CI/CD (R4/R10). No other agent or the main loop touches git.
 7. **Run-the-app verification** — the app is actually launched and the feature exercised; evidence recorded
@@ -629,6 +662,151 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > at W0-2b. **Unchanged:** every git action is **A12's and no other agent's (R4)**; small conventional commits
 > (R10); **A10 review per slice, pre-merge**; and a push after every slice.
 
+> **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-08-19) — SETTLED; DO NOT RE-LITIGATE. THEY AMEND THE EIGHT
+> ABOVE AND THEY CHANGE THE SHAPE OF THE REMAINING WORK.** Recorded **here**, beside the 2026-08-15 and
+> 2026-08-16 sets and pointed at from this file's header, for the reason those sets already give: a ruling
+> recorded only in `memory.md` or in `docs/` **gates nothing**. All four reach outside their own paragraph,
+> and each says where: **ruling 9** amends **§2.2 step 5a** and **§8's R11 Definition of Done** — it
+> **tightens ruling 5, it does not replace it**; **ruling 10** repeals the **2026-08-10 obsolete-by-law
+> decision** recorded at the foot of this banner set, together with the standing exclusion in this file's
+> **header** and in **§1.3**, and it moves the census denominator; **ruling 11** amends **Phase 10.11's
+> `▶ CARRY-FORWARDS`** and the **`▶ SEQUENCING AFTER THIS WAVE`** block at the end of Phase 10.12; **ruling
+> 12** settles **WHAT** the print-engine work is, and deliberately does **not** touch ruling 7's
+> supersession, which stays. **Nothing here re-opens ruling 6** — the voucher lifecycle is still what lands
+> next, and rulings 11 and 12 queue behind it.
+>
+> **9 · DONE MEANS FULL PARITY *AND* CORPUS VERIFICATION — BOTH, FOR EVERY IN-SCOPE CAPABILITY.** A
+> capability counts as **done** only when it is (a) **present and working** — the whole of what the
+> reference product does under that name, not a reachable subset — **and** (b) its **shipped behaviour has
+> been compared to a source**. Either half alone is not done. **Today that figure is 11** — eleven
+> capabilities have ever had their shipped behaviour compared to anything, against a denominator ruling 10
+> moves to **216**. `docs/full-clone-census.md` §1.3's anchor block is where that number is maintained and
+> **the only place it is derived**; this ruling does not restate the other three figures here, because a
+> restated digit in this file is what went stale the last three times.
+> **▶ 🔴 THE HONEST LIMIT THE USER ACCEPTED WHEN CHOOSING THIS, RECORDED BECAUSE A GOAL WITH AN UNSTATED
+> IMPOSSIBILITY IN IT IS A GOAL THAT GETS QUIETLY MISSED.** **The corpus is silent on some behaviour
+> entirely.** Those capabilities **cannot be verified**, by anyone, ever, from the sources this project
+> admits. They therefore ship as a **documented divergence, labelled as OURS** — never as a fidelity claim,
+> never as "matches TallyPrime", and never counted toward the 11. **Ruling 5 already provided for this
+> outcome** (*"or until it records WHY THE CORPUS CANNOT SETTLE the question"*); ruling 9 does not weaken
+> that clause, it says out loud that the clause has a **floor** and that the floor is not zero.
+> **▶ 🔴 KEEP THE TWO R7 CATEGORIES STRICTLY APART. THIS IS THE OPERATIVE HALF OF THE RULING, NOT A
+> CAVEAT.** *"The corpus is silent, so this is ours by design"* is a **DIFFERENT CLAIM** from *"the corpus
+> attests X and we deliberately ship a narrower Y"*. They rest on different pages, they are falsified by
+> different findings, and they are re-opened by different evidence. **Conflating them has already shipped a
+> defect on this branch** — see **D-6** below, where a record resting on *"NOT ATTESTED FOR A VOUCHER"* was
+> false because the attestation existed and was merely poor, and where the correction had to be written as
+> **two** records rather than one. The **S3** and **S5a** review lenses both insisted on the separation
+> independently. **Anything restating one category must restate both, or say which it means.**
+> **▶ WHERE IT IS ENFORCED, so a slice author cannot miss it: `§2.2` step 5a and `§8`'s R11 "Done per
+> feature"** — the two places ruling 5 is already enforced, amended in place rather than duplicated.
+>
+> **10 · BOTH HELD-OUT SETS COME INTO SCOPE. THE DENOMINATOR GOES 200 → 216.** The two sets the census has
+> been holding out of its net figure pending exactly this decision (§1.1 rule 5) are **decided: they are
+> IN**.
+> - **`docs/full-clone-census.md` §3 — obsolete-by-law, 9:** State VAT (enable / dealer type / TIN /
+>   registration date) · VAT & Tax Classifications · the 2005 four-slab rate structure · VAT Composition ·
+>   VAT Reports · CST · Service Tax + Form ST3 · Excise · FBT.
+> - **`docs/full-clone-census.md` §4 — excluded-by-decision, 7:** TallyVault · Security Control ·
+>   Tally Audit / Edit Log · Split Company Data · Repair / Rewrite / Verify · Group Company consolidation ·
+>   and a seventh, **whose name is contested — see the flagged note below, which does NOT change the count.**
+>
+> **▶ THE ARITHMETIC, WRITTEN OUT SO IT IS CHECKABLE RATHER THAN ASSERTED: `200 + 9 + 7 = 216`.** 200 is
+> §1.2's column sum of §1.2a; 9 and 7 are §3's and §4's own stated counts, both of which the census
+> re-affirmed as **correct as stated** on 2026-08-18.
+> **▶ 🔴 §3 AND §4 STOP BEING HELD-OUT SETS AND BECOME BUILD ROWS.** They join **§1.2a's named list** as
+> areas of their own, and **every one of the sixteen gets a state derived the way every other row's is — by
+> checking the CODE, not by assuming ABSENT.** Some may partly exist; the state token is a measurement, and
+> an unmeasured `ABSENT` is exactly the defect §1.2's old absent column was caught in.
+> **▶ THE BASIS THE USER WAS GIVEN FOR §3, recorded because it is the argument that carried it:** real
+> TallyPrime **still ships these** as downloadable tax-extension modules (census §3 note 1; verification
+> report A25, OFFICIAL tallysolutions.com). That is the counter-argument the 2026-08-10 decision weighed and
+> **overrode**; on 2026-08-19 the user weighed it again and **took it**. **The 2026-08-10 decision is
+> therefore REPEALED, and it is marked repealed in place at the foot of this banner set** — not deleted, so
+> that what was decided and then reversed stays legible. **The carve-out inside it survives untouched: TDS
+> and TCS were never in that group, their mechanism is current law, and nothing here touches Phase 7 or
+> Phase 10.10's WF-2.**
+> **▶ 🔴 TWO HAZARDS, BOTH MEASURED, BOTH OF WHICH WOULD LOOK LIKE DILIGENCE.**
+> **(a) DO NOT RE-DERIVE THE ARCHITECTURE-EXCLUDED COUNT.** §1.1 rule 4 said *"13 rows"*; §4's canonical
+> closing paragraph has **12** names; the union with rule 4's three extras is **15**. That discrepancy is
+> **already recorded and rule 4's 13 is already WITHDRAWN**. **Read what the document now says; do not
+> produce a fourth number.** Nothing downstream moves either way — those rows are outside the denominator on
+> every reading, and **ruling 10 does not bring them in.**
+> **(b) DO NOT RESURRECT THE TOP-DOWN RECONCILIATION TO "CHECK" 216.** The old check subtracted **8** and
+> **5** against these very sets and gave `129 − 9 − 7 − 1 = 112`, not the 115 it was reconciling to. Census
+> §1.2c **RETIRES** it — it is retired, **not repaired** — precisely because no arrangement of these nine
+> and seven ever produced the figures it used. **216 is derived bottom-up, from §1.2a's rows, and by nothing
+> else.**
+> **▶ RESTATE THE FIDELITY REGISTER AGAINST 216 — AND KEEP THE ANCHOR BLOCK'S DERIVATION SELF-MAINTAINING.**
+> The four figures must continue to depend **ONLY on what §1.3's item headers say**, never on a named
+> external event. Hard-coding an event (*"until S3 / S4 / S5c land"*) is what broke that block before, and
+> it contradicted its own rows for a day. Re-count the headers; carry no digit forward.
+> **▶ ⚠️ THE FLAGGED NAMING DIVERGENCE ON §4's SEVENTH ROW — REPORTED, NOT SILENTLY RESOLVED, AND IT MOVES
+> NO COUNT.** The instruction naming these seven listed *"the legacy indirect-tax stack"* as one of them.
+> **The census's own §4 says that row is counted in §3, not in §4** — its basis line reads *"excluded twice
+> over"* — and §4's *"Count: 7"* note names the seventh differently: **Alter / Delete / Cancel shipping with
+> NO audit trail.** Taking the instruction's list literally would **double-count the legacy stack against
+> §3's nine** and make 216 wrong by one. The rows below therefore follow **the census's own seven**, which
+> keeps `200 + 9 + 7 = 216` exact — and, as it happens, makes the seventh row **the very subject of ruling
+> 11**. **This is recorded as a divergence from the instruction, for the user to overturn if the reading is
+> wrong.**
+>
+> **11 · THE EDIT LOG COMES NEXT, BEFORE MORE BREADTH.** Today an operator can **alter or delete a posted
+> voucher and the books carry no record that it happened** — no trail, no attribution, no before-image.
+> **Attribution is not merely unrecorded but UNRECORDABLE**: there is nowhere to put it. **Cancel is the
+> only one of the three verbs that leaves evidence at all**, and it leaves it only as a flag on the voucher
+> it cancelled (`vouchers.cancelled`), not as a record of the act. The capability that ruling 10 has just
+> brought into scope as §4's third row is therefore also **the next thing built after the lifecycle**, and
+> it is built **ahead of breadth** — ahead of the 58 absent capabilities and ahead of the 16 newly in scope.
+> **▶ 🔴 MY SEQUENCING INTERPRETATION, RECORDED AS AN INTERPRETATION AND NOT AS THE RULING, SO THE USER CAN
+> CORRECT IT RATHER THAN DISCOVER IT.** The ruling says *"next"*. I read *"next"* as **after S5b and S5c**,
+> not before them, and the whole reason is written here rather than buried: **S5b and S5c are the remaining
+> half of the same lifecycle phase, not "breadth"** — they are two of the five diffs of Phase 10.11 (D-2),
+> and ruling 6 already put that phase first. More decisively, **S5b and S5c ADD WRITE PATHS.** Building the
+> log in front of them would make it a **moving target** and would force a **retrofit hunt for every write
+> path** the moment they landed — which is the exact cost the user cited as the reason the log was deferred
+> in the first place. **If this reading is wrong, the user overturns it here.**
+> **▶ 🔴 AND ONE OPEN DESIGN QUESTION THE S5a REVIEW RAISED, WHICH BELONGS WITH THIS WORK RATHER THAN WITH
+> THE SLICE THAT FOUND IT.** `Cancelled`, `Optional`, `PostDated` and `ApplicableUpto` are **all public
+> setters on a posted `Voucher`** (`src/Apex.Ledger/Domain/Voucher.cs`, the four auto-properties carrying
+> the Alt+X / Ctrl+L / Ctrl+T / "Applicable upto" doc comments — **re-verified 2026-08-19; written as member
+> names on purpose, because a line number here is stale on the next edit**). **Any caller can therefore move
+> the books by a whole voucher with no verb, no guard and no warning.** `Replace`'s new refusal of that
+> vector (§12.8 of the design record) **binds `Replace` only** — it is a guard on one method, not on the
+> field. **Whether these become `internal` alongside the eventual Ctrl+L / Ctrl+T verb is decided with this
+> work**, not before it and not by whoever next touches the type.
+>
+> **12 · REAL PRINTING, PLUS AN IMAGE PRIMITIVE.** There is currently **no physical printing anywhere in
+> this product**: **zero** `PrintDialog` / `PrinterSettings` / `PrintDocument` usage in `src/` (measured
+> 2026-08-19; the regex returned nothing), and **"Print" means render a PDF and save a file**. The ruling
+> is to build **actual printer output** *and* an **image primitive**, and it settles that both are in scope
+> together rather than leaving the second to be discovered as a blocker of the first.
+> **▶ THE CONSEQUENCES, EACH TIED TO THE REGISTER ROW IT CLOSES OR MOVES.**
+> - **It closes T0-9** — IRN and signed QR are never printed on an e-invoiced supply, and **structurally
+>   cannot be**: the PDF writer's whole public surface is begin-page, text, line, page-count and build, with
+>   **zero** image, compression or font-embedding identifiers in it (census row 12.8, **= T2-4**;
+>   re-measured 2026-08-19, still zero). **There is no image primitive to put a QR into.**
+> - **It is the precondition for the banking document family** — cheque printing, deposit slips, payment
+>   advice, cheque register and multi-account printing — none of which is meaningful as a saved PDF.
+> - **The design's own sizing stands: 3–6 weeks, a long pole**, and it **collides with the no-NuGet
+>   constraint** — an image/XObject and font-embedding capability has to be written, not taken.
+> **▶ ⚠️ ONE STATED CONSEQUENCE THAT THE CENSUS'S OWN PREREQUISITE GRAPH CONTRADICTS — RECORDED, NOT
+> SILENTLY COPIED, AND NOT FIXED HERE.** The ruling was given with the consequence that it *"unblocks the 32
+> report surfaces that cannot leave the app in any form, 22 of which have no export either"* (Outstandings,
+> BRS, Cost, Budget Variance, GSTR-4/9/9C, ITC, challan reconciliation). **Those 32 are T1-10, and T1-10's
+> gate is not the print engine.** The census records its cause as the **report-context** predicate — a
+> dedicated-page screen has no report context, and that single fact switches print, export, drill, period,
+> F12, sort/filter and saved views off **at once** — and its prerequisite graph puts T1-10 behind **S4, the
+> shared report base**, not behind **S5, the print engine**. **So the print engine does not by itself reach
+> those 32**; it makes the output *physical* once something else makes the surface *reachable*. Recorded
+> here as a discrepancy for the user, because a consequence that will not materialise is worse than a
+> consequence that was never claimed.
+> **▶ 🔴 THIS DOES NOT REINSTATE PARALLELISM, AND THE CROSS-REFERENCE IS THE POINT.** **Ruling 7 (print
+> engine in parallel) was superseded earlier on 2026-08-18** to *"sequential through S5, then print"* — see
+> ruling 7's own block above, which is marked in place. **Ruling 12 settles WHAT to build, not WHEN.** The
+> engine still runs **after S5c**, and under ruling 11 it now runs **after the edit log** as well. Its
+> Wave-4 position and the worktree constraint recorded with ruling 7 are **both untouched**.
+
 > **▶ 🔴 TEN PHASE-10.11 DESIGN DECISIONS (R12, 2026-08-17) — ALL ADOPTED EXACTLY AS THE DESIGN RECOMMENDS.
 > SETTLED; DO NOT RE-LITIGATE.** Source: `docs/design-records/phase-10-11-voucher-lifecycle-design.md` — a
 > COMPLETE 12-section design record whose **R12 Appendix** formally put ten questions (D-1…D-10). Every one is
@@ -785,8 +963,25 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > the evidence of what was corrected.)* **The sweep is NOT performed here** — it is a plan item in Phase 10.11's
 > carry-forwards, with that denominator attached so its completion is checkable.
 
-> **▶ USER DECISION (R12, 2026-08-10) — SETTLED; DO NOT RE-LITIGATE. The 9 OBSOLETE-BY-LAW pre-GST
-> capabilities WILL NOT BE BUILT.** State VAT (enable / dealer type / TIN / registration date); VAT & Tax
+> **▶ 🔴 REPEALED 2026-08-19 BY USER RULING 10 (R12 — `FOUR FURTHER USER RULINGS (R12, 2026-08-19)` ABOVE).
+> THE NINE **WILL** BE BUILT. THE WHOLE DECISION BELOW IS MARKED IN PLACE AND NOT DELETED**, because it was
+> settled for nine days and other documents were written against it, and because *"do not re-litigate"* is
+> only honest if the reversal is as visible as the original. **What reversed it is the very counter-argument
+> the decision records itself as having overridden** — real TallyPrime still ships these as downloadable
+> tax-extension modules — which the user weighed again on 2026-08-19 and **took**. **The nine leave the
+> held-out set and become build rows in the census's named list**, each with a state derived from the code;
+> the denominator moves **200 → 216** (`200 + 9 + 7`). **▶ WHAT SURVIVES UNCHANGED, AND IT IS THE MOST
+> LOAD-BEARING PART OF THE OLD DECISION: the TDS/TCS carve-out below.** They were never in this group, their
+> mechanism is current law, and **the standing instruction to clone the mechanism and never the numbers now
+> applies to the nine as well** — a VAT slab table is built as a *dated, historical* rate set, never as a
+> live 2026 default. **▶ AND THE ORIGINAL REASON IS NOT REFUTED, ONLY OUTWEIGHED:** these encode repealed
+> rate tables and a voucher posted against them produces a document no authority accepts. **That is now a
+> DESIGN CONSTRAINT on how they are built, not a reason not to build them** — and the middle option the old
+> decision declined (§3 note 3: model them as *historical read-only*) is the obvious shape for discharging
+> it. **Whether to take that shape is an open design question for these rows, not a settled one.**
+>
+> ~~**▶ USER DECISION (R12, 2026-08-10) — SETTLED; DO NOT RE-LITIGATE. The 9 OBSOLETE-BY-LAW pre-GST
+> capabilities WILL NOT BE BUILT.**~~ State VAT (enable / dealer type / TIN / registration date); VAT & Tax
 > Classifications; the **2005 four-slab rate structure** (1% / 4% / 12.5% / exempt, **~550 categories**); VAT
 > Composition; VAT Reports; **CST with its C/F/H declaration forms**; **Service Tax + Form ST3**; **Excise for
 > Dealers and Excise for Manufacturers**; and **FBT** (abolished 2009, and never in 7.2 — named only so nobody
@@ -2177,6 +2372,36 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      - **S5b — `ForAlter` rehydration, SIMPLE FAMILIES ONLY** — **L / med.** **Proves:** a posted voucher
        re-opens **pre-filled** and re-accepts unchanged to a byte-identical book, and every family that cannot
        yet round-trip is **refused with a named message** — never silently.
+       **▶ 🔴 BLOCKING PREREQUISITE, ADDED 2026-08-19 (R6): THE "SIMPLE FAMILIES" MUST BE ENUMERATED BEFORE
+       S5b STARTS. THE DESIGN DOES NOT ENUMERATE THEM — VERIFIED, AND HERE IS THE QUOTE EITHER WAY.**
+       The design record's slice-contents section (`docs/design-records/phase-10-11-voucher-lifecycle-design.md`
+       §6.6) scopes the slice as, verbatim, ***"for families whose posted lines equal the keyed lines"*** — a
+       **predicate, not a list.** Its slice table says only ***"simple families only"*** and D-2 says only
+       ***"S5b (rehydration, simple families)"***. **Grepped 2026-08-19 for `posted lines`, `keyed lines`,
+       `simple famil` and `round-trip` across the whole record: no positive enumeration exists anywhere in
+       it.** What the design *does* enumerate is the **complement** — the permanent refusals (*"POS,
+       Manufacturing Journal, payroll, and the three `InventoryVoucher` entry screens"*) and one temporary one
+       (*"any voucher carrying `EntryLine.Gst`, `.Tds` or `.Tcs`"*). **A complement over an unstated universe
+       does not define the set**, and the universe here is 23 seeded base kinds.
+       **▶ WHAT MUST BE DERIVED, AND FROM WHAT.** The included set is derived from **(a) the voucher type's
+       nature** and **(b) the line writers** — `ToBillAllocations()`, `ToCostAllocations()` and
+       `ToInvoiceBillAllocations()` — by establishing, per family, whether what `SqliteCompanyStore` reads
+       back equals what the entry screen keyed. **It is a per-family measurement, not a reading.**
+       **▶ 🔴 WHY THIS BLOCKS RATHER THAN ADVISES — THE FAILURE IS MEASURED ON THIS VERY PHASE, NOT
+       HYPOTHESISED.** The design's §7.4 mandates a family-parameterised test list and its own §12.8 records
+       what happened when that list went unwritten: ***"the mandated family test list was never written, so
+       the family shipped green by construction"*** — and the three defects it hid were **`Optional`,
+       `PostDated` and `ApplicableUpto` passing through `Replace` wholesale**, one of which swung a Sales
+       closing by **₹1,84,733.45** on byte-identical amounts. **An unenumerated included-set is the same
+       shape**: every family nobody listed is a family nobody refuses *and* nobody tests, and it fails
+       **silently**, which is precisely the failure mode the design's own RULING 1 exists to prevent.
+       ⚠️ **The S4 precedent as relayed** — that a slice-contents section had truncated its analysis section's
+       list from twelve to five — **is recorded here as RELAYED, not measured by this pass**; the §12.8
+       finding above is the one that was verified in-tree, and it is sufficient on its own.
+       **▶ THE DELIVERABLE:** a written list of the INCLUDED families with the per-family evidence, checked
+       against `PopulatedFixtureCoverageTests.SeededBaseTypes` so that **every seeded base kind is either
+       included or refused by name, with none unaccounted for** — and a test that fails when a newly seeded
+       kind belongs to neither set. **Nothing in S5b is implemented before that list exists.**
      - **S5c — the carve inversions + the CARRY table** — **L / HIGH.** **Proves:** a TDS-carved / GST-stamped /
        bank-reconciled voucher survives alteration with its tax **re-derived from the restored gross** and its
        outside-world links **carried, not rebuilt**.
@@ -2267,8 +2492,22 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      is a FINDING, not a fix.** The two `CancelVoucher` references in `Apex.Desktop.Tests`
      (`InventoryVoucherEntryViewModelTests`, `KeyboardArbitrationTests`) **do** change by design in S3, as does
      any dispatch test asserting app-wide Alt+X.
-- **▶ CARRY-FORWARDS:** the **audit trail** itself (deferred to the excluded Phase 10; the gap widens with
-  every altered or deleted voucher) · **company deletion**, specified above but not fixed · **alteration for
+- **▶ CARRY-FORWARDS:** ~~the **audit trail** itself (deferred to the excluded Phase 10; the gap widens with
+  every altered or deleted voucher)~~
+  **▶ 🔴 THE AUDIT TRAIL IS NO LONGER A CARRY-FORWARD — IT IS SCHEDULED. USER RULINGS 10 AND 11 (R12,
+  2026-08-19, §5) MAKE IT THE NEXT THING BUILT AFTER THIS PHASE.** Ruling 10 brought it into the census
+  denominator (rows **16.3** and **16.4** of §1.2a Area 16), and ruling 11 put it **ahead of all breadth** —
+  step 3 of the re-sequenced order at the end of Phase 10.12. **The reason this carry-forward's own words
+  gave — *"the gap widens with every altered or deleted voucher"* — is exactly what carried the ruling**, and
+  S5b/S5c are the slices that widen it fastest, which is why the log follows them rather than preceding them.
+  **▶ 🔴 AND ONE OPEN DESIGN QUESTION TRAVELS WITH IT, RAISED BY THE S5a REVIEW AND EXPLICITLY NOT ANSWERED
+  HERE:** `Cancelled`, `Optional`, `PostDated` and `ApplicableUpto` are **all public setters on a posted
+  `Voucher`** (`src/Apex.Ledger/Domain/Voucher.cs`, the four auto-properties carrying the Alt+X / Ctrl+L /
+  Ctrl+T / "Applicable upto" doc comments — re-verified 2026-08-19), so **any caller can move the books by a
+  whole voucher with no verb, no guard and no warning.** `Replace`'s refusal of that vector binds **`Replace`
+  only** — it is a guard on one method, not on the field. **Whether these become `internal` alongside the
+  eventual Ctrl+L / Ctrl+T verb is decided with the edit-log work**, not by whoever next touches the type.
+  **▶ THE REMAINING CARRY-FORWARDS ARE UNCHANGED:** · **company deletion**, specified above but not fixed · **alteration for
   the five deferred voucher families** · **cancellation for pure-inventory vouchers** (**UI-only — the engine
   method exists**, D-10) · **`Duplicate` (Alt+2) and `Insert` (Alt+I / Alt+A)**, both corpus-attested and not
   built · **Basis of Values**, which reclaims Ctrl+B from the reserved list this phase creates · the
@@ -4095,25 +4334,98 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   for this block: ruling 7's exception to ruling 1 LAPSES and the print engine returns to its Wave-4 place
   below.** Clause **(a)** — ruling 6, the lifecycle — is **untouched and still in force**, so exactly one
   named exception to ruling 1 survives.
-  0. **▶ NEXT — THE VOUCHER LIFECYCLE (Phase 10.11), PULLED FORWARD BY RULING 6.** Alter / delete / cancel,
+  **▶ 🔴 RE-SEQUENCED 2026-08-19 BY USER RULINGS 9–12 (R12 — §5 banner
+  `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`). THIS IS THE ORDER. The wave list below is KEPT, because
+  every item in it is still real work and its reasoning is unchanged — but where the two disagree, THIS
+  ORDER WINS, and the wave items are annotated in place to say where they land.**
+
+  | # | What | Why here |
+  |---|---|---|
+  | **1** | **S5b — `ForAlter` rehydration** | Phase 10.11 is still what lands next (**ruling 6, untouched**); S5b is its fourth diff. **🔴 ITS FAMILY ENUMERATION MUST BE DERIVED BEFORE IT STARTS — see the blocking item in Phase 10.11's S5b bullet.** |
+  | **2** | **S5c — carve inversions + the CARRY table** | The fifth and last diff of the same phase. The lifecycle is not done until it lands. |
+  | **3** | **THE EDIT LOG** (census Area 16 rows 16.3 + 16.4) | **Ruling 11.** Today an alteration or deletion of a posted voucher leaves **no record**, and attribution is **unrecordable**. It runs **after** S5b/S5c and **before breadth** — see the interpretation note below. |
+  | **4** | **REAL PRINTING + THE IMAGE PRIMITIVE** (census S5 / row 12.8, plus `PrintDialog`-class physical output) | **Ruling 12** settles *what*; **ruling 7's supersession still settles *when*** — sequential, after S5c, and now after the edit log too. Closes **T0-9**. |
+  | **5** | **THE REMAINING TIER 0 DEFECTS** | Wave 1 correctness. **See the arithmetic note below — the count is 10 at this point, not 9.** |
+  | **6** | **BREADTH** — the absent rows, including the 16 newly in scope | Wave 3, widened by ruling 10. **See the arithmetic note — 73 absent, not "58 + 16".** |
+  | **7** | **THE CORPUS-VERIFICATION PASS that raises 11 toward 216** | **Ruling 9.** It is listed last as a *sweep*, but **ruling 5 means most of it must never reach this row**: every slice above closes its own fidelity rows as it ships. What lands here is the residue. |
+
+  **▶ 🔴 THREE ARITHMETIC CORRECTIONS TO THE ORDER AS IT WAS GIVEN — RECORDED, NOT SILENTLY ADOPTED, BECAUSE
+  THIS PROJECT HAS NOW WATCHED A SEQUENCING RULING GET BUILT ON A PREMISE NOBODY RE-DERIVED (ruling 6's own
+  supersession).**
+  **(a) "The NINE remaining TIER 0 defects" is 10 at step 5, not 9.** Measured in `docs/full-clone-census.md`
+  §2 TIER 0 on 2026-08-19: the register has **13 rows, 2 CLOSED (T0-7, T0-8), 11 OPEN**. Of the 11, **9 are
+  confirmed wrong-money-or-invalid-document** (T0-1, T0-2, T0-3, T0-4, T0-9, T0-10, T0-11, T0-12, T0-13) and
+  **2 are confirmed UNSOURCED rather than wrong** (T0-5's 4% cess, T0-6's blog-cited TDS rates). *"Nine"*
+  matches the confirmed set exactly — **but T0-9 is inside it and step 4 closes T0-9**, so at step 5 what
+  remains is **8 confirmed + 2 unsourced = 10 open rows**. **T0-5 is a standing USER DECISION, not a fix**,
+  and it does not clear by being worked.
+  **(b) "58 absent + the 16 newly in scope" is 73 absent, not 74.** Ruling 10's sixteen are **15 ABSENT and
+  ONE PARTIAL** — census row **16.6** (Repair / Rewrite / Verify) has a real `PRAGMA integrity_check` called
+  on both the backup and the restore path. So breadth is **73 absent rows** (58 + 15) **plus the completion
+  of 16.6's two named gaps**. `47 + 96 + 73 = 216`, machine-checked.
+  **(c) WAVE 2 IS NOT NAMED IN THE NEW ORDER, AND IT IS NOT THEREBY DELETED.** The structural wave — Voucher
+  Type master, the **shared report base**, the F11/F12 configuration layer — appears nowhere in steps 1–7.
+  **Ruling 1 still binds everything the new order does not name**, so Wave 2 keeps its place **between step 5
+  (Wave 1 correctness) and step 6 (Wave 3 breadth)**. **▶ 🔴 THIS MATTERS MORE THAN IT LOOKS: the shared
+  report base is what actually unblocks the 32 unprintable report surfaces**, not the print engine — see
+  ruling 12's flagged discrepancy in §5. **Recorded as an interpretation for the user to correct, not as a
+  decision taken here.**
+
+  **▶ THE INTERPRETATION INSIDE STEP 3, FLAGGED RATHER THAN BURIED.** Ruling 11 says the edit log comes
+  *"next"*. Reading *"next"* as **after S5b and S5c** rather than before them is **my interpretation, and it
+  is recorded as one** in ruling 11's own block in §5, with its reasoning: S5b and S5c are the remaining half
+  of the same lifecycle phase rather than "breadth", and — decisively — **they ADD WRITE PATHS**, so building
+  the log in front of them makes it a moving target and forces a retrofit hunt for every write path, which is
+  the exact cost the user cited for deferring the log in the first place. **If the reading is wrong the user
+  overturns it there.**
+
+  0. **▶ NEXT — THE VOUCHER LIFECYCLE (Phase 10.11), PULLED FORWARD BY RULING 6.** **▶ 2026-08-19: STILL
+     ITEM 0, AND NOW SPLIT ACROSS STEPS 1–2 OF THE TABLE ABOVE — S3, S4 and S5a have shipped; S5b and S5c are
+     what remains.** Alter / delete / cancel,
      over engines that already exist. It runs **after W0-2b** and **before the rest of Wave 0**. **Reason:**
      *the true root of the tree* — until it lands, every fix in items 1–5 below is correct only for **future**
      vouchers and no already-posted wrong figure can be corrected by the person who owns the book. **Its own
      phase header carries the one prerequisite the ruling did not settle — W0-7 / census S0 — as an open R12
      question, not as a decided one.**
-  1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
+  1. **Wave 1 — correctness.** **▶ 2026-08-19: THIS IS STEP 5 OF THE TABLE ABOVE — it now runs AFTER the
+     edit log and AFTER the print engine, not immediately after the lifecycle.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
      suite); GST rate hierarchy; CN/DN stock parity. ~~**Then the voucher lifecycle (10.11), so those fixes are
      recoverable in books that already exist.**~~ **▶ THE LIFECYCLE TAIL MOVED TO ITEM 0 (ruling 6) — and the
      struck sentence is its own best argument for the move: if these fixes are only recoverable in existing
      books once the lifecycle exists, the lifecycle belongs BEFORE them, not after.**
-  2. **Wave 2 — structural.** Voucher Type master; a **SHARED report base carrying drill + print + export by
+  2. **Wave 2 — structural.** **▶ 🔴 2026-08-19: NOT NAMED IN THE NEW ORDER AND THEREFORE NOT MOVED — it
+     keeps its ruling-1 place between step 5 and step 6. See correction (c) above: the shared report base
+     here, not the print engine at step 4, is what unblocks the 32 unprintable report surfaces (T1-10).**
+     Voucher Type master; a **SHARED report base carrying drill + print + export by
      construction — the census is explicit that these are ONE refactor and must not be done separately**, and
      it must precede Wave 3 so new reports are born drillable; the F11 Accounting/Inventory + global F12
      configuration layer, with **Integrate-Accounts-with-Inventory carved into its own oracle-gated slice**.
   3. **Wave 3 — breadth.** Missing report families; GST return completeness; tracking numbers + fulfilment.
+     **▶ 🔴 2026-08-19: THIS IS STEP 6, AND RULING 10 WIDENED IT.** It now also carries **census Areas 15 and
+     16** — the nine pre-GST statutory capabilities and the seven formerly excluded by decision — **less the
+     two rows steps 3 and 4 already take** (16.3 and 16.4, the edit log). Breadth is **73 absent rows plus
+     16.6's two named gaps**, not *"58 + 16"*; see correction (b). **▶ AND AREA 15 CARRIES A DESIGN
+     CONSTRAINT THE OTHER BREADTH ROWS DO NOT: they encode REPEALED rate tables**, so they are built as
+     **dated, historical** rate sets — never as live 2026 defaults — and census §3 note 3's *historical
+     read-only* shape is the obvious way to discharge that. **Choosing it is an open design question.**
   4. **Wave 4 — the print engine** (`PdfWriter` image/XObject + font embedding), then **everything gated
      behind it**: IRN/QR, logo, cheque printing, multi-account printing, JPEG export, non-Latin script.
+     **▶ 🔴 2026-08-19 — RULING 12 MOVES THIS TO STEP 4 AND WIDENS WHAT IT IS.** It is no longer *"Wave 4,
+     last but one"*: it runs **immediately after the edit log**, ahead of Wave 1 correctness. **And it is
+     more than the PDF writer.** There is **no physical printing anywhere in this product** — **zero**
+     `PrintDialog` / `PrinterSettings` / `PrintDocument` in `src/` (measured 2026-08-19), and *"Print"* means
+     render a PDF and save a file. **Ruling 12 requires ACTUAL PRINTER OUTPUT *and* an IMAGE PRIMITIVE**,
+     both. **▶ WHAT IT CLOSES AND WHAT IT DOES NOT:** it closes **T0-9** (IRN and signed QR, structurally
+     impossible today because the writer has no image primitive — census row 12.8, re-measured 2026-08-19,
+     still zero) and it is the **precondition for the banking document family** (cheque printing, deposit
+     slips, payment advice, cheque register, multi-account printing). **It does NOT by itself reach the 32
+     unprintable report surfaces** — that is T1-10, whose gate is the **report-context** predicate and whose
+     prerequisite is **S4**, in Wave 2. That discrepancy is recorded at ruling 12 in §5 for the user.
+     **▶ SIZING AND THE CONSTRAINT IT COLLIDES WITH, UNCHANGED: 3–6 weeks as a long pole, and no NuGet** —
+     an image/XObject and font-embedding capability has to be written, not taken. **▶ AND RULING 12 DOES NOT
+     REINSTATE PARALLELISM:** ruling 7's supersession stands, the worktree constraint below still applies to
+     whatever worktree the engine is built in.
      **▶ 🔴 NOT STARTED EARLY AFTER ALL — RULING 7 IS SUPERSEDED 2026-08-18. THE ENGINE RUNS SEQUENTIALLY,
      AFTER S5c, AND THIS WAVE-4 ROW IS AGAIN ITS TRUE POSITION.** The 2026-08-16 text is kept below because its
      reasoning about the dependency is unchanged and still governs *when the engine must complete*; what is
@@ -4373,6 +4685,17 @@ rows in `docs/full-clone-census.md` §1.3 — **or until it records why the corp
 that produces: **only the capabilities enumerated in census §1.3 have ever been compared to a source, so
 `PRESENT` has meant `reachable`, not `right`.** §1.3 carries that count with an as-of date and is the single
 place it is maintained. The step that discharges this clause is **§2.2 step 5a**, and it is **A14's**.
+
+**▶ 🔴 TIGHTENED 2026-08-19 BY USER RULING 9 (R12 — §5 banner, `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`).
+DONE NOW MEANS FULL PARITY *AND* CORPUS VERIFICATION — BOTH HALVES, OR IT IS NOT DONE.** Ruling 5's clause
+stands and gains a second: the capability must be **present and working in full** — the whole of what the
+reference product does under that name, **not a reachable subset** — **as well as** compared to a source.
+**▶ THE LIMIT THE USER ACCEPTED, WRITTEN INTO THE DEFINITION RATHER THAN LEFT AS AN EXCUSE: the corpus is
+SILENT on some behaviour entirely**, and those capabilities **cannot be verified by anyone**. They ship as a
+**documented divergence labelled as OURS** — never as a fidelity claim, never as *"matches TallyPrime"*, and
+they are **never counted toward the shipped-and-compared figure**. **▶ AND THE TWO R7 CATEGORIES STAY
+STRICTLY APART** — *"corpus silent, ours by design"* is not *"a deliberate narrowing of an ATTESTED
+behaviour"*; the fidelity row **names which**. Conflating them is the defect D-6 records.
 
 **Milestones (headline):** M0 scaffold+stack-locked · **M1 ledger engine (Robert+Bright green)** · M2 bill-
 wise/banking/cost · M3 inventory · **M4 GST MVP (GSTR-1/3B)** · M5 reports/print/export · M6 advanced

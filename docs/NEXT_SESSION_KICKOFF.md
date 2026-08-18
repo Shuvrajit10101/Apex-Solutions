@@ -31,7 +31,8 @@ Rewritten **2026-08-17**, in full.
 ## COPY-PASTE PROMPT (paste verbatim)
 
 > Continue Apex Solutions. Read `memory.md` (last entry first — it is the session-close record), then
-> `plan.md` **§5** (the eight standing rulings, ahead of every phase block), then `CLAUDE.md`, `agents.md`,
+> `plan.md` **§5** (the **TWELVE** standing rulings, ahead of every phase block — **four were added
+> 2026-08-19 and they change the SHAPE of the remaining work, not merely its order**), then `CLAUDE.md`, `agents.md`,
 > then `docs/full-clone-census.md` (the denominator) and this file.
 >
 > **▶ VERIFY STATE, DON'T TRUST IT.** Everything below is a measurement with a timestamp, not a description.
@@ -227,6 +228,33 @@ A `PRESENT` row means *reachable*, not *correct*. **Ruling 5 exists to close the
 denominator as a by-product of ordinary work** rather than leaving it to a dedicated campaign that never gets
 funded; §1.3's anchor block carries its current width with an as-of date, and **if any copy anywhere disagrees
 with that block, the block wins and the copy is a defect.**
+
+▶ **🔴 AND IT MOVED AGAIN ON 2026-08-19 — FOR A COMPLETELY DIFFERENT REASON, WHICH IS THE PART TO CARRY
+FORWARD.** The 2026-08-18 move was a **re-count of the same product**. The 2026-08-19 move is a **SCOPE
+DECISION**: user ruling 10 (`plan.md` §5, `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`) brought **both**
+held-out sets into the denominator — census **§3** (obsolete-by-law) and **§4** (excluded-by-decision), now
+**Areas 15 and 16** of §1.2a. **Do not read the two moves as one trend, and do not describe the second as a
+correction: nothing was wrong; the scope changed.** This section still carries **no digits** — read §1.2 and
+§1.3's anchor block. **Three things to know before you plan on it:**
+
+1. **ONE OF THE SIXTEEN NEW ROWS IS NOT ABSENT** — Repair / Rewrite / Verify is **PARTIAL** (a real
+   `PRAGMA integrity_check` called on both the backup and the restore path). *"Held out, therefore absent"*
+   was the natural guess and it was wrong. **Every new row's state was measured against the code.**
+2. **TWO CHECKS ARE FORBIDDEN, BOTH BECAUSE THEY LOOK LIKE DILIGENCE.** Do **not** re-derive the
+   architecture-excluded count (§1.1 rule 4's *"13"* is **withdrawn**; §4's closing paragraph is canonical).
+   Do **not** resurrect the retired top-down reconciliation to "check" the new denominator — **§1.2c retired
+   it, it was never repaired, and the two counts it could never reconcile were these very sets.**
+3. **THE GOAL CHANGED TOO, not just the denominator.** **Ruling 9** makes *done* mean **FULL PARITY *AND*
+   CORPUS VERIFICATION** — with an explicit accepted floor: **where the corpus is SILENT the capability can
+   never be verified**, and ships as a **documented divergence labelled as ours**, never as a fidelity claim.
+   **Keep that category strictly apart from "a deliberate narrowing of an ATTESTED behaviour" — conflating
+   the two has already shipped a defect on this branch (D-6).**
+
+▶ **AND WHAT COMES NEXT CHANGED (rulings 11 and 12).** The order is now
+**S5b → S5c → the EDIT LOG → REAL PRINTING + an image primitive → the remaining TIER 0 → breadth → the
+corpus-verification sweep**, written out with its arithmetic corrections at the end of `plan.md`
+Phase 10.12 (`▶ SEQUENCING AFTER THIS WAVE`). **Ruling 6 is untouched** — the lifecycle is still what lands
+next — and **ruling 12 does NOT reinstate the parallelism ruling 7 lost.**
 
 ---
 

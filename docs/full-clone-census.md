@@ -4,6 +4,26 @@
 **Baseline:** worktree `…\.claude\worktrees\recursing-swirles-3138c6`, HEAD `468a96e`, schema v50. Read-only; nothing built, run, or edited.
 **Date:** 2026-08-10.
 
+> **▶ 🔴 2026-08-19 — THE DENOMINATOR MOVED AGAIN, AND THIS TIME IT IS A SCOPE DECISION, NOT A RE-COUNT.
+> READ THIS BEFORE THE 2026-08-18 BANNER BELOW IT.** **User ruling 10 (R12 — `plan.md` §5,
+> `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`) brought BOTH held-out sets into scope**, so the two sections
+> this document has always kept outside its net figure — **§3 obsolete-by-law (9)** and **§4
+> excluded-by-decision (7)** — are now **Areas 15 and 16 of §1.2a**, with states derived from the code the
+> same way every other row's is. **`200 + 9 + 7 = 216`, and the machine check agrees: `TOTAL rows=216 C=47
+> P=96 A=73 U=0 sum=216`.**
+> 1. **§1.2's split is `216 · 47 / 96 / 73 / 0`.** The 2026-08-18 `200 · 47 / 95 / 58 / 0` is kept in place
+>    below as the record of that day.
+> 2. **ONE OF THE SIXTEEN IS NOT ABSENT.** Row **16.6** (Repair / Rewrite / Verify) is **PARTIAL** — a real
+>    `PRAGMA integrity_check` with callers on both the backup and the restore path. This document recorded it
+>    as ABSENT on 2026-08-18 and that was wrong; **the area-13 held-out note is corrected in place.** It is
+>    the whole reason the ruling required these states to be measured rather than assumed.
+> 3. **§1.3's anchor block is restated against 216 — `11 · 12 · 205 · 204`.** Only the last two moved; the
+>    derivation is unchanged and stays a property of the item headers.
+> 4. **§1.1 rule 5, §3 and §4 are marked in place, not deleted** — each now points at its area.
+> **The 2026-08-10 decision NOT to build the nine is REPEALED**, and `plan.md` marks it repealed in place.
+> **Do NOT re-derive the architecture-excluded count (rule 4's withdrawn "13"), and do NOT resurrect the
+> retired top-down reconciliation to "check" 216** — those are the two hazards ruling 10 names by measurement.
+
 > **▶ 🔴 REFRESHED 2026-08-18 AT HEAD `6fb5fe5`, SCHEMA v51 — READ THIS BEFORE THE 2026-08-10 TEXT BELOW IT.**
 > Five independent read-only surveys re-derived every capability state against source. **Four defects in this
 > document were fixed and the fixes changed its headline numbers:**
@@ -34,7 +54,7 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 2. **Report families count as one** (`Account Books`, `Statements of Accounts`, `Inventory Books`, `Exception Reports`). This is the largest deliberate compression in the count and it flatters us: `Account Books` scores as one PARTIAL row while hiding six missing registers. Expanding families to individual reports would push the denominator past 200. **▶ 2026-08-18: this rule is RETAINED unchanged, and §1.2a keeps every one of those families as a single row.** The denominator nonetheless moved to **200** because the rest of the product was finally written out at rule 1's granularity — see §1.2b. **That is a coincidence of magnitude, not a repeal of this rule**: the ~14 registers hiding inside the four families are still hiding, and each family row in §1.2a now names what is inside it.
 3. **A capability is counted once**, in the earliest product that shipped it. ERP 9 rows the source census marks "IN 7.2" are folded into the 7.2 baseline. **▶ 2026-08-18: §1.2a enforces this explicitly.** Where two surveys named the same capability under different areas, the row lives in one area and the other carries an **uncounted cross-reference**; every such row says which and why.
 4. **Excluded from the denominator entirely** (not gaps, not progress): pure licensing (Silver/Gold, multi-site, rental), edition/subscription features (Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, Data Synchronisation), the 7.2 data-format migration tool, the 7.2 character-grid UI (superseded by our fidelity target), international statutory packs, TDL, and multilingual. ~~13 rows.~~ **▶ 🔴 CORRECTED 2026-08-18: "13" IS UNSOURCED AND NOT DERIVABLE FROM EITHER LIST.** This enumeration and §4's closing paragraph are **two different lists**, and neither totals 13 — §4's has **12** distinct names and this one adds **3** more (Data Synchronisation, the 7.2 data-format migration tool, the 7.2 character-grid UI), so the **union is 15**. **§4's closing paragraph is the canonical list and this rule points at it.** Nothing downstream moves: these rows are outside the denominator either way. See §1.2c.
-5. **Held out of the net figure pending a user decision:** obsolete-by-law statutory (9 rows, §3) and excluded-by-decision (7 rows, §4). **▶ 2026-08-18: these two counts are correct as stated, and they are what proved §1.2's old top-down reconciliation never closed** — that check subtracted **8** and **5** against them. See §1.2c, which retires the check rather than bending either count to fit it.
+5. ~~**Held out of the net figure pending a user decision:** obsolete-by-law statutory (9 rows, §3) and excluded-by-decision (7 rows, §4).~~ **▶ 🔴 THE DECISION WAS TAKEN 2026-08-19 AND IT WAS TO INCLUDE THEM — user ruling 10 (R12, `plan.md` §5). NOTHING IS HELD OUT PENDING A USER DECISION ANY MORE.** Both sets are now **build rows**: §3's nine are **Area 15** of §1.2a and §4's seven are **Area 16**, each with a state derived from the code the way every other row's is. The denominator moves **200 → 216** (`200 + 9 + 7`). §3 and §4 are **retained below as the record of what was held out and why**, and both now point at their areas. **▶ 2026-08-18, and still true: these two counts are correct as stated, and they are what proved §1.2's old top-down reconciliation never closed** — that check subtracted **8** and **5** against them. See §1.2c, which retires the check rather than bending either count to fit it; **do not resurrect it to "check" 216 either.**
 
 ### 1.2 The number
 
@@ -64,12 +84,32 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 12 | Printing | 9 | 1 | 3 | 5 | 0 |
 | 13 | Data management (import/export/backup/e-mail) | 10 | 2 | 6 | 2 | 0 |
 | 14 | TallyPrime-only capabilities | 10 | 1 | 2 | 7 | 0 |
-| | **TOTAL** | **200** | **47** | **95** | **58** | **0** |
+| 15 | Statutory, obsolete by law (pre-GST) — **was §3** | 9 | 0 | 0 | 9 | 0 |
+| 16 | Formerly excluded by decision (security, audit, data structure) — **was §4** | 7 | 0 | 1 | 6 | 0 |
+| | **TOTAL** | **216** | **47** | **96** | **73** | **0** |
 
-**A full clone requires 200 named capabilities. We have 47 complete, 95 partial, 58 absent, 0 undetermined** —
-as of **2026-08-18**, measured at HEAD `6fb5fe5`, schema **v51**, by five independent read-only surveys that
-re-derived every row against source. Every `COMPLETE` still means **present and reachable**, never *correct*;
-§1.3 holds the fidelity figures and is the only place they are maintained.
+**A full clone requires 216 named capabilities. We have 47 complete, 96 partial, 73 absent, 0 undetermined.**
+Every `COMPLETE` still means **present and reachable**, never *correct*; §1.3 holds the fidelity figures and is
+the only place they are maintained.
+
+> **▶ 🔴 THE DENOMINATOR MOVED AGAIN ON 2026-08-19: 200 → 216, AND THIS ONE IS NOT A RE-COUNT OF THE SAME
+> PRODUCT. IT IS A SCOPE DECISION.** User ruling 10 (R12 — `plan.md` §5,
+> `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`) brought **both held-out sets into scope**: §3's nine
+> obsolete-by-law capabilities and §4's seven excluded-by-decision ones. They are no longer held out of the
+> net figure pending a user decision (§1.1 rule 5) — **the decision was taken, and it was to include them.**
+> **THE ARITHMETIC, WRITTEN OUT SO IT IS CHECKABLE RATHER THAN ASSERTED: `200 + 9 + 7 = 216`**, where 200 is
+> the 2026-08-18 column sum, and 9 and 7 are §3's and §4's own counts, both of which this document
+> re-affirmed as *"correct as stated"* on 2026-08-18. The rows themselves are **Areas 15 and 16 of §1.2a**,
+> and this table's integers are still nothing but their column sums.
+> **▶ 🔴 THE SIXTEEN NEW STATES WERE MEASURED, NOT ASSUMED — AND ONE OF THEM IS NOT ABSENT.** Row **16.6**
+> (Repair / Rewrite / Verify) is **PARTIAL**: a real `PRAGMA integrity_check` exists, is called on both the
+> backup and the restore path, and is reachable — so the row cannot rest on a zero-hit search, which is the
+> ABSENT bar. That single row is why *"held out, therefore absent"* was not an acceptable shortcut: it would
+> have written a falsehood into the denominator on the first day it counted. The other fifteen are ABSENT,
+> each on a **named regex that returned zero**.
+> **▶ 🔴 DO NOT RESURRECT THE TOP-DOWN RECONCILIATION TO "CHECK" 216.** §1.2c retired it — **retired, not
+> repaired** — and the two counts it could never reconcile were **these very 9 and 7**. 216 is derived
+> **bottom-up from §1.2a's rows and by nothing else.** Re-run the awk.
 
 #### 1.2 (superseded) — the 2026-08-10 snapshot, kept because other documents still quote it
 
@@ -148,6 +188,11 @@ END{ printf "\nTOTAL rows=%d C=%d P=%d A=%d U=%d sum=%d\n",tn,tc,tp,ta,tu,tc+tp+
 **Run 2026-08-18: `TOTAL rows=200 C=47 P=95 A=58 U=0 sum=200`, and every area matched its own heading.** If
 this ever disagrees with §1.2, **the rows are right and §1.2 is the defect** — that is the whole point of
 deriving one from the other.
+
+**▶ 🔴 EXPECTED RUN FROM 2026-08-19 ONWARD: `TOTAL rows=216 C=47 P=96 A=73 U=0 sum=216`.** Areas **15** and
+**16** were added that day by user ruling 10, and they parse under the same two patterns this command already
+uses — the `^#### Area ` heading and the `^| N.N |` row — so **the command is unchanged and was not
+weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 absent`.
 
 #### Area 1 — Company creation & configuration (F11/F12) · 9 rows · 0 complete / 6 partial / 3 absent
 
@@ -427,11 +472,19 @@ deriving one from the other.
 
 #### Area 13 — Data management (import / export / backup / e-mail) · 10 rows · 2 complete / 6 partial / 2 absent
 
-> **Held out of the denominator by §4 (excluded by decision), listed so the reader knows they were measured and
+> ~~**Held out of the denominator by §4 (excluded by decision), listed so the reader knows they were measured and
 > not overlooked:** Split Company Data — **ABSENT** (zero hits); Group Company consolidation / merge —
 > **ABSENT** (the only "Group Company" hits are three doc comments); Repair / Rewrite / Verify — **ABSENT** (the
 > one integrity check in the tree runs inside the backup payload and is never a user command); TallyVault —
-> **ABSENT** (the single case-insensitive "vault" hit is a comment saying it stays excluded).
+> **ABSENT** (the single case-insensitive "vault" hit is a comment saying it stays excluded).~~
+> **▶ 🔴 NO LONGER HELD OUT — user ruling 10 (2026-08-19) moved all four into the denominator as rows 16.5,
+> 16.7, 16.6 and 16.1 of Area 16.** They are **NOT counted here**; this note is kept only so a reader
+> arriving from the old text finds where they went. **▶ AND ONE OF THE FOUR STATES ABOVE WAS WRONG:
+> Repair / Rewrite / Verify is PARTIAL, not ABSENT.** The integrity check is a real `PRAGMA integrity_check`
+> with a type, callers on **both** the backup and the restore path, and a Gateway route to those paths — so
+> the row cannot rest on a zero-hit search, which is the ABSENT bar. Row 16.6 carries the corrected state and
+> the two named missing pieces. **The 2026-08-18 reasoning — *"never a user command"* — is a correct
+> observation that was applied to the wrong token:** it is the *named gap*, not the grounds for ABSENT.
 
 | # | Capability | State | Evidence · gap |
 |---|---|---|---|
@@ -448,7 +501,10 @@ deriving one from the other.
 
 #### Area 14 — TallyPrime-only capabilities · 10 rows · 1 complete / 2 partial / 7 absent
 
-> **Held out by §4:** Edit Log / audit trail — **ABSENT** (zero hits for all four spellings).
+> ~~**Held out by §4:** Edit Log / audit trail — **ABSENT** (zero hits for all four spellings).~~
+> **▶ 🔴 NO LONGER HELD OUT — user ruling 10 (2026-08-19) moved it into the denominator as row 16.3, and the
+> ABSENT state is re-confirmed there against five named regexes.** **NOT counted here.** ⚠️ **And it is now
+> the NEXT thing built after the voucher lifecycle** — user ruling 11 (`plan.md` §5).
 > **NOT COUNTED, and deliberately so: the Miller-column cascade.** It is **built, reachable and universal** —
 > menu-versus-page columns with the bare-letter rule, and every screen opened as a new column. It is **ours, a
 > divergence from TallyPrime's single-screen + Go To model**, not a TallyPrime capability, so counting it would
@@ -469,6 +525,70 @@ deriving one from the other.
 | 14.9 | Company menu (TallyPrime's Alt+K: Create / Alter / Select / Shut Company) | ABSENT | No company-menu column is built anywhere in the root builder, and **Alt+K is already consumed by Saved Views** (14.7). Create and Alter are reached instead from Company Select and a Masters row. §1.3 row 9 records the company menu as **owed, not refused**; this confirms it is still owed at HEAD. |
 | 14.10 | WhatsApp sharing of a document | ABSENT | Case-insensitive search for the name across every `.cs` and `.axaml` in `src/` returns zero. No service, no button-bar row, no Screen member. |
 
+
+#### Area 15 — Statutory, obsolete by law (pre-GST) · 9 rows · 0 complete / 0 partial / 9 absent
+
+> **▶ 🔴 THIS AREA WAS §3, A HELD-OUT SET, UNTIL 2026-08-19.** User ruling 10 (R12 — `plan.md` §5,
+> `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`) brought both held-out sets into scope and **repealed the
+> 2026-08-10 decision not to build these**. §3 is retained below as the record of what was decided and then
+> reversed, and it now points here. **The basis for including them is §3's own note 1** — real TallyPrime
+> still ships these as downloadable tax-extension modules.
+> **▶ EVERY STATE BELOW IS A MEASUREMENT TAKEN 2026-08-19, NOT AN ASSUMPTION.** *"Held out, therefore
+> ABSENT"* would have been the natural guess and the census has already been caught once by exactly that
+> shape — §1.2's old absent column was provably too small because zero-hit searches were never run. So each
+> row rests on a **named regex that returned zero**, over `src/` and `tests/`.
+> **▶ 🔴 THE ONE TRAP A LATER RE-RUN WILL FALL INTO, RECORDED SO IT DOES NOT: `TIN` IS A SUBSTRING OF
+> `GSTIN`.** A case-insensitive `TIN` grep returns **367** hits of which **362** are `GSTIN` / `GSTINs`, and
+> a re-run that skips the case-sensitive identifier-shape check will report State VAT as PARTIAL on 367
+> phantom hits. The same class of trap applies to `vat` inside *passivation* / *starvation* (5 real
+> residuals, all false) and to `composition`, which is **920 hits of GST §10**, not one hit of VAT
+> Composition.
+> **▶ THE FOUR NEAR-COLLISIONS, REJECTED WITH REASONS**, because each is a live GST capability that would
+> read as a pre-GST one: **GSTIN** ≠ VAT TIN; **GST §10 composition** (`CompositionSubType`, CMP-08, GSTR-4)
+> ≠ VAT Composition; the seeded **GST slabs 0/5/18/40** ≠ the 2005 four-slab structure; and GST's
+> **base-by-dealer-type** rule ≠ VAT dealer type.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 15.1 | State VAT — enable, dealer type, TIN, registration date | ABSENT | `\bVAT\b` case-sensitive over `src/` → **zero**; `EnableVat`, `VatEnabled`, `VatDealer`, `VatTin`, `VatRegistration` → **zero**; the identifier shapes `\bTin[A-Z]`, `[A-Za-z]Tin\b`, `\bTin\b` → **zero**. The F11 statutory screen carries **GST / TDS / TCS / Payroll only**; the sole TIN-shaped field in the product is `GstConfig.Gstin`. |
+| 15.2 | VAT & Tax Classifications (`Input VAT @ 4%`, `Output VAT @ 4%`) | ABSENT | Four independent regexes — `tax ?classification`, `taxclassification`, `input ?vat`, `output ?vat` — all **zero**. The product's tax-head masters are the six GST ledgers `GstService.EnableGst` auto-creates. |
+| 15.3 | The 2005 four-slab VAT rate structure (1% / 4% / 12.5% / exempt, ~550 commodity categories) | ABSENT | `four ?slab` / `fourslab` → **zero**; `commodit` → **1**, an e-way-bill exempt-commodity doc comment in a test. Every `12.5` in the tree is an Avalonia `FontSize`, a GST half-rate money amount, or a payroll pay-head percentage — **none is a commodity rate slab**. |
+| 15.4 | VAT Composition scheme | ABSENT | `composition` returns **920 hits across 83 files and 100% of them carry a GST section reference** (§10, §10(2A), Sch-II 6(b), CMP-08, GSTR-4). Zero reference a State VAT composition scheme. Adjacent-but-different, **not counted**: `CompositionTaxService`, `CompositionThreshold`, `CompositionSubType`, `Cmp08`, `Gstr4` — all current law. |
+| 15.5 | VAT Reports (VAT Computation + state return forms) | ABSENT | `vat ?computation` → **zero**; `state ?return` → **zero**; and the `ReportKind` enum — the **single dispatch point for every report in the product** — was enumerated in full and carries **no VAT member**. No route can reach a VAT report. |
+| 15.6 | Central Sales Tax — 2% interstate, C/F/H declaration forms | ABSENT | `\bcst\b` case-insensitive over `src/` and `tests/` → **zero**; `c-?form`, `form ?[cfh]\b`, `concessional` → **zero**; the one `declaration ?form` hit describes a **C# method declaration form**. The **432** `interstate` hits are IGST place-of-supply routing, not CST against a C-form. |
+| 15.7 | Service Tax + Form ST3 | ABSENT | `servicetax` → **zero**; `\bst-?3\b` → **zero**. The three `service tax` hits all parse as *"a service **tax invoice**"* under `IsServiceAccountingInvoice` — a GST concept, a word-boundary accident. |
+| 15.8 | Excise — the F12 invoice-format route; Excise for Dealers (RG23D / Form 2); Excise for Manufacturers | ABSENT | `excise`, `rg23`, `cenvat`, `modvat`, `form ?2\b` → **five hard zeros**. The word does not appear even in a comment in `src/` or `tests/`. `tariff` → 4, all GST rate-notification Schedule citations; `duty` → 3, all the "Duties & Taxes" group or §200's *duty to deposit*. |
+| 15.9 | Fringe Benefit Tax | ABSENT | `\bfbt\b` and `fringe` over `src/` and `tests/` → **both zero**. ⚠️ Note the standing caveat, which ruling 10 does **not** repeal: FBT was **abolished by the Finance Act 2009 and was never in 7.2 anyway** — it is a row so that nobody adds it "for completeness", and it is the one row in this area with no reference-product behaviour to clone at all. |
+
+#### Area 16 — Formerly excluded by decision (security, audit, data structure) · 7 rows · 0 complete / 1 partial / 6 absent
+
+> **▶ 🔴 THIS AREA WAS §4, A HELD-OUT SET, UNTIL 2026-08-19.** User ruling 10 brought it into scope. §4 is
+> retained below as the record and now points here.
+> **▶ 🔴 ONE OF THE SEVEN PARTLY EXISTS — 16.6 — AND THAT IS THE WHOLE REASON THE RULING REQUIRED THESE
+> STATES TO BE MEASURED RATHER THAN ASSUMED.** A real `PRAGMA integrity_check` is implemented, is reachable,
+> and runs on **both** the backup and the restore path. Assuming ABSENT would have written a falsehood into
+> the denominator on the first day it counted.
+> **▶ ROW 16.4 IS A DELIBERATE NEAR-DUPLICATE OF 16.3 AND IS COUNTED ANYWAY, WITH THE OVERLAP DECLARED.**
+> §4 listed both, and §4's count of **7** is one of the two figures the census re-affirmed as *"correct as
+> stated"*; **re-deriving a different number here is exactly what §1.2c forbids.** 16.3 is the Edit Log as a
+> **feature over masters and vouchers**; 16.4 is **attribution on the three lifecycle verbs** specifically —
+> a narrower surface, separately measured, and the one ruling 11 names.
+> **▶ ⚠️ A NAMING DIVERGENCE ON THE SEVENTH ROW, RECORDED RATHER THAN RESOLVED SILENTLY — IT MOVES NO
+> COUNT.** The instruction that carried ruling 10 named §4's seven with *"the legacy indirect-tax stack"* in
+> place of 16.4. **§4's own text puts the legacy stack in §3, not in §4** — its basis line reads *"excluded
+> twice over"* — so counting it here would **double-count it against Area 15's nine** and make 216 wrong by
+> one. These rows follow **§4's own seven**, which keeps `200 + 9 + 7 = 216` exact. Flagged for the user to
+> overturn if the other reading was meant.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 16.1 | TallyVault — company-data encryption behind a user passphrase | ABSENT | `TallyVault` and `passphrase` over `src/` and `tests/` → **both zero**. The 24 crypto hits are **one** non-matching capability: `SqliteNicCredentialStore` AES-CBC over the four `nic_*_enc` columns, keyed from a **hard-coded application pepper** its own file calls an *"obfuscation-grade placeholder"* — **no passphrase parameter exists in the type**. The company `.db` is opened with no `Password=`, and `CompanyBackup.Create`/`Restore` take no passphrase: the archive is a plain ZIP. |
+| 16.2 | Security Control — users, roles, security levels, password policy | ABSENT | `SecurityLevel`, `PasswordPolicy`, `IUserRepository`, `UserId`, `security level`, `user account`, `LoginUser`, `Authenticat` → **all zero**; and **zero of the 182 tables** in the schema names a user, role, permission or security concept. Every `role` hit is the Stock-Journal source/destination role or a statutory PF/ESI/PT pay-head role; every `password` hit is either a comment stating none is stored (R13) or the remote NIC portal API credential. |
+| 16.3 | Tally Audit / Edit Log — a persisted record of who changed what, and when, on masters and vouchers | ABSENT | `AuditTrail`, `EditLog`, `ModifiedBy`, `CreatedBy`, `ActorId` → **all zero**; the single `ChangedBy` hit is the substring inside a test name. **No audit, log or history table among the 182.** The ~40 `audit` hits in `src/` are review-round comments, or *"audit"* meaning **evidentiary statutory basis** on a computed figure, or **two doc comments saying it is out of scope by ruling**. |
+| 16.4 | Attribution on the three lifecycle verbs — who altered / deleted / cancelled a posted voucher, when, and from what | ABSENT | 🔴 **THE VERBS ARE COMPLETE AND THE ATTRIBUTION IS ABSENT — the row is the attribution, not the verbs.** `Cancel(Guid)`, `Delete(Guid)` and `Replace(Guid, Voucher)` all exist, all have routes and all persist; `vouchers.cancelled` and `inventory_vouchers.cancelled` round-trip. **None of the three takes an actor or a timestamp parameter**, and the `vouchers` table's 14 columns include no user, actor or change-timestamp. Of the whole schema, only `itc_reversals.created_at` and `gst_drc03.created_at` carry a timestamp at all — GST statutory rows, no user, unrelated to voucher change. Do **not** count `EInvoiceRecord.CancelledOn` / `EWayBillRecord.CancelledOn`: those record the **IRP/NIC portal's** cancellation of an e-document, not the local Alt+X. **Cross-reference: 16.3.** |
+| 16.5 | Split Company Data by financial year | ABSENT | `SplitCompany` → **zero**; `split.{0,40}(financial year\|company\|book\|data)` → **zero**. Every `\bsplit\b` in `src/` is a different concept: Actual/Billed quantity, bill and cost allocation splits, the ESI employee/employer split, batch split, POS tender split, `string.Split`, `SplitAddress`. All Split-Company-Data mentions are **docs-only**. |
+| 16.6 | Repair / Rewrite / Verify company data | PARTIAL | 🔴 **SURVEY DISAGREEMENT, RECORDED, AND THE STATE MOVED.** §1.2a's area-13 held-out note said **ABSENT** on 2026-08-18, reasoning *"never a user command"*. The 2026-08-19 measurement finds a real `CompanyBackup.IntegrityCheck` running `PRAGMA integrity_check`, **called on both write paths** — `Create` refuses to archive an already-corrupt database, and `Restore` validates the payload with it plus a SHA-256 digest and a schema-version cross-check — reachable through the Gateway's Data → Backup / Restore rows. **The ABSENT bar is *"no type, no route, no caller; every absent row rests on a search that returned zero"*, and this search did not return zero**, which is what decides it. **NAMED MISSING PIECES, two: (a) no standalone Verify verb** — `verify.{0,25}(company\|data\|book)` over `src/` → **zero**; the check is only ever a gate *inside* backup and restore. **(b) Nothing repairs or rewrites** a database found bad — `RepairCompanyData` → **zero**, no `VACUUM` or rebuild path; the only `Repair*` member is `VoucherTypeResolver.RepairSupersededSeedShortcuts`, a load-time seeded-shortcut fixup its own doc calls *"not a schema migration"*. **The area-13 note is corrected in place.** |
+| 16.7 | Group Company consolidation | ABSENT | `GroupCompany` → 2 hits, both a **test helper building ONE ordinary company whose account *groups* net to zero** — a false positive, and named here because it is the kind of hit a re-run would count. `parent compan`, `member compan`, `multi-?compan` → **zero**. Every `consolidat` in `src/` is **e-Way-Bill EWB-02** (`ConsolidatedEWayBill`, `SubmitConsolidatedEway`) or the §34 consolidated credit note. The four *"Group Company"* phrases in the shell are doc comments citing the study guide's delete-confirmation prompt and **explicitly declining to copy it**. |
 
 #### 1.2b WHAT MOVED BETWEEN THE TWO TABLES, AND WHY — 🔴 THE DENOMINATOR CHANGED, SAY IT OUT LOUD
 
@@ -799,11 +919,30 @@ impossible to blur. The real one:
     re-derived with `-raw`, and a `-layout` key/function pairing is UNVERIFIED unless the key count and the
     function count match exactly.**
 
-**11 of 200 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed, and the tenth and eleventh became shipped-and-compared when S3 and S4 landed. Item 12 alone is still grounded ahead of the slices that build it, which keeps the GROUNDED count at 12, leaves 189 uncompared as shipped behaviour, and leaves 188 with no sourced verification of any kind.** Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **189**.
+**11 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed, and the tenth and eleventh became shipped-and-compared when S3 and S4 landed. Item 12 alone is still grounded ahead of the slices that build it, which keeps the GROUNDED count at 12, leaves 205 uncompared as shipped behaviour, and leaves 204 with no sourced verification of any kind.** Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **205**.
 
 > **▶ 🔴 THESE FOUR FIGURES ARE MAINTAINED HERE AND NOWHERE ELSE. §1.3 IS THE SINGLE DERIVATION.**
-> **As of 2026-08-18, against §1.2's 200 denominator: 11 shipped-and-compared · 12 grounded · 189 uncompared as
-> shipped · 188 with no sourced verification of any kind.**
+> **As of 2026-08-19, against §1.2's 216 denominator: 11 shipped-and-compared · 12 grounded · 205 uncompared as
+> shipped · 204 with no sourced verification of any kind.**
+>
+> **▶ 🔴 RESTATED 2026-08-19 AGAINST 216 — AND NOTE WHICH TWO MOVED AND WHICH TWO DID NOT.** User ruling 10
+> brought both held-out sets into scope, so the denominator went **200 → 216** (§1.2). **(1) and (2) did NOT
+> move**: 11 and 12 are counts of the item headers below, and no item was added, so nothing about what has
+> been compared changed. **(3) and (4) moved by exactly 16**, because they are the denominator minus (1).
+> **The gap between what is built and what is verified widened by sixteen capabilities the same day the goal
+> became verifying all of them** — that is the honest shape of ruling 9, and it is written here rather than
+> smoothed over.
+>
+> **▶ 🔴 THE FLOOR RULING 9 PUT UNDER THIS BLOCK, AND IT IS NOT ZERO. `216 − 11 = 205` IS NOT A BACKLOG THAT
+> CAN BE FULLY CLEARED.** Ruling 9 (R12, 2026-08-19 — `plan.md` §5) makes **done = full parity AND corpus
+> verification**. The user accepted an explicit limit when choosing it: **the corpus is SILENT on some
+> behaviour entirely**, and those capabilities **cannot be verified by anyone, ever, from the sources this
+> project admits**. They ship as a **documented divergence labelled as OURS** and are **never counted toward
+> (1)**. **Nobody has measured how many rows sit under that floor** — that measurement does not exist, and it
+> is not invented here. **▶ AND THE TWO R7 CATEGORIES STAY STRICTLY APART IN EVERY ROW BELOW:** *"corpus
+> silent, ours by design"* is a **different claim** from *"the corpus attests X and we deliberately ship a
+> narrower Y"*. Item 11's two rulings are the worked example of why — see D-6 in `plan.md` §5, where a record
+> resting on *"NOT ATTESTED"* was false because the attestation existed and was merely poor.
 >
 > **▶ 🔴 HOW THESE FOUR ARE DERIVED — READ THIS BEFORE QUOTING ANY OF THEM. THE DERIVATION IS A PROPERTY OF THE
 > ROWS BELOW, NOT AN EVENT ANYWHERE ELSE, AND THAT IS DELIBERATE.**
@@ -811,9 +950,10 @@ impossible to blur. The real one:
 >    surface as **BUILT / shipped**. Count them: items **1–11**. → **11**.
 > 2. **grounded** = that number, plus the items whose header records **GROUNDED, NOT YET BUILT**. Today that is
 >    item **12** alone. → **11 + 1 = 12**.
-> 3. **uncompared as shipped** = §1.2's denominator minus (1). → **200 − 11 = 189**.
+> 3. **uncompared as shipped** = §1.2's denominator minus (1). → **216 − 11 = 205**. *(Was `200 − 11 = 189`
+>    until 2026-08-19; the denominator moved, the derivation did not.)*
 > 4. **no sourced verification of any kind** = (3) minus the grounded-ahead items, i.e. (2) − (1). →
->    **189 − 1 = 188**.
+>    **205 − 1 = 204**. *(Was `189 − 1 = 188` until 2026-08-19.)*
 >
 > **▶ 🔴 THE CONDITION THAT USED TO SIT HERE IS DELETED, AND WHY IT WAS DELETED IS THE POINT.** This block
 > previously read *"the shipped-and-compared figure stays at 9 **until S3 / S4 / S5c land**"*. **S3 and S4
@@ -827,13 +967,16 @@ impossible to blur. The real one:
 > **2026-08-17** block read **9 · 12 · 106 · 103** against the then-current 115 denominator. Applying the
 > derivation above to the *same* rows at the *same* denominator gives **11 · 12 · 104 · 103** — i.e. **two of
 > the four were already wrong on 2026-08-17**, before the denominator moved. Against §1.2's new 200 they are
-> **11 · 12 · 189 · 188**. **Any document still quoting 9 · 12 · 106 · 103 is quoting a figure that was stale
-> the day it was written.**
+> **11 · 12 · 189 · 188** — **and those are themselves superseded as of 2026-08-19, when the denominator went
+> to 216 and they became `11 · 12 · 205 · 204`.** **Any document quoting 9 · 12 · 106 · 103 is quoting a
+> figure that was stale the day it was written; any document quoting 11 · 12 · 189 · 188 is quoting the
+> 2026-08-18 denominator.** The first two figures are the same in all three sets, which is exactly what the
+> self-maintaining derivation is for.
 >
 > **▶ ONE HONEST LIMIT ON (3) AND (4), stated because the old block never stated it.** The subtraction treats
 > each fidelity item as covering exactly one §1.2a capability row. Three items span several rows (the voucher
 > shortcut keys, the PO/SO/GRN/DN effect rules, and double-entry posting) and two sit **below** a row (the
-> predefined-group set, the EPS/EPF split). **189 is therefore an UPPER bound on what is uncompared**, and the
+> predefined-group set, the EPS/EPF split). **205 is therefore an UPPER bound on what is uncompared**, and the
 > true figure is a little lower. Nobody has done the row-by-row mapping; when someone does, it is done **here**.
 >
 > **▶ THE COLLISION WARNING SURVIVES, and it survives BECAUSE the number it warned about is now zero.** These
@@ -1044,7 +1187,21 @@ These harm the project rather than the business, but they are the reason nobody 
 
 ---
 
-## 3. OBSOLETE BY LAW — **USER DECISION REQUIRED, NOT DECIDED HERE**
+## 3. OBSOLETE BY LAW — ~~**USER DECISION REQUIRED, NOT DECIDED HERE**~~ **DECIDED 2026-08-19: BUILD THEM**
+
+> **▶ 🔴 THE DECISION THIS SECTION ASKED FOR WAS TAKEN ON 2026-08-19, AND IT WENT AGAINST THE
+> RECOMMENDATION BELOW.** User ruling 10 (R12 — `plan.md` §5, `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`)
+> brings all nine **into the denominator as build rows**. They are now **Area 15 of §1.2a**, each with a
+> state measured against the code on 2026-08-19: **all nine ABSENT**, each on a named regex that returned
+> zero. **This section is NOT deleted** — it is the record of what was recommended, decided against on
+> 2026-08-10, and reversed on 2026-08-19, and the reasoning in it is still the reasoning a builder needs.
+> **▶ WHAT CARRIED THE REVERSAL IS NOTE 1 BELOW** — real TallyPrime still ships these as downloadable
+> tax-extension modules — **i.e. the counter-argument this section already recorded against itself.**
+> **▶ THE RECOMMENDATION IS NOT REFUTED, ONLY OUTWEIGHED, AND IT SURVIVES AS A DESIGN CONSTRAINT:** these
+> encode **repealed rate tables**, so they are built as **dated, historical** rate sets and never as live
+> 2026 defaults. **Note 3's middle option — model them as *historical read-only* — is now the obvious shape
+> for discharging that constraint, and choosing it is an open design question, not a settled one.**
+> **▶ NOTE 2 IS UNTOUCHED AND STILL BINDING: TDS and TCS are NOT in this group.**
 
 These 7.2 features exist only to serve pre-GST Indian tax law. Cloning them faithfully would build dead law into a 2026 product. **I recommend, but this section must not be actioned without the user's explicit call.**
 
@@ -1060,7 +1217,7 @@ These 7.2 features exist only to serve pre-GST Indian tax law. Cloning them fait
 | Excise (7.2's F12 invoice-format route; Excise for Dealers RG23D/Form 2; Excise for Manufacturers) | Central excise on most goods ended with GST | **Do not build.** |
 | Fringe Benefit Tax | Abolished by Finance Act 2009; **not in 7.2 anyway** | **Do not build** — listed only so nobody adds it "for completeness". |
 
-**Count: 9 capabilities.** Held out of the denominator (§1.2). *(2026-08-18: this "9" is correct and is one of the two counts that showed the old top-down reconciliation never closed — see §1.2c. **One candidate ADDITION to this section is flagged and NOT actioned here:** Kerala Flood Cess, §1.2a row 6.26, measured ABSENT and believed lapsed. §3 says this section must not be actioned without the user's explicit call, so it stays in the denominator as an absent capability until they make one.)*
+**Count: 9 capabilities.** ~~Held out of the denominator (§1.2).~~ **▶ IN the denominator since 2026-08-19 as §1.2a Area 15 (user ruling 10); the count of 9 is unchanged and is one of the two addends of `200 + 9 + 7 = 216`.** *(2026-08-18: this "9" is correct and is one of the two counts that showed the old top-down reconciliation never closed — see §1.2c. **One candidate ADDITION to this section is flagged and NOT actioned here:** Kerala Flood Cess, §1.2a row 6.26, measured ABSENT and believed lapsed. §3 says this section must not be actioned without the user's explicit call, so it stays in the denominator as an absent capability until they make one.)*
 
 Three things the user should weigh before deciding:
 
@@ -1070,7 +1227,19 @@ Three things the user should weigh before deciding:
 
 ---
 
-## 4. EXCLUDED BY DECISION — NOT GAPS, MUST NOT BE COUNTED AS SUCH
+## 4. ~~EXCLUDED BY DECISION — NOT GAPS, MUST NOT BE COUNTED AS SUCH~~ **NO LONGER EXCLUDED AS OF 2026-08-19**
+
+> **▶ 🔴 USER RULING 10 (R12, 2026-08-19 — `plan.md` §5) BROUGHT THIS SET INTO SCOPE.** The seven are now
+> **Area 16 of §1.2a**, with states measured against the code that day: **six ABSENT and one PARTIAL.**
+> **The PARTIAL is Repair / Rewrite / Verify**, and it is the reason the ruling required these states to be
+> *measured* rather than assumed — the state recorded for it in this document on 2026-08-18 was wrong.
+> **This section is retained as the record of what was excluded and why**, and it now points at Area 16.
+> **▶ THE TWO ROWS BELOW THAT ARE STILL NOT COUNTED, and this has not changed: Phase 11** (hardening /
+> packaging / release) is **process, not a capability**, and the **legacy indirect-tax stack** is counted in
+> **§3 / Area 15**, not here — its basis line says *"excluded twice over"*. Counting either would break
+> `200 + 9 + 7 = 216`. **▶ AND THE ARCHITECTURE-EXCLUDED LIST AT THE FOOT OF THIS SECTION IS NOT AFFECTED —
+> ruling 10 does NOT bring it in**, and rule 4's withdrawn *"13"* stays withdrawn: **do not produce a fourth
+> number for it.**
 
 | Item | Basis |
 |---|---|
@@ -1084,7 +1253,7 @@ Three things the user should weigh before deciding:
 | Hardening / packaging / v1.0.0 release | plan.md Phase 11, user decision |
 | Legacy indirect tax stack | plan.md §1.3 out of scope — **and** obsolete-by-law per §3. Excluded twice over |
 
-**Count: 7 capabilities held out of the denominator** (§1.2; Phase 11 is process, not a capability; the legacy stack is counted in §3, not here). *(2026-08-18: this "7" is correct as stated and is the second count that showed the old top-down reconciliation never closed — that check subtracted **5** against it, and no arrangement of these seven produces 5. See §1.2c. All seven were re-measured at HEAD and all are still ABSENT — see §1.2a's area 13 and area 14 held-out notes.)*
+**Count: 7 capabilities** ~~held out of the denominator~~ **— IN the denominator since 2026-08-19 as §1.2a Area 16 (user ruling 10); the count of 7 is unchanged and is the second addend of `200 + 9 + 7 = 216`** (§1.2; Phase 11 is process, not a capability; the legacy stack is counted in §3, not here). *(2026-08-18: this "7" is correct as stated and is the second count that showed the old top-down reconciliation never closed — that check subtracted **5** against it, and no arrangement of these seven produces 5. See §1.2c. All seven were re-measured at HEAD and all are still ABSENT — see §1.2a's area 13 and area 14 held-out notes.)*
 
 **▶ 🔴 THE CANONICAL ARCHITECTURE-EXCLUDED LIST (§1.1 rule 4 points HERE, as of 2026-08-18).** Separately excluded from the denominator as out-of-scope-by-architecture, not by user decision — surfaced here so the user can overrule: Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, multi-site/rental licensing, TDL, multilingual, international statutory packs — **12 names**, plus the **3** that rule 4 enumerates and this list omitted (**Data Synchronisation, the 7.2 data-format migration tool, the 7.2 character-grid UI**), for a **union of 15**. Rule 4's *"13 rows"* was derivable from neither list and is withdrawn; see §1.2c. **One deserves a second look: Data Synchronisation's IP mode is self-hosted and needs no Tally.NET server** — if branch-to-HO sync ever matters, that one is buildable.
 
@@ -1186,4 +1355,4 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 ---
 
-**Bottom line for the user** *(every figure below is as of **2026-08-18** and copied from its derivation — the capability split from §1.2, which is itself summed from §1.2a; the fidelity numbers from §1.3; the TIER 0 count from §2 TIER 0. §1.3's anchor block pins the last two. If a figure here disagrees with its derivation, the derivation is right and this paragraph is stale)*. A perfect clone needs **200 named capabilities — and this is the first version of this document in which you can read which ones**. We have **47** whole, **95** partial, **58** missing. *(The **115 · 42 / 44 / 21** you may have seen quoted elsewhere is the superseded 2026-08-10 snapshot; §1.2b explains the move — mostly granularity, and an absent column that was provably too small.)* Only **11** capabilities have ever been checked against a source for correctness as shipped, so the fidelity denominator is **189** wide open; one of those — voucher alteration — has its grounding banked ahead of the slice that builds it, which leaves **188** with no sourced verification of any kind. The most urgent items are not the missing ones: they are the **eleven open TIER 0 defects** — of which **nine are confirmed wrong-money-or-invalid-document defects a business would suffer today**, and **two (T0-5's 4% cess, T0-6's blog-cited TDS rates) are statutory figures the product applies to money on sourcing nobody can stand behind — confirmed unsourced, not confirmed wrong**. Two of the nine are new today and both are payroll: **recording an attendance period twice silently doubles the pay**, and **a leaver accrues gratuity and bonus for ever**. All of it sits on top of a book that still cannot be fully corrected: **no voucher can be ALTERED at all**, and **eight of the classic eighteen voucher kinds can be neither cancelled nor deleted nor even listed in the Day Book** (T1-17) — cancellation and deletion shipped for the other ten.
+**Bottom line for the user** *(every figure below is as of **2026-08-19** and copied from its derivation — the capability split from §1.2, which is itself summed from §1.2a; the fidelity numbers from §1.3; the TIER 0 count from §2 TIER 0. §1.3's anchor block pins the last two. If a figure here disagrees with its derivation, the derivation is right and this paragraph is stale)*. A perfect clone needs **216 named capabilities — and this is the first version of this document in which you can read which ones**. We have **47** whole, **96** partial, **73** missing. *(The **115 · 42 / 44 / 21** you may have seen quoted elsewhere is the superseded 2026-08-10 snapshot, and **200 · 47 / 95 / 58** is the 2026-08-18 one; §1.2b explains the first move — mostly granularity, and an absent column that was provably too small — and §1.2's banner explains the second, which is a **scope decision**: user ruling 10 brought §3's nine and §4's seven into the denominator, `200 + 9 + 7 = 216`.)* Only **11** capabilities have ever been checked against a source for correctness as shipped, so the fidelity denominator is **205** wide open; one of those — voucher alteration — has its grounding banked ahead of the slice that builds it, which leaves **204** with no sourced verification of any kind. **▶ And as of 2026-08-19 that gap is the goal itself: user ruling 9 makes "done" mean FULL PARITY *and* CORPUS VERIFICATION — with the honest limit that where the corpus is silent a capability ships as a documented divergence labelled as ours, and can never join the 11.** The most urgent items are not the missing ones: they are the **eleven open TIER 0 defects** — of which **nine are confirmed wrong-money-or-invalid-document defects a business would suffer today**, and **two (T0-5's 4% cess, T0-6's blog-cited TDS rates) are statutory figures the product applies to money on sourcing nobody can stand behind — confirmed unsourced, not confirmed wrong**. Two of the nine are new today and both are payroll: **recording an attendance period twice silently doubles the pay**, and **a leaver accrues gratuity and bonus for ever**. All of it sits on top of a book that still cannot be fully corrected: **no voucher can be ALTERED at all**, and **eight of the classic eighteen voucher kinds can be neither cancelled nor deleted nor even listed in the Day Book** (T1-17) — cancellation and deletion shipped for the other ten.
