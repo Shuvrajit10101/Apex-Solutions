@@ -957,6 +957,36 @@ public sealed class Company
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
+    /// <summary>
+    /// Swaps <paramref name="existing"/> for <paramref name="replacement"/> <b>at its own index</b> — the
+    /// aggregate half of <c>LedgerService.Replace</c> (phase-10-11 design §6.5 clause 4).
+    ///
+    /// <para><b>Why this exists rather than Remove + Add.</b> <see cref="List{T}.Remove"/> followed by
+    /// <see cref="List{T}.Add"/> moves the voucher to the END of the book, and that position is not an
+    /// implementation detail: <c>SqliteCompanyStore.ReadVouchers</c> selects <c>ORDER BY rowid</c> and
+    /// <c>Load</c> re-posts in that order, so the in-memory list position SURVIVES save→load and IS the Day
+    /// Book order of same-dated vouchers. An index-preserving assignment is therefore the only correct
+    /// primitive.</para>
+    ///
+    /// <para><b>Internal, deliberately.</b> <see cref="Vouchers"/> hands out the live backing list, so
+    /// <c>((List&lt;Voucher&gt;)company.Vouchers)[i] = v</c> already compiles and would bypass every posting
+    /// guard. This method is not that shortcut made public: it is the one seam the validating service uses,
+    /// and it stays <c>internal</c> so no caller outside the domain assembly can reach an unvalidated swap.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="existing"/> is not in this company's book.</exception>
+    internal void ReplaceVoucherInternal(Voucher existing, Voucher replacement)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var index = _vouchers.IndexOf(existing);
+        if (index < 0)
+            throw new InvalidOperationException(
+                $"Voucher {existing.Id} is not posted in this company; nothing to replace.");
+
+        _vouchers[index] = replacement;
+    }
+
     // ---- Master removal (used by the import roll-back so a rejected batch leaves no partial masters, RQ-23).
     //      Delete-guards for interactive Alter/Delete live in the services; these are the raw list removals the
     //      transactional importer needs to undo what it added within a single failed apply. ----
