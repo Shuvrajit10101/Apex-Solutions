@@ -15,6 +15,23 @@ namespace Apex.Ledger.Tests;
 /// <para>These two tests are the alter-shaped statement of that rule, and they run in
 /// <c>Apex.Ledger.Tests</c> — which already references <c>Apex.Ledger.Io</c> — deliberately, so the Io suite's
 /// own count stays exactly where it is. A moved Io count would be a red flag, not a pass.</para>
+///
+/// <para><b>🔴 THE LIMIT OF THIS FILE, stated because it is easy to over-read.</b> ER-13 asks that <i>a book
+/// which never uses these verbs</i> be unaffected. <b>No test in this repository can falsify that</b>: the
+/// comparison needs the PRE-S5a binary, and every test here EXERCISES <c>Replace</c>. What these three prove is
+/// therefore <b>residue-freedom</b> — an alteration and its inverse leave no trace, and a refused one leaves
+/// none at all — not non-interference. Non-interference is argued structurally in §8.3 (no schema change, no new
+/// field, an existing shape written into an existing list slot) and that argument is the evidence.</para>
+///
+/// <para><b>And a trap for whoever extends this file.</b> Two INDEPENDENTLY built copies of the same book do NOT
+/// export identically — measured — because their masters carry different <see cref="Guid"/>s. The ER-13
+/// instrument must compare one book against ITSELF across an operation, never one book against another. The
+/// cross-book comparison is <c>DerivedStateSnapshot</c>'s job; it normalises Guids precisely so it can do it.</para>
+///
+/// <para><b>Also worth knowing:</b> the export faithfully carries a diverged statutory record forward (§3.3), so
+/// a book amended today re-imports tomorrow with the divergence intact. That is correct — the export is a
+/// faithful serialiser, not a validator — and it is why <c>Replace</c> raises
+/// <see cref="VoucherAlterationWarningCode.StatutoryRecordDiverged"/> at the point the divergence is created.</para>
 /// </summary>
 public class VoucherReplaceCanonicalExportTests
 {

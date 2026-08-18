@@ -964,9 +964,13 @@ public sealed class Company
     /// <para><b>Why this exists rather than Remove + Add.</b> <see cref="List{T}.Remove"/> followed by
     /// <see cref="List{T}.Add"/> moves the voucher to the END of the book, and that position is not an
     /// implementation detail: <c>SqliteCompanyStore.ReadVouchers</c> selects <c>ORDER BY rowid</c> and
-    /// <c>Load</c> re-posts in that order, so the in-memory list position SURVIVES save→load and IS the Day
-    /// Book order of same-dated vouchers. An index-preserving assignment is therefore the only correct
-    /// primitive.</para>
+    /// <c>Load</c> re-posts in that order, so the in-memory list position SURVIVES save→load and IS the
+    /// <b>rehydration order</b> — which <c>Outstandings</c> then reads, walking <c>Vouchers</c> in list order
+    /// <i>"preserving first-seen order"</i> to decide the order open bills are listed in. An index-preserving
+    /// assignment is therefore the only correct primitive.
+    /// <para>⚠️ <b>CORRECTED (S5a review):</b> this used to say the index IS "the Day Book order of same-dated
+    /// vouchers". It is not — <c>DayBook.Build</c> sorts by (Date, Number) and never reads the list index. The
+    /// index is still worth preserving; the reason above is the true one.</para></para>
     ///
     /// <para><b>Internal, deliberately.</b> <see cref="Vouchers"/> hands out the live backing list, so
     /// <c>((List&lt;Voucher&gt;)company.Vouchers)[i] = v</c> already compiles and would bypass every posting

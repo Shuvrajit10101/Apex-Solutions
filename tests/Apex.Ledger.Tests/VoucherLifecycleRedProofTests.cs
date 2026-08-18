@@ -75,9 +75,28 @@ public class VoucherLifecycleRedProofTests
         Assert.Equal(10, a.Company.Vouchers.ToList().FindIndex(v => v.Id == rePosted.Id));
 
         // 3 — and both leak into the derived surface.
-        Assert.NotEqual(
-            DerivedStateSnapshot.Snapshot(b.Company, LifecycleBook.AsOf),
-            DerivedStateSnapshot.Snapshot(a.Company, LifecycleBook.AsOf));
+        //
+        // 🔴 CORRECTED (S5a review). This comment used to claim the lost number and lost position "both leak into
+        // the derived surface", which reads as "the financial reports disagree". Measured, they do NOT: the
+        // corrected-in-place book and the Delete-then-rePost book agree on every balance, valuation, outstanding,
+        // cost and return figure. What separates them is the VOUCHER IDENTITY VECTOR — the number, the rendered
+        // number and the list index — plus the registers that show the voucher itself. That is a real and
+        // sufficient divergence (an invoice that silently changes its number is the harm this slice removes), but
+        // the wrong reason invites a maintainer to conclude the financial sections are carrying the proof, and to
+        // "simplify" the identity section away. Suppressing section 12 used to leave the two books BYTE-IDENTICAL
+        // with 1,767 tests still green; DerivedStateSnapshot now refuses to return a dump without it.
+        var bookB = DerivedStateSnapshot.Snapshot(b.Company, LifecycleBook.AsOf);
+        var bookA = DerivedStateSnapshot.Snapshot(a.Company, LifecycleBook.AsOf);
+        Assert.NotEqual(bookB, bookA);
+
+        var divergentSections = bookA.Split('\n')
+            .Zip(bookB.Split('\n'), (x, y) => (A: x, B: y))
+            .Where(p => !string.Equals(p.A, p.B, StringComparison.Ordinal))
+            .Select(p => p.A.Split('.')[0])
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(new[] { "12", "14" }, divergentSections.Order(StringComparer.Ordinal));
     }
 }
 

@@ -9,7 +9,7 @@ using Apex.Ledger.Services;
 namespace Apex.Ledger.Tests.Support;
 
 /// <summary>
-/// A canonical, ordered, paisa-exact text dump of a company's ENTIRE derived surface
+/// A canonical, ordered, paisa-exact text dump of a company's derived surface
 /// (phase-10-11-voucher-lifecycle-design §7.2). It exists for one assertion:
 /// <b>an altered book must equal a directly-posted book on every derived figure</b> — which is the
 /// correctness statement of S5a (<see cref="LedgerService.Replace(Guid, Voucher)"/>).
@@ -34,6 +34,27 @@ namespace Apex.Ledger.Tests.Support;
 /// raw Guid, this snapshot detects a lost NUMBER and a lost LIST POSITION but is BLIND to a swapped Guid on
 /// its own. Guid preservation is pinned separately and explicitly by
 /// <c>VoucherReplaceEngineTests.Replace_preserves_the_voucher_Guid</c>.</para>
+///
+/// <para><b>🔴 WHAT IT COVERS — corrected, because "ENTIRE derived surface" was not true and the overstatement
+/// was load-bearing.</b> This helper builds an explicit list of reports; <c>src/Apex.Ledger/Reports</c> holds
+/// roughly fifty types with a <c>Build(Company …)</c> entry point, and most are still absent. The gap that
+/// MATTERED was measured: in a book with a <b>Physical Stock count downstream</b>, a quantity-only alteration
+/// (10 units out becomes 20 units out, identical money) left this dump <b>BYTE-IDENTICAL</b> — because the
+/// count RESETS the running balance (<c>InventoryLedger.cs line 193-207</c>) and the stock section only reads
+/// on-hand and closing valuation at the as-of date. An absorbed variance silently moved from a 2-unit shortage
+/// to an 8-unit excess with no figure in the dump recording it. §7.4 calls Physical Stock <i>"the single
+/// nastiest family in the phase"</i>, so sections 13–16 below were added for exactly that reason: the movement
+/// register (which a count cannot hide a quantity change from), the Day Book, the bank reconciliation statement
+/// (S5a's own headline carry-forward had NO section in the instrument defining its correctness), and the GSTR-1
+/// amendment classification (which reads the frozen original-invoice date §3.3 lets go stale). Anything not in
+/// the list below is still uncovered, and that is now a stated limit rather than an implied total.</para>
+///
+/// <para><b>Two structural guards, both earned.</b> (a) A report that THROWS renders "!!" instead of aborting,
+/// which is deliberate — but it means a silently broken section is invisible, so
+/// <see cref="SwallowedThrowCount"/> exposes the count and the S5a suite asserts it is zero on its fixtures.
+/// (b) The identity section (12) is 36% of the dump and carries the WHOLE discrimination of the red proof;
+/// suppressing it made the corrected-in-place and Delete-then-rePost books byte-identical while 1,767 tests
+/// stayed green. <see cref="Snapshot"/> therefore refuses to return a dump that lost it.</para>
 /// </summary>
 public static class DerivedStateSnapshot
 {
@@ -45,6 +66,7 @@ public static class DerivedStateSnapshot
     {
         ArgumentNullException.ThrowIfNull(company);
 
+        _swallowedThrows = 0;
         var names = new Names(company);
         var sb = new StringBuilder();
         var from = company.BooksBeginFrom;
@@ -98,8 +120,74 @@ public static class DerivedStateSnapshot
         // 12 — The voucher identity vector: Id, Number, rendered number, Cancelled, and the LIST INDEX.
         Section(sb, names, "12.VoucherIdentity", () => IdentitySection(company));
 
-        return sb.ToString();
+        // 13 — 🔴 Stock MOVEMENT, per item. The on-hand/valuation section above reads the balance AT asOf, which
+        //      a Physical Stock count downstream resets — so a quantity-only alteration upstream of a count is
+        //      invisible there and visible here. This is the section whose absence was measured as a real,
+        //      unseen 10-unit stock error.
+        Section(sb, names, "13.StockMovement", () => StockMovementSection(company, from, asOf));
+
+        // 14 — The Day Book. Sorted by (Date, Number), NOT by list index — which is exactly why it is worth
+        //      dumping beside section 12: together they separate "the voucher moved in the book" from "the
+        //      register order changed", and clause 4's justification used to conflate the two.
+        Section(sb, names, "14.DayBook", () => DayBook.Build(company, from, asOf));
+
+        // 15 — The bank reconciliation STATEMENT, per bank-bearing ledger. S5a's headline carry-forward (§3.4)
+        //      had no section in the instrument that defines its correctness.
+        Section(sb, names, "15.BankReconciliation", () => BankSection(company, asOf));
+
+        // 16 — GSTR-1 amendment classification: it turns on GstCreditDebitNoteLink.OriginalInvoiceDate, a
+        //      FROZEN copy of a date an alteration can move (§3.3).
+        Section(sb, names, "16.Gstr1Amendments", () => Gstr1Amendments.Build(company, from, asOf));
+
+        var dump = sb.ToString();
+        EnsureIdentitySectionRendered(dump, company.Vouchers.Count + company.InventoryVouchers.Count);
+        return dump;
     }
+
+    /// <summary>
+    /// 🔴 The identity section is the red proof's entire discrimination — suppressing it made a
+    /// corrected-in-place book and a Delete-then-rePost book compare BYTE-IDENTICAL while 1,767 tests stayed
+    /// green. A snapshot that lost it is not a weaker snapshot, it is a DIFFERENT assertion, and every
+    /// <c>Assert.Equal(snapshotA, snapshotB)</c> in the slice would go quietly vacuous on the identity facts.
+    ///
+    /// <para>The check is <b>one rendered ROW per voucher</b>, not merely "the heading appears": a section that
+    /// THROWS still renders its heading (followed by <c>!!</c>), so a heading test would pass over a section that
+    /// produced no data at all.</para>
+    ///
+    /// <para><b>Extracted and internal-facing deliberately</b>, so the rule itself can be mutated and killed by a
+    /// direct test. Note the honest limit: deleting the CALL above is not killable by a single mutation, because
+    /// the guard is a redundancy over the red proof — it only fires when a SECOND defect has already removed the
+    /// section. That is what defence in depth is, and it is recorded rather than claimed as coverage.</para>
+    /// </summary>
+    internal static void EnsureIdentitySectionRendered(string dump, int voucherCount)
+    {
+        if (voucherCount == 0) return;
+
+        var rows = 0;
+        foreach (var line in dump.Split('\n'))
+            if (line.StartsWith("12.VoucherIdentity[", StringComparison.Ordinal))
+                rows++;
+
+        if (rows == 0)
+            throw new InvalidOperationException(
+                "DerivedStateSnapshot rendered no voucher identity ROWS for a company that holds "
+                + $"{voucherCount.ToString(CultureInfo.InvariantCulture)} voucher(s). That section carries the "
+                + "number, the rendered number and the LIST INDEX — the three facts S5a exists to preserve — so a "
+                + "dump without it cannot be compared for them.");
+    }
+
+    /// <summary>
+    /// How many sections of the LAST <see cref="Snapshot"/> call on this thread threw and were rendered as
+    /// "!!" rather than aborting the dump. Swallowing is deliberate (a snapshot helper that only worked on
+    /// GST-configured books would be useless to the accounts-only families §7.4 requires) — but a section that
+    /// is silently broken is a section that is not asserting anything, so the count is exposed and the S5a
+    /// fixtures assert it is zero.
+    /// </summary>
+    [ThreadStatic]
+    private static int _swallowedThrows;
+
+    /// <summary>See the note on the backing field.</summary>
+    public static int SwallowedThrowCount => _swallowedThrows;
 
     // ---------------------------------------------------------------------------------------------------
     // Sections whose shape is not a single report record.
@@ -137,6 +225,44 @@ public static class DerivedStateSnapshot
             rows.Add(new BatchItemRow(item.Name, batches.BatchOnHands(item.Id, asOf)));
         return rows;
     }
+
+    /// <summary>
+    /// Every stock item's MOVEMENT rows over the whole period. Unlike on-hand at a date, a movement register
+    /// cannot be reset by a downstream Physical Stock count, so a quantity-only alteration upstream of a count
+    /// shows up here and nowhere else.
+    /// </summary>
+    private static object StockMovementSection(Company company, DateOnly from, DateOnly asOf)
+    {
+        var rows = new List<object>();
+        foreach (var item in company.StockItems.OrderBy(i => i.Name, StringComparer.Ordinal))
+            rows.Add(new StockMovementRow(item.Name, StockItemMovement.Build(company, item.Id, asOf, from)));
+        return rows;
+    }
+
+    /// <summary>
+    /// The bank reconciliation statement for every ledger that carries at least one bank allocation — the report
+    /// the §3.4 carry-forward exists to keep true.
+    /// </summary>
+    private static object BankSection(Company company, DateOnly asOf)
+    {
+        var bankLedgerIds = new HashSet<Guid>();
+        foreach (var v in company.Vouchers)
+            foreach (var line in v.Lines)
+                if (line.BankAllocation is not null) bankLedgerIds.Add(line.LedgerId);
+
+        var rows = new List<object>();
+        foreach (var ledger in company.Ledgers
+                     .Where(l => bankLedgerIds.Contains(l.Id))
+                     .OrderBy(l => l.Name, StringComparer.Ordinal))
+            rows.Add(new BankReconciliationSectionRow(
+                ledger.Name, BankReconciliation.Build(company, ledger, asOf)));
+
+        return rows;
+    }
+
+    private sealed record StockMovementRow(string Item, object Movement);
+
+    private sealed record BankReconciliationSectionRow(string Bank, object Statement);
 
     private static object BudgetSection(Company company)
     {
@@ -214,6 +340,7 @@ public static class DerivedStateSnapshot
         }
         catch (Exception ex)
         {
+            _swallowedThrows++;
             sb.Append(heading).Append(" !! ").Append(ex.GetType().Name).Append(": ").Append(ex.Message).Append('\n');
             return;
         }

@@ -350,6 +350,17 @@ public sealed record Gstr1(
     /// plus <b>mismatched</b> — a Generated record whose voucher's current document number no longer matches (an edited
     /// voucher; surfaced, not auto-cleared). Advisory; recomputed each call (no persistence). The "GSTR-1 reconciles to
     /// IRN-tagged docs" gate: <see cref="Covered"/> == <see cref="Tagged"/> when every covered document has been IRN-tagged.
+    ///
+    /// <para>🔴 <b><see cref="Mismatched"/> IS A DOCUMENT-NUMBER COMPARISON, NOT AN AMENDMENT DETECTOR — do not read it
+    /// as one.</b> The only content check below is <c>record.DocumentNumberUpper</c> versus
+    /// <c>EInvoiceService.DocumentNumberOf</c>. The IRP signed a whole document, and the record's <c>SignedJson</c> is
+    /// never compared to anything, so an <b>amount-only</b> amendment leaves this counter reading a clean
+    /// <c>Mismatched = 0</c> while the GSTR-1 B2B row files the NEW taxable value under the OLD IRN. Measured: dividing
+    /// an IRN-tagged invoice by ten moved the B2B taxable value 60,000 to 6,000 with <c>Tagged = 1, Mismatched = 0</c>
+    /// throughout. That is worse than having no detector, because it is the thing a reviewer points at to say the case
+    /// is covered. The alteration path warns instead — <c>VoucherAlterationWarningCode.StatutoryRecordDiverged</c>,
+    /// raised by <c>LedgerService.Replace</c> — and the <c>EInvoiceStatus.Generated</c> REFUSAL is phase-10-11 §6.6's
+    /// S5b work. Widening this limb to compare a value the IRN was signed over is the real fix and is NOT done here.</para>
     /// </summary>
     public sealed record EInvoiceReconciliationView(
         int Covered, int Tagged, int Pending, int Failed, int Cancelled, int Mismatched);

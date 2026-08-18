@@ -35,7 +35,13 @@ public static class VoucherValidator
     /// dedicated name for "entry vs rehydration" would read better than <see cref="CostAllocationStrictness"/>; that
     /// rename touches every caller and is deliberately left to its own slice rather than folded in here.</para>
     /// </summary>
-    public static void EnsureValid(Voucher v, Company c, CostAllocationStrictness costAllocationStrictness)
+    /// <param name="replacing">
+    /// The voucher <c>LedgerService.Replace</c> is swapping OUT, when this validation is on the Alter path;
+    /// <c>null</c> on every Post path. It exists for exactly one rule — the Prevent-Duplicate scan below — and it
+    /// changes nothing else.
+    /// </param>
+    public static void EnsureValid(
+        Voucher v, Company c, CostAllocationStrictness costAllocationStrictness, Voucher? replacing = null)
     {
         ArgumentNullException.ThrowIfNull(v);
         ArgumentNullException.ThrowIfNull(c);
@@ -53,20 +59,47 @@ public static class VoucherValidator
         // renders the same string only when two vouchers share an int and the same date-selected affix — a genuine
         // duplicate (restart is deferred, so there is no legitimate repeat), so there is no false-reject. The
         // counterparty reference field is the OTHER party's number and is never run through this guard.
+        //
+        // 🔴 TWO EXEMPTIONS, both load-bearing for the ALTER path (phase-10-11 S5a), and both PINNED BY THEIR OWN
+        // TEST because each is invisible to every other test in the repository:
+        //
+        //   (a) `other.Id == v.Id` — the voucher BEING re-validated is still on the book while Replace validates
+        //       (clause 1 validates before it swaps), so without this skip a voucher would collide with ITSELF and
+        //       clause 3 — "the number is preserved" — could never be satisfied under Prevent Duplicates. Deleting
+        //       this line used to leave ALL FOUR test projects green (4,699 tests); the coupling is now pinned by
+        //       VoucherReplacePreventDuplicateTests.
+        //   (b) the pre-existing-collision exemption — a DIFFERENT voucher that ALREADY rendered the same string as
+        //       the voucher being replaced. A book can legitimately hold two same-numbered vouchers (posted with
+        //       Prevent Duplicates off, or under Manual numbering); flipping the setting on must not make BOTH of
+        //       them permanently unalterable, since Replace refuses a renumber and Delete+re-Post is the exact harm
+        //       S5a exists to remove. The alteration did not create that collision and is not the place to refuse
+        //       it. A collision the alteration DOES create — a date change that moves the rendered number onto a
+        //       live one — is still refused.
         if (voucherType.PreventDuplicate)
         {
             var rendered = VoucherNumberFormatter.Render(voucherType, v.Number, v.Date);
+            var priorRendered = replacing is null
+                ? null
+                : VoucherNumberFormatter.Render(voucherType, replacing.Number, replacing.Date);
+
             if (rendered.Length > 0)
                 foreach (var other in c.Vouchers)
                 {
-                    if (other.Id == v.Id) continue;                 // re-validating an already-posted voucher
+                    if (other.Id == v.Id) continue;                 // (a) re-validating an already-posted voucher
                     if (other.TypeId != v.TypeId) continue;
-                    if (string.Equals(
+                    if (!string.Equals(
                             VoucherNumberFormatter.Render(voucherType, other.Number, other.Date), rendered,
                             StringComparison.Ordinal))
-                        throw new InvalidVoucherException(
-                            $"Voucher number '{rendered}' already exists for '{voucherType.Name}' " +
-                            "(Prevent Duplicates is on).");
+                        continue;
+
+                    // (b) the collision predates this alteration — refusing it would trap the voucher forever.
+                    if (replacing is not null && other.Id != replacing.Id
+                        && string.Equals(priorRendered, rendered, StringComparison.Ordinal))
+                        continue;
+
+                    throw new InvalidVoucherException(
+                        $"Voucher number '{rendered}' already exists for '{voucherType.Name}' " +
+                        "(Prevent Duplicates is on).");
                 }
         }
 

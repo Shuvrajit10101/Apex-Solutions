@@ -69,6 +69,12 @@ public sealed class InventoryPostingService
     {
         ArgumentNullException.ThrowIfNull(voucher);
 
+        // The accounting and pure-stock aggregates share ONE id space, and nothing used to say so. The
+        // "LedgerService.Replace cannot reach an InventoryVoucher" guarantee is structural only while the two id
+        // spaces stay disjoint: measured without this guard, a Physical Stock voucher posted carrying an ACCOUNTING
+        // voucher's Guid was accepted, after which Replace(thatGuid, …) silently altered the accounting one.
+        LedgerService.EnsureVoucherIdIsFree(_company, voucher.Id);
+
         var type = _company.FindVoucherType(voucher.TypeId)
             ?? throw new InvalidOperationException($"Unknown voucher type {voucher.TypeId}.");
 

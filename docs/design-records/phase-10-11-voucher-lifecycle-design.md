@@ -1083,7 +1083,9 @@ the day it is added**, exactly as W0-7 made a newly seeded type fail the coverag
 - **Credit Note / Debit Note** — T-4
 - **Memorandum, Optional, Post-dated, Reversing Journal** — all four are excluded by
   `LedgerBalances.CountsAsOf`/`IsProvisionalBaseType` already, so the test is that altering one still changes
-  **nothing** in the snapshot except the voucher identity vector
+  **nothing** in the snapshot except the voucher identity vector. **🔴 See §12.8:** the family test list being
+  unwritten is what let S5a ship with `Replace` passing `Optional`/`PostDated`/`ApplicableUpto` through
+  wholesale, and the vector is now **REFUSED by name**, not carried and not warned about
 - **POS and Payroll** — the **refusal** tests, T-9
 
 ## 7.5 Odd values — the standing rule, made concrete
@@ -1419,3 +1421,253 @@ caution was right even though the premise behind it was not.
    amended to accommodate it. That is a repo-convention change nobody has recorded in `plan.md` — worth a
    deliberate decision rather than an accident.
 
+
+---
+
+# §12 — S5a REVIEW ADDENDUM (written after three adversarial review passes over the committed slice)
+
+> This section is **normative** for S5a and supersedes the earlier text where they conflict. It exists because
+> the slice shipped GREEN on all four projects and still held 33 findings, six of them BLOCKER.
+
+## 12.1 The three unratified deviations — RATIFIED, with the reason each belongs
+
+§6.5 listed five contract clauses; the shipped `Replace` added three refusals the design had not authorised.
+All three were judged **by construction** and all three are **KEPT**. Recorded here so they are not
+re-litigated:
+
+| Deviation | Verdict | Why it belongs |
+|---|---|---|
+| **TypeId change refused** | **KEEP** | The collision is real and permanent, not speculative. Measured with the guard disabled: retyping Sales #2 to Purchase in a book holding Purchase #1-3 produced **two live Purchase vouchers numbered 2**, a permanent hole at Sales #2, and `NextNumber` unaware of either. What it blocks is the legitimate "keyed under the wrong type" correction, so **the message now names the remedy** (delete and re-enter under the correct type). |
+| **Cancelled change refused** | **KEEP, and it is not over-broad** | Cancel is its own verb and un-cancel is §6.7-excluded. A **cancelled voucher can still be altered** when the caller carries the flag — pinned by its own test so nobody "fixes" the guard into a blanket refusal. |
+| **Renumber refused** | **KEEP — and it is now actually enforced** | It was defeated by aliasing: `Replace(id, livePostedVoucher)` compared every identity field to itself, so a renumber, a cancel and an Optional flip all drove through unrefused and `NextNumber` jumped 12 to 100. An explicit `ReferenceEquals` refusal now makes clause 5's "construct a NEW voucher" assumption enforceable rather than merely stated. |
+
+**A THIRD refusal was added after this table, by ORCHESTRATOR RULING, and it is recorded in §12.8: a change to
+the PROVISIONAL-STATE VECTOR (`Optional` / `PostDated` / `ApplicableUpto`) is refused by name.** Read §12.8
+before touching that guard — it supersedes the warn-and-proceed the S5a fix pass shipped.
+
+**Two refusals ADDED by this review**, on the same standard:
+
+- **`IsAccountingInvoice` change refused.** `Voucher.cs` declares the property get-only *"deliberately: the
+  printed document type of an issued invoice must not be flippable after the fact"*. Clause 5's own premise —
+  construct a new voucher — is the door that immutability left open, and `Replace` flipped it **in both
+  directions, silently**. Same category as `Cancelled`: a fact about what the operator DID at posting time.
+- **Voucher-Guid uniqueness enforced at both posting doors.** Clause 2 calls the Guid *"the outside world's only
+  handle on this voucher"*; that was an assertion, not an invariant. A second accounting voucher carrying an
+  already-used Guid posted without complaint, and a pure-stock `InventoryVoucher` could take an **accounting**
+  voucher's Guid — after which one Guid named two different things and `Replace` silently altered the accounting
+  one. `LedgerService.Post` and `InventoryPostingService.Post` now refuse both. The **rehydration** doors
+  (`AddVoucherInternal` / `AddInventoryVoucher`) are deliberately NOT guarded — the store's PRIMARY KEY is the
+  uniqueness authority there — and that is a declared gap, not an oversight.
+
+## 12.2 Three PREMISE CORRECTIONS to this document and to the shipped code
+
+1. **§6.5 clause 4's justification was FALSE.** The clause said the list index *"is the Day Book order of
+   same-dated vouchers"*. `DayBook.Build` sorts by **(Date, Number)** and never reads the index — move a voucher
+   to the end of the list and the Day Book is unchanged. The clause is still **CORRECT** (the index is the
+   rehydration order, and it surfaces in `Outstandings`, which walks `company.Vouchers` in list order
+   *"preserving first-seen order"*), but the reason is now the true one in both the service and the aggregate.
+2. **The red proof's stated premise was FALSE.** Its comment claimed the lost number and lost position *"both
+   leak into the derived surface"*. Measured: the corrected-in-place book and the Delete-then-rePost book agree
+   on **every** balance, valuation, outstanding, cost and return figure. The divergence is the **voucher
+   identity vector** plus the registers that list the voucher itself — now asserted exactly, as sections 12
+   and 14 and no others.
+3. **§3.2's stale-line-tax hazard is REAL but is NOT an S5a regression.** `Replace` accepts a replacement whose
+   lines carry stale stamped `GstLineTax`, and GSTR-1/3B then declare the stale taxable value rather than the
+   posted amounts. **`Post` accepts the byte-identical shape on a fresh Guid** — both go through the same
+   `VoucherValidator.EnsureValid`, which cross-checks neither — so the engine is SYMMETRIC and nothing in S5a
+   introduced it. Patching it inside `Replace` would make the two paths diverge for no stated reason. It is
+   recorded as a **declared gap on `Replace`** with the sentence §3.2 was missing from the shipped code:
+   **S5b's `ForAlter` must RE-DERIVE the line tax, never echo it.**
+
+## 12.3 §3.3 CARRY + **WARN** — now implemented, and what it is not
+
+§3.3 assigned the e-Way row **CARRY + WARN** and called it *"the highest silent-divergence risk in the
+phase"*. S5a shipped the CARRY (free, via the preserved Guid) and **not the WARN**. Measured end to end: a
+Generated e-Way Bill kept its portal-issued EWB number against a consignment value **ten times** the amended
+invoice, and the EWB-01 request the app files became internally contradictory — `totInvValue` 70,800 over an
+`itemList` summing to 7,080 — with the movement now below the Rule-138 threshold. Zero warnings, and no reader
+of `ConsignmentValuePaisa` anywhere in `Reports` to notice.
+
+`VoucherAlterationWarningCode.StatutoryRecordDiverged` now covers: the **e-Way** consignment value, the
+**GSTR-1 Table 11A** advance receipt (whose frozen `AdvanceAmount` the return declares while reading the
+voucher only as a date/liveness gate), the **e-invoice** IRN, the **section-34 CDN link**'s frozen
+`OriginalInvoiceDate` (the 30-Nov cut-off basis), and the **RCM document** date.
+
+**These are WARNINGS, not refusals, deliberately.** §6.6 puts the `EInvoiceStatus.Generated` REFUSAL in
+**S5b**; S5a does not invent a refusal a later slice owns.
+
+**A known limit, recorded so nobody points at it to argue the case is covered:** `Gstr1.EInvoiceReconciliation`
+compares only the **document NUMBER**, so after an amount-only amendment it still reports `Mismatched = 0` — a
+clean bill of health over a diverged document. That is worse than no detector, and it is pinned as a known
+limit by its own test rather than quietly relied on.
+
+## 12.4 §7.2 — what `DerivedStateSnapshot` actually covers
+
+The helper was documented as *"a canonical, ordered, paisa-exact text dump of a company's **ENTIRE** derived
+surface"*. It is not, and the overstatement was load-bearing: in a book with a **Physical Stock count
+downstream**, a quantity-only alteration (10 units out becomes 20 units out for identical money) left the dump
+**BYTE-IDENTICAL**, because a count RESETS the running balance and the stock section reads only on-hand and
+closing valuation at the as-of date. `VoucherReplaceInventoryFamilyTests` contained no count at all.
+
+Added for exactly that reason: **13 Stock movement**, **14 Day Book**, **15 Bank reconciliation statement**
+(S5a's own headline carry-forward had no section in the instrument that defines its correctness), **16 GSTR-1
+amendments**. Anything outside the numbered list is still uncovered, and that is now a **stated limit** rather
+than an implied total.
+
+Two structural guards were added with them: `SwallowedThrowCount` (a section that throws renders `!!` rather
+than aborting — deliberate, but it made a dead section invisible) and a refusal to return a dump that lost the
+**voucher identity section**, which is 36% of the dump and carries the whole discrimination of the red proof.
+
+## 12.5 §8.3 ER-13 — the limit of what the canonical-export tests prove
+
+**Non-interference is unfalsifiable in-tree.** ER-13 asks that a book which never uses these verbs be
+unaffected; that comparison needs the **pre-S5a binary**, and all three canonical-export tests EXERCISE
+`Replace`. What they prove is **residue-freedom** (an alteration and its inverse leave no trace; a refused one
+leaves none at all), not non-interference — which is argued structurally in §8.3 and nowhere else.
+
+**A trap for whoever extends those tests:** two INDEPENDENTLY built copies of the same book do **not** export
+identically, because their masters carry different Guids. The ER-13 instrument must compare one book against
+**itself** across an operation. Cross-book comparison is `DerivedStateSnapshot`'s job — it normalises Guids
+precisely so it can do it.
+
+## 12.6 The mutant/kill ledger — recorded so the next slice EXTENDS it rather than re-deriving it
+
+The review ran **31 source mutations** across every clause of the Replace contract. **23 were killed; 8
+survived** the full Ledger + Io + Sqlite gate, and one of those (the validator's Prevent-Duplicate self-skip)
+survived **all four projects — 4,699 tests**.
+
+| Survivor | What it permitted | Now killed by |
+|---|---|---|
+| the number guard tightened so any non-zero number is refused | refused every rehydrated alteration | `VoucherReplaceContractGuardTests.Replace_accepts_a_replacement_that_carries_the_vouchers_own_number` |
+| carry-vs-clear `Side` clause dropped | a tick survived a Dr/Cr flip | `VoucherReplaceBankPairingTests.A_side_flip_clears_the_tick_and_the_warning_names_the_SIDE_not_the_amount` |
+| `SameBankInstrument` `TransactionType` clause dropped | a cheque re-keyed as NEFT inherited a clearance | `VoucherReplaceBankPairingTests.A_changed_bank_transaction_type_is_a_different_instrument` |
+| `SameBankInstrument` `InstrumentDate` clause dropped | a cheque re-issued later inherited a clearance | `VoucherReplaceBankPairingTests.A_changed_instrument_date_is_a_different_instrument` |
+| pairing `LedgerId` clause dropped | one bank's tick migrated to another bank | `VoucherReplaceBankPairingTests.One_banks_reconcile_tick_never_migrates_to_another_bank` |
+| validator self-skip deleted | clause 3 unsatisfiable under Prevent Duplicates | `VoucherReplacePreventDuplicateTests.Replace_is_accepted_under_Prevent_Duplicates_when_the_number_is_merely_preserved` |
+| the null guard deleted | NRE instead of a named error | `VoucherReplaceContractGuardTests.Replace_names_a_null_replacement_instead_of_dereferencing_it` |
+| pairing first-match `break` deleted (last-match-wins) | **the shipped first-match-wins was the WORSE of the two**; superseded by two-pass exact-first pairing | `VoucherReplaceBankPairingTests.Reordering_two_identical_instrument_bank_lines_keeps_both_reconcile_ticks` |
+
+**One test was measured NOT to be load-bearing and is kept anyway:**
+`Two_independently_built_identical_books_snapshot_identically` — 29 of the 30 S5a tests reddened under at least
+one mutant; this one did not, because its failure mode is *impossibility* (the instrument cannot compare two
+books at all) rather than vacuity. It is the precondition every equivalence assertion in the slice rests on.
+
+## 12.7 Declared gaps carried OUT of S5a
+
+1. **Stamped-vs-posted line tax is policed on NEITHER path** (§12.2 item 3). S5b's `ForAlter` must re-derive.
+2. **No statutory REFUSAL of any kind** — `EInvoiceStatus.Generated` is §6.6's S5b refusal; S5a warns only.
+3. **Guid uniqueness is enforced at the two POSTING doors, not at the rehydration doors.**
+4. **`Gstr1.EInvoiceReconciliation` is a document-NUMBER comparison**, not an amendment detector (§12.3).
+5. **`DerivedStateSnapshot` covers 16 numbered sections, not the whole report surface** (§12.4).
+6. **ER-13 non-interference is unfalsifiable in-tree** (§12.5).
+
+---
+
+## 12.8 🔴 ORCHESTRATOR RULING — the provisional-state vector is **REFUSED**, not warned
+
+> **This subsection is normative and supersedes §12's earlier disposition of the `Optional` blocker
+> (review findings L1-01 / L2-01).** It also supersedes §7.4's implicit reading that the family merely needs a
+> test. Nothing else in §12 changes.
+
+### The finding that produced this
+
+`Replace` passed `Optional`, `PostDated` and `ApplicableUpto` through **wholesale, in both directions, with no
+guard and no warning**, and not one shipped test anywhere in the repository combined `Replace` with any of the
+three. Measured, all on **byte-identical amounts**:
+
+- an Optional voucher altered by a replacement that left the flag at its default became a **real posting** and
+  swung the Sales closing by **₹1,84,733.45**;
+- the mirror — a live voucher altered by a replacement built `optional: true` — dropped the same
+  **₹1,84,733.45** out of the live books;
+- a Reversing Journal accruing **₹3,000** "applicable upto 30-Apr" lost `ApplicableUpto` to a plain
+  narration-only alteration and **the accrual never lapsed**: the scenario figure at 01-May moved 0 → 3,000.
+
+The root cause is structural, and it is the one §7.4 warned about: **the mandated family test list was never
+written**, so the family shipped green by construction.
+
+### SUPERSEDED IN PLACE — the S5a fix pass's decision, and its reasoning, preserved
+
+The fix pass closed the blocker with **warn-and-proceed**: it raised a new
+`VoucherAlterationWarningCode.ProvisionalStateChanged`, let the flags pass through, let the balance move, and
+pinned that movement as *intended* in `VoucherReplaceProvisionalFamilyTests`. Its stated reasoning, kept
+verbatim in substance so it is not re-litigated from a strawman:
+
+> *Warn, not refuse — TallyPrime's Ctrl+L (Optional) and Ctrl+T (Post-Dated) are available while a voucher is
+> being altered, so refusing would be an infidelity; and the design's own treatment of an equally large
+> semantic move (a date change, RULING 2) is warn-and-proceed. What is NOT acceptable is silence.*
+
+**That fidelity argument is SOUND and is not deleted — see "R7" below, where it becomes the reason this
+refusal is recorded as a divergence rather than as a neutral engineering choice.** What it does not survive is
+the *caller* argument, immediately below.
+
+**Honesty note on where the superseded decision lived.** It was never written into this document at all: the
+fix pass recorded it only in `LedgerService.cs` doc comments and in the family test file's class comment.
+There was consequently no §12 entry to strike through, and the block quoted above is taken from that shipped
+code. That a new contract behaviour reached the tree with **no design-record entry** is precisely the
+"unratified deviation" category §12.1 exists to close, and it is logged as such.
+
+### THE RULING
+
+**`Replace` REFUSES a change to the provisional-state vector — `Optional`, `PostDated` and `ApplicableUpto` —
+by name, exactly as it already refuses a `Cancelled` change and for the identical reason: `Replace` is for
+CONTENT, not for lifecycle state. It must not be a back door to Ctrl+L any more than to Cancel.** A
+replacement that **carries** the vector unchanged is accepted silently, and that half is untouched.
+
+**Why not carry-when-default**, the alternative both review lenses offered: `Optional` and `PostDated` are
+**bools**. "Left at default" and "explicitly set to false" are indistinguishable, so carrying-when-default
+would make it **impossible to turn an Optional voucher live** — it would silently ignore a real operator
+intent. That ambiguity is exactly why the §3.4 bank-date **ECHO** rule works where this would not:
+`BankDate` is `DateOnly?`, so `null` genuinely means "not stated". `ApplicableUpto` **is** nullable and
+carry-when-default *would* have been expressible for it — but split behaviour across one conceptual vector is
+worse than one rule, so all three are refused alike, and the code says so.
+
+**Why refuse rather than warn:** warn-and-proceed cannot distinguish *"the operator pressed Ctrl+L"* from
+*"the caller forgot to carry the flag"* — and the caller that will produce exactly that second shape is
+**S5b's `ForAlter` rehydration**, the next slice. A refusal turns a silent balance corruption into a compile-
+or test-time failure the moment S5b gets it wrong. This restores the precedent already set by finding L3-07,
+which binds `ForAlter` to **RE-DERIVE** line tax rather than echo it (§12.2 item 3), for the same reason.
+
+### R7 — recorded honestly, and in the right category
+
+**This is OUR DELIBERATE NARROWING OF AN ATTESTED BEHAVIOUR. It is NOT a "corpus silent" case.** TallyPrime
+genuinely attests `Ctrl+L` and `Ctrl+T` as **alteration-time** verbs (§2's shortcut table records `Ctrl+T` as
+*"To mark a voucher as Post Dated"*). Refusing the change is therefore an **infidelity**, and it is taken
+deliberately and with the divergence stated, on this ground and no other: **our `Replace` is a general-purpose
+engine primitive with no operator intent attached to it, not an entry screen.** The toggle belongs on **its
+own verb**, and a UI that wants Ctrl+L / Ctrl+T must call that verb rather than `Replace`. Nothing in the
+corpus forbids the toggle; we are narrowing where it may be invoked from.
+
+### Consequences
+
+1. **`VoucherAlterationWarningCode.ProvisionalStateChanged` is REMOVED**, along with
+   `RaiseProvisionalStateWarnings`. Nothing else in the tree raised or read it — the enum removal produced
+   exactly five compile errors, all five inside the family test file, which is itself the evidence that no
+   other caller depended on the warn-and-proceed. A comment stands where the member was, so it is not
+   reintroduced by reflex.
+2. **S5b's `ForAlter` must CARRY `Optional`, `PostDated` and `ApplicableUpto` from the posted voucher.** It is
+   now the second obligation on that rehydration alongside re-deriving line tax; a `ForAlter` that drops
+   either is a **test failure**, not a silent figure move.
+3. **The §7.4 family test file keeps all four kinds** — see the table below. Five tests were re-pointed from
+   "the move happens and is warned" to "the move is refused by name"; none was deleted, because each documents
+   a real harm and the harm is now the thing being refused. One test was **added** for the
+   several-flags-at-once message.
+4. **Any future Ctrl+L / Ctrl+T verb** is a NEW method on `LedgerService` with its own contract, its own
+   warnings and its own tests. It is out of S5a and out of S5b unless `plan.md` says otherwise.
+
+### §7.4 family coverage after the re-point — all four kinds still covered
+
+| §7.4 kind | Test |
+|---|---|
+| **Optional** | `Altering_an_Optional_voucher_that_carries_its_flag_leaves_it_out_of_the_live_books` (carried ⇒ accepted, no warnings) · `Turning_an_Optional_voucher_live_is_refused_by_name_and_the_books_do_not_move` · `Making_a_live_voucher_Optional_is_refused_by_name_and_its_value_stays_in_the_books` |
+| **Post-dated** | `A_post_dated_voucher_that_carries_its_flag_is_altered_silently` (carried ⇒ accepted) · `Dropping_the_post_dated_flag_is_refused_by_name` |
+| **Reversing Journal** (`ApplicableUpto`) | `A_narration_only_alteration_of_a_Reversing_Journal_keeps_it_lapsing_on_time` (carried ⇒ accepted) · `Dropping_ApplicableUpto_is_refused_by_name_so_the_accrual_still_lapses` · `Moving_ApplicableUpto_is_refused_and_the_refusal_names_both_dates` |
+| **Memorandum** | `Altering_a_Memorandum_leaves_the_real_books_exactly_where_they_were` (snapshot diff confined to the voucher's own registers) |
+| *(vector-wide)* | `The_refusal_names_every_member_of_the_vector_that_moved` — all three moved at once; the message must name all three, so a caller is not refused three times in sequence |
+
+### Mutation proof
+
+The refusal was **deleted**, the file's timestamp touched, and the solution rebuilt: **0 warnings, 0 errors,
+and six Ledger tests reddened** — every one of the six refusal tests, and nothing else. The file was then
+restored from a byte-exact copy and verified by **comparing all 55,957 bytes** (and SHA-256
+`512359BC…F529C5FD`) against the pre-mutation baseline, not by a substring count — a substring count is never
+1 for a block deletion and has already silently failed on this branch. The gate was re-run after restoring.

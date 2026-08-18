@@ -175,8 +175,14 @@ public class VoucherReplaceInventoryFamilyTests
 
         // The pure-stock aggregate is a different list with its own posting service; LedgerService.Replace
         // cannot see it. Recorded, not silently tolerated: the inventory twin is future work.
-        Assert.Throws<InvalidOperationException>(() => kit.Service.Replace(
+        //
+        // 🔴 The MESSAGE is asserted, not just the exception type. This test's name promised "and says so" while
+        // asserting only the type, and the message it actually produced was the generic "Voucher {id} not found."
+        // — indistinguishable from a mistyped Guid, with no hint that InventoryPostingService is the right door.
+        var ex = Assert.Throws<InvalidOperationException>(() => kit.Service.Replace(
             count.Id, SaleInvoice(kit, count.Id, Books.AddDays(12), 1m)));
+        Assert.Contains("pure-stock inventory voucher", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("InventoryPostingService", ex.Message, StringComparison.Ordinal);
         Assert.Single(kit.Company.InventoryVouchers);
     }
 }

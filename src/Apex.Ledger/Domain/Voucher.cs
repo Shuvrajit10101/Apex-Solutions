@@ -185,6 +185,28 @@ public sealed class Voucher
                 _inventoryLines[i] = _inventoryLines[i].WithDirection(direction);
     }
 
+    /// <summary>
+    /// Puts each item-invoice line's <see cref="VoucherInventoryLine.Direction"/> back to
+    /// <paramref name="directions"/>[i] — the UNDO of <see cref="SetInventoryLineDirections"/>.
+    ///
+    /// <para><b>Why per-line and not a single direction.</b> <c>LedgerService.Replace</c> stamps directions BEFORE
+    /// validating (the pairing invariant and the on-hand engine must read the canonical direction), so a REJECTED
+    /// replacement was handed back to the caller with its lines rewritten. Restoring needs the incoming directions
+    /// exactly as they were, which a single-direction setter cannot express for a mixed list.</para>
+    ///
+    /// <para><c>internal</c>: the posting services are the only legitimate callers, and this is an undo of their
+    /// own stamp, not a public way to key a direction.</para>
+    /// </summary>
+    internal void RestoreInventoryLineDirections(IReadOnlyList<StockDirection> directions)
+    {
+        ArgumentNullException.ThrowIfNull(directions);
+        if (directions.Count != _inventoryLines.Count) return;
+
+        for (var i = 0; i < _inventoryLines.Count; i++)
+            if (_inventoryLines[i].Direction != directions[i])
+                _inventoryLines[i] = _inventoryLines[i].WithDirection(directions[i]);
+    }
+
     /// <summary>Sum of debit-line magnitudes.</summary>
     public Money TotalDebit
     {
