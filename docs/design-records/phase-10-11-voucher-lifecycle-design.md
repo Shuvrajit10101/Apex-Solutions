@@ -206,6 +206,26 @@ says only *"For Delete Entry Press `Alt+D' on Selected Entry"* and does not desc
 attests the double prompt only for objects whose loss is catastrophic and irreversible (a whole company). This
 is a deliberate scope call, recorded, not a fidelity claim.
 
+> ### 🔴 CORRECTED 2026-08-18 — THE "FINDING" ABOVE IS FALSE IN ITS LOAD-BEARING HALF, AND THE WHOLE D-6 RECORD RESTED ON IT
+> This design record is a **historical snapshot** (see its own header) and the paragraphs above are kept exactly
+> as written. **What they got wrong:** *"It is **NOT** directly attested for a voucher"*. **BOOK PDF pp.22-23
+> carry a heading reading *"How to Delete Voucher …?"* directly over the same *"Alt+D > Press Two times Enter"*
+> recipe.** The same entry then contradicts itself — its path reads `Alter > Voucher type` — so the attestation
+> is **poor**. It is still attestation, and the entire D-6 record was built on its absence.
+>
+> **THE USER RULED ON 2026-08-18, IN TWO RULINGS. THE BEHAVIOUR IS UNCHANGED — one prompt everywhere, exactly
+> as shipped. THE RECORD BECOMES TWO RECORDS, AND THEY ARE DIFFERENT R7 CLAIMS ON DIFFERENT EVIDENCE:**
+> - **(A) VOUCHER routes — OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY ATTESTATION.** Not "corpus silent",
+>   not a decline-to-extend-an-unattested-behaviour.
+> - **(B) THE THREE MASTER routes S4 ships (ledger, group, stock item) — A DELIBERATE DIVERGENCE FROM AN
+>   ATTESTED SCOPE.** The double prompt is cleanly attested there: Book p.21 (ledger) and Study Guide p.277
+>   (group company), both quoted above. *(Study Guide p.67's single prompt for the same ledger object — also
+>   quoted above — narrows the divergence and does not change its category.)*
+>
+> **Keep (A) and (B) apart.** Conflating them is the exact R7 defect a review lens caught on S3. The live
+> record is `docs/full-clone-census.md` §1.3 item 11 and the doc comments on `MasterDeletionRules` and
+> `MainWindowViewModel.RequestDeleteHighlighted`; this block exists so the snapshot cannot be read as current.
+
 ## 2.4 🔴 CORRECTION TO A CLAIM ALREADY IN `plan.md` (R7)
 
 `plan.md` Phase 10.11, R7 line, asserts TallyPrime *"reserves **Ctrl+Enter** for display-only drill-down."*
@@ -881,8 +901,10 @@ currently implies is an engine gap); anything about alteration.
 ## 6.4 S4 — Delete. Contents, and the two guards that are not optional
 
 1. Y/N confirmation on the **one** confirmation channel, keeping `ConfirmMasterAccept` / `DismissMasterAccept`
-   by name (called by tests and the dispatcher). **Single prompt**, per §2.3 — the corpus's double
-   *"Delete Yes or No?" → "Are you sure Yes or No?"* is attested for a **group company**, not a voucher.
+   by name (called by tests and the dispatcher). **Single prompt**, per §2.3 — ~~the corpus's double
+   *"Delete Yes or No?" → "Are you sure Yes or No?"* is attested for a **group company**, not a voucher.~~
+   🔴 **CORRECTED 2026-08-18 — read §2.3's correction block.** The single prompt is unchanged; its basis is now
+   two records, (A) voucher and (B) master, and they must not be merged.
 2. A new **pure** `Services/MasterDeletionRules.cs` on the `MasterAlterationRules` shape (throws, never mutates).
 3. **Referential guard, from §3.3, refusing with the COUNT of blockers** — a voucher that is the
    `OriginalInvoiceVoucherId` of a live `GstCreditDebitNoteLink`, or is linked by a `ChallanVoucherLink` /
@@ -1230,8 +1252,12 @@ unsettled — separated deliberately."**
   No?"*. The guard, verbatim, STUDY-GUIDE PDF **p.67**: *"You cannot delete any ledger, if any transaction(s)
   has been already made with that ledger."* Multi-master screens offer alter but **not** delete — Book PDF
   **pp.104-105**.
-- **OURS / UNSETTLED:** the **single** prompt for a *voucher* — the double prompt is attested for a **group
-  company** and masters, **not** for a voucher, and we decline to copy it across by analogy. **What happens to
+- **OURS / UNSETTLED:** the **single** prompt for a *voucher* — ~~the double prompt is attested for a **group
+  company** and masters, **not** for a voucher, and we decline to copy it across by analogy.~~ 🔴 **CORRECTED
+  2026-08-18 (§2.3's correction block; live record in `docs/full-clone-census.md` §1.3 item 11):** a voucher
+  attestation DOES exist (Book pp.22-23), weak and self-contradictory, so this is **our decision against weak
+  attestation** (A) — and the three master routes are separately a **deliberate divergence from an attested
+  scope** (B). **What happens to
   a deleted voucher's NUMBER is not in the corpus**; our behaviour (reuse when it was the highest, permanent
   gap otherwise) is **ours** — and our **refusal to delete a filed statutory document, offering Cancel
   instead**, is ours, taken from the project's own numbering doctrine at
@@ -1271,7 +1297,7 @@ UNVERIFIED unless the two counts match exactly.
 | D-3 | **Should a deleted voucher's number be retired?** | **Refuse Delete on a filed statutory document and offer Cancel** (§4.5a). No schema, no counter, corpus-shaped. Do **not** build a numbering floor. |
 | D-4 | `plan.md` R7 claims Tally reserves `Ctrl+Enter` for **display-only** drill-down. **The corpus says it is an ALTER key.** | **Amend the R7 line.** USER DECISION 1 stands; its stated reason was half wrong (§2.4). |
 | D-5 | `plan.md` R7 says Tally **scopes Alt+X to cancelling from a report**. The corpus scope is **"Vouchers & Reports"**. | Ship report-only if we choose, but **record it as our scope decision**, not fidelity (§2.2). |
-| D-6 | Voucher delete confirmation: **one** prompt or **two**? | **One.** The double prompt is attested only for a group company / masters (§2.3). |
+| D-6 | Voucher delete confirmation: **one** prompt or **two**? | **One.** ~~The double prompt is attested only for a group company / masters (§2.3).~~ 🔴 **CORRECTED 2026-08-18 — see the correction block in §2.3.** A voucher attestation DOES exist (Book pp.22-23), weak and self-contradictory. The answer is unchanged; the basis is now **two** records: **(A)** the voucher routes ship one prompt as **our decision against weak attestation**, and **(B)** the three master routes ship one prompt as a **deliberate divergence from an attested scope**. Do not merge them. |
 | D-7 | `SqliteCompanyStore.Remove` is **incomplete** (§1.6) and off the live path. Fix, or fence? | **Fence** — add a `DO NOT USE — incomplete` note. Fixing it invites routing delete through it. |
 | D-8 | `plan.md`'s 10.11 exit gate quotes the **stale** baseline *Ledger 1294 · Io 368 · Sqlite 214 · Desktop 1836*. | **Correct to Ledger 1668 · Io 414 · Sqlite 231 · Desktop 2195** before the first merge (§8.2). |
 | D-9 | `numbering-design-v2 §2.5/§5.4` is cited by shipped code and **is not in the repository**. | Land it, or restate its rule in-repo. Owed to the post-merge documentation slice (§4.3). |

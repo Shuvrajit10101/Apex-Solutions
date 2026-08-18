@@ -70,15 +70,32 @@ namespace Apex.Ledger.Services;
 ///   <item><b>ATTESTED, extended by us:</b> the ledger-with-transactions refusal above is a corpus rule, and so is
 ///     its remedy sentence. What is ours is the <i>count</i> in the message and the extension of the same shape to
 ///     groups and stock items.</item>
-///   <item><b>ATTESTED BUT IN CONFLICT — we ship one attested reading and cite it:</b> the number of confirmation
-///     prompts. The corpus publishes a <b>DOUBLE</b> confirmation for a ledger delete (BOOK PDF p.21:
-///     <i>"… &gt; Alt+D &gt; Press Two times Enter"</i>) and for a Group Company (STUDY-GUIDE PDF p.277:
-///     <i>"Delete Yes or No?"</i> then <i>"Are you sure Yes or No?"</i>), and a <b>SINGLE</b> one for the same
-///     ledger object in the other source (STUDY-GUIDE PDF p.67: <i>"Press Alt+D supply Yes to confirm
-///     Deletion"</i>). We ship the SINGLE prompt on all five routes under decision D-6, citing p.67. This is a
-///     conflict resolved in favour of one attested source — a THIRD R7 category, and not the same claim as either
-///     "corpus silent" or "decline to extend by analogy". See <c>MainWindowViewModel.RequestDeleteHighlighted</c>,
-///     which carries the same record for the surfaces.</item>
+///   <item>🔴 <b>THE PROMPT COUNT — TWO SEPARATE R7 CLAIMS, SETTLED BY THE USER 2026-08-18. THE BEHAVIOUR IS
+///     UNCHANGED (one prompt on all five routes); ONLY THE RECORD IS. Do not merge these two: conflating them is
+///     the exact R7 defect a review lens caught on S3.</b>
+///     <list type="bullet">
+///       <item><b>(A) THE VOUCHER ROUTES — OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY ATTESTATION.</b>
+///         BOOK PDF <b>pp.22-23</b> carries a heading reading <i>"How to Delete Voucher …?"</i> directly over
+///         <i>"Alt+D &gt; Press Two times Enter"</i>, and the same entry then contradicts itself — its path reads
+///         <c>Alter &gt; Voucher type</c>. <b>The attestation is poor, and it EXISTS.</b> We keep ONE prompt and
+///         record it as a decision taken <i>against</i> that attestation — explicitly <b>not</b> "corpus silent"
+///         and <b>not</b> a decline-to-extend-an-unattested-behaviour.</item>
+///       <item><b>(B) THE THREE MASTER ROUTES (ledger, group, stock item) — A DELIBERATE DIVERGENCE FROM AN
+///         ATTESTED SCOPE.</b> Here the DOUBLE prompt is cleanly attested: BOOK PDF <b>p.21</b> for a ledger
+///         (<i>"… &gt; Alt+D &gt; Press Two times Enter"</i>) and STUDY-GUIDE PDF <b>p.277</b>, with its wording,
+///         for a Group Company (<i>"Delete Yes or No?"</i> then <i>"Are you sure Yes or No?"</i>). We ship ONE
+///         prompt anyway and record it as a divergence from an attested scope — a different claim, on different
+///         evidence, from (A). <i>(Recorded beside it because it narrows the divergence without changing its
+///         category: STUDY-GUIDE PDF <b>p.67</b> attests a SINGLE prompt for the same ledger object —
+///         <i>"Press Alt+D supply Yes to confirm Deletion"</i>. The ruling categorises this route as a divergence
+///         rather than as "a conflict resolved in favour of p.67": we do not get to pick the friendly source and
+///         call the result fidelity.)</i></item>
+///     </list>
+///     <b>SUPERSEDED, kept quoted so the category history is legible:</b> this bullet read
+///     <i>"ATTESTED BUT IN CONFLICT — we ship one attested reading and cite it … a conflict resolved in favour of
+///     one attested source — a THIRD R7 category"</i>. That single category is replaced by the two above.
+///     See <c>MainWindowViewModel.RequestDeleteHighlighted</c>, which carries the same record for the
+///     surfaces.</item>
 ///   <item><b>UNVERIFIED-BY-DESIGN — ours, corpus silent:</b> the referential guard, the numbering guard, the
 ///     bill-wise guard, the accepted residual, the decision to offer Cancel as the remedy, and every message string
 ///     in this file. The corpus is silent on what deleting a voucher does to a linked statutory document and silent
@@ -225,8 +242,17 @@ public static class MasterDeletionRules
     /// empty list means the voucher is referentially free.
     ///
     /// <para><b>Every category is a real foreign key.</b> See <see cref="GuardedForeignKeyColumns"/>: sixteen
-    /// columns across eleven tables point at <c>vouchers(id)</c> and are not the voucher's own children. Any one of
-    /// them left behind is <c>SQLITE_CONSTRAINT_FOREIGNKEY</c> on the next Save, not a cosmetic dangler.</para>
+    /// columns across <b>twelve</b> tables point at <c>vouchers(id)</c> and are not the voucher's own children. Any
+    /// one of them left behind is <c>SQLITE_CONSTRAINT_FOREIGNKEY</c> on the next Save, not a cosmetic dangler.
+    /// <br/><b>Corrected 2026-08-18: this read "eleven".</b> Counted off the voucher block of
+    /// <see cref="GuardedForeignKeyColumns"/> itself, the distinct tables are <c>challan_voucher_links</c>,
+    /// <c>einvoice_records</c>, <c>eway_bills</c>, <c>gst_advance_receipts</c> (three columns),
+    /// <c>gst_cdn_links</c> (two), <c>gst_challans</c>, <c>gst_drc03</c>, <c>gst_setoff_lines</c>,
+    /// <c>gstr2b_recon</c>, <c>itc_reversals</c> (two), <c>rcm_documents</c> and
+    /// <c>tcs_challan_voucher_links</c> — <b>twelve</b>, sixteen columns. <b>The doc comment on
+    /// <see cref="GuardedForeignKeyColumns"/> already said "twelve"</b>, so this file disagreed with itself; and
+    /// this is the same hand-transcription slip that produced the five-of-twelve blocker that list exists to
+    /// prevent. <b>Count them off the list before writing a number here.</b></para>
     ///
     /// <para><b>The §34 link is counted on BOTH of its columns, at any note status.</b> The original-invoice side
     /// used to carry a "live note" exemption that let the invoice of a CANCELLED note be deleted. That exemption

@@ -802,11 +802,22 @@ Alter (Book p.15 [V]; SG p.61 [V] *"press Alt+K and open the company menu → Cl
 SG p.267 step 2 [V] *"press Alt+K (Company) Create"*). We ship **no accelerator**.
 
 ⚠️ **CORRECTED 2026-08-17 — the reason first recorded here was wrong.** It said `Alt+K` *"is already bound in
-this application to the saved-views list"*. Measured: `src/Apex.Desktop/Views/MainWindow.axaml.cs:653` binds it
+this application to the saved-views list"*. Measured: `src/Apex.Desktop/Views/MainWindow.axaml.cs` binds it
 as `e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext` — **report context only**,
 and on the Gateway root column, where this row lives, `Alt+K` is **unbound**. The dispatcher already scopes that
 chord by context, so a Gateway-scoped one would follow the existing pattern rather than create the arbitration
 hazard the old wording cited.
+
+🔴 **POINTER REPAIRED 2026-08-18 — the sentence above is right and its LINE NUMBER was false.** The 2026-08-17
+correction cited `MainWindow.axaml.cs` **line 653**. Line 653 is `vm.TogglePostDated();` — the **`Ctrl+T`
+post-dated toggle**, a completely different chord. The guard quoted above is the file's **only** `Key.K` test and
+sits at **line 757**, under the comment *"`Alt+K` (RQ-8) opens the 'Saved Views' list"* at line 754, with
+`vm.OpenSavedViews();` at line 759. **The claim always held; only the pointer was false** — and the repo's
+citation gate stayed green the entire time, because a wrong line inside a 1,807-line file is still a valid line
+(`DocumentCodeAgreementTests` proves reach, never content; see the §7.7 note and §10's R2-6 row). **Per
+§7.7 the pointer is now carried by TEXT**: search `MainWindow.axaml.cs` for `vm.OpenSavedViews()`. That
+dispatcher is the most citation-hostile file in `src/` — it grows every phase — so the line numbers above are a
+convenience for a reader, not the evidence.
 
 **The honest reason is scope: the attested route is a chord that opens a COMPANY MENU, and we have no company
 menu.** Binding `Alt+K` straight to this one page would be an invented shortcut wearing an attested chord —

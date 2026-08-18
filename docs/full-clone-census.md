@@ -4,6 +4,22 @@
 **Baseline:** worktree `…\.claude\worktrees\recursing-swirles-3138c6`, HEAD `468a96e`, schema v50. Read-only; nothing built, run, or edited.
 **Date:** 2026-08-10.
 
+> **▶ 🔴 REFRESHED 2026-08-18 AT HEAD `6fb5fe5`, SCHEMA v51 — READ THIS BEFORE THE 2026-08-10 TEXT BELOW IT.**
+> Five independent read-only surveys re-derived every capability state against source. **Four defects in this
+> document were fixed and the fixes changed its headline numbers:**
+> 1. **§1.2a now exists** — the per-capability list this census has never had. Before today a reader could
+>    learn that twenty-one capabilities were absent and could **not learn which twenty-one**.
+> 2. **§1.2's split is re-derived FROM that list** and is no longer a parallel assertion.
+>    **115 · 42 / 44 / 21 / 8 → 200 · 47 / 95 / 58 / 0.** §1.2b says exactly what moved and why, and the old
+>    table is kept in place rather than overwritten.
+> 3. **§1.3's anchor block is re-derived and made self-maintaining.** It had hard-coded the condition
+>    *"until S3 / S4 / S5c land"*; S3 and S4 landed and nobody re-derived it, so it contradicted its own rows.
+>    The derivation is now a property of those rows.
+> 4. **§1.2c retires the top-down reconciliation**, which never closed: `129 − 9 − 7 − 1 = 112`, not 115.
+>
+> **Everything dated 2026-08-10 below is preserved as written.** Superseded claims are marked in place with a
+> dated note and the original text quoted; nothing was silently rewritten to today's truth.
+
 Markers used below: **[V]** = re-verified by me against source at this HEAD during this census. Unmarked rows are relayed from the three mapping agents with their `file:line` evidence intact. **GUESS** where I am inferring.
 
 ---
@@ -15,19 +31,69 @@ Markers used below: **[V]** = re-verified by me against source at this HEAD duri
 A **capability** is one thing a user would name when asking "can it do X" — the granularity of a Tally menu row or an F11 toggle, not a field and not a code file. Rules applied:
 
 1. **Voucher types count individually** (18 for 7.2). They are the atoms of the product.
-2. **Report families count as one** (`Account Books`, `Statements of Accounts`, `Inventory Books`, `Exception Reports`). This is the largest deliberate compression in the count and it flatters us: `Account Books` scores as one PARTIAL row while hiding six missing registers. Expanding families to individual reports would push the denominator past 200.
-3. **A capability is counted once**, in the earliest product that shipped it. ERP 9 rows the source census marks "IN 7.2" are folded into the 7.2 baseline.
-4. **Excluded from the denominator entirely** (not gaps, not progress): pure licensing (Silver/Gold, multi-site, rental), edition/subscription features (Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, Data Synchronisation), the 7.2 data-format migration tool, the 7.2 character-grid UI (superseded by our fidelity target), international statutory packs, TDL, and multilingual. 13 rows.
-5. **Held out of the net figure pending a user decision:** obsolete-by-law statutory (9 rows, §3) and excluded-by-decision (7 rows, §4).
+2. **Report families count as one** (`Account Books`, `Statements of Accounts`, `Inventory Books`, `Exception Reports`). This is the largest deliberate compression in the count and it flatters us: `Account Books` scores as one PARTIAL row while hiding six missing registers. Expanding families to individual reports would push the denominator past 200. **▶ 2026-08-18: this rule is RETAINED unchanged, and §1.2a keeps every one of those families as a single row.** The denominator nonetheless moved to **200** because the rest of the product was finally written out at rule 1's granularity — see §1.2b. **That is a coincidence of magnitude, not a repeal of this rule**: the ~14 registers hiding inside the four families are still hiding, and each family row in §1.2a now names what is inside it.
+3. **A capability is counted once**, in the earliest product that shipped it. ERP 9 rows the source census marks "IN 7.2" are folded into the 7.2 baseline. **▶ 2026-08-18: §1.2a enforces this explicitly.** Where two surveys named the same capability under different areas, the row lives in one area and the other carries an **uncounted cross-reference**; every such row says which and why.
+4. **Excluded from the denominator entirely** (not gaps, not progress): pure licensing (Silver/Gold, multi-site, rental), edition/subscription features (Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, Data Synchronisation), the 7.2 data-format migration tool, the 7.2 character-grid UI (superseded by our fidelity target), international statutory packs, TDL, and multilingual. ~~13 rows.~~ **▶ 🔴 CORRECTED 2026-08-18: "13" IS UNSOURCED AND NOT DERIVABLE FROM EITHER LIST.** This enumeration and §4's closing paragraph are **two different lists**, and neither totals 13 — §4's has **12** distinct names and this one adds **3** more (Data Synchronisation, the 7.2 data-format migration tool, the 7.2 character-grid UI), so the **union is 15**. **§4's closing paragraph is the canonical list and this rule points at it.** Nothing downstream moves: these rows are outside the denominator either way. See §1.2c.
+5. **Held out of the net figure pending a user decision:** obsolete-by-law statutory (9 rows, §3) and excluded-by-decision (7 rows, §4). **▶ 2026-08-18: these two counts are correct as stated, and they are what proved §1.2's old top-down reconciliation never closed** — that check subtracted **8** and **5** against them. See §1.2c, which retires the check rather than bending either count to fit it.
 
 ### 1.2 The number
+
+> **▶ 🔴 RE-DERIVED 2026-08-18. EVERY INTEGER BELOW IS A COLUMN SUM OF §1.2a AND NOTHING ELSE.**
+> Until today this table was a **parallel assertion**: a **2026-08-10 snapshot taken at HEAD `468a96e`, schema
+> v50**, whose rows existed only as integers. Its columns and rows summed correctly — the arithmetic was never
+> the problem. **The problem was that the twenty-one ABSENT capabilities were never named anywhere.** §5 below
+> referred to *"the absent list"* as if one existed; it did not. Reconstructing the names from §2
+> **over-supplied** several buckets — two distinct absent capabilities competed for Configuration's single
+> slot, and the Accounting-masters candidates exceeded its three — which is what proved that any reconstruction
+> was **not the census's own classification**. **§1.2a is now that list.** If a row there changes state,
+> **this table is re-summed. Never edit an integer here directly.**
+
+| # | Area | In scope | Complete | Partial | Absent | Undetermined |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | Company creation & configuration (F11/F12) | 9 | 0 | 6 | 3 | 0 |
+| 2 | Accounting masters | 13 | 0 | 8 | 5 | 0 |
+| 3 | Inventory masters | 15 | 2 | 11 | 2 | 0 |
+| 4 | Voucher types (7.2's classic eighteen) | 18 | 5 | 13 | 0 | 0 |
+| 5 | Voucher behaviours & edit verbs | 15 | 5 | 5 | 5 | 0 |
+| 6 | Statutory, current law (GST, TDS/TCS, salary IT) | 42 | 18 | 14 | 10 | 0 |
+| 7 | Payroll | 21 | 6 | 10 | 5 | 0 |
+| 8 | Banking | 10 | 1 | 4 | 5 | 0 |
+| 9 | Inventory / manufacturing / job work (post-7.2) | 9 | 4 | 1 | 4 | 0 |
+| 10 | Accounting features (post-7.2) | 2 | 0 | 0 | 2 | 0 |
+| 11 | Reports | 17 | 2 | 12 | 3 | 0 |
+| 12 | Printing | 9 | 1 | 3 | 5 | 0 |
+| 13 | Data management (import/export/backup/e-mail) | 10 | 2 | 6 | 2 | 0 |
+| 14 | TallyPrime-only capabilities | 10 | 1 | 2 | 7 | 0 |
+| | **TOTAL** | **200** | **47** | **95** | **58** | **0** |
+
+**A full clone requires 200 named capabilities. We have 47 complete, 95 partial, 58 absent, 0 undetermined** —
+as of **2026-08-18**, measured at HEAD `6fb5fe5`, schema **v51**, by five independent read-only surveys that
+re-derived every row against source. Every `COMPLETE` still means **present and reachable**, never *correct*;
+§1.3 holds the fidelity figures and is the only place they are maintained.
+
+#### 1.2 (superseded) — the 2026-08-10 snapshot, kept because other documents still quote it
+
+> **▶ THIS IS THE OLD TABLE. IT IS NOT DELETED, AND IT IS NOT CURRENT.** `plan.md`'s census banner, the
+> kick-off and `memory.md` **quoted** *"~115 named capabilities: 42 complete, 44 partial, 21 absent, 8
+> undetermined"*. That sentence describes **this** table, taken at HEAD `468a96e` on **2026-08-10** under a
+> header that said *"nothing built, run, or edited"*. It has been superseded since **2026-08-18**.
+>
+> **▶ 🔴 THE PROPAGATION WAS CLOSED THE SAME DAY, and this line records where — because the last three
+> corrections on this branch each left live copies behind.** As of **2026-08-18** the in-repo copies are
+> repaired: `plan.md`'s census banner and its *"held OUT of the 115"* clause, `docs/NEXT_SESSION_KICKOFF.md`'s
+> DENOMINATOR section, `docs/invented-vs-cloned.md` §7's dagger note and `docs/tally-fidelity-defects.md` §7's.
+> **None of them restates the digits** — each points at §1.2a / §1.2 / §1.3's anchor block instead, so the next
+> move of these numbers cannot strand a copy. `memory.md`'s 2026-08-10 log entry is **deliberately left
+> standing** with a dated supersession marker beneath it: it is a log of what was true that day, and rewriting
+> it would falsify the record rather than correct a claim. **This table is retained for exactly that reason** —
+> outside documents, and this project's own history, still quote it.
 
 | # | Area | In scope | Present | Partial | Absent | Cannot tell |
 |---|---|---:|---:|---:|---:|---:|
 | 1 | Company creation & configuration (F11/F12) | 4 | 0 | 3 | 1 | 0 |
 | 2 | Accounting masters | 10 | 0 | 7 | 3 | 0 |
 | 3 | Inventory masters | 12 | 0 | 10 | 0 | 2 |
-| 4 | Voucher types (7.2's classic 18) | 18 | 18 | 0 | 0 | 0 |
+| 4 | Voucher types (7.2's classic eighteen) | 18 | 18 | 0 | 0 | 0 |
 | 5 | Voucher behaviours & edit verbs | 7 | 4 | 1 | 1 | 1 |
 | 6 | Statutory, current law (GST, TDS/TCS, salary IT) | 10 | 3 | 6 | 0 | 1 |
 | 7 | Payroll | 5 | 2 | 2 | 0 | 1 |
@@ -39,14 +105,456 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 13 | Data management (import/export/backup/e-mail) | 5 | 1 | 3 | 1 | 0 |
 | 14 | TallyPrime-only capabilities | 11 | 4 | 3 | 4 | 0 |
 | | **TOTAL** | **115** | **42** | **44** | **21** | **8** |
+### 1.2a 🔴 THE NAMED CAPABILITY LIST — added 2026-08-18, and this document has never had one before
 
-**A full clone requires ~115 named capabilities. We have 42 complete, 44 partial, 21 absent, 8 undetermined.**
+**Why this exists.** Before today a reader could learn that **twenty-one capabilities are absent** and could not
+learn **which twenty-one**. That made the document unactionable in the one direction it exists to serve. Every
+row below carries a state, and §1.2's integers are the column sums of these rows.
 
-Reconciles top-down: 90 (7.2 baseline) + 28 (ERP 9 additions in scope) + 11 (TallyPrime-only) = 129, less 8 obsolete-by-law, less 5 excluded-by-decision folded into the baseline, less 1 (ODBC, out of scope) = 115.
+**How to read a state.** `COMPLETE` = a type exists, a route reaches it, and something calls it — **present and
+reachable, never *correct***. `PARTIAL` = present and reachable with a **named** missing piece. `ABSENT` = no
+type, no route, no caller; every absent row rests on a search that returned zero. `UNDETERMINED` = nobody has
+checked; there are none today and §1.2b says why that is a fact about today and not a property of the list.
 
-### 1.3 The honest "cannot tell" bucket — and it is not 8
+**Conventions, so a later reader is not misled by the shape of the table.**
+- **A capability is counted ONCE** (§1.1 rule 3). Where two surveys named the same capability under different
+  areas, the row lives in one area and the other area carries a **cross-reference that is explicitly not
+  counted**. Each such row says so.
+- **Where the surveys DISAGREED on a state, the row says so and gives both readings** before recording one.
+  Nothing was reconciled silently.
+- **Family compression survives** (§1.1 rule 2): Account Books, Inventory Books, Statements of Accounts and
+  Exception Reports remain one row each, and each row names what is hiding inside it.
+- **Evidence is written as `file` + `member`, never as a live line citation**, because a line number in this
+  document goes stale on the next edit and a stale citation is the defect this project has now caught three
+  times. The five 2026-08-18 surveys hold the line-level evidence.
 
-The 8 in the table are capabilities whose **existence** nobody has checked. That is the small number. The real one:
+**▶ 🔴 CHECK THE ARITHMETIC RATHER THAN TRUSTING IT — every state below is machine-countable, and it was
+machine-counted before §1.2 was written.** Each area heading states its own split, every row carries a
+single bare state token in its third column, and the totals in §1.2 are the column sums. Re-derive with:
+
+```
+awk '
+function flush(){ if(area!=""){printf "%-52s rows=%2d  C=%2d P=%2d A=%2d U=%2d\n",substr(area,1,52),n,c,p,a,u; tc+=c;tp+=p;ta+=a;tu+=u;tn+=n} }
+/^#### Area /{ flush(); area=$0; c=0;p=0;a=0;u=0;n=0; inarea=1; next }
+/^#### 1\.2b/{ flush(); area=""; inarea=0 }
+inarea && /^\| [0-9]+\.[0-9]+ \|/{ n++;
+  if ($0 ~ /\| COMPLETE \|/) c++; else if ($0 ~ /\| PARTIAL \|/) p++;
+  else if ($0 ~ /\| ABSENT \|/) a++; else if ($0 ~ /\| UNDETERMINED \|/) u++;
+  else print "  !! UNPARSED:", substr($0,1,80) }
+END{ printf "\nTOTAL rows=%d C=%d P=%d A=%d U=%d sum=%d\n",tn,tc,tp,ta,tu,tc+tp+ta+tu }
+' docs/full-clone-census.md
+```
+
+**Run 2026-08-18: `TOTAL rows=200 C=47 P=95 A=58 U=0 sum=200`, and every area matched its own heading.** If
+this ever disagrees with §1.2, **the rows are right and §1.2 is the defect** — that is the whole point of
+deriving one from the other.
+
+#### Area 1 — Company creation & configuration (F11/F12) · 9 rows · 0 complete / 6 partial / 3 absent
+
+| # | Capability | State | Evidence · gap · disagreement |
+|---|---|---|---|
+| 1.1 | Company Creation — the profile capture screen | PARTIAL | Twelve bound fields on `CompanyProfileViewModel`, with corpus-matched labels. **Gap:** the five contact fields, the three base-currency formatting toggles, "decimal places for amount in words" (no domain property), the whole Security Control heading, Directory, and Group Company / Alt+R. Post-save hands off to the Gateway, not to F11 — a departure recorded in §1.3 row 9. |
+| 1.2 | Company Alteration (Gateway → Masters → Alter Company) | PARTIAL | Same view model; eleven editable fields; accept path verified. **Gap:** company Name is read-only (a storage constraint of ours). **No Alt+K company menu** — that chord is bound to Saved Views and only in report context (14.9). ⚠️ §1.3 row 9 cites that binding at `MainWindow.axaml.cs` line 653; **at HEAD it is line 757** — content drift, not a dangling citation. |
+| 1.3 | Company Select / open an existing company | PARTIAL | Enumerates stored companies plus Create Company (F3) and Load Robert Demo. **Gap:** no named **Shut Company** — zero `Shut` hits in `src/Apex.Desktop`; closing is a side effect of Esc collapsing the cascade. |
+| 1.4 | Company Rename and Company Delete | ABSENT | `CompanyStorage.Delete(CompanyEntry)` is declared and has **zero callers** in `src/` or `tests/` — dead code. No rename code at all, no Screen member, no menu row. Delete was split out by ruling VL-2; rename is absent outright. |
+| 1.5 | F11 Company Features — the Statutory Configuration page | PARTIAL | `GstConfigViewModel`, 21 observable switches, titled "Statutory Configuration (F11)"; hosts GST, TDS, TCS, PF/ESI/PT, salary TDS, gratuity, bonus. **Gap:** one flat page, not Tally's F11 group structure. |
+| 1.6 | F11 Company Features — Inventory & Payroll feature toggles | PARTIAL | Batch-wise details, BOM + component type, multiple Price Levels, Job Order Processing, Maintain Payroll + Payroll Statutory, each applied live. **Gap:** 🔴 `Company.WarnOnNegativeStock` is persisted and honoured by `InventoryPostingService` with **zero** hits in `src/Apex.Desktop` — shipped behaviour with no control anywhere (the W0-5 row, still unshipped). `UseSeparateActualBilledQuantity` is toggled from the **voucher-entry** screen, not from here (see 3.14). No Integrate Accounts with Inventory, no maintain mode. |
+| 1.7 | F11 Company Features — the Accounting Features group | ABSENT | Zero `IntegrateAccountsWithInventory` and `MaintainMode` hits in `src/` or `tests/`. No per-company switch for bill-wise, interest, cost centres, multi-currency, budgets, credit limits, cheque printing or multi-address. **= T1-15.** |
+| 1.8 | F12 Configure — the global configuration tree | ABSENT | `F12Configure()` has three real arms and then a fall-through that literally sets a stub message string. No configuration-tree type, no Screen member, no menu row. **= T1-16.** |
+| 1.9 | F12 Configure — per-screen context panels | PARTIAL | Four real panels exist off the key tunnel: print-preview config, report config, Alt+F12 report sort/filter, and the Ledger-master / voucher-numbering arms. **Gap:** every other screen — all master screens except Ledger, every voucher screen except through the numbering column, every report surface with no `Reports` object — falls through to the stub. |
+
+#### Area 2 — Accounting masters · 13 rows · 0 complete / 8 partial / 5 absent
+
+| # | Capability | State | Evidence · gap · disagreement |
+|---|---|---|---|
+| 2.1 | Accounting Group master — create / alter / delete | PARTIAL | All three verbs verified: create from the Create column, `ForAlter` from a Chart-of-Accounts row, Alt+D delete guarded by `MasterDeletionRules.EnsureGroupDeletable`. **Gap:** no Display verb, no multi-group create, and the v51 group-level GST block has no capture field (3.13). |
+| 2.2 | Group behavioural flags — sub-ledger, nett debit/credit, used for calculation, allocation method | ABSENT | All four identifiers return zero hits over `src/`. `Group` carries only Id, Name, Nature, ParentId, Alias, IsPredefined and Gst. ⚠️ Tally's field names for these are themselves **UNVERIFIED** against this corpus (§6 item 6) — the absence from our code is confirmed; what Tally calls them is not. In T2-3. |
+| 2.3 | Ledger master — create / alter / delete | PARTIAL | ~30 bound fields; all three verbs, delete guarded by `EnsureLedgerDeletable`. **Gap:** Alias is deliberately not capturable (named in the view model's own "not written, on purpose" list); no credit limit (10.1); no multi-address (10.2); no multi-ledger create (2.12); no Display verb. |
+| 2.4 | Voucher Type master — create / alter / display / delete | ABSENT | No `VoucherTypeMasterViewModel` among the ~110 view models; no Screen member; no Create-menu row; `MasterCreateKind` has no member for it. Exactly **one** of `VoucherType`'s ~20 configurable properties is settable anywhere in the UI (`TrackAdditionalCosts`, from the purchase-invoice screen). ⚠️ **Area assignment ambiguous** — two surveys named this capability, one under Accounting masters and one under Voucher behaviours. Counted **once, here**; area 5 carries an uncounted cross-reference. **= T1-3.** |
+| 2.5 | Voucher numbering configuration (F12 per voucher type) | PARTIAL | Prevent-duplicate, number width, prefill-with-zero and the prefix/suffix affix rows, on their own Screen. **Gap:** `MethodDisplay` is a get-only expression-bodied string with no setter and no picker in the XAML, so **Manual and None are unreachable** and every seeded type stays Automatic (5.10, **T1-5**). |
+| 2.6 | Voucher Class | ABSENT | Zero `VoucherClass` hits in `src/Apex.Ledger` and zero in `src/Apex.Desktop`. No domain type, no persistence table, no view model, no Screen, no menu row. Interest auto-posting via a Debit/Credit-Note class is unreachable in consequence. ⚠️ Same area ambiguity as 2.4; counted once here. |
+| 2.7 | Cost Category master | PARTIAL | Create only (name + the two allocate flags). No `ForAlter` and no highlighted-row route, so the existing rows carry no route; no delete service exists in `src/Apex.Ledger/Services`; no Display verb. |
+| 2.8 | Cost Centre master | PARTIAL | Create only (name, category, parent). `CostCentre.Alias` is never captured. No Alter, no delete service, no delete route, no Display verb. |
+| 2.9 | Budget master | PARTIAL | Create only, with lines targeting a Group or a Ledger. **Gap:** no cost-centre target (the target option carries no cost-centre id); no nested budget (the `UnderId` has no picker); no Alter; no Delete service. |
+| 2.10 | Scenario master | PARTIAL | Create only (name, include-actuals, a tick-list of voucher kinds). **Gap:** `Scenario.ExcludeType` has zero Desktop callers, so an exclusion can arrive only through import; no period; no Alter; no Delete. |
+| 2.11 | Currency master and Rates of Exchange | PARTIAL | Create for a currency and for a dated rate, with Existing and Rates lists; per-ledger currency selection exists. **Gap:** no Alter and no Delete for either (`RemoveCurrency` / `RemoveExchangeRate` have no Desktop caller); none of the four Tally currency formatting options exists here or on the company base-currency block. |
+| 2.12 | Multi-master create (Multi Ledger / Multi Group) | ABSENT | Zero `Multi Ledger` / `MultiLedger` hits over `src/`. The Create column contains only single-master rows and the label dispatch has no multi-create case. In T2-3. |
+| 2.13 | Show Inactive / hidden masters | ABSENT | Zero `Show Inactive` / `ShowInactive` hits over `src/` except one comment in `VoucherTypeResolver.cs` recording that the gesture "meant nothing". Every master's Existing list is an unconditional enumeration. Overlaps the Show-Inactive element of 5.11; the master-level capability is counted here, the voucher-type flag there. |
+
+#### Area 3 — Inventory masters · 15 rows · 2 complete / 11 partial / 2 absent
+
+| # | Capability | State | Evidence · gap · disagreement |
+|---|---|---|---|
+| 3.1 | Stock Group master | PARTIAL | Create only (name, alias, under, add-quantities). No Alter; `InventoryService.DeleteStockGroup` has **zero** hits in `src/Apex.Desktop`. |
+| 3.2 | Stock Category master | PARTIAL | Create only. No Alter; `DeleteStockCategory` has zero Desktop hits. |
+| 3.3 | Stock Item master — create / alter / delete | PARTIAL | The **only** inventory master with all three verbs; delete guarded by `EnsureStockItemDeletable`. **Gap:** no Display verb, no multi-item create, plus 3.4 and 3.6. |
+| 3.4 | Stock item valuation method — Standard Cost | PARTIAL | 🔴 The method **is** selectable on the master screen — the dropdown is populated with all six methods and **is rendered** — and the create path passes the selection through unguarded, but **there is no bound input for the `StandardCost` value**, so valuation silently falls back to last purchase rate. **This CORRECTS T0-3's "reachable only through JSON/XML import" caveat**; see the T0-3 row and §1.3's anchor block. |
+| 3.5 | Unit of Measure master (simple and compound) | PARTIAL | Create for both shapes, persisted. **Gap:** no Alter and no Delete — the list row type carries no Guid, so no row can address a unit, and `DeleteUnit` has zero Desktop hits. |
+| 3.6 | Alternate units per stock item | ABSENT | Zero `AlternateUnit` / "Alternate Unit" hits over `src/`. `StockItem` carries a single base unit and `VoucherInventoryLine` has no alternate-unit quantity. In T2-3. |
+| 3.7 | Godown / Location master | PARTIAL | Create only (name, alias, under, third-party). **Gap:** no "Allow storage of materials" (zero hits — ⚠️ the Tally field name is UNVERIFIED per §6 item 6), no address block, no Alter, no Delete route. |
+| 3.8 | Batch / Lot master | PARTIAL | Create with manufacturing/expiry dates or expiry period, opening quantity and rate; menu row gated on the F11 batch flag. No Alter, no Delete route. |
+| 3.9 | Bill of Materials master | PARTIAL | Create with component lines, By-Product/Co-Product/Scrap typing and carve-out rate/percent; gated on the F11 BOM flag. No Alter, no Delete route. ⚠️ **Counted once here**; a second survey named the same capability under area 9, which carries an uncounted cross-reference. |
+| 3.10 | Price Level master | PARTIAL | Create (name only) with an Existing list, gated on the F11 price-level flag. No Alter, no Delete route. |
+| 3.11 | Price List — dated slab rates per level and item | PARTIAL | Slab rows (from/to quantity, rate, discount), an applicable-from date and a version history. **Gap:** revision is by saving a **new dated version**, not by altering one; no route deletes a list or a version. |
+| 3.12 | Reorder Levels master | PARTIAL | Create with scope (item / group / category), simple or advanced quantities, consumption period and Higher/Lower criteria. **Gap:** alteration is an **upsert only** — creating for an existing scope+target replaces it; no Alter screen, no Delete route. |
+| 3.13 | GST details capture on the Stock Group and accounting Group masters (the v51 hierarchy levels) | ABSENT | 🔴 The **storage** shipped — `MasterGstDetails` on `Group` and `StockGroup`, `DefaultGst` on `GstConfig`, the v51 columns in `Schema` — and **`MasterGstDetails` has exactly ONE hit in `src/Apex.Desktop`, a doc comment**: `Services/CompanyStorage.cs` line 95 names `MasterGstDetails.EnsureValid` while explaining why the validation floor sits in the storage choke point. **There is no view-model property and no XAML field**, and both master screens show only name/alias/under. The only writer is the importer. **This is the UI half of T0-4** and the reason that defect is still open. *(🔴 **Wording corrected 2026-08-18. The GRADE is unchanged and correct** — ABSENT is about no view-model property, no route and no caller, and a doc comment is none of those. This cell said **"zero hits"**, which is falsifiable by one grep and was false; a reader who ran it would have had grounds to distrust the row's evidence rather than its wording. The single hit is a comment, so nothing about the capability changes.)* |
+| 3.14 | Actual vs Billed quantity | COMPLETE | 🔴 **SURVEY DISAGREEMENT, RECORDED NOT RECONCILED AWAY.** One survey graded **PARTIAL** because the enabling switch is a checkbox on the **voucher-entry** screen that mutates the Company rather than an F11 Company Features row; another graded **COMPLETE** on domain member + rendered control + consuming caller. **COMPLETE is recorded, because §1.2's criterion is existence and reachability and the switch is reachable** — the placement objection is a **§1.3 fidelity** finding and is logged as one in 1.6's gap column. Was one of the eight cannot-tell rows. |
+| 3.15 | Additional Cost of Purchase (landed cost) | COMPLETE | Same disagreement and the same resolution. Apportionment service with per-purchase and per-transfer entry points, landed value and landed unit rate, UI rows, canonical IO and SQLite all present. The enabling flag is `VoucherType.TrackAdditionalCosts`, toggled **in place on the purchase-invoice screen** precisely because there is no Voucher Type master (2.4) — recorded as a fidelity departure, not as a missing capability. Was one of the eight cannot-tell rows. |
+
+#### Area 4 — Voucher types (7.2's classic eighteen) · 18 rows · 5 complete / 13 partial / 0 absent
+
+> **▶ READ THE CRITERION BEFORE READING THE SPLIT.** On pure **existence and reachability** — §1.2's stated
+> criterion — all eighteen are seeded and every one has a menu row and a shortcut hint. That is exactly what the
+> superseded table's `18 / 0 / 0 / 0` recorded, and it was **not wrong on its own terms**. Graded on whether the
+> kind **does what a user names it for**, five are COMPLETE and thirteen are PARTIAL, and **eight of the thirteen
+> fail for one shared structural reason** — the two-collection defect now filed as **T1-17**. The PARTIALs below
+> are therefore "present and reachable, behaviour defective", not a contradiction of the old count.
+> ⚠️ One survey's prose said *twelve* of the eighteen are PARTIAL while its own rows list **thirteen**; the rows
+> are used and the prose is not.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 4.1 | Contra (F4) — entry, posting, Single-Entry mode | COMPLETE | Seeded, menu row with the F4 hint, entry screen, Ctrl+H single entry reachable. |
+| 4.2 | Payment (F5) — entry, posting, Single-Entry mode | COMPLETE | As above. |
+| 4.3 | Receipt (F6) — entry and posting | COMPLETE | As above. |
+| 4.4 | Journal (F7) — entry and posting | COMPLETE | As above. |
+| 4.5 | Sales (F8) — three entry modes and tax-invoice print | COMPLETE | Mode switching and the invoice print gate both verified. |
+| 4.6 | Purchase (F9) — three entry modes and supplier-document print | PARTIAL | Entry and posting present; the print gate refuses anything whose base kind is not Sales, so a Purchase item-invoice silently falls back to a Dr/Cr voucher print. **= T0-11.** |
+| 4.7 | Credit Note (Alt+F6) — sales return | PARTIAL | §34 original-invoice capture present. **Moves no stock** (**T0-10**) and **never prints in invoice format** (**T0-11**). |
+| 4.8 | Debit Note (Alt+F5) — purchase return | PARTIAL | Same two gates, same two defects. |
+| 4.9 | Stock Journal (Alt+F7) — inter-godown transfer | PARTIAL | Posts to the **separate** `InventoryVoucher` aggregate: never appears in the Day Book, not drillable, and cannot be cancelled or deleted from any surface. **= T1-17.** |
+| 4.10 | Physical Stock (Ctrl+F7) — physical count | PARTIAL | Same aggregate, same three consequences; the Physical Stock Register exists. |
+| 4.11 | Sales Order (Ctrl+F8) | PARTIAL | Order Register exists; absent from the Day Book, no lifecycle verb. |
+| 4.12 | Purchase Order (Ctrl+F9) | PARTIAL | As above. |
+| 4.13 | Delivery Note (Alt+F8) | PARTIAL | Register exists; no Day Book row, no lifecycle verb, and no Tracking Number link to the Sales voucher (**T1-8**, 9.8). |
+| 4.14 | Receipt Note / GRN (Alt+F9) | PARTIAL | As above, against Purchase. |
+| 4.15 | Rejection Out (Ctrl+F5) | PARTIAL | Rejection Register exists; no Day Book row, no lifecycle verb. |
+| 4.16 | Rejection In (Ctrl+F6) | PARTIAL | As above. |
+| 4.17 | Memorandum — off-books entry, register, and conversion to a real voucher | PARTIAL | Type, menu row and register all present, and the engine's convert method exists. **Gap:** 🔴 the catalog's **conversion verb is unreachable** — the shell method and its own gate each have **zero production consumers**; the only callers are tests. A memo can be posted and never regularised. Filed as **T2-9**. |
+| 4.18 | Reversing Journal — off-books entry with Applicable-Upto, register, scenario inclusion | PARTIAL | Capture and parse verified. **Gap:** no seeded shortcut, so it is menu-only; and with no voucher alteration the Applicable-Upto date can never be corrected after posting. |
+
+#### Area 5 — Voucher behaviours & edit verbs · 15 rows · 5 complete / 5 partial / 5 absent
+
+> **Uncounted cross-references** (counted in the area named): **Voucher Type master → 2.4**; **Voucher Class →
+> 2.6**; **the Day Book itself → 11.4**. The two-collection finding that governs eight of area 4's rows is
+> carried in 11.4's gap column and filed as **T1-17**.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 5.1 | Voucher alteration — open a posted voucher, change it, re-save | ABSENT | Searched four ways, all zero: the detail view model exposes no alter or save member; `ForAlter` exists in exactly three master view models and no voucher one; the entry view model has zero `Alter`/`Duplicate`/`Insert` occurrences; Ctrl+Enter is bound to stock-item alteration and nothing else. No Screen member. **The master defect (T1-1); slices S5a/S5b/S5c.** |
+| 5.2 | Voucher cancellation (Alt+X) on a posted voucher | PARTIAL | 🔴 **BUILT — S3.** Key arm, gate, confirmation, engine cancel, greyed Day Book row, CANCELLED over-print, live-IRN/e-Way refusal. **Gap:** armed on **one** surface (the live Day Book) where the corpus scopes it to "Vouchers & Reports"; resolves only through the accounting aggregate, so no stock/order voucher can be cancelled; no un-cancel and no Cancelled Voucher register. |
+| 5.3 | Voucher deletion (Alt+D) on a posted voucher | PARTIAL | 🔴 **BUILT — S4.** Key arm, five surfaces, `MasterDeletionRules` guards, engine delete. **Gap:** cannot delete a stock/order voucher (same aggregate boundary); deleting the highest-numbered **unfiled** voucher reuses its number — a known and accepted residual, not a silent one; no numbering floor. |
+| 5.4 | Voucher duplication (Alt+2) | ABSENT | Zero hits for a duplicate-voucher verb; the only matches are the numbering feature's prevent-duplicate. No key arm, no menu row, no button-bar item. Corpus-attested and not built. |
+| 5.5 | Insert Voucher (Alt+I) | ABSENT | Alt+I is spent on the POS tender-mode toggle. No insert-at-position code of any kind, no Screen member, no menu row. Corpus-attested and not built. |
+| 5.6 | Add Voucher from a report (Alt+A) | PARTIAL | 🔴 **BUILT — and §1.3 item 12's grouping of Alt+A with the unbuilt Insert verb is wrong.** The key arm opens its own picker column beside the live report so the report survives, and the picker preserves the exact series. **Gap:** scoped to the Day Book alone, and the picker lists only active types, so an inactive series cannot be added. |
+| 5.7 | Optional voucher (Ctrl+L) | PARTIAL | Flag, toggle, checkbox, key arm and balance exclusion all present. **Gap:** dispatched only on the accounting entry screen — inventory/order, POS, manufacturing-journal and job-work entries cannot be Optional, and `InventoryVoucher` has no Optional member at all; **a posted Optional voucher can never be regularised** (zero post-construction writers, no alteration screen); no Optional Voucher register. Filed as **T1-18.** |
+| 5.8 | Post-dated voucher (Ctrl+T) | PARTIAL | Flag on both aggregates, dispatched to both entry screens, honoured by the balance walk. **Gap:** **zero post-construction writers**, so the flag can never be cleared when the cheque clears; no post-dated register or PDC summary (8.8). Filed as **T1-18.** |
+| 5.9 | Automatic voucher numbering — date-effective affixes, width, prefill, prevent-duplicate | COMPLETE | Config screen, formatter, and enforcement on both posting services. |
+| 5.10 | Voucher numbering method **Manual** / **None** | ABSENT | The method display is a get-only string, self-described "DISPLAY-ONLY this slice"; there is no setter and no bound control. The Voucher No. on all four entry screens is a `<Run>` inside a `TextBlock`, not a TextBox. The seed hard-codes Automatic throughout. **= T1-5.** |
+| 5.11 | Voucher-type user flags — Use Common Narration, Print after saving, Show Inactive → activate | ABSENT | `VoucherType` has no common-narration and no print-after-saving member. "Show Inactive" returns exactly one hit in `src/`, a comment recording that the gesture meant nothing. The two inactive families are flipped only by `JobWorkService`; the other write site is a rollback restore inside a catch, not an activation route. |
+| 5.12 | Voucher entry modes — As Voucher / Item Invoice / Accounting Invoice, and Single vs Double Entry | COMPLETE | Ctrl+I and Ctrl+H arms verified; the change-mode gate was widened to Contra/Payment/Receipt so Single Entry is reachable on the three kinds that have it; the accounting-invoice mode is persisted structurally. |
+| 5.13 | Bill-wise details on a voucher line (New Ref / Agst Ref / Advance / On Account) | COMPLETE | Per-line model with the sum-to-line-amount rule; the sub-panel renders on the plain grid, on Single Entry and on both invoice modes. |
+| 5.14 | Cost-centre allocation on a voucher line | COMPLETE | Allocations drive the sub-panel, feed the posted entry line and are consumed by the cost reports. |
+| 5.15 | Batch / lot allocation on a voucher line (FEFO/FIFO default, expiry warning) | COMPLETE | Its own cascade column, wired from both the accounting item-invoice path and the inventory entry path, with the engine's default issue selection. |
+
+#### Area 6 — Statutory, current law (GST, TDS/TCS, salary IT) · 42 rows · 18 complete / 14 partial / 10 absent
+
+> **🔴 THE OLD TABLE ALLOWED THIS AREA ZERO ABSENT CAPABILITIES.** Ten are evidenced below, each on a zero-hit
+> search. That is the single largest correction in §1.2b item 2.
+> **Uncounted cross-references:** *Connected GST — online e-Invoice* and *online e-Way Bill* were also named
+> under area 14 by a different survey; both are counted here, at 6.14 and 6.15, because the offline artefact and
+> the live submission are one capability with one gap. *IMS* likewise is counted here at 6.16.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 6.1 | F11 Statutory & Taxation — GST enable, GSTIN, home State, registration type, periodicity, composition sub-type + opt-in date | COMPLETE | Bound fields, the F11 route and the enable path that seeds slabs and the six tax ledgers. |
+| 6.2 | GST rate / taxability / HSN-SAC on the Stock Item and on the sales-purchase ledger | COMPLETE | Both capture surfaces and the engine's resolver that consumes them. |
+| 6.3 | Dated GST rate history and dated Compensation-Cess windows (the GST 2.0 rate framework) | COMPLETE | Its own setup screen with Ctrl+R, and dated resolvers for rate and cess. |
+| 6.4 | GST rate hierarchy above the Stock Item — company default / Accounting Group / Stock Group, and the source-of-HSN and source-of-rate order options | ABSENT | Persistence exists; **no UI writes it and no service, report or view model reads it**. Resolution is still item → ledger → unresolved. **= T0-4**, and 3.13 is its capture half. |
+| 6.5 | GST computation on a voucher — CGST/SGST vs IGST routing, per-rate line tax, cess, round-off leg | COMPLETE | Engine entry points with both desktop callers (voucher entry and POS). |
+| 6.6 | Reverse charge (RCM) — inward dual leg, import of services, outward RCM flag, 3B tables 3.1(d) / 4(A)(2) / 4(A)(3) | COMPLETE | Service, live panel, supply-kind picker and the 3B projection. |
+| 6.7 | GST on advance receipts — tax on advance, adjustment against invoice, GSTR-1 tables 11A / 11B | COMPLETE | Service, entry wiring and both projections. |
+| 6.8 | GSTR-1 outward return on screen (period-scoped, printable and exportable) | PARTIAL | B2B 4A, rate-wise B2C, HSN 12, a single exempt bucket, 4B outward RCM, 9B credit/debit notes, 11A/11B. **Gap:** seven form tables unmodelled — 5, 6A, 6B, 6C, 7, 8's four-way split, 13; the B2C row type carries **no Place-of-Supply member at all**, which is what blocks 5 and 7. **= T1-12.** |
+| 6.9 | GSTR-3B summary return on screen | PARTIAL | 3.1 by head, 3.1(d) RCM, 4(A)(2)/(3), 4(B)(1)/(2), 4(D)(1). **Gap:** 3.1 is a single taxable-outward value, not the four-way split; zero hits for tables 3.1.1, 3.2, 5 and 5.1. **= T1-12.** |
+| 6.10 | GSTR-1 / GSTR-3B portal JSON — the artefact that actually gets filed | ABSENT | The JSON writer class exposes exactly five writers (CMP-08, GSTR-4, 9, 9A, 9C) and **no GSTR-1 or 3B emitter anywhere**; the class itself has **zero production callers** — the only references in `src/` are two doc comments. **= T1-11.** |
+| 6.11 | Composition returns CMP-08 (quarterly) and GSTR-4 (annual) | PARTIAL | Both engine projections and both screens, gated on the composition flag. **Gap:** **no output of any kind** — neither view model writes a file and neither is a report page, so no print and no export. The matching JSON writers exist and are never called. **In T1-10.** |
+| 6.12 | Annual returns GSTR-9 and GSTR-9C | PARTIAL | Both projections and both screens, reachable for a regular dealer. **Gap:** identical to 6.11 — no print, no export, dead JSON writers. **In T1-10.** |
+| 6.13 | GSTR-9A (composition annual return) | ABSENT | The only `Gstr9a` hits are engine-side: an uncalled JSON writer and two report files that mention it. No Screen member, no view model, no menu label case. |
+| 6.14 | e-Invoice (IRN) — coverage decision, offline INV-01 JSON, recording the IRP response, cancellation | PARTIAL | Coverage, prepare, record-response, cancel and reporting-age all present with desktop callers. **Gap:** **no live IRP submission** — every online connector throws from every member and one has zero construction sites — and the **IRN and signed QR never reach the printed document**, structurally, because the PDF writer has no image primitive. **= T0-9.** |
+| 6.15 | e-Way Bill — Part-A/Part-B, EWB-01 offline JSON, portal response, cancel, extend, close | PARTIAL | Eight engine entry points, all with desktop callers. **Gap:** no live NIC submission (same stub connectors); the **Consolidated e-Way Bill (EWB-02) is engine-only** — zero Desktop callers. |
+| 6.16 | GSTR-2B import, reconciliation, and IMS (accept / reject / pending) | COMPLETE | Reconciler, IMS service, JSON parser, and three routes with callers. |
+| 6.17 | ITC set-off (Rule 88A with the §49(5)(c)/(d) proviso) and cash discharge via a PMT-06 challan | COMPLETE | Both services, the GST-Actions route and the posting caller. §1.3 item 6 is its fidelity row. |
+| 6.18 | ITC reversal posting (Rules 37/37A/38/42/43, §17(5)) and the reversal report | COMPLETE | Service, the 3B reversal tables, and both routes. |
+| 6.19 | Advanced-GST read-only screens — Electronic Ledgers, ITC Set-Off view, ITC Gate, QRMP/IFF, GST Amendments, e-Invoice/e-Way Status | PARTIAL | All six exist and all six dispatch. **Gap:** all six are **output dead ends** — none writes a file and none is a report page, so none can be printed or exported. QRMP is a PMT-06 advisory only; its IFF rows are a window view, not an upload artefact. **In T1-10.** |
+| 6.20 | DRC-03 voluntary payment / demand discharge | ABSENT | 🔴 The **engine verb exists and is complete** — a deposit-service posting method with its own record type — and `Drc03` returns **zero hits across all of `src/Apex.Desktop`**. No Screen member, no view model, no menu case. Reachable only by JSON/XML import. Filed as **T2-9.** |
+| 6.21 | Zero-rated supplies — exports, SEZ and deemed export | PARTIAL | The enum models all six e-invoice supply categories and the INV-01 writer maps every one; export is resolved from an overseas place-of-supply code. **Gap:** the resolver never mints SEZ-with-payment, SEZ-without-payment or deemed export — the party GST block has no SEZ or deemed-export flag; no LUT/bond master; no shipping-bill capture; GSTR-1 has no 6A/6B/6C. ⚠️ **T1-13's sub-claim that "Export hard-maps to EXPWP so there is no without-payment path" is STALE** — the writer now branches EXPWP/EXPWOP on the IGST amount. |
+| 6.22 | Bill of Supply for a composition or exempt supplier on the **printed** document (§31(3)(c), Rule 5(f) declaration) | COMPLETE | 🔴 **CLOSES T0-7.** The invoice PDF branches on the bill-of-supply flag, takes its title from the shared predicate with a structural case-insensitive refusal of a TAX INVOICE title, suppresses every tax head and renders the declaration; the print projector supplies the flag and the title. **Two independent surveys measured this**, with counts (30 hits in the IO project, 34 in the print projector) against the census's "zero". |
+| 6.23 | Multiple GSTIN registrations for one company (branch / second-State) | ABSENT | Zero `MultiGstin` / `AdditionalGstin` / `BranchGstin` hits in any of the four projects; the config carries exactly one GSTIN field. In T2-2. |
+| 6.24 | Input Service Distributor (ISD) — credit distribution and the ISD return | ABSENT | The only `Isd` token in `src/` is a GSTR-2B inbound document-type enum member and the parser branch that reads it. No distribution service, no ISD invoice, no ISD return, no Screen, no menu row. In T2-2. |
+| 6.25 | GST Classification / Nature-of-Transaction master | ABSENT | No such master exists. The ledger GST classification is an engine-managed value object explicitly excluded from user editing. No Screen member, no view model, no Create-menu row. In T2-3. |
+| 6.26 | Kerala Flood Cess | ABSENT | 🔴 **Resolved 2026-08-18 — this was one of the eight cannot-tell rows and no survey covered it.** Zero `flood` hits over `src/`; the only `Kerala` hit is a state-name row in `IndianState.cs`. No cess type, no rate, no computation. **Recommend the user consider moving this row to §3 (obsolete by law)** — the levy is believed to have lapsed, and that lapse is **not verified here**; it is a user call under §3's own rule, not a unilateral move. |
+| 6.27 | F11 TDS enablement + deductor profile (TAN, deductor type, responsible person, surcharge and cess flags) | COMPLETE | Bound fields and the enable path that seeds the Nature-of-Payment masters and the payable ledger. |
+| 6.28 | Nature of Payment (TDS section) master — create / alter / delete | PARTIAL | Create exists and eight sections are seeded. **Gap:** 🔴 **CREATE ONLY, and the seeded masters are immutable by design** — the screen's own doc says it does not edit a seeded nature. **Consequence worth naming: T0-6's blog-sourced rates cannot be corrected by a user in-app**, so the seed's claim that a Finance-Act change is "a data edit, not a code change" is true only of the C# source. Filed as **T1-21.** |
+| 6.29 | TDS deduction at voucher entry — carve-out, PAN vs §206AA no-PAN rate, single-transaction and FY-cumulative thresholds | PARTIAL | Engine computation with the live advisory panel and two accept-path callers. **Gap:** **§194Q deducts on the whole transaction value** rather than the excess over the threshold — nothing subtracts the threshold from the base. **= T0-1.** |
+| 6.30 | TDS Stat Payment (deposit of accrued TDS Payable against a challan) | COMPLETE | Service, screen, Ctrl+F route and dispatch. |
+| 6.31 | TDS Challan Reconciliation (deposits vs deductions per section) | PARTIAL | Engine report and screen with an Alt+R route. **Gap:** **no output** — the view model has no export path and is not a report page, so it can be neither printed nor exported. **In T1-10.** |
+| 6.32 | Form 26Q quarterly TDS return and the FVU flat file | COMPLETE | Report, writer, screen with folder/name knobs, and a save-and-return arm. |
+| 6.33 | Form 16A (TDS certificate) and Form 27A (TDS cover) | COMPLETE | Both reports, both PDF writers, both screens with export knobs, both routes. |
+| 6.34 | TDS exception and outstanding reports — Outstandings, Not Deducted, interest u/s 201(1A), Nature-of-Payment Summary | COMPLETE | Four report kinds on the report base, therefore printable and exportable. |
+| 6.35 | The TDS long tail — ~14 further sections, Form 27Q, §197 lower/nil certificates, §234E, Form 16B / 26QB | ABSENT | Per-term greps return zero for each section identifier; the two hits for "27Q" are a GSTIN inside a comment and a form-number rename entry; §197 exists only as an always-null field with **no writer anywhere**. **In T2-2.** |
+| 6.36 | F11 TCS enablement + Nature of Goods (§206C) master | PARTIAL | Enable path and the master, with eight collection codes seeded. **Gap:** same create-only immutability as 6.28; and **§206C(1G)** (LRS remittances / overseas tour packages) is entirely absent — zero hits. |
+| 6.37 | TCS collection at entry, TCS Stat Payment, Forms 27EQ / 27D / 27A(TCS), and the four TCS exception reports | COMPLETE | Collection service with three callers, deposit service and screen, three certificate screens each with export, four report kinds. |
+| 6.38 | TCS Challan Reconciliation | PARTIAL | Report and screen exist. **Gap:** no print and no export, exactly as 6.31. **In T1-10.** |
+| 6.39 | §192 salary TDS — annual estimate, old/new regime slabs, §87A rebate, surcharge, §206AA no-PAN floor | PARTIAL | Slab engine consumed inside the monthly payroll run, gated by an F11 flag. **Gap:** 🔴 the **4% Health & Education Cess it applies to a live salary deduction is unsourced for FY 2026-27 by the code's own remark**, which records that a full-text search of the Finance Act found no cess levy in the relevant Part. **= T0-5, a standing user decision.** |
+| 6.40 | Form 12BB per-employee income-tax declaration master | COMPLETE | Create **and edit** — it loads an existing declaration for the picked employee. The "other fields captured but ignored" note is regime-correct behaviour, not a gap. |
+| 6.41 | Form 24Q (quarterly salary-TDS return) and Form 16 (salary TDS certificate) | COMPLETE | Both reports, both screens with deterministic offline export, both routes gated on the salary-TDS flag. |
+| 6.42 | Form 12BA (statement of perquisites) | ABSENT | Exactly one `12BA` hit in `src/` and it is a form-number rename entry in the vocabulary map. No report file, no Screen member, no view model, no menu case. In T2-2. |
+
+#### Area 7 — Payroll · 21 rows · 6 complete / 10 partial / 5 absent
+
+> **🔴 THE OLD TABLE ALLOWED THIS AREA ZERO ABSENT CAPABILITIES TOO.** Five are evidenced below.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 7.1 | F11 Maintain Payroll / Enable Payroll Statutory | COMPLETE | Both flags, the enable/disable service pair, and the three menu surfaces they gate. |
+| 7.2 | Employee master (identity, group/category, PAN/Aadhaar/UAN/ESI, PF, bank, elected regime) | PARTIAL | 24 domain members and 24 bound fields, reachable under Payroll Masters. **Gap:** **create only** (7.16); and 🔴 **`Employee.DateOfLeaving` is unreachable from the UI** — zero hits across all of `src/Apex.Desktop` — while **three engines read it** (gratuity provision, the bonus register's year clip, the ESI last-working-day). A leaver keeps accruing indefinitely. Filed as **T0-13.** |
+| 7.3 | Employee Category and Employee Group masters (hierarchical) | PARTIAL | Both domain types, both services, both screens, both routes. **Gap:** create only (7.16). |
+| 7.4 | Payroll Unit master (simple and compound) | PARTIAL | Type, screen, route. **Gap:** create only (7.16). |
+| 7.5 | Attendance / Production Type master | PARTIAL | Four kinds modelled; screen and route present. **Gap:** create only; and **nothing seeds the standard types** — zero `AttendanceType` hits in `src/Apex.Ledger/Seed` — so Present / Absent / Leave must be typed by hand on every new company. |
+| 7.6 | Pay Head master (ten pay-head kinds × five calculation kinds, slab bands, statutory tagging) | PARTIAL | Both enums complete; a 717-line screen; consumed by the computation service. **Gap:** create only — a mistyped rate or a wrong Under-group on a pay head is permanent. |
+| 7.7 | Salary Details — the per-employee salary structure | PARTIAL | Domain, service and a 512-line screen with amount gating; read at payroll time as the structure in force. **Gap:** create only. |
+| 7.8 | Attendance / Production voucher | PARTIAL | Record path with a screen that writes every non-blank row and persists. **Gap:** 🔴 **a wrong-money route not in any register before today.** The engine's delete method has **zero Desktop callers**; the record method **always appends a new entry** with no dedupe on employee+type+period; and the computation **sums every matching entry**. Re-recording a period silently **doubles** the attended units behind an On-Attendance or On-Production pay head, with no in-app undo. Filed as **T0-12.** |
+| 7.9 | Payroll voucher — compute the period breakdown and post the balanced integrated entry | COMPLETE | 🔴 **THIS CONTRADICTS T1-4 AND THE CONTRADICTION IS MEASURED.** The opener gates **only** on the payroll-enabled flag; the posting service selects the type by base kind and **never calls the type resolver and never tests `IsActive`**, so the inactive seed cannot block it. Ctrl+F4 is genuinely bound, intercepted before bare F4. **Residual:** the seeded type is still inactive, so Payroll is excluded from the Day-Book Alt+A picker, which filters on active types — a menu-surface gap, not an unreachable posting path. |
+| 7.10 | Provident Fund — EPF/EPS split, wage ceiling and higher-wages opt-in, ECR 2.0 file, the A/c 1/2/10/21/22 challan | COMPLETE | Service, config, enrolment, monthly evaluation, report, ECR writer, route and config UI. §1.3 item 5 is its fidelity row. |
+| 7.11 | ESI — coverage and contribution-period logic, EE/ER rates, monthly contribution report and offline file | COMPLETE | Service, computation callers, report, writer, route and config UI. |
+| 7.12 | Professional Tax — state slab tables, the February over-charge, gender-scoped exemption, the annual cap, and the deduction register | COMPLETE | Service, config types, monthly-then-capped computation against the prior-FY total, register with export, route and config UI. |
+| 7.13 | Gratuity provision register | PARTIAL | Service, config, the posting role, and the report, surfaced when the config is set. **Gap:** **no output** (not a report page, no export path); and its active-employee filter reads `DateOfLeaving`, which no UI can set (7.2) — so it keeps provisioning for staff who have left. |
+| 7.14 | Statutory Bonus register (8.33% floor, calculation ceiling, pro-rating) | PARTIAL | Service, config, report, route and config UI. **Gap:** identical pair — no print, no export; and the eligibility window is clipped on `DateOfLeaving`, which no UI can set. |
+| 7.15 | Payroll presentation reports — Payslip (with a dedicated PDF), Pay Sheet, Payroll Register, Attendance Register, Payment/Bank Advice | COMPLETE | Five report kinds on the shared report base, so all five print and export; the Payslip additionally renders its own de-branded PDF. |
+| 7.16 | Alter and Delete on the payroll masters — all eight kinds | ABSENT | 🔴 **Stated once, as a capability in its own right rather than eight coincidences.** `ForAlter` exists in exactly three master view models tree-wide and **none is a payroll master**; every one of the eight payroll master view models returns zero for `Alter` and `Delete`. The payroll service **advertises** create/alter/delete in its own doc comment and nothing reaches the last two. Sole exception on the alter side: the income-tax declaration reloads an existing declaration — and it too has no delete. |
+| 7.17 | Payroll job rates and cost-centre allocation of payroll cost | PARTIAL | 🔴 **Resolved 2026-08-18 — one of the eight cannot-tell rows, uncovered by any survey.** Job/piece rates **exist**: the On-Production calculation kind is offered on the Pay Head master and the computation sums production entries. Cost-centre allocation of payroll cost is **absent** — zero `CostCentre` and `CostAllocation` hits in `PayrollComputationService.cs`, `PayrollVoucherService.cs` and `Employee.cs`. |
+| 7.18 | NPS pay head (employee §80CCD(1B) / employer §80CCD(2) as a payroll component) | ABSENT | No NPS member on the pay-head kind enum, no statutory-component analogue, no computation. The three `nps` hits are incidental: one doc comment and two places where employer-NPS is a **declared** figure feeding the §192 estimate — not a pay head that posts. In T2-2. |
+| 7.19 | Labour Welfare Fund deduction | ABSENT | Case-insensitive greps for the full phrase and the abbreviation return zero across all four projects. No domain type, no component, no config field, no report. In T2-2. |
+| 7.20 | PF statutory returns beyond the ECR — Forms 3A, 5, 6A, 10, 12A | ABSENT | Zero hits for each form identifier. The reports directory holds the ECR projection and nothing else PF-shaped; no Screen member, no menu case. In T2-2. |
+| 7.21 | ESI statutory returns — Forms 3, 5, 6 | ABSENT | Zero hits. The only ESI artefacts are the monthly contribution projection and its offline writer; no return form exists. In T2-2. |
+
+#### Area 8 — Banking · 10 rows · 1 complete / 4 partial / 5 absent
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 8.1 | Bank Reconciliation (BRS) — pick a bank ledger, key a Bank Date per line, Books-vs-Bank balances | PARTIAL | Engine build/transactions/set-date with uncleared movements subtracted; screen, menu row, button-bar entry and the editable Bank Date column. **Gap:** the reconciliation date is derived and not settable; **no print and no export** (a page column, so it is not a report context); no reconciled/unreconciled toggle; no BRS opening date on the bank-ledger master and no Alt+R-from-the-ledger route. **In T1-10.** |
+| 8.2 | Bank Allocation on a bank line — transaction kind, instrument number and date | COMPLETE | Domain type carried on the entry line, captured per line with the panel auto-shown for a bank ledger, posted, and consumed by the reconciliation. |
+| 8.3 | Import a bank statement and auto-reconcile against the book | PARTIAL | CSV parse plus signed-amount-and-instrument matching with a date tolerance, first-fit, stamping the Bank Date; screen, route and menu row. **Gap:** CSV only — no bank-specific formats and no saved format configuration; no per-row manual match/unmatch or un-reconcile; no print or export of the result. ⚠️ **The arithmetic is still unverified** (§6 item 8). |
+| 8.4 | Cheque printing — print a cheque from a bank payment | ABSENT | 🔴 **Textbook dead field, unchanged at HEAD.** The two ledger properties exist, persist and round-trip through the canonical and SQLite layers — 17 hits, **every one of them Domain, Io or Sqlite** — with **zero** hits in `src/Apex.Desktop` and zero in any print path. No cheque layout, template or renderer of any kind. **= T1-14.** ⚠️ **Area assignment ambiguous** — one survey placed this under Printing; counted **once, here**, because Tally's own Banking menu carries it. Area 12 holds an uncounted cross-reference. |
+| 8.5 | Cheque Register | ABSENT | Zero hits for the identifier and the phrase. No report kind, no Screen member, no menu row — the Banking column holds exactly two rows. **= T1-14.** |
+| 8.6 | Deposit Slip (the bank pay-in slip) | ABSENT | Zero hits for the identifier and the phrase — no type, no report kind, no Screen, no menu row, no print projector. **= T1-14.** |
+| 8.7 | Banking Payment Advice (the supplier-payment advice letter) | ABSENT | The only payment advice in the tree is the **payroll** bank advice, with employee/bank/IFSC/net-pay columns, surfaced under Payroll Reports. Nothing under Banking produces a supplier advice. **= T1-14.** |
+| 8.8 | Post-dated cheque management (PDC summary, PDC-to-cleared transition) | PARTIAL | ⚠️ **The old table's integers imply ABSENT; PARTIAL is recorded.** The flag half is real — the Ctrl+T flag on both entry screens, the balance exclusion, and the instrument date on the bank allocation. **Gap:** no post-dated summary or register anywhere; **no route to clear the flag when the cheque matures**; no PDC cheque printing. Shares 5.8's one-way-flag defect (**T1-18**). |
+| 8.9 | A unified Banking menu (Gateway → Banking) | PARTIAL | 🔴 **Resolved — one of the eight cannot-tell rows.** The menu member, its column builder, the show method and both dispatch sites all exist. **Gap:** it carries exactly **two** rows (Bank Reconciliation, Import Bank Statement); the other Tally banking rows have no row because they have no code. |
+| 8.10 | e-Payments / bank payment-instruction file | ABSENT | Zero hits for the identifier and the phrase over `src/`. No exporter, no Screen member, no menu row. |
+
+#### Area 9 — Inventory / manufacturing / job work (post-7.2) · 9 rows · 4 complete / 1 partial / 4 absent
+
+> **Uncounted cross-references:** *Bill of Materials master → 3.9*; *Additional Cost of Purchase → 3.15*;
+> *Actual-vs-Billed → 3.14*. All three were named here by one survey and under Inventory masters by another.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 9.1 | Job Order Processing — the F11 toggle and its four voucher kinds | COMPLETE | The service flips the company flag **and** activates the four seeded-inactive kinds, stamping the job-work and consumption flags; the F11 handler drives it with a rollback on failure; four menu rows gated on the flag. |
+| 9.2 | Job Work order entry and Material In/Out movement entry | PARTIAL | Three entry view models posting through the inventory posting service, with the movement valuation in the job-work service. **Gap:** entry only — with no voucher alteration anywhere (5.1), a mis-keyed order or movement can be neither corrected nor (per T1-17) cancelled or deleted. |
+| 9.3 | Job Work registers — In Order Book, Out Order Book, Material In Register, Material Out Register | COMPLETE | One engine report file with per-component pending arithmetic; four menu rows under their own header, surfaced only while the F11 flag is on. Existence and reachability only — content never compared to Tally. |
+| 9.4 | Manufacturing Journal (BoM-driven production voucher) | COMPLETE | Service, entry screen, menu row with the Alt+F7 hint gated on the BOM flag, and an opener that auto-creates the user type over the Stock Journal parent. |
+| 9.5 | POS invoicing (multi-mode tender, POS register, POS receipt) | COMPLETE | Tender service, register projection, receipt PDF and data, billing screen, two menu rows, and an opener also reached when a POS-flagged Sales type is chosen. |
+| 9.6 | Job Costing | ABSENT | 🔴 **Resolved — one of the eight cannot-tell rows.** Case-insensitive search of every `.cs` and `.axaml` in `src/` for the phrase and the identifier returns **zero**. No service, no view model, no Screen member, no report file, no menu row. |
+| 9.7 | Item Cost Tracking | ABSENT | 🔴 **Resolved — one of the eight cannot-tell rows.** Case-insensitive search returns exactly one hit and it is unrelated (a comment about *additional*-cost tracking). No type, no screen, no report, no menu row. |
+| 9.8 | Tracking Numbers linking Receipt Note ↔ Purchase and Delivery Note ↔ Sales | ABSENT | Zero `TrackingNumber` identifiers anywhere in `src/`; the two "Tracking No" strings are doc comments quoting the corpus. Order fulfilment is **inferred** by a FIFO walk over candidate movements, so there is no operator-entered tracking datum. **= T1-8.** |
+| 9.9 | Transfer Journal as a **named** voucher kind | ABSENT | 🔴 **Resolved — one of the eight cannot-tell rows.** Zero hits for the phrase and the identifier. **Read this precisely:** the *function* is partly covered — an inventory line carries a godown with an in/out direction and the posting service handles the Stock Journal base kind with its own balance guard, so inter-godown movement **is** expressible. What is absent is the separately named kind. |
+
+#### Area 10 — Accounting features (post-7.2) · 2 rows · 0 complete / 0 partial / 2 absent
+
+> **This is the one area where the new list AGREES with the superseded table exactly** (`2 · 0 / 0 / 2 / 0`).
+> The agreement is on a reconstruction, though — the old table named neither row.
+
+| # | Capability | State | Evidence |
+|---|---|---|---|
+| 10.1 | Credit Limits on a ledger, with the over-limit block on voucher save | ABSENT | Case-insensitive search of every `.cs` and `.axaml` in `src/` for the identifier and the phrase returns **zero**: no domain property, no persistence column, no view-model field, no guard in the validator. ⚠️ Also named under Accounting masters by a second survey; counted **once, here**, per §1.1 rule 3 (earliest product that shipped it). In T2-3. |
+| 10.2 | Multi Address (multiple mailing / shipping addresses per company and per ledger) | ABSENT | Zero hits for every spelling and for an address-book type. The party address is a single flat block of four columns and the company address a single block; no address-list type, no per-voucher address picker. In T2-3. |
+
+#### Area 11 — Reports · 17 rows · 2 complete / 12 partial / 3 absent
+
+> **🔴 THE OLD TABLE ALLOWED THIS AREA ZERO ABSENT CAPABILITIES.** Three are evidenced below, each on a
+> zero-hit search, and they survive §1.1 rule 2's family compression rather than hiding inside it.
+> **Uncounted cross-reference:** the *report button-bar options* and the *graphical dashboard* → **14.5** and
+> **14.3**; one survey placed both under Reports.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 11.1 | Balance Sheet (Liabilities/Assets, net-profit fold, closing-stock basis) | COMPLETE | Type, report kind, Gateway row, dispatch, drill to the ledger book, Alt+F1 group roll-up, comparative columns, print and export. |
+| 11.2 | Profit & Loss A/c (Trading + P&L with Gross Profit) | PARTIAL | Type with opening/closing stock and both profit figures; route and builder verified. **Gap:** the **Alt+F1 summary is degenerate** — the line record carries no group name, so the roll-up keys on the section header and collapses each side to **one** row, where the reference product rolls up to group level. No vertical form. |
+| 11.3 | Trial Balance (ledger-wise with group roll-up) | COMPLETE | Type with both overloads, route, builder and roll-up. **Divergence noted, not a gap:** our default is detailed (ledger-wise) where the reference product opens group-wise and Alt+F1 expands. |
+| 11.4 | Day Book | PARTIAL | Type, Gateway row, dispatch, builder, drill to voucher detail, cancelled rows flagged in text and colour. **Gap (a):** a single Amount column — the row record has one money field and no Dr/Cr split; no voucher-kind filter; no show-narration or show-inventory-details toggles. **Gap (b), and it is the biggest structural finding of the 2026-08-18 re-derivation:** the builder iterates the **accounting** voucher collection only, and eight of area 4's kinds post to a **second, separate** collection — so they never appear here. Because the Day Book is the only surface that sets the drill target and the only Alt+X surface, that one fact is also why those eight have no cancel, no delete and no drill. Filed as **T1-17.** |
+| 11.5 | Account Books family — Cash Book / Bank Book / Ledger | PARTIAL | Column builder, three pickers, three show methods, an opener, the ledger-book projection and cash/bank classification. **Gap:** the family ships three books and **none of its registers** — see 11.6 and 11.7, which are counted separately rather than hidden inside this row. |
+| 11.6 | Sales / Purchase / Journal / Credit Note / Debit Note Registers | ABSENT | Per-name greps over `.cs` and `.axaml` return **zero** for each. The single "Sales Register" hit is a prose comment; all `JournalRegister` hits are the **Reversing** Journal Register. No report kind, no Screen member, no Gateway row, no case in the ~180-case menu dispatch. **In T2-1.** |
+| 11.7 | Group Summary / Group Vouchers | ABSENT | Zero hits for the identifier and the phrase. No report kind, no menu row, no dispatch case. **In T2-1.** |
+| 11.8 | Statistics (voucher and master counts) | ABSENT | Zero hits over `.cs` and `.axaml`. No type, no report kind, no menu row. **In T2-1.** |
+| 11.9 | Statements of Accounts — Outstandings (Receivables / Payables) with ageing buckets | PARTIAL | Bill record with overdue days, bucket type, default buckets and the build; column builder, two dispatch cases and an opener. **Gap:** it is a **dedicated page Screen**, so the report context is null and that single fact switches off **print, export, drill, F2/Alt+F2 period, F12 config, Alt+F12 sort/filter and Alt+K saved views at once**. Also no ledger-wise or group-wise view, no reminder letter, no confirmation of accounts (12.7). **In T1-9 and T1-10.** |
+| 11.10 | Statements of Accounts — Cost Centre reports (Category Summary, Cost Centre Break-up) | PARTIAL | Engine reports, column builder, two dispatch cases, view model. **Gap:** the same dead end as 11.9 — dedicated Screen, no print, no export, no drill, no period or config panel. |
+| 11.11 | Statements of Accounts — Interest Calculation, Forex Gain/Loss, Budget Variance | PARTIAL | Three engine reports, three routes, three view models. **Gap:** all three are dedicated Screens with the same six gestures off; none carries a bespoke export. |
+| 11.12 | Inventory Books / Statements of Inventory (Stock Summary, Godown Summary, Stock Movement, Reorder Status, Batch-wise, Batch Age Analysis, Price List, five inventory registers, Order Register, POS Register, four Job Work books) | PARTIAL | Ten engine report files, one column builder with conditional sub-sections, and the report-kind builders. **Gap:** absent from the family, each on a zero-hit grep — **Stock Query, Movement Analysis, Stock Ageing** (the batch report is an **expiry** report, not an age-of-stock bucket report), **Stock Category summary** (every "Category Summary" hit is a **cost** category), **Sales/Purchase Order Summary, Bills Pending**. Only two of the inventory kinds drill; the other fourteen are dead ends. **In T2-1.** |
+| 11.13 | Exception Reports (Negative Stock, Negative Cash/Bank, Memorandum Register, Reversing Journal Register) | PARTIAL | Four engine reports, a column builder, four dispatch cases and two builders. **Gap:** four of the reference product's ~nine. Absent on zero-hit greps: **Optional Voucher register, Post-Dated Voucher register, Cancelled Voucher register** (the flag now exists on the voucher and in the Day Book row, and nothing lists them), overdue receivables/payables exception views. **Dead field:** the memorandum row record carries a voucher id that the builder never assigns to the drill target, so Enter on a memo row is inert. **In T2-1.** |
+| 11.14 | Cash Flow / Funds Flow / Ratio Analysis | PARTIAL | Three engine reports, a column builder, three dispatch cases and three builders. **Gap:** no drill (not in the drill switch), no comparative columns (the comparative map covers four kinds only); **Cash Flow Projection is absent** on a zero-hit grep. |
+| 11.15 | Report drill-down (Enter / double-click on a row) | PARTIAL | The drill switch handles exactly **6 of the 45** report kinds; for the **32** dedicated report Screens the string "Drill" occurs in only four files under the view-model directory and **none of them is a dedicated report view model**, so **0 of 32** drill. **= T1-9, CONFIRMED unchanged at HEAD.** |
+| 11.16 | Report parameters — F2 as-of, Alt+F2 period, Alt+F1 detailed/summary, F12 configure, Alt+F12 sort & filter, Alt+K saved views | PARTIAL | Four option types and three view models; every entry point gated on the report context. **Gap:** available on the 45 report kinds only. The report context requires a non-null `Reports`, which the sub-screen clear nulls for all 32 dedicated report screens — so GSTR-4/9/9C, ITC, both challan recons, BRS, Outstandings, Cost, Budget, Interest, Forex and the payroll and TDS certificate screens have no period control, no configuration and no saved views. |
+| 11.17 | Multi-period / multi-column comparison (Alt+C New Column, Alt+N Auto Columns) | PARTIAL | Comparative type, two view models, two Screens, both gated on a supports-comparative predicate. **Gap:** the comparative map covers **4 of the 45** kinds and **0 of the 32** dedicated screens; Auto Columns offers a monthly axis and a scenario axis only. |
+
+#### Area 12 — Printing · 9 rows · 1 complete / 3 partial / 5 absent
+
+> **Uncounted cross-reference:** *cheque printing* → **8.4**. The five-document group one survey wrote as a
+> single Printing row is split here: deposit slip → **8.6**, banking payment advice → **8.7**, and the
+> remaining three are 12.7.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 12.1 | Print Preview of a report and Save-to-PDF (P / Ctrl+P) | PARTIAL | Route, key binding, Screen, preview view model, report projector, print model, report PDF and the PDF writer. **Gap, four of them, and two are new findings:** (a) reachable only on the 45 report kinds plus a drilled voucher — the 32 dedicated screens are excluded (**T1-10**); (b) 🔴 **every wide report prints with BLANK column headings** — the print projector hard-labels column 1 and emits an **empty caption** for columns 2..n, while the real captions exist only in the **export** twin, so a printed Stock Summary or Order Register has no headings while its CSV of the same data does (filed as **T1-19**); (c) Save PDF has **no file dialog** — it writes to Documents under a title-derived name and silently overwrites (**T1-20**); (d) all text is ASCII-folded (every character above code point 126 becomes a hyphen) and cells are ellipsis-clipped rather than wrapped. ⚠️ One survey additionally **predicts** crore-scale figure truncation on an 8-column A4-portrait report from the writer's own width table; it says explicitly it did **not** render a PDF to confirm it, and it is recorded here as a prediction, not a measurement. |
+| 12.2 | Print a voucher / tax invoice from a drilled voucher | PARTIAL | The detail view model selects an invoice or a plain voucher projection; invoice PDF, voucher PDF, print projector and print data all present. **Gap:** **Sales-only** — the tax-invoice predicate returns false unless the base kind is Sales, so Purchase item-invoices, Credit Notes and Debit Notes fall back to the plain Dr/Cr print (**T0-11**); and no IRN or signed QR on an e-invoiced supply (**T0-9**), structurally impossible while the writer has no image primitive (12.8). *(The Bill-of-Supply half of this path is counted at 6.22 and is COMPLETE.)* |
+| 12.3 | Print configuration (F12 title override, narration on/off, copy marking) and page setup | PARTIAL | Config types with the Rule 46 copy labels, page size/orientation/margins/font sizes, route, Screen, key binding and view model. **Gap:** the config is **voucher/invoice only**, so a **report** print has no configuration beyond the page-size and orientation toggles; no margin control in the UI; company logo explicitly deferred. |
+| 12.4 | Print format selector (Neat / Quick / Condensed / Dot-Matrix / Pre-Printed), number of copies, page range | ABSENT | Zero grep hits over `src/` for every one of those identifiers and phrases. ⚠️ One survey named this as a distinct absent capability in its prose while folding it into 12.3's gap column; it is given its own row here so the absent count is not understated. |
+| 12.5 | Physical printer output (printer selection, print job, spooler) | ABSENT | Zero lines over `.cs` and `.axaml` for the dialog, settings, printing namespace, spooler, queue and ticket identifiers. There is no printer abstraction, no device enumeration and no spool call anywhere. "Print" means render a PDF into a byte array and write it to a file. **= T2-5.** |
+| 12.6 | Multi-account printing / multi-voucher (range) printing | ABSENT | Zero grep hits for the identifiers and phrases. Nothing iterates a set of accounts or vouchers into one print job — the opener builds exactly one preview from exactly one report or one drilled voucher. **In T1-14.** |
+| 12.7 | Delivery challan, reminder letter, confirmation of accounts | ABSENT | Zero hits for the reminder-letter and confirmation-of-accounts phrases; the nine "Delivery Challan" hits are all e-Way-bill document-kind prose, and no printable challan exists. **In T1-14.** *(Deposit slip and banking payment advice are 8.6 and 8.7.)* |
+| 12.8 | Print engine capability floor — raster images, embedded fonts, colour | ABSENT | The PDF writer's entire public surface is begin-page, text, line, page-count and build. Zero hits in that file for any image, compression or font-embedding identifier; fonts are the standard-14 faces with no embedding. **Consequence: no logo, no QR, no barcode, no non-Latin script and no colour fill, ever, without replacing the writer.** **= T2-4**, and it is what blocks T0-9. |
+| 12.9 | Payslip / POS receipt / TDS-TCS certificate document printing | COMPLETE | Five renderers, each with a verified caller: the payslip PDF from the preview construction, the POS receipt PDF, and the Form 16A / 27A / 27D PDFs from their screens. **Narrow scope:** COMPLETE for those five documents, not for document printing generally. |
+
+#### Area 13 — Data management (import / export / backup / e-mail) · 10 rows · 2 complete / 6 partial / 2 absent
+
+> **Held out of the denominator by §4 (excluded by decision), listed so the reader knows they were measured and
+> not overlooked:** Split Company Data — **ABSENT** (zero hits); Group Company consolidation / merge —
+> **ABSENT** (the only "Group Company" hits are three doc comments); Repair / Rewrite / Verify — **ABSENT** (the
+> one integrity check in the tree runs inside the backup payload and is never a user command); TallyVault —
+> **ABSENT** (the single case-insensitive "vault" hit is a comment saying it stays excluded).
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 13.1 | Backup the open company to a versioned archive | COMPLETE | A real SQLite **Online Backup API** snapshot — not a file copy — verified with an integrity check, zipped with a schema-stamped manifest; screen flushes the aggregate first; route, menu row and an Alt+Y button-bar row. ⚠️ The version-gap audit's *"Backup / Restore — absent as such"* row is **STALE** and must not be cited. |
+| 13.2 | Restore an archive over a company | PARTIAL | Staged beside the target with format, schema and checksum refusals before anything is touched; a two-step examine-then-apply screen with its own post-restore validity check and a pre-restore safety copy. **Gap, and it is WIDER than T1-7 states:** it can only ever restore **into the company already open**. Two independent locks — the opener returns early with no company and the Data menu bounces to Company Select, so on a machine with zero companies there is no route in at all; **and** the target-name property has **zero bindings in the XAML**, so even with a company open the target cannot be redirected. The engine signature would allow it. **T1-7 widened.** |
+| 13.3 | Whole-company canonical export (JSON / XML) for interchange and re-import | PARTIAL | Both exporters, a screen with a format choice, an opener and a bare-key arm. **Gap: reachability only, and it is a trap.** There is **no menu row** — the Gateway's "Data" header carries exactly one child, Backup / Restore — and the Gateway header hint reads "Y: Data" while **bare Y opens Export Data and Alt+Y opens Backup/Restore**, so the one hint the screen gives points at the wrong screen. Filed as **T2-10.** |
+| 13.4 | Import into the open company (canonical JSON / XML, flat CSV) | PARTIAL | Three parsers through a validate-before-apply, transactional import service with a duplicate policy. **Gap:** (a) **no Tally-XML reader** (zero `TALLYMESSAGE` hits) and no SDF reader, so no third-party Tally data can be ingested, and no Excel reader — the XLSX support is write-only; (b) imports only **into an already-open company**, so recovering a lost book means Create Company first; (c) no menu row — a bare-key arm on the Gateway root only. **In T2-6.** |
+| 13.5 | Report and master-list export (E / Alt+E) to CSV, XLSX and PDF | PARTIAL | Route, gate, key binding, Screen, three writers and two projectors, with 26 master view models implementing the export source. **Gap:** (a) the **same report-context gate as print**, so the 32 dedicated report screens are excluded — exactly **10** of those 32 carry a bespoke per-screen export, leaving **22 with no egress in any form** (**T1-10**, figures re-verified at HEAD); (b) 🔴 **17 report kinds export with BLANK column headers** — the header map covers only 16 kinds and falls through to an empty array, so Batch-wise, Batch Age Analysis, Price List, the nine TDS/TCS kinds and the five payroll kinds emit a header row of empty strings (**T1-19**); (c) no folder browse dialog (13.10). |
+| 13.6 | Report export in HTML, XML, JSON, ASCII or JPEG | ABSENT | The export-format enum has exactly three members and the extension switch covers only those three. No other writer, no other UI option. XML and JSON exist only on the **different** whole-company surface (13.3), which exports a company file and never a report. **= T2-6.** |
+| 13.7 | E-mail a report or invoice | PARTIAL | Compose view model, EML composer and message, mailto builder, SMTP profile types and a settings screen; a button-bar row gated on printability. **Gap:** **nothing is sent and nothing can be** — zero `SmtpClient` / `System.Net.Mail` hits anywhere in `src/`, and the view model's own notice says so. Of the two documented offline hand-offs only one is reachable: the **mailto URI is computed and bound nowhere** in the XAML — a dead field of the same species as 8.4. The `.eml` goes to a fixed Documents path with no save dialog; the attachment is always PDF. **In T2-6.** |
+| 13.8 | SMTP profile capture (outgoing-mail server settings) | PARTIAL | Profile type, repository interface and a persisted table; a settings screen and a button-bar row. **Gap:** capture-only dead field — nothing in `src/` reads the saved profile to open a socket, and the screen says so itself. No password is captured, by the R13 decision. |
+| 13.9 | Automatic forward migration of an older company data format on open | COMPLETE | The schema check reads the stored version and walks the migrations upward, bumping the row each step, to the current version; it runs on every load, so any older database opens and upgrades in place. Downgrade scripts exist for round-trip tests only. |
+| 13.10 | File / folder chooser for any data path (backup destination, restore source, import source, export destination, `.eml` path) | ABSENT | 🔴 **A cross-cutting fact the census has never stated.** Searched `src/Apex.Desktop` for the storage provider, both file dialogs, the folder dialog and the picker options type — **zero hits for all five**. Every path is a typed string or a silent default to Documents. **A user restoring from a backup must type the full archive path from memory.** Filed as **T1-20.** |
+
+#### Area 14 — TallyPrime-only capabilities · 10 rows · 1 complete / 2 partial / 7 absent
+
+> **Held out by §4:** Edit Log / audit trail — **ABSENT** (zero hits for all four spellings).
+> **NOT COUNTED, and deliberately so: the Miller-column cascade.** It is **built, reachable and universal** —
+> menu-versus-page columns with the bare-letter rule, and every screen opened as a new column. It is **ours, a
+> divergence from TallyPrime's single-screen + Go To model**, not a TallyPrime capability, so counting it would
+> inflate this area's COMPLETE column. One survey counted it and then said in its own notes that counting it
+> honestly gives 2 rather than 4; ⚠️ its own rows give **3** with it and **2** without. It is excluded here.
+> **Uncounted cross-references:** *online e-Invoice* → **6.14**; *online e-Way Bill* → **6.15**; *IMS* → **6.16**.
+
+| # | Capability | State | Evidence · gap |
+|---|---|---|---|
+| 14.1 | Go To (Alt+G) — the jump-anywhere overlay | ABSENT | **Zero occurrences of `Key.G`** in the whole of `src/Apex.Desktop`, and zero for the identifiers and phrases. No view model, no Screen member, no menu row, no key arm. **In T2-7.** |
+| 14.2 | Switch To (Ctrl+G) — between simultaneously loaded companies | ABSENT | Absent **and structurally impossible**: the shell exposes a single nullable `Company` and the open path **replaces** it. There is no collection of loaded companies to switch between — zero hits for either candidate field. **In T2-7.** |
+| 14.3 | Graphical dashboard / any chart at all | ABSENT | Zero chart identifiers in `src/`, and **zero `<Polyline>`, `<Path>`, `<Canvas>` or `<PathGeometry>` elements in the ~16,000-line main view**. The only "dashboard" hits are IMS prose and a comment describing Ratio Analysis as a flat label/value dashboard. **Directly contradicts `plan.md`'s claim of a delivered graphical dashboard** (already a Tier 3 row). **In T2-7.** |
+| 14.4 | More Details (Ctrl+I) — the optional-field side panel | ABSENT | Zero identifiers and zero phrase hits. **The chord is taken**: Ctrl+I is the item-invoice toggle and Alt+I the POS payment-mode toggle. **In T2-7.** |
+| 14.5 | The standard report button-bar options — Change View, Basis of Values, Monthly Summary, Value Range, Scale Factor, Vertical Balance, number-of-decimals, Alt+U Unhide | ABSENT | 🔴 **SURVEY DISAGREEMENT, RECORDED.** Both surveys agree **none of the eight exists**: per-term greps return zero, and the only "Basis of Values" hits are three doc comments explaining why Ctrl+B was deliberately **not** bound. Alt+U is unbound; the Ctrl+H report arm does not exist (that chord is voucher-mode only). One survey graded the row **PARTIAL** on the ground that a context-rebuilt button bar **does** exist and that two adjacent options have real counterparts — **but those two are counted separately at 11.16 (F12 report config) and 11.17 (Alt+N Auto Columns)**, and the bar's actual contents are our own app-wide quick-jumps, not the open report's options. **ABSENT is recorded for the eight named options**, with the disagreement stated rather than reconciled away. **In T2-7.** |
+| 14.6 | Save View (capture a report's configuration under a name) | PARTIAL | Persisted per company, config-only capture (never a computed figure), on a Ctrl+S arm guarded by the report context. **Gap:** the same context gate as export and print — a view cannot be saved on any dedicated report Screen. |
+| 14.7 | Saved Views list (open or delete a saved view) | PARTIAL | Per-company list; open re-applies the config and recomputes; delete removes. **Gap:** **no menu row anywhere** — the only two hits for the label are doc comments — so the list is reachable **only** by pressing Alt+K while already standing on a report-kind surface. You cannot reach your saved views from the Gateway. And this binding is what **consumes Alt+K**, which in TallyPrime is the Company menu (14.9). |
+| 14.8 | Chart of Accounts (TallyPrime's renamed master browser) | COMPLETE | View model, Screen member and backing field, a Gateway → Masters page row, and it implements the master-list export source so it exports. Existence and reachability only — its column set has never been compared to Tally's (§6 item 2). |
+| 14.9 | Company menu (TallyPrime's Alt+K: Create / Alter / Select / Shut Company) | ABSENT | No company-menu column is built anywhere in the root builder, and **Alt+K is already consumed by Saved Views** (14.7). Create and Alter are reached instead from Company Select and a Masters row. §1.3 row 9 records the company menu as **owed, not refused**; this confirms it is still owed at HEAD. |
+| 14.10 | WhatsApp sharing of a document | ABSENT | Case-insensitive search for the name across every `.cs` and `.axaml` in `src/` returns zero. No service, no button-bar row, no Screen member. |
+
+
+#### 1.2b WHAT MOVED BETWEEN THE TWO TABLES, AND WHY — 🔴 THE DENOMINATOR CHANGED, SAY IT OUT LOUD
+
+**115 → 200 is not the product growing. It is three separate things, and they must not be conflated.**
+
+1. **GRANULARITY — the largest part of the move, and it is the rule's own fault.** §1.1 rule 1 defines a
+   capability as *"the granularity of a Tally menu row or an F11 toggle"*. Nobody had ever written the rows out
+   at that granularity; the 115 was assembled area by area as integers. Four of the five surveys measured
+   against rule 1 explicitly and returned **200** rows for the same product — for example Company
+   configuration, scored **4**, has nine nameable rows (creation, alteration, select, rename+delete, the F11
+   statutory page, the F11 inventory/payroll toggles, the missing F11 Accounting group, the missing global F12
+   tree, and the four per-screen F12 panels). **§1.1 rule 2's family compression is RETAINED** — Account Books,
+   Inventory Books, Statements of Accounts and Exception Reports are still one row each — so 200 is *not* the
+   "expand everything" figure. §1.1's own caveat predicted this: *"Counting them out gives a denominator near
+   200 and a worse present-ratio."* It was right.
+2. **THE ABSENT COLUMN WAS PROVABLY TOO SMALL AT ITS OWN GRANULARITY.** This is the part that makes the old
+   split *wrong*, not merely coarse. The old table allows **0** absent capabilities in Statutory, **0** in
+   Payroll, **0** in Inventory masters and **0** in Reports. Against those zeros the surveys evidence, each on
+   a zero-hit search: GSTR-1/3B portal JSON, DRC-03, GSTR-9A, multi-GSTIN, ISD, the GST Classification master,
+   the TDS long tail, Form 12BA, Kerala Flood Cess and the GST rate hierarchy (Statutory); payroll master
+   Alter/Delete, the NPS pay head, Labour Welfare Fund, the PF return forms and the ESI return forms (Payroll);
+   per-item Alternate Units and GST capture on the two group masters (Inventory masters); the five voucher-type
+   Registers, Group Summary and Statistics (Reports). **The old §2 T2-2 alone names roughly thirty such items,
+   and with zero absent slots in two whole areas every one of them had to be hiding inside a row scored
+   PARTIAL.** That is defect 3 seen from the other end.
+3. **WORK SHIPPED SINCE 2026-08-10, and it is the smallest part of the move.** **W0-2b** (company profile
+   capture + Alter Company), **S3** (voucher cancellation, Alt+X), **S4** (voucher and master deletion, Alt+D),
+   **W0-1** (Bill of Supply on the printed document — see the T0-7 row), **W0-7** (the populated fixture),
+   **W0-12/13/14/15**, and schema **v51**. Concretely: area 5's cancellation and deletion moved ABSENT →
+   PARTIAL; area 1's creation and alteration moved ABSENT → PARTIAL; area 12's Bill-of-Supply half of the
+   voucher print moved.
+
+**THE EIGHT "CANNOT TELL" ROWS ARE NOW ZERO, and six of them cost one grep each.** §6 item 7 named them:
+Actual-vs-Billed, Additional Cost of Purchase, Transfer Journal, Kerala Flood Cess, payroll job-rates /
+cost-centre allocation, the unified Banking menu, Job Costing and Item Cost Tracking. Resolved 2026-08-18 —
+Actual-vs-Billed **COMPLETE**, Additional Cost **COMPLETE**, Transfer Journal **ABSENT as a named type**
+(inter-godown movement is expressible as a Stock Journal), unified Banking menu **PARTIAL** (it exists and
+carries two rows), Job Costing **ABSENT**, Item Cost Tracking **ABSENT**. The last two were never covered by
+any survey and were resolved here: Kerala Flood Cess **ABSENT** (zero `flood` hits in `src/`; the only
+`Kerala` hit is a state-name row in `IndianState.cs`) and payroll job-rates / cost-centre allocation
+**PARTIAL** (On-Production pay heads exist; zero `CostCentre` or `CostAllocation` hits in
+`PayrollComputationService.cs`, `PayrollVoucherService.cs` or `Employee.cs`). **The undetermined column being 0
+is a statement about today, not a property of the document** — the moment a capability is added whose existence
+nobody checks, it goes back above zero.
+
+#### 1.2c 🔴 THE TOP-DOWN RECONCILIATION IS RETIRED. IT NEVER RECONCILED.
+
+The sentence that stood here read, verbatim:
+
+> *"Reconciles top-down: 90 (7.2 baseline) + 28 (ERP 9 additions in scope) + 11 (TallyPrime-only) = 129, less 8
+> obsolete-by-law, less 5 excluded-by-decision folded into the baseline, less 1 (ODBC, out of scope) = 115."*
+
+**It does not reconcile, and it never did.** §1.1 rule 5 and the two held-out sections state the held-out
+counts as **9** (§3) and **7** (§4). `129 − 9 − 7 − 1 = 112`, not 115.
+
+- **The 9-vs-8 gap IS explicable.** §3's ninth row is Fringe Benefit Tax, which §3 itself flags *"not in 7.2
+  anyway"* — so FBT was never inside the 129 and must not be subtracted from it. Subtracting **8** is correct.
+- **The 7-vs-5 gap is NOT explicable, and no explanation is invented here.** §4's own count is **7**. At most
+  one of those seven is demonstrably not a capability at all — *"Alter / Delete / Cancel shipping with no audit
+  trail"*, which is a **decision about** the absence of the three rows above it rather than a member of the
+  129. Removing it gives **6**, and `129 − 8 − 6 − 1 = 114`. Removing all seven gives `129 − 8 − 7 − 1 = 113`.
+  **Neither is 115.** No arrangement of the document's own stated counts produces 115.
+- **CONSEQUENCE, stated plainly: the 115 was never a reconciled figure.** It was an area-by-area sum with a
+  top-down check bolted on that did not close, and the discrepancy sat unread for eight days across every
+  document that quoted it. **The check is retired rather than repaired** — §1.2 is now derived bottom-up from
+  the 200 named rows in §1.2a, so there is nothing left for a top-down identity to corroborate. The three
+  inputs (90 / 28 / 11) are themselves unverified assertions of the source census and are **not** carried
+  forward.
+
+**§1.1 rule 4's "13 rows" is UNSOURCED too, and is corrected here rather than quoted onward.** Rule 4
+enumerates the architecture-excluded set inline; §4's closing paragraph enumerates it again. **The two lists
+are not the same list, and neither totals 13.** §4's list has **12** distinct names (Tally.NET, Remote Access,
+Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, multi-site/rental licensing, TDL,
+multilingual, international statutory packs). Rule 4 names three more that §4's list omits — **Data
+Synchronisation, the 7.2 data-format migration tool and the 7.2 character-grid UI**. The **union is 15**.
+Nothing downstream moves, because these rows are excluded from the denominator entirely; the mismatch is
+recorded because it is the same species of defect as the reconciliation above — a count nobody could derive
+from the list beside it. **§4's closing paragraph is the canonical list; rule 4 points at it.**
+
+### 1.3 The honest "cannot tell" bucket — and it never was 8
+
+~~The 8 in the table are capabilities whose **existence** nobody has checked. That is the small number.~~
+**AMENDED 2026-08-18:** §1.2's undetermined column is now **0** — all eight of those rows were resolved in
+§1.2b, six of them by one grep each. **That does not change this section's point; it sharpens it.** The
+undetermined column was never the honest cannot-tell number, and now that it is zero the distinction is
+impossible to blur. The real one:
 
 **Existence was measured. Fidelity was not.** All three mapping agents measured *does the code exist and can a user reach it*. Almost nothing was measured against *does it behave the way Tally behaves*. Capabilities with any sourced behavioural verification at all:
 
@@ -110,11 +618,17 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
    - **The `Accept Company? (Y/N)` prompt** (item 16) - and with it a **behaviour change on Creation**: Enter
      used to create the company outright, and now raises that confirmation first. Ctrl+A is unchanged.
    - **No `Alt+K` accelerator, and the first reason recorded for it was wrong** (item 17). It said the chord
-     "is already bound in this application". Measured: `MainWindow.axaml.cs:653` binds it as
+     "is already bound in this application". Measured: `MainWindow.axaml.cs` **line 757** binds it as
      `Key.K && Alt && vm.IsReportContext` - **report context only**, and unbound on the Gateway root column
      where this row lives. The honest reason is that the attested route is Alt+K -> a **company menu** ->
      Alter, and we have no company menu; binding the chord straight to one page would be an invented shortcut
      wearing an attested chord. The company menu is owed, not refused.
+     *(🔴 **Citation re-pointed 2026-08-18.** This sentence cited **line 653** of that file, which now holds
+     `vm.TogglePostDated();` — the Ctrl+T post-dated toggle, a different chord entirely. Re-located **by
+     content**: the only `Key.K` in the file is the `if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+     && vm.IsReportContext)` at line 757, which is what this sentence describes. **The claim is unchanged; only
+     its address moved.** Note WHY this survived: the citation test checks only that the path resolves and the
+     line is inside the file, **never that the target says what the citing sentence claims**.)*
    - **The Gateway placement** (item 17). The row shipped as a NEW "Company" section placed **above** Masters,
      which is three moves in the direction `docs/invented-vs-cloned.md` **IV-29** already catalogues as wrong
      for this menu - and it silently moved the Gateway's default keyboard highlight off Masters -> Create.
@@ -206,11 +720,33 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
         Voucher …?"* over the same *"Alt+D > Press Two times Enter"* recipe, under a path that then reads
         `Alter > Voucher type` — the source contradicts itself inside one entry. Low-quality attestation is still
         attestation.
-      - **What ships, and on what basis:** a SINGLE prompt everywhere, under standing decision **D-6**, citing
-        STUDY-GUIDE **p.67** as the supporting attestation — **a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED
-        SOURCE**, which is a third R7 category and is neither "corpus silent" nor "decline to extend". The
-        BEHAVIOUR is unchanged; only the basis is corrected. **D-6's wording, which is voucher-scoped, should be
-        amended to name the three master routes explicitly (open item for the user).**
+      - **What ships, and on what basis — 🔴 SETTLED BY THE USER 2026-08-18, IN TWO RULINGS, AND THEY ARE TWO
+        DIFFERENT R7 CLAIMS THAT MUST NEVER BE MERGED.** The **BEHAVIOUR is unchanged** — a SINGLE prompt on all
+        five routes, exactly as S4 shipped it. Only the RECORD changes, and it changes into two records:
+        - **(A) THE VOUCHER ROUTES — OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY ATTESTATION.** BOOK PDF
+          **pp.22-23** carries a heading reading *"How to Delete Voucher …?"* directly over
+          *"Alt+D > Press Two times Enter"*, and the same entry then contradicts itself — its path reads
+          `Alter > Voucher type`. **The attestation is poor, and it EXISTS.** We keep one prompt, and we record
+          it as **a decision taken AGAINST a weak, self-contradictory attestation** — explicitly **not** as
+          "corpus silent" and **not** as a decline-to-extend-an-unattested-behaviour. **The whole earlier D-6
+          record rested on that attestation's absence, and the absence was false.**
+        - **(B) THE THREE MASTER ROUTES (ledger, group, stock item) — A DELIBERATE DIVERGENCE FROM AN ATTESTED
+          SCOPE.** Here the double prompt IS cleanly attested: BOOK PDF **p.21** for a ledger and STUDY-GUIDE
+          PDF **p.277**, with its wording, for a group company. We ship one prompt anyway, and we record it as
+          **a divergence from an attested scope** — a different claim, resting on different evidence, from (A).
+          *(Recorded beside it, because it narrows the divergence without changing its category: STUDY-GUIDE
+          **p.67** attests a SINGLE prompt for the same ledger object. The ruling categorises this route as a
+          divergence rather than as "a conflict resolved in favour of p.67", which is the conservative reading —
+          we do not get to pick the friendly source and call the result fidelity.)*
+        - **▶ WHY THE SEPARATION IS THE POINT, not pedantry.** Conflating the two is the exact R7 defect a
+          review lens caught on S3. (A) and (B) would be defended with different pages, would be falsified by
+          different findings, and would be re-opened by different evidence. **Anything that states one of them
+          must state both, or state which one it means.**
+        - **▶ THIS CLOSES THE OPEN ITEM THIS ROW USED TO CARRY:** ~~*"D-6's wording, which is voucher-scoped,
+          should be amended to name the three master routes explicitly (open item for the user)."*~~ The user
+          ruled on 2026-08-18; ruling (B) is that amendment. The superseded basis this row previously
+          recorded — *"a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED SOURCE … a third R7 category"* — is kept
+          here quoted, and is **replaced by (A) and (B)**, which are two categories rather than one.
     - **The bill-wise blast radius, and it is ours.** A bill reference is a free string with no foreign key, so
       deleting the invoice that OPENED a bill while a later receipt still settles it produced a wrong FIGURE with
       a successful save — the party's money on neither Outstandings total. S4 refuses it. The corpus says nothing
@@ -263,15 +799,48 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
     re-derived with `-raw`, and a `-layout` key/function pairing is UNVERIFIED unless the key count and the
     function count match exactly.**
 
-**9 of 115 capabilities have had their SHIPPED behaviour compared to a source — and the ninth is PARTIAL, with its unsourced half enumerated rather than glossed. Items 10-12 raise the GROUNDED count to 12, but they are grounded ahead of the slices that build them, so the shipped-and-compared figure stays at 9 until S3 / S4 / S5c land, and 106 remain uncompared as shipped behaviour. Of those 106, exactly three — cancellation, deletion and alteration — now have their grounding banked in advance, which leaves 103 with no sourced verification of any kind.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **106**.
+**11 of 200 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed, and the tenth and eleventh became shipped-and-compared when S3 and S4 landed. Item 12 alone is still grounded ahead of the slices that build it, which keeps the GROUNDED count at 12, leaves 189 uncompared as shipped behaviour, and leaves 188 with no sourced verification of any kind.** Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **189**.
 
 > **▶ 🔴 THESE FOUR FIGURES ARE MAINTAINED HERE AND NOWHERE ELSE. §1.3 IS THE SINGLE DERIVATION.**
-> **As of 2026-08-17, against the 115 denominator: 9 shipped-and-compared · 12 grounded · 106 uncompared as
-> shipped · 103 with no sourced verification of any kind.** The arithmetic, so a later reader can check it
-> rather than trust it: **115 − 9 = 106**; **106 − 3 grounded-ahead rows (items 10-12) = 103**;
-> **9 shipped-and-compared + those same 3 = 12 grounded**. Note that this is a DIFFERENT figure from §1.2's
-> **8 undetermined**, which counts capabilities whose *existence* nobody checked and is unaffected by anything
-> here.
+> **As of 2026-08-18, against §1.2's 200 denominator: 11 shipped-and-compared · 12 grounded · 189 uncompared as
+> shipped · 188 with no sourced verification of any kind.**
+>
+> **▶ 🔴 HOW THESE FOUR ARE DERIVED — READ THIS BEFORE QUOTING ANY OF THEM. THE DERIVATION IS A PROPERTY OF THE
+> ROWS BELOW, NOT AN EVENT ANYWHERE ELSE, AND THAT IS DELIBERATE.**
+> 1. **shipped-and-compared** = the number of numbered items in this section whose own header records the
+>    surface as **BUILT / shipped**. Count them: items **1–11**. → **11**.
+> 2. **grounded** = that number, plus the items whose header records **GROUNDED, NOT YET BUILT**. Today that is
+>    item **12** alone. → **11 + 1 = 12**.
+> 3. **uncompared as shipped** = §1.2's denominator minus (1). → **200 − 11 = 189**.
+> 4. **no sourced verification of any kind** = (3) minus the grounded-ahead items, i.e. (2) − (1). →
+>    **189 − 1 = 188**.
+>
+> **▶ 🔴 THE CONDITION THAT USED TO SIT HERE IS DELETED, AND WHY IT WAS DELETED IS THE POINT.** This block
+> previously read *"the shipped-and-compared figure stays at 9 **until S3 / S4 / S5c land**"*. **S3 and S4
+> landed and nobody re-derived it**, so the block asserted 9/12/106/103 while its own rows already said item 10
+> was *"BUILT — shipped in slice S3"* and item 11 *"BUILT — shipped in slice S4"* — a document contradicting
+> itself in one section, under a rule that says this block wins. **A named external event must never appear in
+> this derivation again.** The four figures now depend only on what the item headers below say, which is the
+> one thing that cannot fall out of step with them: **re-count the headers; never carry a digit forward.**
+>
+> **▶ WHAT THE OLD FIGURES WERE, so a copy elsewhere can be identified rather than half-believed.** The
+> **2026-08-17** block read **9 · 12 · 106 · 103** against the then-current 115 denominator. Applying the
+> derivation above to the *same* rows at the *same* denominator gives **11 · 12 · 104 · 103** — i.e. **two of
+> the four were already wrong on 2026-08-17**, before the denominator moved. Against §1.2's new 200 they are
+> **11 · 12 · 189 · 188**. **Any document still quoting 9 · 12 · 106 · 103 is quoting a figure that was stale
+> the day it was written.**
+>
+> **▶ ONE HONEST LIMIT ON (3) AND (4), stated because the old block never stated it.** The subtraction treats
+> each fidelity item as covering exactly one §1.2a capability row. Three items span several rows (the voucher
+> shortcut keys, the PO/SO/GRN/DN effect rules, and double-entry posting) and two sit **below** a row (the
+> predefined-group set, the EPS/EPF split). **189 is therefore an UPPER bound on what is uncompared**, and the
+> true figure is a little lower. Nobody has done the row-by-row mapping; when someone does, it is done **here**.
+>
+> **▶ THE COLLISION WARNING SURVIVES, and it survives BECAUSE the number it warned about is now zero.** These
+> four are a DIFFERENT figure from §1.2's **undetermined** column, which counts capabilities whose *existence*
+> nobody checked and is unaffected by anything in this section. That column read **8** on 2026-08-17 and reads
+> **0** today (§1.2b). **Do not read "0 undetermined" as agreement between the two figures** — they measure
+> different things and they will diverge again the moment a capability is added whose existence nobody checks.
 > **▶ THE RULE, and it exists because it has now been broken three times on this branch.** When these numbers
 > move they move HERE, and every other document — `plan.md`, the registers, the kick-off — restates them by
 > **pointing at §1.3, not by copying the digits**. A corrected figure on this project has three times left
@@ -280,17 +849,36 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
 > carries an **as-of date**, so the next drift is visible rather than silent. If any copy anywhere disagrees
 > with this block, **this block wins and the copy is a defect**.
 >
-> **▶ THE SECOND FIGURE THAT PARAGRAPH QUOTES IS DERIVED FROM §2 TIER 0, AND IT DRIFTS EVERY TIME A ROW
-> CLOSES.** It is pinned here for the same reason and in the same shape. **As of 2026-08-17: TIER 0 holds 11
-> rows, of which 10 are OPEN — T0-8 (the blank supplier address block) is the only one CLOSED, on 2026-08-17.**
+> **▶ THE SECOND FIGURE THAT PARAGRAPH QUOTES IS DERIVED FROM §2 TIER 0, AND IT DRIFTS EVERY TIME A ROW OPENS
+> OR CLOSES.** It is pinned here for the same reason and in the same shape, and it is derived the same way —
+> **re-walk the §2 TIER 0 table and count its row markers; never carry a digit forward from a prose sentence.**
+>
+> **As of 2026-08-18: TIER 0 holds 13 rows, of which 11 are OPEN.** Two are CLOSED — **T0-8** (the blank
+> supplier address block, closed 2026-08-17) and **T0-7** (the composition dealer's illegal tax invoice, closed
+> **2026-08-18**; see that row for the evidence and for what the old evidence cell got wrong). Two are NEW,
+> added 2026-08-18 from the five-survey re-derivation — **T0-12** (attendance is append-only and summed) and
+> **T0-13** (`DateOfLeaving` is unreachable while three engines read it).
+>
 > **The open set and the "confirmed wrong money or invalid document" set are NOT the same set, and the
-> difference is worth stating rather than rounding away: 8 of the 10 are confirmed** — T0-1, T0-2, T0-3, T0-4,
-> T0-7, T0-9, T0-10, T0-11 — **and 2 are not. T0-5 (the 4% cess) and T0-6 (TDS rates cited to commercial
-> blogs) are confirmed UNSOURCED, not confirmed WRONG**: the defect in each is that nobody can stand behind
-> the figure the product applies to money, which is why T0-5 is a standing user decision rather than a fix.
-> **Anyone restating either figure re-walks §2 TIER 0; do not carry a number forward from a prose sentence.**
-> *(One caveat inside the 8, recorded so the count is not read as more alarming than it is: T0-3 is reachable
-> only through JSON/XML import, not through the UI.)*
+> difference is worth stating rather than rounding away: 9 of the 11 are confirmed** — T0-1, T0-2, T0-3, T0-4,
+> T0-9, T0-10, T0-11, T0-12, T0-13 — **and 2 are not. T0-5 (the 4% cess) and T0-6 (TDS rates cited to
+> commercial blogs) are confirmed UNSOURCED, not confirmed WRONG**: the defect in each is that nobody can stand
+> behind the figure the product applies to money, which is why T0-5 is a standing user decision rather than a
+> fix. **T0-6 got worse rather than better on 2026-08-18** — the seeded statutory masters are immutable by
+> design, so a user cannot correct those rates in-app at all (T1-21).
+>
+> **▶ 🔴 THE T0-3 CAVEAT THAT USED TO SIT HERE IS WITHDRAWN.** It read: *"One caveat inside the 8, recorded so
+> the count is not read as more alarming than it is: T0-3 is reachable only through JSON/XML import, not
+> through the UI."* **That is not supportable.** The Standard Cost option is populated into a dropdown that
+> **is rendered on the Stock Item master screen**, and the create path passes the selection through unguarded —
+> so an operator can select Standard Cost in the UI and get the silent fallback. The census's own evidence
+> ("zero `StandardCost` hits in the main view") was true and its conclusion did not follow: the control binds
+> to the *method list*, not to a literal. **T0-3 is a UI-reachable wrong-valuation route** and is counted
+> without a caveat. See §1.2a row 3.4.
+>
+> **▶ ONE ROW IN THE CONFIRMED SET WAS NOT RE-MEASURED ON 2026-08-18 AND IS SAID SO RATHER THAN IMPLIED:
+> T0-2** (closing stock valued at selling price). No survey covered stock valuation; it is carried forward on
+> its 2026-08-10 evidence.
 
 > **▶ HOW THIS LIST GROWS (R12, 2026-08-16; the standard tightened 2026-08-17).** Fidelity is measured **per slice**: a slice is not done until it adds a row here for the surface it touched, in the shape of the ones above, **or records why the corpus cannot settle the question**. Row 9 is the first row added under that rule and every later slice copies it, so what its first draft got WRONG is part of the template:
 > 1. **An inference is not a source.** It presented the display-versus-stamp shape as attested by Book p.177. The page attests the defaulting; the shape is ours, and its real evidence is an asymmetry in our own store. Cite the store.
@@ -302,7 +890,7 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
 
 Two further caveats on the denominator itself:
 
-- **Granularity dominates.** Compressing four report families into four rows hides ~14 missing reports. Counting them out gives a denominator near 200 and a worse present-ratio. The 115 is the *most favourable defensible* count.
+- **Granularity dominates.** Compressing four report families into four rows hides ~14 missing reports. Counting them out gives a denominator near 200 and a worse present-ratio. ~~The 115 is the *most favourable defensible* count.~~ **▶ 2026-08-18 — this caveat was RIGHT and it is now the record of how the move happened, so it is kept.** The denominator did reach 200, but **not** by expanding the four report families: §1.1 rule 2 is retained and they are still one row each. It reached 200 because the rest of the product was written out at rule 1's granularity for the first time (§1.2b). **So the ~14 reports this caveat names are still hidden, and 200 is still the most favourable defensible count** — the caveat now applies to 200 exactly as it applied to 115.
 - **The 7.2 baseline is partly unsourced.** The source census marks many 7.2 rows UNVERIFIED — presence asserted from era-ambiguous course syllabi and blogs, because no official 7.2 documentation is reachable and the cracked install is off limits by standing instruction. Roughly 20 of the 90 baseline rows rest on SECONDARY sourcing.
 
 ---
@@ -311,21 +899,62 @@ Two further caveats on the denominator itself:
 
 Ranked by what a business suffers. Wrong money first, then invalid documents, then impossible tasks, then permanence, then missing capability, then cosmetics.
 
+> ### 🔴 2026-08-18 — WHAT THE FIVE-SURVEY RE-DERIVATION DID TO THIS REGISTER
+> Every row below was written on **2026-08-10** at HEAD `468a96e`. Five independent read-only surveys re-walked
+> the product at HEAD `6fb5fe5` on 2026-08-18. **The rows are NOT rewritten to today's truth** — that would
+> destroy the record. They are marked, in place, here and at each row.
+>
+> **CLOSED since it was written:** **T0-7** (see its row — the evidence clause is the half that went stale) and
+> **T0-8** (closed 2026-08-17). **T1-6** was already marked closed.
+>
+> **STALE IN PART, and each is stale in a *named* half rather than wholesale:**
+> - **T1-1** *"No voucher alteration, deletion, cancellation, duplication or insertion."* **Cancellation (S3)
+>   and deletion (S4) have SHIPPED and are live.** Alteration, duplication and insertion are still absent, so
+>   the row's headline claim — *"this is the master defect"* — stands on those three. See §1.2a rows 5.1–5.5.
+> - **T1-2** the **delete** half is stale: Alt+D master deletion ships on **three** kinds (ledger, group, stock
+>   item), each pre-guarded. The **alter** half holds **exactly**: `ForAlter` exists in precisely three master
+>   view models tree-wide and nowhere else, and **seven** engine delete services still have zero Desktop
+>   callers. One census-era concern is CLOSED rather than stale: the stock-item delete service no longer carries
+>   its own weaker rule — it delegates to the shared rules, so the two routes cannot diverge.
+> - **T1-4** *"Payroll cannot post."* 🔴 **FALSE at HEAD, and the mechanism the row names does not gate the
+>   route.** The opener gates only on the payroll-enabled flag, and the posting service selects the type by base
+>   kind — it never calls the type resolver and never tests the active flag. The **true residual** is that the
+>   seeded type is still inactive, so Payroll is missing from the Day-Book Alt+A picker. A menu-surface gap, not
+>   an unreachable posting path. See §1.2a row 7.9.
+> - **T1-4's evidence sentence** *"the only writer of that property in the entire tree is `JobWorkService`"* now
+>   has a second writer — but it is a **rollback restore inside a catch**, not an activation route, so the
+>   row's substance stands and only the sentence is stale.
+> - **T1-7** is **CORRECT but too narrow** — see §1.2a row 13.2 and **T1-20**.
+> - **T1-13's** export sub-claim (*"Export hard-maps to EXPWP so there is no LUT/without-payment path"*) is
+>   **stale**; the SEZ and deemed-export halves hold. See §1.2a row 6.21.
+> - **T2-7** is confirmed, with one nuance recorded at §1.2a row 14.5: a context-rebuilt button bar **does**
+>   exist; **none of the eight named options** on it does.
+>
+> **RE-CONFIRMED OPEN at HEAD, re-measured rather than relayed:** T0-1, T0-3 (with its caveat withdrawn), T0-4,
+> T0-5, T0-6, T0-9, T0-10, T0-11, T1-3, T1-5, T1-8, T1-9, T1-10, T1-11, T1-12, T1-14, T1-15, T1-16, T2-1, T2-2,
+> T2-3, T2-4, T2-5, T2-6, T2-8. **T0-2 was NOT covered by any survey** and is carried forward on its 2026-08-10
+> evidence.
+>
+> **NEW ROWS added by the re-derivation:** **T0-12**, **T0-13** (above); **T1-17**…**T1-21** and **T2-9**,
+> **T2-10** (below). None of them was in any register before today.
+
 ### TIER 0 — WRONG MONEY AND LEGALLY INVALID DOCUMENTS
 
 | ID | Gap | Evidence | Harm |
 |---|---|---|---|
 | **T0-1** | **§194Q TDS deducted on the whole transaction value, not the excess over ₹50 lakh.** Once `ThresholdCrossed` returns true, TDS = `assessableValue.Amount * rateBp / 10_000m` on the full amount. | **[V]** `src/Apex.Ledger/Services/TdsService.cs:71-75`. WF-2 is planned in Phase 10.10 but has **not landed** at `468a96e`. | Over-deducts ₹5,000 on the first qualifying transaction and compounds. Deductor liable to the deductee. Register IV-2. |
 | **T0-2** | **Closing stock valued at SELLING price.** `LastSaleCost` returns `FlatValue(closingQty, LastSaleRate(...))`. | **[V]** `src/Apex.Ledger/Services/StockValuationService.cs:85`. | Overstates closing stock → overstates gross profit → overstates taxable income. Balance Sheet and P&L both wrong. Register IV-6. |
-| **T0-3** | **`StandardCost` is offered as a valuation method whose input field does not exist**, and silently falls back to `LastPurchaseRate`. | Dropdown at `StockItemMasterViewModel.cs:333`; zero `StandardCost` hits in `MainWindow.axaml`; fallback at `StockValuationService.cs:86-87`. Reachable only via JSON/XML import. | Silent wrong valuation with no warning to the operator. |
+| **T0-3** | **`StandardCost` is offered as a valuation method whose input field does not exist**, and silently falls back to `LastPurchaseRate`. | Dropdown at `StockItemMasterViewModel.cs:333`; zero `StandardCost` hits in `MainWindow.axaml`; fallback at `StockValuationService.cs:86-87`. ~~Reachable only via JSON/XML import.~~ 🔴 **CORRECTED 2026-08-18 — that last sentence is WITHDRAWN and it made the row look milder than it is.** The dropdown **is rendered on the Stock Item master screen** (its items source and selected item are both bound there) and the create path passes the selection through **unguarded**, so an operator can pick Standard Cost in the UI and get the silent fallback. The zero-hit grep was true and the conclusion did not follow — the control binds to the *method list*, not to the literal. See §1.2a row 3.4. | Silent wrong valuation with no warning to the operator — **on the ordinary UI path, not only on import**. |
 | **T0-4** | **GST rate hierarchy inverted; the missing resolution levels now EXIST as masters but nothing READS them.** **STILL OPEN — only the master/plumbing half of WF-1 shipped (schema v51, 2026-08-15, committed and pushed as `e49b88e`).** | Register IV-1. **[V] 2026-08-15:** `MasterGstDetails` is carried by `Group`, `StockGroup` and `GstConfig.DefaultGst`, and `GstConfig` holds the two source-order options (`SourceOfHsnSacDetails`, `SourceOfGstRate`) — but those two have **no reader outside the persistence and Io layers**, and `GstService.cs` / `RcmService.cs` / `Reports/Gstr1.cs` are **unmodified**, so every rate still resolves item-first. See `plan.md` slice S4 (WF-1) for the R6 deviation this half shipped under, and — **added 2026-08-16** — for the **three-lens review that half owed, now PAID** (34 findings; the migration back-fill was being erased by the ordinary save path on non-GST books and is fixed; the missing **design** gate is not retroactively granted). | Wrong tax rate on invoices → wrong GSTR-1/3B → wrong liability. |
 | **T0-5** | **4% Health & Education Cess applied to live payroll deductions on a rate the code itself says it could not verify.** | `src/Apex.Ledger/Services/SalaryIncomeTax.cs:50-54` — the comment states the rate must be verified before the FY 2026-27 tables are relied on. | Real money deducted from real salaries on an unsourced statutory figure. **Standing user decision, highest priority.** |
 | **T0-6** | **Shipped TDS rates and thresholds cited to commercial blogs** (cleartax, disytax). | `src/Apex.Ledger/Seed/SeedTdsTcsRates.cs:7-8`. | R7 violation on figures the product applies to money. |
-| **T0-7** | **A composition dealer's every printed document is an illegal tax invoice.** The app *knows* the answer on screen — `IsBillOfSupply` and the s10/Rule-5(f) declaration render in the UI — but neither reaches the PDF, and `InvoicePdf` hard-codes the title. | **[V]** `GstReportSupport.cs:110-123`, `VoucherDetailViewModel.cs:36-43`, `MainWindow.axaml:1990` — and **zero** `BillOfSupply` hits in `Apex.Ledger.Io` or `VoucherPrintProjector.cs`. | Non-compliant document issued to customers. **~1 day to fix; the data is already computed.** |
+| **T0-7** | ~~**A composition dealer's every printed document is an illegal tax invoice.**~~ 🔴 **CLOSED 2026-08-18 (W0-1).** The invoice PDF now branches on the bill-of-supply flag, takes its title from the shared predicate with a **structural, case-insensitive refusal of a TAX INVOICE title**, suppresses every tax head and renders the §10 / Rule 5(f) declaration; the print projector supplies the flag and the title. **What is NOT retroactive:** nothing here re-prints a document already issued. | **[V] 2026-08-10 (the original finding):** `GstReportSupport.cs:110-123`, `VoucherDetailViewModel.cs:36-43`, `MainWindow.axaml:1990` — and **zero** `BillOfSupply` hits in `Apex.Ledger.Io` or `VoucherPrintProjector.cs`. 🔴 **THAT LAST CLAUSE IS THE ONE THAT WENT STALE, AND IT WAS THE WHOLE EVIDENCE FOR THE ROW.** Two of the five 2026-08-18 surveys measured it independently and both counted the opposite: **30 hits in `Apex.Ledger.Io`** and **34 in `VoucherPrintProjector.cs`**. The row survived only because **T0-8 was updated on 2026-08-17 and T0-7 beside it was not** — the same fix pass touched both halves of the printed document. See §1.2a row 6.22. | ~~Non-compliant document issued to customers.~~ **Closed.** The residual is historical documents already issued, which no code change reaches. |
 | **T0-8** | **Every printed invoice carried a blank seller address block.** **CLOSED 2026-08-17 - both halves have shipped and the creation path's crash is fixed.** The PRINT half (W0-2a, 2026-08-15) made `SellerBlock` read `MailingName`, `Address`, `Country` and `Pin`, so a captured address prints in full and matches the recipient block. The **WRITE half (W0-2b)** is the company profile screen: the Rule 46(a) address is typeable on creation and on alteration. **What is NOT retroactive, and must not be read as closed:** books already on disk carry no address until someone opens Company Alteration and types one - the fix makes the field reachable, it does not populate history. | **[V] 2026-08-17:** `VoucherPrintProjector.cs:737-743` (`SellerBlock`), `:747-751` (`SupplierPostalAddressText` - the guard that keeps an uncaptured company byte-identical), `Company.cs:67-97`; the capture side is `CompanyProfileViewModel.cs` and `MainWindowViewModel.cs`. Pinned end-to-end by `A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block`. **The structural pin is `CompanyCaptureReachTests`, and its own claim was corrected 2026-08-17:** the reach test that merely counts assignment sites had THREE independent satisfiers (creation, alteration, and the alter screen's private rollback helper), so deleting either real capture left it green. It is now two tests - a floor that says the block is typeable at all, and `Both_company_capture_methods_still_assign_every_postal_member`, which names the two capture methods and fails if either stops assigning any of the four members. **The floor that made the write half safe - `CompanyStorage.cs:128`** is `company.EnsureValid()`, the desktop layer's single validation choke point; it now also holds the books-begin invariant, so a company Save accepts is a company Load can reopen. Its one carve-out - a file-level backup RESTORE, which cannot pass through it - is checked in `RestoreCompanyViewModel.Apply` and stated in the `Save` doc. **And the inheritance is a DISPLAY default, not a stamp - `GstConfigViewModel.cs:583`** seeds the GST home State from the postal one only when nothing is stored and no GSTIN was typed, because a code written onto a GST-off company is discarded by the very next load. *(Previously cited `VoucherPrintProjector.cs:745-750` at census baseline `468a96e`.)* | CGST Rule 46 requires the supplier address on a tax invoice. **Fixable from inside the UI at last** - and still absent on every historical book until it is typed. |
 | **T0-9** | **IRN and signed QR are never printed on an e-invoiced supply** — and structurally cannot be. `PdfWriter` exposes only `Text` and `Line`; there is no image primitive. | `PdfWriter.cs:30-70`; zero `Irn`/`QrCode` hits in `InvoicePdf.cs`/`InvoicePrintData.cs`/`VoucherPrintProjector.cs`. | A printed e-invoiced supply is non-compliant. Blocked behind a print-engine rewrite. |
 | **T0-10** | **Credit and Debit Notes move no stock.** `ItemInvoiceStock.Counts()` returns true only for Purchase and Sales. | `src/Apex.Ledger/Services/ItemInvoiceStock.cs:53`. plan.md 10.9 NEXT-1, decision D3 approved behind an oracle. | Every goods return leaves inventory permanently overstated. |
 | **T0-11** | **Purchase item-invoices, Credit Notes and Debit Notes never print in invoice format** — they silently fall back to a Dr/Cr voucher print. | `VoucherPrintProjector.IsTaxInvoice` requires `BaseType == Sales` (`:48`). Contradicts `docs/phase5-reports-io-requirements.md:217` RQ-11. | Supplier and return documents are unusable as documents. |
+| **T0-12** | 🔴 **NEW 2026-08-18. Recording the same attendance period twice silently DOUBLES the pay.** The attendance service's record method **always appends a new entry** with no dedupe on employee + type + period; its delete method has **zero callers in `src/Apex.Desktop`**; and the payroll computation **sums every matching entry**. | Survey-measured at HEAD `6fb5fe5`: `PayrollAttendanceService` (record appends, delete uncalled), `AttendanceVoucherEntryViewModel` (writes every non-blank row, zero `duplicat` hits), `PayrollComputationService` (the attendance sum). §1.2a row 7.8. | An On-Attendance or On-Production pay head pays twice, and **the operator has no in-app way to undo it** — the recorded entry can be neither altered nor removed. Real money, real salaries. |
+| **T0-13** | 🔴 **NEW 2026-08-18. A leaver accrues gratuity provision and statutory bonus for ever.** `Employee.DateOfLeaving` has **zero hits across all of `src/Apex.Desktop`** — no field, no XAML — while **three engines read it**: the gratuity provision skips an employee who has left, the bonus register clips the eligibility year on it, and the ESI contribution emits it as the last working day. | Survey-measured at HEAD: `Employee`, `GratuityProvision`, `BonusRegister`, `EsiContribution`; settable only through JSON/XML import. §1.2a row 7.2. | Provisions and bonus keep accruing for staff who left, and the ESI file never carries a last working day. Both are wrong figures in a filed or auditable artefact. |
 
 ### TIER 1 — ROUTINE TASKS IMPOSSIBLE, OR DAMAGE PERMANENT
 
@@ -347,6 +976,11 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T1-14** | **No cheque printing, deposit slip, banking payment advice, cheque register, multi-account printing, delivery challan, reminder letter, or confirmation of accounts.** Cheque printing is *configurable* and cannot be *performed*. | `Ledger.EnableChequePrinting` / `ChequePrintingBankName` exist, persist and round-trip through Canonical XML/JSON, with zero UI and zero consumers in any print path (`Ledger.cs:54-66`; `SqliteCompanyStore.cs:4978-4979`). | Seven standard Tally documents have no code at all. Textbook dead-field trap. |
 | **T1-15** | **No F11 Accounting Features group at all.** Bill-wise, interest, cost centres, multi-currency, budgets, credit limits, cheque printing, multi-address have no per-company switch. No `Integrate Accounts with Inventory`. No Accounts-only vs Accounts-with-Inventory maintain mode. | `GstConfigViewModel.cs` — 21 booleans, all statutory plus six inventory. Zero hits for `IntegrateAccountsWithInventory`, `MaintainMode`. | Every one of those capabilities is always-on with no way to turn it off. `Integrate Accounts with Inventory` in particular changes how the Balance Sheet sources closing stock — it belongs in wrong-figures territory, not a checkbox. |
 | **T1-16** | **No global F12 configuration tree.** Four context panels only; everywhere else F12 sets a stub string. | `MainWindowViewModel.cs:6628-6653` — the fall-through is literally `Message = "F12 Configure — display options (Phase 1 defaults)."` | Blocks the entire display/entry configuration layer. Entangled with gap-decision D10. |
+| **T1-17** | 🔴 **NEW 2026-08-18, AND IT IS THE LARGEST STRUCTURAL FINDING OF THE RE-DERIVATION. The product has TWO voucher collections and every lifecycle surface reaches only one.** The Day Book builder iterates the **accounting** collection alone; Alt+X and all three of Alt+D's voucher routes resolve through a finder that searches the same collection; and the inventory posting service's own cancel and delete methods — documented as the Alt+X / Alt+D of the stock aggregate — have **zero production callers**. | Survey-measured at HEAD: `Company` (two collections), `DayBook`, `Company.FindVoucher`, `InventoryPostingService` (cancel and delete uncalled; the only Desktop references are post-path constructions). §1.2a rows 4.9–4.16 and 11.4. | **Eight of the classic eighteen voucher kinds — Purchase Order, Sales Order, Receipt Note, Delivery Note, Rejection In, Rejection Out, Stock Journal and Physical Stock — can be posted and then never listed in the Day Book, never drilled, never cancelled and never deleted.** S3 and S4 shipped green against the accounting aggregate; the stock aggregate was never in their scope and **nothing recorded that**. |
+| **T1-18** | 🔴 **NEW 2026-08-18. `Optional` and `Post-Dated` are ONE-WAY flags.** Zero post-construction writers of either exist in `src/`, and there is no voucher alteration. | Survey-measured at HEAD: `Voucher`, both toggle methods, and the balance walk that honours them. §1.2a rows 5.7 and 5.8. | **A voucher marked Optional can never be regularised and a post-dated cheque can never be marked cleared.** Additionally the Optional toggle dispatches only on the accounting entry screen, and the inventory voucher carries no Optional member at all, so the eight kinds in T1-17 cannot be Optional even at entry. No Optional and no Post-Dated register exists to find them with. |
+| **T1-19** | 🔴 **NEW 2026-08-18. Printed wide reports carry BLANK column headings, and 17 report kinds EXPORT with blank headers.** The print projector hard-labels the first column and emits an **empty caption** for every other column; the real captions live only in the **export** twin. Separately, the export header map covers 16 kinds and falls through to an empty array for the rest. | Survey-measured at HEAD: `ReportPrintProjector` (the empty-caption emission) against `ReportTabularProjector` (the captions). The 17 are Batch-wise, Batch Age Analysis, Price List, the nine TDS/TCS kinds and the five payroll kinds. §1.2a rows 12.1 and 13.5. | A printed Stock Summary, GSTR-1 or Order Register **has no headings at all** while its CSV of the same data does — the two projectors diverged and nothing noticed. The exported subset is the mirror defect. |
+| **T1-20** | 🔴 **NEW 2026-08-18. There is not a single file or folder dialog in the product, and Restore cannot target any company but the one already open.** Zero hits in `src/Apex.Desktop` for the storage provider, both file dialogs, the folder dialog and the picker options type. The restore screen's target-name property has **zero bindings in the XAML**. | Survey-measured at HEAD. §1.2a rows 13.10 and 13.2. **This WIDENS T1-7** — the engine signature accepts any target path; the screen cannot express one, fresh install or not. | Backup destination, restore source, import source, export destination and the `.eml` path are typed strings or a silent default to Documents, overwriting in place. **A user restoring from a backup must type the full archive path from memory**, into a screen that will only ever restore over the company they already have open. |
+| **T1-21** | 🔴 **NEW 2026-08-18. The seeded TDS and TCS statutory masters are immutable, so T0-6's rates cannot be corrected in-app.** Both Nature-of-Payment and Nature-of-Goods screens are **create-only** and say so in their own doc comments: the predefined masters are an add-only domain and the screen does not edit a seeded nature. | Survey-measured at HEAD: `NatureOfPaymentMasterViewModel`, `NatureOfGoodsMasterViewModel`, `SeedTdsTcsRates`. §1.2a rows 6.28 and 6.36. | The seed's claim that a Finance-Act change is *"a data edit, not a code change"* is true **only of the C# source**. A user facing a wrong rate has no remedy inside the product. This makes T0-6 worse than it reads. |
 
 ### TIER 2 — CAPABILITY GAPS WITH NO WRONG FIGURE
 
@@ -360,6 +994,8 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | T2-6 | **Export/import format gaps:** report export is Csv/Xlsx/Pdf only (Tally offers 7); no HTML, JPEG, XML, JSON or ASCII for a report; no Tally-XML or SDF reader so no third-party Tally data can be ingested; no Excel import; no live SMTP send. | `ExportConfig.cs:5-10`; `ImportDataViewModel.cs:14-23`. HTML and SMTP disclosed as deferred at plan.md:388-391. |
 | T2-7 | **Missing TallyPrime UX:** Go To (Alt+G) and Switch To (Ctrl+G); graphical dashboard / any chart at all; More Details; the standard report button bar (Change View, Basis of Values, Monthly Summary, Value Range, Scale Factor, Vertical Balance, number-of-decimals, Alt+U Unhide). | Zero `Key.G` occurrences in `src/Apex.Desktop`; zero `BarChart`/`PieChart`/`graphical`/`MoreDetails` hits; per-term greps return 0 for the button bar. |
 | T2-8 | **Keyboard: KB-3 prefix type-to-filter is not built.** Three design rounds NOT-READY; no filtering code in `src/` at all. S5 shipped type-to-*jump*. | plan.md:551-557. Lowest business harm in the register, and correctly last. |
+| T2-9 | 🔴 **NEW 2026-08-18. Complete engine verbs with ZERO production callers — the T1-14 dead-field shape, one layer up.** (a) The **memorandum conversion verb** (the catalog's "a memo becomes a real voucher"): the shell method has zero production callers and **its own gate — whose doc comment says it "drives the Convert action" — has zero consumers anywhere**: no button-bar item, no key arm, no XAML binding. The only callers are a test file, so **a dead feature has a live test**. (b) **DRC-03**: the posting method and its record type are complete and `Drc03` returns zero hits across all of `src/Apex.Desktop`. (c) **Consolidated e-Way Bill (EWB-02)**: the prepare method has zero Desktop callers. (d) **The inventory cancel and delete** methods (see T1-17). (e) The e-mail **mailto URI**, computed and bound nowhere. (f) **Seven inventory master delete services**, zero Desktop callers each. | Survey-measured at HEAD. §1.2a rows 4.17, 6.20, 6.15, 11.4, 13.7 and 3.1–3.12. **The pattern, not the list, is the finding:** a verb that exists, is tested, and cannot be reached is indistinguishable from a shipped feature in every artefact except the running app. |
+| T2-10 | 🔴 **NEW 2026-08-18. Three surfaces exist and cannot be found from a menu, and one Gateway hint points at the wrong screen.** **Import** and **Export Data** have **no menu row** — the Gateway's "Data" header carries exactly one child, Backup / Restore — and are reachable only by a bare-key arm on the Gateway root. **Saved Views** has no menu row either: the only two hits for the label in the shell are doc comments, so the list is reachable only by pressing Alt+K while already standing on a report-kind surface. And the Gateway header hint reads **"Y: Data"** while **bare Y opens Export Data** and **Alt+Y opens Backup / Restore** — the one hint the screen gives for the data surface names the wrong one. | Survey-measured at HEAD. §1.2a rows 13.3, 13.4 and 14.7. | 
 
 ### TIER 3 — REGISTER AND PLAN FALSEHOODS
 
@@ -424,7 +1060,7 @@ These 7.2 features exist only to serve pre-GST Indian tax law. Cloning them fait
 | Excise (7.2's F12 invoice-format route; Excise for Dealers RG23D/Form 2; Excise for Manufacturers) | Central excise on most goods ended with GST | **Do not build.** |
 | Fringe Benefit Tax | Abolished by Finance Act 2009; **not in 7.2 anyway** | **Do not build** — listed only so nobody adds it "for completeness". |
 
-**Count: 9 capabilities.** Held out of the 115.
+**Count: 9 capabilities.** Held out of the denominator (§1.2). *(2026-08-18: this "9" is correct and is one of the two counts that showed the old top-down reconciliation never closed — see §1.2c. **One candidate ADDITION to this section is flagged and NOT actioned here:** Kerala Flood Cess, §1.2a row 6.26, measured ABSENT and believed lapsed. §3 says this section must not be actioned without the user's explicit call, so it stays in the denominator as an absent capability until they make one.)*
 
 Three things the user should weigh before deciding:
 
@@ -448,9 +1084,9 @@ Three things the user should weigh before deciding:
 | Hardening / packaging / v1.0.0 release | plan.md Phase 11, user decision |
 | Legacy indirect tax stack | plan.md §1.3 out of scope — **and** obsolete-by-law per §3. Excluded twice over |
 
-**Count: 7 capabilities held out of the 115** (Phase 11 is process, not a capability; the legacy stack is counted in §3, not here).
+**Count: 7 capabilities held out of the denominator** (§1.2; Phase 11 is process, not a capability; the legacy stack is counted in §3, not here). *(2026-08-18: this "7" is correct as stated and is the second count that showed the old top-down reconciliation never closed — that check subtracted **5** against it, and no arrangement of these seven produces 5. See §1.2c. All seven were re-measured at HEAD and all are still ABSENT — see §1.2a's area 13 and area 14 held-out notes.)*
 
-Separately excluded from the denominator as out-of-scope-by-architecture, not by user decision — surfaced here so the user can overrule: Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, multi-site/rental licensing, TDL, multilingual, international statutory packs. **One deserves a second look: Data Synchronisation's IP mode is self-hosted and needs no Tally.NET server** — if branch-to-HO sync ever matters, that one is buildable.
+**▶ 🔴 THE CANONICAL ARCHITECTURE-EXCLUDED LIST (§1.1 rule 4 points HERE, as of 2026-08-18).** Separately excluded from the denominator as out-of-scope-by-architecture, not by user decision — surfaced here so the user can overrule: Tally.NET, Remote Access, Control Centre, Support Centre, TRiB, SMS, Auditors' Edition, Tally.Server 9, multi-site/rental licensing, TDL, multilingual, international statutory packs — **12 names**, plus the **3** that rule 4 enumerates and this list omitted (**Data Synchronisation, the 7.2 data-format migration tool, the 7.2 character-grid UI**), for a **union of 15**. Rule 4's *"13 rows"* was derivable from neither list and is withdrawn; see §1.2c. **One deserves a second look: Data Synchronisation's IP mode is self-hosted and needs no Tally.NET server** — if branch-to-HO sync ever matters, that one is buildable.
 
 ---
 
@@ -528,7 +1164,7 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 **The floor is still a floor.** State this plainly to whoever reads next.
 
-1. **Behaviour is unmeasured for all but a handful of the 115 capabilities — §1.3 holds the count, and holds it in one place.** This census measured *existence and reachability*. Only the capabilities enumerated in §1.3 have any sourced behavioural comparison to Tally; read the four figures there rather than from a copy here, because a copy here is exactly what went stale when §1.3 was last corrected. A "PRESENT" row means the code is there and a user can reach it — nothing more. Every one of the 42 present rows could still compute the wrong number, and two of them demonstrably do.
+1. **Behaviour is unmeasured for all but a handful of the capabilities in §1.2a — §1.3 holds the count, and holds it in one place.** This census measured *existence and reachability*. Only the capabilities enumerated in §1.3 have any sourced behavioural comparison to Tally; read the four figures there rather than from a copy here, because a copy here is exactly what went stale when §1.3 was last corrected. A `COMPLETE` row means the code is there and a user can reach it — nothing more. Every one of the complete rows could still compute the wrong number, and two of them demonstrably do. *(Amended 2026-08-18: this item used to say "all but a handful of the 115" and "the 42 present rows". The denominator and the split both moved — §1.2b says why — and the digits are deliberately not restated here, because restating them here is exactly what this item warns against.)*
 
 2. **Report content and column sets are unmeasured across all 77 surfaces.** Nobody has compared a single Apex report's columns, groupings, totals or ordering against the same report in Tally. The 45 `ReportKind` values and 32 dedicated Screens were counted, not read.
 
@@ -538,9 +1174,9 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 5. **The 7.2 baseline itself is ~20/90 SECONDARY-sourced.** Course syllabi and blogs, because no official 7.2 documentation is reachable and the install is off limits. Several rows are honestly UNVERIFIED: `INV-VALUATION`, `INV-ACTUAL-BILLED`, `INV-ADDL-COST`, `MSTR-VOUCHER-TYPE`, `MSTR-VOUCHER-CLASS`, `VB-VOUCHER-NUMBERING`, `PRN-CHEQUE`, `PRN-STATIONERY` (marked GUESS at source), `DATA-REWRITE` (GUESS), `DATA-SPLIT`, `RPT-RATIO`, `RPT-CASHFLOW`, `RPT-STOCK-SUMMARY`, `RPT-EXCEPTIONS`, `RPT-COLUMNAR`, Job Costing, Item Cost Tracking.
 
-6. **Several Tally field names in the absent list are UNVERIFIED against this corpus** even though their absence from our code is CONFIRMED: the Group behavioural flags (sub-ledger / nett debit-credit / used-for-calculation / allocation method), Godown "Allow storage of materials", credit limits. R7 grounding must precede any design work on these.
+6. **Several Tally field names in the absent list are UNVERIFIED against this corpus** even though their absence from our code is CONFIRMED: the Group behavioural flags (sub-ledger / nett debit-credit / used-for-calculation / allocation method), Godown "Allow storage of materials", credit limits. R7 grounding must precede any design work on these. *(2026-08-18: **the absent list now exists** — §1.2a, 58 rows — and each of these three carries the ⚠️ UNVERIFIED marker in its own row. When this item was written the list it referred to did not exist; that was census defect 3 and it is closed.)*
 
-7. **The 8 CANNOT-TELL rows in the table** were never greppted by any agent: Actual-vs-Billed, Additional Cost of Purchase, Transfer Journal, Kerala Flood Cess, payroll job-rates/cost-centre allocation, unified Banking menu, Job Costing, Item Cost Tracking.
+7. ~~**The 8 CANNOT-TELL rows in the table** were never greppted by any agent~~ — ✅ **CLOSED 2026-08-18. All eight are resolved and the undetermined column is 0.** The eight were: Actual-vs-Billed → **COMPLETE** (§1.2a 3.14); Additional Cost of Purchase → **COMPLETE** (3.15); Transfer Journal → **ABSENT as a named kind, the function partly covered by the Stock Journal** (9.9); Kerala Flood Cess → **ABSENT** (6.26, resolved here rather than by a survey — and recommended for a §3 user call); payroll job-rates / cost-centre allocation → **PARTIAL**, job rates exist and cost-centre allocation does not (7.17, also resolved here); unified Banking menu → **PARTIAL**, it exists and carries two rows (8.9); Job Costing → **ABSENT** (9.6); Item Cost Tracking → **ABSENT** (9.7). **This item was right that nobody had greppted them, and six of the eight then cost one grep each** — which is the part worth remembering.
 
 8. **Bank statement import arithmetic was not re-verified** — the file exists and the screen is wired (MEDIUM confidence only).
 
@@ -550,4 +1186,4 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 ---
 
-**Bottom line for the user** *(every figure below is as of **2026-08-17** and copied from its derivation — the fidelity numbers from §1.3, the TIER 0 count from §2 TIER 0. §1.3's anchor block pins both. If a figure here disagrees with its derivation, the derivation is right and this paragraph is stale)*. A perfect clone needs roughly 115 named capabilities. We have 42 whole, 44 partial, 21 missing — but only **9** have ever been checked against a source for correctness as shipped, so the fidelity denominator is still **106** wide open. Three of those 106 — cancellation, deletion and alteration — have their grounding banked ahead of the slices that build them, which leaves **103** with no sourced verification of any kind. The most urgent items are not the missing ones: they are the **ten open TIER 0 defects** — of which **eight are confirmed wrong-money-or-invalid-document defects a business would suffer today**, and **two (T0-5's 4% cess, T0-6's blog-cited TDS rates) are statutory figures the product applies to money on sourcing nobody can stand behind — confirmed unsourced, not confirmed wrong** — all of it sitting on top of a book that cannot be corrected because no voucher can be altered or deleted.
+**Bottom line for the user** *(every figure below is as of **2026-08-18** and copied from its derivation — the capability split from §1.2, which is itself summed from §1.2a; the fidelity numbers from §1.3; the TIER 0 count from §2 TIER 0. §1.3's anchor block pins the last two. If a figure here disagrees with its derivation, the derivation is right and this paragraph is stale)*. A perfect clone needs **200 named capabilities — and this is the first version of this document in which you can read which ones**. We have **47** whole, **95** partial, **58** missing. *(The **115 · 42 / 44 / 21** you may have seen quoted elsewhere is the superseded 2026-08-10 snapshot; §1.2b explains the move — mostly granularity, and an absent column that was provably too small.)* Only **11** capabilities have ever been checked against a source for correctness as shipped, so the fidelity denominator is **189** wide open; one of those — voucher alteration — has its grounding banked ahead of the slice that builds it, which leaves **188** with no sourced verification of any kind. The most urgent items are not the missing ones: they are the **eleven open TIER 0 defects** — of which **nine are confirmed wrong-money-or-invalid-document defects a business would suffer today**, and **two (T0-5's 4% cess, T0-6's blog-cited TDS rates) are statutory figures the product applies to money on sourcing nobody can stand behind — confirmed unsourced, not confirmed wrong**. Two of the nine are new today and both are payroll: **recording an attendance period twice silently doubles the pay**, and **a leaver accrues gratuity and bonus for ever**. All of it sits on top of a book that still cannot be fully corrected: **no voucher can be ALTERED at all**, and **eight of the classic eighteen voucher kinds can be neither cancelled nor deleted nor even listed in the Day Book** (T1-17) — cancellation and deletion shipped for the other ten.

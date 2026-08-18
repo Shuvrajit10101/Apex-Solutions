@@ -53,11 +53,15 @@
 > because the reading order below sends a session to *the current phase*, and a ruling it never meets governs
 > nothing.
 > **▶ 🔴 FOUR FURTHER STANDING USER RULINGS WERE TAKEN 2026-08-16 (R12) — per-slice fidelity measurement, the
-> voucher lifecycle jumping the queue, the print engine as a parallel track, and merge-now.** They **amend the
-> 2026-08-15 set rather than replacing it**, and three of them reach outside their own banner: **ruling 8
-> SUPERSEDES ruling 4** (merge cadence — marked in place, not deleted); **rulings 6 and 7 carve two NAMED
-> exceptions out of ruling 1's build order**, and the wave sequencing at the end of Phase 10.12 is amended in
-> place to carry them; **ruling 5 changes the DEFINITION OF DONE for every slice from here** — enforced at
+> voucher lifecycle jumping the queue, ~~the print engine as a parallel track~~, and merge-now.** They **amend
+> the 2026-08-15 set rather than replacing it**, and three of them reach outside their own banner: **ruling 8
+> SUPERSEDES ruling 4** (merge cadence — marked in place, not deleted); ~~**rulings 6 and 7 carve two NAMED
+> exceptions out of ruling 1's build order**~~, and the wave sequencing at the end of Phase 10.12 is amended in
+> place to carry them;
+> **▶ 🔴 2026-08-18 — RULING 7 (print engine in parallel) IS ITSELF SUPERSEDED: the engine runs SEQUENTIALLY,
+> after S5c. Its exception to ruling 1 LAPSES, so exactly ONE named exception survives — ruling 6, the voucher
+> lifecycle, which is untouched.** Marked in place at ruling 7's own block in §5 and at the sequencing block in
+> Phase 10.12; the original ruling and its reasoning are preserved, not deleted. **ruling 5 changes the DEFINITION OF DONE for every slice from here** — enforced at
 > **§2.2 step 5a** and **§8's R11**, because a definition-of-done recorded only in a banner is one a slice
 > author never meets. Recorded beside the first four in **§5** — search
 > **`FOUR FURTHER USER RULINGS (R12, 2026-08-16)`**.
@@ -386,16 +390,29 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > (**⚠️ 2026-08-14 — this banner read "seven-agent" until now and that was WRONG**: the census states its own
 > provenance as three mapping agents at `docs/full-clone-census.md:7` and `:51`, and the count is load-bearing
 > — §1.3's whole point is how thin the measurement is, so inflating the agent count reads as corroboration the
-> document explicitly disclaims.) **A full
-> clone is ~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined** (census §1.2). The
-> counting rule is **§1.1 and it is open to argument** — report families count as one row each, so the ~14
-> registers hidden inside them would push the denominator past 200. **115 is the *most favourable defensible*
-> count**, not a floor.
+> document explicitly disclaims.) **A full clone is the set of named capabilities in census §1.2a, and
+> §1.2 is the column sum of that list — read the split there, not here.** The counting rule is **§1.1 and it
+> is open to argument** — report families still count as one row each, so the ~14 registers hidden inside them
+> are hidden from the denominator whatever its width. Whatever §1.2 currently reads, it is the **most
+> favourable defensible** count, not a floor.
+>
+> **▶ 🔴 THE DENOMINATOR MOVED ON 2026-08-18, AND 200 IS NOT A TYPO FOR 115.** This banner read
+> *"~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined"* — the **2026-08-10 snapshot
+> at HEAD `468a96e`**, which census §1.2 now keeps in place under a *(superseded)* heading because outside
+> documents still quote it. The move is **three separate causes and census §1.2b keeps them apart**: mostly
+> **GRANULARITY** (§1.1 rule 1 defines a capability as a Tally menu row or an F11 toggle and the rows had never
+> been written out at that granularity — family compression is retained, so this is *not* "expand
+> everything"); the **ABSENT column was provably too small** (the old split allowed **zero** absent in
+> Statutory, Payroll, Inventory masters and Reports, against evidenced counts on zero-hit searches); and,
+> least of all, **work shipped since the snapshot**. Do not re-copy the new digits here: **§1.2a is the list,
+> §1.2 is its column sum, and a copy in this file is what went stale last time.**
 >
 > **▶ EXISTENCE WAS MEASURED. FIDELITY WAS NOT.** The census measured *does the code exist and can a user
 > reach it* — nothing more. **Only the capabilities enumerated in census §1.3 have ever had their behaviour
-> compared to a source**, so **the honest "cannot tell" bucket is far wider than the 8 in the table above —
-> §1.3 carries the figure, with an as-of date, and is the only place it is maintained.** Every `PRESENT` row could still compute the
+> compared to a source**, so **the honest "cannot tell" bucket is far wider than the undetermined column of
+> §1.2 — §1.3's anchor block carries the four fidelity figures, with an as-of date, and is the only place they
+> are maintained; if any copy disagrees with that block, the block wins and the copy is the defect.** Every
+> `PRESENT` row could still compute the
 > wrong number and two demonstrably do. §6 lists what remains unmeasured after the census.
 >
 > **▶ 🔴 THIS FILE'S OWN "COMPLETE" MARKERS ARE NOT A RELIABLE RECORD OF WHAT SHIPPED.** The census found
@@ -481,6 +498,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > top of Phase 10.12's work items; **ruling 7** amends **`▶ SEQUENCING AFTER THIS WAVE`** at the end of Phase
 > 10.12; **ruling 8** marks **ruling 4 superseded in place**. **Rulings 6 and 7 are NAMED, EXHAUSTIVE exceptions
 > to ruling 1 — ruling 1 still binds everything they do not name.**
+> **▶ 🔴 AMENDED 2026-08-18: RULING 7 IS ITSELF SUPERSEDED (see its own block below) — the print engine runs
+> SEQUENTIALLY, after S5c, not in parallel. Its exception to ruling 1 therefore LAPSES and the print engine
+> returns to its Wave-4 place. RULING 6 IS UNTOUCHED and remains a live exception.** The
+> `▶ SEQUENCING AFTER THIS WAVE` block at the end of Phase 10.12 carries the same correction in place.
 >
 > **5 · FIDELITY IS MEASURED PER SLICE, FROM NOW ON — AND THIS IS A DEFINITION-OF-DONE CHANGE, NOT A HABIT.**
 > Every slice from here ends with a **corpus/statute comparison of the surface it touched**, recorded as a
@@ -546,7 +567,38 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > was not put. **The user is free to overturn this** — it is recorded here rather than buried so that
 > overturning it is a decision and not an accident.
 >
-> **7 · THE PRINT ENGINE STARTS NOW, AS A PARALLEL LONG-POLE TRACK.** Census **S5** — `PdfWriter`
+> **7 · THE PRINT ENGINE STARTS NOW, AS A PARALLEL LONG-POLE TRACK.**
+>
+> **▶ 🔴 SUPERSEDED 2026-08-18 BY A USER RULING (R12, recorded here under R6). MARKED IN PLACE; THE ORIGINAL
+> TEXT AND ITS REASONING ARE KEPT BELOW AND ARE NOT DELETED.**
+> **THE NEW RULING: STAY SEQUENTIAL THROUGH S5, THEN START THE PRINT ENGINE.** The voucher-lifecycle slices
+> **S5a → S5b → S5c** run to completion on the main line first; the print engine (census **S5**, the
+> `PdfWriter` image/XObject and font-embedding work) begins **after** them. It is **no longer a parallel
+> track.**
+> **▶ THE REASON, BOTH HALVES, RECORDED SO THE DECISION IS RE-ARGUABLE RATHER THAN REMEMBERED.**
+> **(a) S5a rewrites the engine's `Replace` contract — the riskiest work in the phase.** It is the one slice
+> that rebuilds a posted aggregate, and D-2 split S5 into three precisely because putting the engine contract,
+> the rehydration inverse and the tax-carve inversion in front of one reviewer at once is not a review. Running
+> a second track alongside the slice that redefines the engine contract multiplies the surface a reviewer has
+> to hold at the moment it is least affordable.
+> **(b) A parallel track needs its own worktree cut from the BRANCH TIP, and the cost of getting that wrong was
+> demonstrated on this project today** — a crashed agent. The operational constraint recorded with the original
+> ruling (below) is real and unchanged; what the new ruling removes is the need to pay it *concurrently*.
+> **▶ WHAT SURVIVES FROM THE ORIGINAL RULING, unchanged and still binding when the engine does start:** the
+> engine remains a **hard 3–6 week dependency that must complete before any dependent feature starts**; nothing
+> gated behind it is promoted with it; and **the worktree rule below is not optional** — A12 and only A12 (R4)
+> cuts it from the branch tip, and `Schema.CurrentVersion` is verified inside it before any build.
+> **▶ WHAT THIS DOES TO RULING 1.** Ruling 7 was a **named, exhaustive exception** to census build order. With
+> the parallelism withdrawn, **that exception lapses**: the print engine returns to its Wave-4 place, behind the
+> lifecycle. Ruling 6 (voucher lifecycle jumps the queue) is **untouched and still in force** — it is a
+> different ruling, and the lifecycle is still what lands next.
+> **▶ ⚠️ NUMBERING NOTE, so the supersession cannot be applied to the wrong ruling.** The brief that carried
+> this instruction called it *"ruling 6"*. **In this file the print-engine-in-parallel ruling is numbered 7**;
+> **ruling 6 is "voucher lifecycle jumps the queue", which is NOT superseded.** The instruction's own
+> description — *"print engine runs as a parallel long-pole track alongside the voucher lifecycle"* — identifies
+> ruling 7 unambiguously, so **7 is what is marked here.**
+>
+> **▶ THE ORIGINAL RULING, PRESERVED:** Census **S5** — `PdfWriter`
 > image/XObject support plus font embedding — **starts immediately, beside the main line**, instead of waiting
 > for Wave 4. **Nothing gated behind it is promoted with it:** IRN/QR on e-invoices (T0-9), the company logo,
 > cheque printing, multi-account printing, JPEG export and non-Latin script all keep their Wave-4 place. What
@@ -634,10 +686,32 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > a voucher from a report"*, with the "Where does it work" column reading **"Vouchers & Reports"**. We still ship
 > report-only — **as our choice**, recorded as one.
 >
-> **D-6 · VOUCHER DELETE TAKES **ONE** CONFIRMATION PROMPT.** The **double** prompt (*"Delete Yes or No?"* then
-> *"Are you sure Yes or No?"*) is corpus-attested for **masters** and for a **group company** — Study Guide PDF
-> p.277 — and is **NOT ATTESTED FOR A VOUCHER**. Recorded that way rather than copied across by analogy: the
-> single prompt is ours by decision, and the absence of a voucher attestation is the finding.
+> **D-6 · VOUCHER DELETE TAKES **ONE** CONFIRMATION PROMPT.** ~~The **double** prompt (*"Delete Yes or No?"*
+> then *"Are you sure Yes or No?"*) is corpus-attested for **masters** and for a **group company** — Study
+> Guide PDF p.277 — and is **NOT ATTESTED FOR A VOUCHER**. Recorded that way rather than copied across by
+> analogy: the single prompt is ours by decision, and the absence of a voucher attestation is the finding.~~
+> **▶ 🔴 SUPERSEDED 2026-08-18 BY TWO USER RULINGS — MARKED IN PLACE, NOT DELETED. THE BEHAVIOUR IS UNCHANGED:
+> ONE PROMPT EVERYWHERE, EXACTLY AS S4 SHIPPED IT. ONLY THE RECORD CHANGES, AND IT CHANGES INTO TWO RECORDS.**
+> **What was wrong:** *"NOT ATTESTED FOR A VOUCHER"* is **false**. **BOOK PDF pp.22-23** carry a heading reading
+> *"How to Delete Voucher …?"* directly over *"Alt+D > Press Two times Enter"*. The same entry then contradicts
+> itself — its path reads `Alter > Voucher type` — so the attestation is **poor**. **It exists, and the whole
+> D-6 record rested on its absence.**
+> - **RULING 1 · THE VOUCHER ROUTES — ONE PROMPT, RECORDED AS OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY
+>   ATTESTATION.** Explicitly **not** "corpus silent" and **not** a decline-to-extend-an-unattested-behaviour.
+> - **RULING 2 · THE THREE MASTER ROUTES S4 SHIPS (ledger, group, stock item) — ONE PROMPT, RECORDED AS A
+>   DELIBERATE DIVERGENCE FROM AN ATTESTED SCOPE.** There the double prompt **is** cleanly attested: **Book PDF
+>   p.21** for a ledger and **Study Guide PDF p.277**, with its wording, for a group company. *(Study Guide
+>   **p.67** attests a SINGLE prompt for the same ledger object; that narrows the divergence and does **not**
+>   change its category — we do not get to pick the friendly source and call the result fidelity.)*
+> - **▶ 🔴 KEEP THE TWO CATEGORIES STRICTLY APART.** They rest on different pages, are falsified by different
+>   findings and are re-opened by different evidence. **Conflating them is the exact R7 defect a review lens
+>   caught on S3.** Anything restating one must restate both, or say which it means.
+> - **▶ THIS ALSO CLOSES the open item census §1.3 item 11 carried** — *"D-6's wording, which is voucher-scoped,
+>   should be amended to name the three master routes explicitly (open item for the user)"*. Ruling 2 is that
+>   amendment. **Landed in five places:** this banner, Phase 10.11's VL-2 row below, `docs/full-clone-census.md`
+>   §1.3 item 11, the doc comments on `MasterDeletionRules` and `MainWindowViewModel.RequestDeleteHighlighted`,
+>   and the header of `VoucherDeleteAltDTests`. The design record's §2.3 carries a correction block for the same
+>   reason.
 >
 > **D-7 · `SqliteCompanyStore.Remove` IS FENCED, NOT FIXED.** It deletes `bill_allocations` → `cost_allocations`
 > → `bank_allocations` → `entry_lines` → `vouchers` and **misses FIVE child tables**: `tds_lines`, `tcs_lines`,
@@ -717,7 +791,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > Composition; VAT Reports; **CST with its C/F/H declaration forms**; **Service Tax + Form ST3**; **Excise for
 > Dealers and Excise for Manufacturers**; and **FBT** (abolished 2009, and never in 7.2 — named only so nobody
 > adds it "for completeness"). **Reason:** they encode **repealed rate tables**, and a voucher posted against
-> them produces a **document no authority accepts.** Held **OUT** of the 115 (census §3).
+> them produces a **document no authority accepts.** Held **OUT** of the census denominator (census §3).
+> *(This clause read "out of the 115" until 2026-08-18. The ruling is unchanged; only the denominator moved —
+> see the census banner above and census §1.2b. It is written as "the denominator" so it cannot go stale again.)*
 >
 > **▶ 🔴 CARVE-OUT — TDS AND TCS ARE NOT IN THIS GROUP.** Their **mechanism is current law**; only 7.2's
 > sections, rates, thresholds and return forms are twenty years stale. **Clone the mechanism, never the
@@ -2012,11 +2088,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     nothing in this phase needs to shut it again.** What replaced the sentence is its own precondition,
     discharged: S1 existed precisely so that binding Alt+D to DELETE would not sit on top of a bare-letter
     quick-jump.
-    **▶ ONE PROMPT, NOT TWO (D-6).** The **double** confirmation (*"Delete Yes or No?"* → *"Are you sure Yes or
-    No?"*, Study Guide PDF p.277) is corpus-attested for **masters** and for a **group company**. It is **NOT
-    ATTESTED FOR A VOUCHER.** We ship **one** prompt for a voucher and record the single prompt as **ours by
-    decision** — the point being that we declined to copy the double prompt across **by analogy**, which is how
-    an unattested behaviour acquires a citation it never had.
+    **▶ ONE PROMPT, NOT TWO (D-6).** ~~The **double** confirmation (*"Delete Yes or No?"* → *"Are you sure Yes
+    or No?"*, Study Guide PDF p.277) is corpus-attested for **masters** and for a **group company**. It is
+    **NOT ATTESTED FOR A VOUCHER.** We ship **one** prompt for a voucher and record the single prompt as **ours
+    by decision** — the point being that we declined to copy the double prompt across **by analogy**, which is
+    how an unattested behaviour acquires a citation it never had.~~
+    **▶ 🔴 SUPERSEDED 2026-08-18 — SEE D-6 IN THE §5 BANNER FOR THE FULL RULING. Behaviour unchanged: one prompt
+    on all five routes.** *"NOT ATTESTED FOR A VOUCHER"* is false — **Book PDF pp.22-23** head *"How to Delete
+    Voucher …?"* over the double-prompt recipe and then contradict themselves. Two records now, on different
+    evidence, and they must not be merged: **(A)** the voucher routes ship one prompt as **our decision against
+    weak, self-contradictory attestation**; **(B)** the three master routes ship one prompt as a **deliberate
+    divergence from an attested scope** (Book p.21, Study Guide p.277).
     **▶ A FILED STATUTORY DOCUMENT IS REFUSED, AND CANCEL IS OFFERED INSTEAD (D-3).** The guard is the project's
     own already-shipped `IsFiledDocument` predicate in `VoucherNumberingConfigViewModel` — e-invoice status
     `Generated` **or** `Cancelled` (a reported IRN is *permanently burned*), or any e-Way Bill record. **NO
@@ -3933,6 +4015,66 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     asserting a count the tree contradicts, plus a stated demonstration that removing the check turns that
     fixture green. **A GREEN SUITE PROVES NOTHING HERE.**
     **▶ SCHEMA: NONE.** Tests and CI only; no `src/` behaviour changes.
+  - **CIT-1 — CLOSE THE TWO GAPS W0-16 LEFT OPEN IN THE CITATION GATE: it checks REACH, not CONTENT, and it
+    reads `.md` ONLY. — 🔴 OPEN, NOT STARTED, NOT BUILT.** **This is NOT a Wave-0 row and must not be counted as
+    one** (same device as the print-engine track above): it is a follow-on to **W0-16**, so the wave's
+    classification sentence at the head of this phase is deliberately left untouched. **Opened 2026-08-18.**
+    **▶ THE TWO GAPS, both already stated in W0-16's own HONEST LIMITS block and neither one closed.**
+    **(1) CONTENT IS NEVER CHECKED.** `CitationViolation` in `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs`
+    asserts only that the cited path RESOLVES to exactly one file and that the line is WITHIN EOF. **It never
+    asserts that the target line says what the citing sentence claims.** In a long file a wrong line is still a
+    valid line, so the gate is green on a citation pointing at unrelated code.
+    **(2) `.cs` AND `.axaml` COMMENTS ARE NOT SCANNED AT ALL.** `GovernedDocuments()` enumerates `*.md` only, so
+    every citation living in a C# doc comment or an XAML comment is outside the gate's reach entirely — there is
+    **no** check of any kind on them.
+    **▶ THE EVIDENCE THAT THIS IS NOT THEORETICAL — five drifted citations found in one pass, 2026-08-18, all
+    green under the gate.** Four pointed at `src/Apex.Desktop/Views/MainWindow.axaml.cs` **line 653** as the
+    binding of `Alt+K`; line 653 is `vm.TogglePostDated();`, the `Ctrl+T` post-dated toggle. The real `Alt+K`
+    guard — the file's only `Key.K` test — is at **line 757** (`vm.OpenSavedViews();` at line 759). The fifth was
+    in `memory.md`, citing `docs/full-clone-census.md` lines 125-147 as the TIER 3 falsehoods table; after the
+    same-day census refresh those lines are §1.2a's conventions bullets and its embedded `awk` counting block.
+    A sixth, in `src/Apex.Ledger/Domain/MasterGstDetails.cs`, was a **count** overstatement in a C# doc comment
+    ("zero hits" where there is exactly one) — gap (2)'s class, invisible to every test in the repository.
+    **▶ THE MODEL TO EXTEND IS ALREADY IN THE TREE — do not invent a second mechanism.**
+    `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` **already proves the ANCHOR-PHRASE approach
+    works**: each `Anchor` locates its citation in the document **by an adjacent context phrase, never by a
+    hard-coded line number** (which would itself drift), then reads the cited line range in the CODE and asserts
+    a required token is present. Re-anchor a citation correctly and the guard follows it; re-anchor it wrongly
+    and the guard goes red. **It carries 13 anchors today.** CIT-1 is the work of extending that table (and, for
+    gap (2), teaching the scanner to read `.cs`/`.axaml` comments) — not of designing a new check.
+    **▶ THE DENOMINATOR — measured 2026-08-18, so the surface is countable rather than rhetorical.**
+    **(a) 40 citations live in `.cs`/`.axaml` COMMENTS across `src/` and `tests/`, and not one is examined by any
+    test.** The raw match count is **49**; the other **9** are string literals inside the two citation tests
+    themselves (fixture rows, allow-list keys and the anchor table) and are correctly out of scope.
+    **(b) 1,755 citations live in the 34 `.md` files** the gate does scan — of which **13** (the anchor table)
+    have their CONTENT checked, i.e. **0.7 %**. The rest are reach-only. *(It was 1,756 before this same pass
+    rewrote the grounding doc's `MainWindow` pointer into the number-free form; the figure moves on every edit,
+    which is why it is dated rather than pinned by a test.)*
+    Derived with (Git Bash, from the repo root; `bin`/`obj` excluded — an earlier pass on this same work
+    "corrected" a right figure because its grep counted `.dll` and `.pdb` binaries):
+    ```
+    # (a) raw count in .cs/.axaml under src/ and tests/  -> 49
+    grep -rhoE "[A-Za-z0-9_][A-Za-z0-9_./-]*\.(cs|axaml|csproj|slnx|md):[0-9]+" \
+         --include=*.cs --include=*.axaml --exclude-dir=bin --exclude-dir=obj src tests | wc -l
+
+    # (a) of those, the ones on a COMMENT line (// /// * <!--)  -> 40   (drop -c for the other 9)
+    find src tests \( -name '*.cs' -o -name '*.axaml' \) -not -path '*/bin/*' -not -path '*/obj/*' -print0 \
+      | xargs -0 grep -hE "[A-Za-z0-9_][A-Za-z0-9_./-]*\.(cs|axaml|csproj|slnx|md):[0-9]+" \
+      | sed 's/^[[:space:]]*//' | grep -cE "^(//|\*|<!--)"
+
+    # (b) every citation in the governed .md set  -> 1756   (drop the pipe to wc for the 34-file list)
+    find . -name '*.md' -not -path '*/.*' -not -path '*/bin/*' -not -path '*/obj/*' \
+         -not -path '*/node_modules/*' -print0 \
+      | xargs -0 grep -hoE "[A-Za-z0-9_][A-Za-z0-9_./-]*\.(cs|axaml|csproj|slnx|md):[0-9]+" | wc -l
+    ```
+    **▶ AND ONE COUNT THIS ITEM MUST NOT PRETEND TO COVER.** W0-16 already records that **bare `:NNN`
+    continuation citations are NOT bound — roughly 46 % of the line anchors in these documents are unmeasured**.
+    That is a THIRD gap, in the scanner's *pattern*, not in what it does with a match. CIT-1 does not close it;
+    re-measure it rather than assuming these numbers include it.
+    **▶ THE TRAP — W0-16's own rule applies to this row verbatim: a green check that reads nothing.** Whatever
+    ships here arrives with a proof that it BITES: point an anchor at a deliberately wrong line, show the suite
+    go red, and show that removing the check turns it green again. **A GREEN SUITE PROVES NOTHING HERE.**
+    **▶ SCHEMA: NONE.** Tests only; no `src/` behaviour change.
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here).**
   **⚠️ 2026-08-15 — THIS IS NO LONGER A RECOMMENDATION. USER RULING 1 (R12, §5 banner) MAKES IT THE BUILD
   ORDER:** stop active harm first, then correctness, then structure, then breadth — **Wave 0 remainder → Wave 1
@@ -3943,9 +4085,16 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   IS STRUCK RATHER THAN QUIETLY LEFT STANDING.** Two **named, exhaustive** exceptions carve out of ruling 1 and
   the list below is rewritten to carry them, so a reader meets the **new** order and not the old one:
   **(a)** the **voucher lifecycle (Phase 10.11, census S1) is pulled OUT of Wave 1 and lands NEXT** — after
-  **W0-2b**, ahead of the rest of Wave 0 — which is why **W0-3 and W0-5 now run behind it**; **(b)** the
+  **W0-2b**, ahead of the rest of Wave 0 — which is why **W0-3 and W0-5 now run behind it**; **(b)** ~~the
   **print engine (census S5) starts NOW as a parallel track**, while **everything gated behind it stays in
-  Wave 4**. Ruling 1 still binds every item these two do not name.
+  Wave 4**~~. Ruling 1 still binds every item these two do not name.
+  **▶ 🔴 CLAUSE (b) IS SUPERSEDED 2026-08-18 BY A USER RULING — SEE RULING 7'S OWN BLOCK IN §5. THE PRINT
+  ENGINE RUNS SEQUENTIALLY: S5a → S5b → S5c FIRST, THEN THE ENGINE.** Reasons recorded there: **S5a rewrites
+  the engine's `Replace` contract, the riskiest work in the phase**, and **a parallel track needs its own
+  worktree cut from the branch tip, whose cost a crashed agent demonstrated on this project.** **Consequence
+  for this block: ruling 7's exception to ruling 1 LAPSES and the print engine returns to its Wave-4 place
+  below.** Clause **(a)** — ruling 6, the lifecycle — is **untouched and still in force**, so exactly one
+  named exception to ruling 1 survives.
   0. **▶ NEXT — THE VOUCHER LIFECYCLE (Phase 10.11), PULLED FORWARD BY RULING 6.** Alter / delete / cancel,
      over engines that already exist. It runs **after W0-2b** and **before the rest of Wave 0**. **Reason:**
      *the true root of the tree* — until it lands, every fix in items 1–5 below is correct only for **future**
@@ -3965,8 +4114,15 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   3. **Wave 3 — breadth.** Missing report families; GST return completeness; tracking numbers + fulfilment.
   4. **Wave 4 — the print engine** (`PdfWriter` image/XObject + font embedding), then **everything gated
      behind it**: IRN/QR, logo, cheque printing, multi-account printing, JPEG export, non-Latin script.
-     **▶ 🔴 STARTED EARLY AS A PARALLEL TRACK, 2026-08-16, BY USER RULING 7 — AND ITS POSITION IN THIS LIST IS
-     UNCHANGED FOR EVERYTHING GATED BEHIND IT.** IRN/QR (T0-9), the company logo, cheque printing, multi-account
+     **▶ 🔴 NOT STARTED EARLY AFTER ALL — RULING 7 IS SUPERSEDED 2026-08-18. THE ENGINE RUNS SEQUENTIALLY,
+     AFTER S5c, AND THIS WAVE-4 ROW IS AGAIN ITS TRUE POSITION.** The 2026-08-16 text is kept below because its
+     reasoning about the dependency is unchanged and still governs *when the engine must complete*; what is
+     withdrawn is only the *concurrency*. **The worktree constraint below is NOT withdrawn** — it applies to
+     whatever worktree the engine is eventually built in. See ruling 7's block in §5 for the two reasons: **S5a
+     rewrites the engine's `Replace` contract**, and **a parallel track needs its own worktree cut from the
+     branch tip, whose cost was demonstrated by a crashed agent.**
+     **▶ THE SUPERSEDED 2026-08-16 TEXT, PRESERVED: STARTED EARLY AS A PARALLEL TRACK BY USER RULING 7 — AND ITS
+     POSITION IN THIS LIST IS UNCHANGED FOR EVERYTHING GATED BEHIND IT.** IRN/QR (T0-9), the company logo, cheque printing, multi-account
      printing, JPEG export and non-Latin script **all stay in Wave 4**; **only the ENGINE ITSELF is begun now**,
      beside the main line. **Reason:** the census makes it a **HARD 3–6 week dependency that must complete
      before any dependent feature starts**, so running it last adds its whole duration to the end, while running
@@ -4060,6 +4216,38 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (which describe the shape they no longer use) and a doc comment in `StorableAmount`. **A count that includes
   a document's description of a defect over-states the defect** — the same class of error this file has now
   caught several times.
+  **▶ 🔴 RECORDED 2026-08-18 — TWO DERIVATIONS OF THIS COUNT ARE IN CIRCULATION AND THEY DISAGREE. NEITHER MAY
+  BE INHERITED BY THE SLICE. BOTH ARE NAMED HERE SO THE DISAGREEMENT IS MET AS A KNOWN FACT AND NOT
+  REDISCOVERED AS A SURPRISE.**
+  - **DERIVATION A — 62 occurrences across 37 files**, strict grep on the exact `catch` shape, **all** under
+    `src/Apex.Desktop/ViewModels/`. This is the figure the paragraph above states.
+  - **DERIVATION B — 66 occurrences across 40 files**, with the additional claim that **at least 25 of them
+    directly wrap a `_storage.Save(...)`**. This is the *filter-clause* pattern, i.e. the looser one this row
+    already warns against.
+  - **▶ WHAT A THIRD MEASUREMENT AT HEAD `6fb5fe5` ACTUALLY RETURNED, 2026-08-18, with the two commands run:**
+    ```
+    grep -rn --include=*.cs -F "catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)" src/ | wc -l   ->  62
+    grep -rl --include=*.cs -F "catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)" src/ | wc -l   ->  37
+    grep -rn --include=*.cs -F "when (ex is InvalidOperationException or ArgumentException)" src/ | wc -l                        ->  66
+    grep -rl --include=*.cs -F "when (ex is InvalidOperationException or ArgumentException)" src/ | wc -l                        ->  40
+    ```
+    So **A and B are not two readings of one pattern — they are two different patterns**, and the gap is
+    **exactly four PROSE lines**, each of which describes the defect rather than being it: a comment in
+    `MainWindowViewModel` (line 5614), comments in `PayHeadMasterViewModel` (line 526) and
+    `SalaryStructureMasterViewModel` (line 359), and a doc comment in `StorableAmount` (line 21).
+  - **▶ AND THIS ROW'S OWN LOOSE FIGURE IS NOW STALE TOO, WHICH IS THE POINT OF WRITING ALL THREE DOWN.** The
+    paragraph above says the loose pattern returns **65 across 40** and names **three** prose hits. At HEAD it
+    returns **66 across 40** and there are **four** — the fourth is the `MainWindowViewModel` comment, added
+    after this row was written. **A figure with a stated command still rots; what the command buys is that the
+    rot is detectable in one line instead of being invisible.**
+  - **▶ THE `_storage.Save` HALF IS NOT VERIFIED HERE AND MUST NOT BE QUOTED AS IF IT WERE.** A crude probe —
+    "does a `_storage.Save(` appear in the 14 lines preceding a match" — returned **31** over the loose set.
+    That is a **window heuristic over the wrong pattern**, not a measurement of "directly wraps". It is written
+    down only so the next reader knows the claim was probed and left open.
+  - **▶ WHAT THE SLICE MUST DO: RE-DERIVE FROM SCRATCH AND STATE ITS COMMAND.** Not A, not B, not the three
+    numbers above. The slice states which pattern it is counting and why, runs it at its own HEAD, and writes
+    the command beside the figure. **The strict, catch-anchored pattern is the one that describes the defect**;
+    anything looser counts the documentation of the defect along with it.
   **▶ WHERE THEY CLUSTER.** `VoucherEntryViewModel.cs` **15** — a quarter of the whole surface on the single
   screen that posts the most vouchers; `GstRateSetupViewModel.cs` **3**; nine files carry **2**
   (`BomMasterViewModel`, `JobWorkOrderEntryViewModel`, `ManufacturingJournalEntryViewModel`,

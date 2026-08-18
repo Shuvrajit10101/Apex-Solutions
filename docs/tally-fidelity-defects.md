@@ -756,7 +756,8 @@ to be built on a wrong premise.
 
 > ### † 2026-08-15 — §7 has been overtaken by the census; and its closing paragraph is now half wrong
 > **The six passes below were largely run.** `docs/full-clone-census.md` (2026-08-10) swept the whole product to
-> a denominator of **~115 capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined**, and its §6 item 10
+> a denominator over the whole product — **the split lives in census §1.2, summed from the named list in §1.2a,
+> and is deliberately not restated here** — and its §6 item 10
 > records which surfaces it closed. Passes 1 (printing), 2 (reports), 4 (company creation / F11) and 6 (Day Book,
 > import/export, GST returns UI) all now have measured rows — see census **T2-4** (the print engine has no image
 > primitive, so IRN/QR/logo are structurally impossible without replacing `PdfWriter`), **T1-9/T1-10** (71 of 77
@@ -775,3 +776,14 @@ to be built on a wrong premise.
 > behaviour compared to a source.** ⚠️ **2026-08-17 — this line read *"only 8 of 115"* when it was written and
 > that figure has since moved. It is not re-copied here: §1.3 is the single derivation and carries the count
 > with an as-of date. Read it there.**
+> ⚠️ **2026-08-18 — THE DENOMINATOR MOVED TOO, and the capability split at the top of this note went with it.**
+> That sentence read *"~115 capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined"* — the
+> **2026-08-10 snapshot at HEAD `468a96e`**, which census §1.2 now keeps in place under a *(superseded)*
+> heading because notes like this one still quote it. **The new figure is not a typo for the old one**, and
+> census §1.2b keeps its three causes apart: mostly **granularity** (the capabilities were finally written out
+> at §1.1 rule 1's menu-row/F11-toggle granularity, with report families **still compressed to one row each**,
+> so this is not "expand everything"); an **absent column that was provably too small** (the old split allowed
+> **zero** absent in four whole areas against absences evidenced on zero-hit searches); and least of all
+> **work shipped since**. The digits are not re-copied here either: **§1.2a is the list, §1.2 is its column
+> sum, §1.3's anchor block holds the four fidelity figures, and any copy that disagrees with that block is the
+> defect.**

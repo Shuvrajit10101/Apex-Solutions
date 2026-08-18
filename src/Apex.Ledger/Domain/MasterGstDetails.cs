@@ -69,9 +69,15 @@ namespace Apex.Ledger.Domain;
 /// save/load. <b>The application can therefore produce a database its own importer rejects</b> (export → parse gives
 /// 0 errors, then <c>CompanyImportService.Apply</c> returns <c>Applied = false</c>). This is exactly the shape of
 /// the <c>Company.EnsureValid</c> limit recorded for W0-2a, on the block the resolver will read. It is latent only
-/// because <b>no UI writes these fields</b> (zero hits for <c>MasterGstDetails</c> in
-/// <c>src/Apex.Desktop</c>) — the deferred master-GST screens are precisely what would break that, so they must
-/// validate on save.</para>
+/// because <b>no UI writes these fields</b>. ⚠️ <b>Wording corrected 2026-08-18</b> — this read *"zero hits for
+/// <c>MasterGstDetails</c> in <c>src/Apex.Desktop</c>"*, which was an overstatement. Re-measured
+/// (<c>grep -rn "MasterGstDetails" src/Apex.Desktop --include=*.cs --include=*.axaml</c>): <b>exactly one hit, and
+/// it is a doc comment</b> — the <c>&lt;para&gt;</c> on <c>CompanyStorage.Save</c> (the desktop layer's single
+/// validation choke point), which cites <c>MasterGstDetails.EnsureValid</c> as the precedent for putting that
+/// floor at a choke point rather than in a screen. <b>The conclusion is unchanged and the operative facts still hold: no
+/// view-model property, no XAML field, and no writer anywhere in the desktop layer.</b> A doc comment is not a
+/// property, a route or a caller. The deferred master-GST screens are precisely what would break that, so they
+/// must validate on save.</para>
 ///
 /// <para>🔴 <b>AND THERE IS NO UPPER BOUND ON THE RATE (lens 2 finding 7), at either level.</b>
 /// <see cref="EnsureValid"/> rejects only a negative value, so 1 000 000 bp (10 000 %) and <c>int.MaxValue</c>

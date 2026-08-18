@@ -6,6 +6,24 @@
 > the repository's citation invariant (`DocumentCodeAgreementTests`) does not read them as live pointers. That
 > is deliberate: these line numbers were accurate when captured and are NOT maintained. Re-derive before relying
 > on any of them. The live, maintained pointers are in `plan.md` and `memory.md`, which are re-anchored on edit.
+>
+> 🔴 **AMENDED 2026-08-18 — "accurate when captured" is NOT true of every pointer, and three named ones are
+> KNOWN-WRONG rather than merely stale.** `MainWindow.axaml.cs line 651-653` appears **three times** — §4.4's
+> deviation block, §7.4's deferred-work table row *"The corpus `Alt+K` company-menu route"*, and §8 item 17 —
+> each time as the evidence that **`Alt+K` is already bound to the Saved Views list**. **That claim still holds;
+> the pointer never did.** Line 651-653 is `if (e.Key == Key.T && … Control)` → `vm.TogglePostDated();` — the
+> **`Ctrl+T` post-dated toggle**, an unrelated chord. Verified 2026-08-18 at HEAD `6fb5fe5`: the file's **only**
+> `Key.K` test is `e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext` at **line
+> 757**, under the comment *"`Alt+K` (RQ-8) opens the 'Saved Views' list"*, with `vm.OpenSavedViews();` at line
+> 759. **Cite it by TEXT — search `MainWindow.axaml.cs` for `vm.OpenSavedViews()`.**
+>
+> **The three body occurrences were deliberately left as written, and this header carries the correction
+> instead.** Re-pointing three numbers inside a snapshot would make those three uniquely current among the
+> hundred-odd pointers in this file and would advertise a freshness the document does not have — the failure
+> mode this policy block exists to prevent. The defect is also a header-level one: the premise *"accurate when
+> captured"* is what let three false pointers pass unread, so the header is where it is repaired. **Every other
+> pointer in this file remains unverified — assume stale, re-derive, and do not read this amendment as an audit
+> of the rest.**
 # W0-2b — Company Create/Alter screen: DESIGN
 
 **Slice:** W0-2b (census S2 / T1-6; the WRITE half of T0-8, the CGST Rule 46(a) blank supplier address).

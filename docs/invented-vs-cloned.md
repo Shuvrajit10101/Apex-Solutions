@@ -1325,8 +1325,9 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 **This register is a floor, not a census.** The previous register in this project (`docs/tally-fidelity-defects.md` §3) said the same thing of itself, and saying so is what made it useful. Thirty-five is the number of items **four lenses found in the surfaces they looked at**, not the number that exists.
 
 > **† 2026-08-15 — §7's unmeasured list is now PARTLY CLOSED, by a document written after this one.**
-> `docs/full-clone-census.md` (2026-08-10) took a denominator over the whole product — **~115 capabilities: 42
-> complete, 44 partial, 21 absent, 8 undetermined** — and its §6 item 10 states which of §7's rows it closed:
+> `docs/full-clone-census.md` (2026-08-10) took a denominator over the whole product — **the split is in census
+> §1.2, summed from the named list in §1.2a, and is deliberately not restated here** — and its §6 item 10
+> states which of §7's rows it closed:
 > **printing and print layouts (structurally, not fidelity-wise), report layouts (existence only), company
 > creation and F11/F12, backup/restore, import/export, POS, banking, security.** **Still genuinely unmeasured:
 > GST return *content*, payroll *entry-surface* fidelity, budgets, scenarios, forex, manufacturing, job work,
@@ -1336,7 +1337,17 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 > row means *reachable*, not *correct*. **⚠️ 2026-08-17 — this note was written reading *"only 8 of 115 …
 > ~107 have not"*, and those figures have since moved. The digits are removed rather than re-copied: census
 > §1.3 is the single derivation, it carries an as-of date, and this branch has three times corrected that
-> figure and left live copies behind.** **Method limit 1 below ("no build and no test was run") still applies to
+> figure and left live copies behind.**
+> **⚠️ 2026-08-18 — THE DENOMINATOR ITSELF THEN MOVED, and the capability split above went the same way for the
+> same reason.** This note read *"~115 capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined"*: the
+> **2026-08-10 snapshot at HEAD `468a96e`**, which census §1.2 now retains in place under a *(superseded)*
+> heading because notes like this one still quote it. **The new figure is not a typo for the old one** —
+> census §1.2b keeps the three causes apart: mostly **granularity** (capabilities written out at §1.1 rule 1's
+> menu-row/F11-toggle granularity for the first time, with report families **still compressed**, so this is not
+> "expand everything"), an **absent column that was provably too small** (zero absent allowed in four whole
+> areas against evidenced zero-hit searches), and least of all **work shipped since**. As above, the digits are
+> not re-copied here: **§1.2a is the list, §1.2 is its column sum, §1.3's anchor block holds the fidelity
+> figures, and a copy that disagrees with them is the defect.** **Method limit 1 below ("no build and no test was run") still applies to
 > this register and applied again to the 2026-08-15 re-verification: every claim here is read from source.**
 
 ### What was actually examined

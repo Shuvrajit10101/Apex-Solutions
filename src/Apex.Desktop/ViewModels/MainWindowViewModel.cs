@@ -955,7 +955,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para><b>No accelerator — and the honest reason is scope, not a chord collision.</b> The reference
     /// product reaches company alteration through a COMPANY MENU on <c>Alt+K</c> (Book PDF p.15, Study Guide
     /// pp.61/267 — both [V]). This row shipped saying that chord "is already bound in this application", which
-    /// overstates it: measured at <c>Views/MainWindow.axaml.cs:653</c>, the saved-views binding is
+    /// overstates it: measured at <c>Views/MainWindow.axaml.cs</c> line 757 (re-pointed 2026-08-18 — the
+    /// comment cited line 653, which now holds the Ctrl+T post-dated toggle; re-located by CONTENT, since the
+    /// file's only <c>Key.K</c> test is the one quoted next), the saved-views binding is
     /// <c>Key.K &amp;&amp; Alt &amp;&amp; vm.IsReportContext</c> — it is bound in REPORT context only, and on
     /// the Gateway root column, where this row lives, <c>Alt+K</c> is unbound. The dispatcher already scopes
     /// that chord by context, so a Gateway-scoped one would follow the existing pattern rather than create an
@@ -5349,11 +5351,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     ///     <i>"Delete Yes or No?"</i> then <i>"Are you sure Yes or No?"</i>). Company deletion is out of S4 by
     ///     ruling, so nothing here contradicts it.</item>
     /// </list>
-    /// <b>What ships, and on what basis:</b> a SINGLE prompt on all five routes, under standing decision D-6,
-    /// citing STUDY-GUIDE p.67 as the supporting attestation — a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED
-    /// SOURCE. That is a third R7 category and it is neither "corpus silent" nor "decline to extend". The
-    /// BEHAVIOUR is unchanged (D-6 is a standing user ruling and this pass does not reopen it); only the record of
-    /// why is corrected, so the next reader cannot re-derive the wrong category from it.</para>
+    /// <b>🔴 WHAT SHIPS, AND ON WHAT BASIS — SETTLED BY THE USER 2026-08-18, IN TWO RULINGS. THE BEHAVIOUR IS
+    /// UNCHANGED (one prompt on all five routes, exactly as S4 shipped it); ONLY THE RECORD CHANGES, AND IT
+    /// CHANGES INTO TWO RECORDS.</b>
+    /// <list type="bullet">
+    ///   <item><b>(A) THE VOUCHER ROUTES — OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY ATTESTATION.</b>
+    ///     BOOK PDF pp.22-23 attest the double prompt for a voucher and contradict themselves doing it (see the
+    ///     bullet above). We keep ONE prompt and record it as a decision taken <i>against</i> that attestation.
+    ///     It is explicitly <b>not</b> "corpus silent" and <b>not</b> a
+    ///     decline-to-extend-an-unattested-behaviour — <b>the whole earlier D-6 record rested on an absence that
+    ///     turned out not to exist.</b></item>
+    ///   <item><b>(B) THE THREE MASTER ROUTES (ledger, group, stock item) — A DELIBERATE DIVERGENCE FROM AN
+    ///     ATTESTED SCOPE.</b> Here the double prompt IS cleanly attested (BOOK PDF p.21 for a ledger,
+    ///     STUDY-GUIDE PDF p.277 with its wording for a Group Company). We ship one prompt anyway and record it
+    ///     as a divergence from an attested scope — a different claim, on different evidence, from (A).
+    ///     <i>STUDY-GUIDE p.67's single prompt for the same ledger object narrows the divergence and does not
+    ///     change its category: we do not get to pick the friendly source and call the result fidelity.</i></item>
+    /// </list>
+    /// <b>Keep (A) and (B) apart.</b> They are defended by different pages, falsified by different findings and
+    /// re-opened by different evidence; conflating them is the exact R7 defect a review lens caught on S3.
+    /// Anything restating one must restate both, or say which it means.
+    /// <br/><b>SUPERSEDED, quoted so the category history stays legible:</b> this paragraph read <i>"a SINGLE
+    /// prompt on all five routes … a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED SOURCE. That is a third R7
+    /// category"</i>. One category is replaced by the two above.</para>
     ///
     /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Alt+D arm
     /// decides only that the keystroke is ours (a delete-capable surface, not typing, no open picker, exactly

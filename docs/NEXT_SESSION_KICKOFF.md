@@ -76,7 +76,11 @@ Rewritten **2026-08-17**, in full.
 > **5.** Fidelity is measured **per slice** — a definition-of-done change: every slice ends with a fidelity row,
 > or with a written record of why the corpus cannot settle the question.
 > **6.** Voucher lifecycle jumps the queue — **Phase 10.11 lands next**; W0-3 and W0-5 slip behind it.
-> **7.** The print engine starts **now**, as a parallel long-pole track (census S5).
+> **7.** ~~The print engine starts **now**, as a parallel long-pole track (census S5).~~ **🔴 SUPERSEDED
+> 2026-08-18 — STAY SEQUENTIAL THROUGH S5, THEN START THE PRINT ENGINE.** Reasons, both recorded at ruling 7's
+> block in `plan.md` §5: **S5a rewrites the engine's `Replace` contract**, the riskiest work in the phase; and
+> **a parallel track needs its own worktree cut from the branch tip**, whose cost a crashed agent demonstrated.
+> Ruling 7's exception to ruling 1 **lapses**; the engine returns to Wave 4. **Ruling 6 is untouched.**
 > **8.** Merge now, then keep accumulating — **supersedes 4**: one PR, then a fresh branch.
 >
 > **▶ WHAT IS NEXT.** **(a) Phase 10.11 — voucher lifecycle (alter · delete · cancel).** Ruling 6. **Its W0-7
@@ -84,7 +88,8 @@ Rewritten **2026-08-17**, in full.
 > 23 of 23 seeded base kinds; the ruling that said W0-7 must ship first was built on a census figure ten days
 > stale and is superseded in place. **A COMPLETE design already exists — BUILD FROM IT, DO NOT REDO IT:**
 > `docs/design-records/phase-10-11-voucher-lifecycle-design.md`, **1,377 lines, all 12 sections**. **(b) The
-> print engine, in parallel**, under Trap 3's worktree rule. **(c) Then W0-3** (Restore reachable from Company
+> print engine, ~~in parallel~~ **AFTER S5c** — 🔴 amended 2026-08-18, ruling 7 superseded; it is sequential
+> now, and still under Trap 3's worktree rule when it does start. **(c) Then W0-3** (Restore reachable from Company
 > Select) **and W0-5** (negative-stock warn toggle + e-Way config editor), which were deferred behind the
 > lifecycle slice.
 >
@@ -196,12 +201,32 @@ one page, 10 against 11 on the other — **so any pairing read off a `-layout` d
 
 ## THE DENOMINATOR — read it before "fix everything" sounds like a plan
 
-`docs/full-clone-census.md` — **~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined.**
-But the governing number is the one in §1.3: **9 of 115 have had their behaviour compared to a source; 106 have
-not** *(as of **2026-08-17** — §1.3 is the derivation and the only place these are maintained; if this line and
-§1.3 disagree, §1.3 is right and this line is stale)*. A `PRESENT` row means *reachable*, not *correct*.
-**Ruling 5 exists to close that 106 as a by-product of ordinary work** rather than leaving it to a dedicated
-campaign that never gets funded.
+🔴 **DO NOT READ A DENOMINATOR OUT OF THIS FILE. `docs/full-clone-census.md` §1.2a is the named capability
+list, §1.2 is its column sum, and §1.3's anchor block holds the four fidelity figures — those are the only
+places any of it is maintained.** This section deliberately carries **no digits**, because the digits it used
+to carry are exactly what went stale.
+
+▶ **THE DENOMINATOR MOVED ON 2026-08-18, so if you remember the old one, it was not a typo.** This section
+read *"~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined"* and *"9 of 115 have had
+their behaviour compared to a source; 106 have not"* — the **2026-08-10 snapshot at HEAD `468a96e`**, which
+census §1.2 now keeps in place under a *(superseded)* heading precisely because outside documents still quote
+it. Census §1.2b keeps the **three causes apart** and they must not be conflated:
+
+1. **GRANULARITY — most of the move.** §1.1 rule 1 defines a capability as a Tally menu row or an F11 toggle,
+   and the rows had never been written out at that granularity; the old figure was assembled area by area as
+   bare integers. **Report families are still compressed to one row each (§1.1 rule 2 is retained)**, so the
+   new figure is *not* the "expand everything" number, and the ~14 registers hiding inside those families are
+   still hidden.
+2. **THE ABSENT COLUMN WAS PROVABLY TOO SMALL** — the old split allowed **zero** absent capabilities in
+   Statutory, Payroll, Inventory masters and Reports, against absences evidenced on zero-hit searches in all
+   four. That is what makes the old split *wrong* rather than merely coarse.
+3. **WORK SHIPPED SINCE THE SNAPSHOT — the smallest part** (W0-2b, S3, S4, W0-1, W0-7, W0-12/13/14/15,
+   schema v51).
+
+A `PRESENT` row means *reachable*, not *correct*. **Ruling 5 exists to close the uncompared fidelity
+denominator as a by-product of ordinary work** rather than leaving it to a dedicated campaign that never gets
+funded; §1.3's anchor block carries its current width with an as-of date, and **if any copy anywhere disagrees
+with that block, the block wins and the copy is a defect.**
 
 ---
 

@@ -34,10 +34,22 @@ namespace Apex.Desktop.Tests;
 /// and that a ledger carrying transactions cannot be deleted (STUDY-GUIDE PDF p.67). Everything else here is
 /// <b>UNVERIFIED-BY-DESIGN — ours, corpus silent</b>: the referential guard, the numbering guard, offering Cancel
 /// as the remedy, the five surfaces, and every prompt and notice string. <b>The SINGLE confirmation is a decision,
-/// not fidelity:</b> the corpus's published DOUBLE prompt is attested for a master and for a group company and is
-/// NOT attested for a voucher, and the absence of that attestation is the finding — we decline to copy it across
-/// by analogy (decision D-6). That is a decline-to-EXTEND, which is a different R7 claim from a narrowing of an
-/// attested scope; the two are not merged anywhere in this file.</para>
+/// not fidelity — 🔴 AND IT IS TWO DECISIONS, IN TWO DIFFERENT R7 CATEGORIES (user rulings, 2026-08-18). The
+/// BEHAVIOUR these tests lock is unchanged; the RECORD of why is what was corrected.</b>
+/// <list type="bullet">
+///   <item><b>(A) VOUCHER routes — a decision AGAINST weak, self-contradictory attestation.</b> BOOK PDF
+///     pp.22-23 head <i>"How to Delete Voucher …?"</i> over the double-prompt recipe and then contradict
+///     themselves (their path reads <c>Alter &gt; Voucher type</c>). Poor attestation is still attestation.</item>
+///   <item><b>(B) The three MASTER routes — a deliberate DIVERGENCE from an attested scope.</b> The double
+///     prompt is cleanly attested there (BOOK PDF p.21 for a ledger, STUDY-GUIDE PDF p.277 for a group
+///     company). STUDY-GUIDE p.67's single prompt for the same ledger object narrows the divergence without
+///     changing its category.</item>
+/// </list>
+/// <b>SUPERSEDED, quoted so nobody re-derives it:</b> this paragraph read <i>"the corpus's published DOUBLE
+/// prompt … is NOT attested for a voucher, and the absence of that attestation is the finding — we decline to
+/// copy it across by analogy (decision D-6). That is a decline-to-EXTEND"</i>. <b>The absence was false.</b> The
+/// two categories above are still not merged anywhere in this file, which is what that sentence was right
+/// about.</para>
 ///
 /// <para><b>What each group locks.</b> (a) the arm and its keyboard guards; (b) the five routing surfaces;
 /// (c) the refusals, including the numbering refusal that is the whole reason this slice is dangerous; (d) the
@@ -197,8 +209,11 @@ public sealed class VoucherDeleteAltDTests
     /// <summary>
     /// 🔴 THE SINGLE PROMPT (decision D-6). ONE "Y" completes the deletion — there is no second "are you sure".
     /// Written as an explicit assertion rather than left implicit, because the corpus DOES publish a double prompt
-    /// for a master and for a group company, and someone reading that will be tempted to add one here. It is
-    /// deliberately not copied across: no voucher attestation exists.
+    /// for a master and for a group company, and someone reading that will be tempted to add one here.
+    /// <b>Corrected 2026-08-18:</b> this used to end <i>"It is deliberately not copied across: no voucher
+    /// attestation exists."</i> — <b>a voucher attestation DOES exist</b> (BOOK PDF pp.22-23), it is simply weak
+    /// and self-contradictory. One prompt ships as a decision taken against it (category A in this file's header),
+    /// which is a different R7 claim from the three master routes (category B).
     /// </summary>
     [AvaloniaFact]
     public void One_Y_completes_the_deletion_there_is_no_second_confirmation()
