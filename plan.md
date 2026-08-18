@@ -2402,6 +2402,29 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
        against `PopulatedFixtureCoverageTests.SeededBaseTypes` so that **every seeded base kind is either
        included or refused by name, with none unaccounted for** — and a test that fails when a newly seeded
        kind belongs to neither set. **Nothing in S5b is implemented before that list exists.**
+       **▶ ✅ BLOCK CLEARED 2026-08-19 — THE LIST EXISTS. The history above is kept verbatim; nothing is
+       deleted.** The derivation is `docs/design-records/phase-10-11-voucher-lifecycle-design.md` **§6.6a**
+       (`6.6a.1` the universe · `6.6a.3` the accounting enumeration, thirty rows, evidence per row · `6.6a.4`
+       the twelve inventory kinds · `6.6a.5` the line writers · `6.6a.6` the three dependent answers · `6.6a.8`
+       the totals and the UNDETERMINED rows). **All 23 seeded base kinds are accounted for**; §6.6 now carries a
+       pointer to it. **S5b is unblocked — but it inherits four findings that change its scope, and it must be
+       built to them, not around them:**
+       1. **The temporary `Gst`/`Tds`/`Tcs` refusal is NOT sufficient.** Five families carry no such line and
+          still fail to round-trip — an advance refund, an advance adjustment, a **goods** advance receipt
+          (which appends *nothing*, so it passes every tag test), a §34 Credit/Debit Note, and any voucher on a
+          statutory-flagged type. Each is an **off-line side effect of Accept**, invisible to any test of
+          `EntryLine` contents. S5b's refusal predicate is a **union**, not a line scan.
+       2. **The discriminator is the voucher TYPE, not the base kind.** `MainWindowViewModel.PickAddVoucherType`
+          is the existing precedent and orders it flags-first for the same reason.
+       3. **`ForAlter` cannot reuse `Accept()`.** Accept re-runs TDS / RCM / advance **detection** against
+          today's masters, so a narration-only alteration can acquire or lose a carve. S5b needs its own
+          `AcceptAlteration` ending in `Replace`, with no registration side effect.
+       4. **The coverage test cannot live in `Apex.Ledger.Tests`** (it references only `Apex.Ledger` and
+          `Apex.Ledger.Io`). It belongs in **`Apex.Desktop.Tests`**, beside the fixture coverage lock.
+       **▶ CARRIED TO S5c (R6 note): §6.6a rows 17 and 22 — the item-invoice batch split (one keyed row posts N
+       lines) and the Price-Level discount (`VoucherInventoryLine` has no discount field, so the list rate is
+       unrecoverable) — are DEFERRED but fit NOWHERE in S5c's stated contents.** Either S5c widens or they get
+       their own slice. **This is an open scoping decision, surfaced rather than taken.**
      - **S5c — the carve inversions + the CARRY table** — **L / HIGH.** **Proves:** a TDS-carved / GST-stamped /
        bank-reconciled voucher survives alteration with its tax **re-derived from the restored gross** and its
        outside-world links **carried, not rebuilt**.
