@@ -594,6 +594,202 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         return new ForexInfo(currencyId, new Money(ParsedForexAmount), ParsedForexRate);
     }
 
+    // =============================================================== Phase 10.11 S5b — the rehydration INVERSE
+
+    /// <summary>
+    /// 🔴 <b>The inverse of the four line writers</b> (<see cref="ToBillAllocations"/>,
+    /// <see cref="ToCostAllocations"/>, <see cref="ToBankAllocation"/>, <see cref="ToForexInfo"/>): re-keys this
+    /// blank row from a POSTED <see cref="EntryLine"/> so that re-running the writers reproduces it exactly.
+    /// Returns <c>null</c> on success, or a <b>named refusal</b> when the posted line carries something this screen
+    /// cannot express today.
+    ///
+    /// <para>🔴 <b>MASTER DRIFT is the failure this method exists to catch</b> (design §6.6a.5). All three named
+    /// writers are lossless on CONTENT but lossy under drift, because each reads a <b>live master flag</b>:
+    /// <c>SyncBillWise</c> gates on <c>SelectedLedger.MaintainBillByBill</c>, <c>SyncCostApplicable</c> on
+    /// <c>ClassificationRules.CostCentresApplicableFor</c> plus the company having any centre at all, and
+    /// <c>SyncBankLine</c> on <c>ClassificationRules.IsBankLedger</c>. Turn one of those OFF after posting and the
+    /// rehydrated panel HIDES — so the writer returns empty and <b>the allocations vanish on re-accept with no
+    /// message at all</b>. The gates are therefore read off the REAL line after the ledger is picked, never
+    /// re-implemented here, so this check cannot drift out of step with the Sync methods it is policing.</para>
+    ///
+    /// <para><b>The drift is refused in BOTH directions, and they are not symmetrical.</b> Bill-wise turned ON after
+    /// posting seeds a blank New-Ref row that no longer sums to the line, so Accept would refuse with a message
+    /// about a split the operator never keyed; cost allocation is OPTIONAL, so an untouched panel is legitimate and
+    /// only the OFF direction is a loss.</para>
+    ///
+    /// <para>🔴 <b><see cref="BankAllocation.BankDate"/> is deliberately NOT rehydrated.</b> It is written onto a
+    /// posted voucher by a later human action (<c>BankReconciliation.SetBankDate</c>) and exists nowhere on this
+    /// screen, so there is nothing to re-key. Carrying it is <c>LedgerService.Replace</c>'s job
+    /// (<c>CarryBankDatesForward</c>, with its ECHO rule) — which is precisely why an alteration must end in
+    /// <c>Replace</c> and never in <c>Post</c>.</para>
+    /// </summary>
+    public string? RehydrateFrom(EntryLine posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        var ledger = Ledgers.FirstOrDefault(l => l.Id == posted.LedgerId);
+        if (ledger is null)
+            return "one of its lines posts to a ledger that is no longer in this company, so the entry screen "
+                 + "cannot show it.";
+
+        // Assigning the ledger is what fires SyncForexLine / SyncBillWise / SyncCostApplicable / SyncBankLine —
+        // i.e. it opens exactly the panels a fresh entry would open for this ledger TODAY. Everything below either
+        // fills those panels or refuses because they no longer match what was posted.
+        SelectedLedger = ledger;
+        Side = posted.Side;
+
+        if (RehydrateAmount(posted, ledger) is { } amountRefusal) return amountRefusal;
+        if (RehydrateBillAllocations(posted, ledger) is { } billRefusal) return billRefusal;
+        if (RehydrateCostAllocations(posted, ledger) is { } costRefusal) return costRefusal;
+        if (RehydrateBank(posted, ledger) is { } bankRefusal) return bankRefusal;
+
+        // The whole point of an inverse: what the writers will rebuild must be the amount that was posted. A forex
+        // line's amount is DERIVED (forex x rate, snapped to the paisa) rather than typed, so this is the one check
+        // that proves the derivation landed back on the posted figure.
+        if (ParsedAmount != posted.Amount.Amount)
+            return $"the amount on '{ledger.Name}' cannot be re-keyed exactly "
+                 + $"({posted.Amount.Amount} was posted, the screen rebuilds {ParsedAmount}).";
+
+        return null;
+    }
+
+    /// <summary>
+    /// Re-keys the line's amount — through the forex pair when the line was posted in a foreign currency, because
+    /// <c>RecomputeForexBase</c> DRIVES <see cref="AmountText"/> from forex x rate and would overwrite anything set
+    /// directly.
+    ///
+    /// <para>🔴 <b>The rate format is widened here, and that is the whole fix for the one writer that was not
+    /// losslessly invertible</b> (§6.6a.5). <c>ForexInfo.Rate</c> persists at <c>Schema.ForexScale</c> = 1,000,000
+    /// (six decimal places), while this screen's own rate formatter is <c>"0.####"</c> — FOUR. An inverse reusing
+    /// that format truncates a six-place rate, and because <c>Money.ForexBase</c> snaps forex x rate to the paisa,
+    /// the rebuilt base amount can then differ from the posted one — which <c>VoucherValidator</c> rejects. Six
+    /// places covers everything the store can hold; a rate carrying MORE (possible only in memory, before a save
+    /// rounds it) falls back to the decimal's own exact round-trip rendering rather than being truncated or
+    /// refused.</para>
+    /// </summary>
+    private string? RehydrateAmount(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsForexLine != posted.HasForex)
+            return posted.HasForex
+                ? $"'{ledger.Name}' was posted in a foreign currency, but it no longer holds one — the forex "
+                + "amount and rate on that line would be lost."
+                : $"'{ledger.Name}' now holds a foreign currency but was posted in base currency, so the screen "
+                + "would demand a forex amount and rate the posted line never carried.";
+
+        if (posted.Forex is { } forex)
+        {
+            ForexAmountText = ExactDecimalText(forex.ForexAmount.Amount);
+            ForexRateText = ExactDecimalText(forex.Rate, "0.######");
+            return null; // RecomputeForexBase has driven AmountText; the caller verifies it landed on the posted figure
+        }
+
+        AmountText = ExactDecimalText(posted.Amount.Amount);
+        return null;
+    }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> so that parsing it back yields the SAME decimal. Prefers
+    /// <paramref name="preferred"/> (a tidy fixed-places form) and falls back to the decimal's own exact rendering
+    /// when that would lose a digit — so the output is always lossless and usually also readable.
+    /// </summary>
+    private static string ExactDecimalText(decimal value, string? preferred = null)
+    {
+        if (preferred is not null)
+        {
+            var tidy = value.ToString(preferred, CultureInfo.InvariantCulture);
+            if (decimal.TryParse(tidy, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var back)
+                && back == value)
+                return tidy;
+        }
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private string? RehydrateBillAllocations(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsBillWise != posted.HasBillAllocations)
+            return posted.HasBillAllocations
+                ? $"'{ledger.Name}' no longer maintains balances bill-by-bill, so the bill-wise panel would not "
+                + $"open and the {posted.BillAllocations.Count} allocation(s) posted on that line would silently "
+                + "vanish on re-accept."
+                : $"'{ledger.Name}' now maintains balances bill-by-bill but the posted line carries no allocation, "
+                + "so the screen would demand a bill-wise split that was never keyed.";
+
+        // The screen's own writer never states CreditPeriodDays (ToAllocation passes only an explicit due date), so
+        // an allocation carrying one — from a canonical-XML import, or a book older than this screen — cannot be
+        // re-keyed. Dropping it would move the ageing due date silently, which is exactly the class of loss this
+        // method exists to refuse.
+        if (posted.BillAllocations.FirstOrDefault(a => a.CreditPeriodDays is not null) is { } withPeriod)
+            return $"a bill-wise allocation on '{ledger.Name}' ('{withPeriod.Name}') carries an explicit credit "
+                 + "period, which this screen states as a due date rather than a number of days — re-accepting "
+                 + "would drop it and move the bill's ageing.";
+
+        BillAllocations.Clear();
+        foreach (var a in posted.BillAllocations)
+        {
+            var row = AddBillAllocation(a.RefType);
+            row.Name = a.Name;
+            row.DueDateText = a.DueDate is { } due ? ApexDate.Format(due) : string.Empty;
+            row.AmountText = ExactDecimalText(a.Amount.Amount);
+        }
+        RecomputeBillSummary();
+        return null;
+    }
+
+    private string? RehydrateCostAllocations(EntryLine posted, DomainLedger ledger)
+    {
+        // Cost allocation is OPTIONAL, so the ON direction is not a loss: a cost-applicable line that posted no
+        // allocation is a legitimate, round-tripping shape. Only the OFF direction destroys posted data.
+        if (posted.HasCostAllocations && !IsCostApplicable)
+            return $"cost centres no longer apply to '{ledger.Name}', so the cost panel would not open and the "
+                 + $"{posted.CostAllocations.Count} allocation(s) posted on that line would silently vanish on "
+                 + "re-accept.";
+
+        // Only clear when there is something to replace the seed row WITH. A cost-applicable line that posted no
+        // allocation keeps the blank starter row a fresh entry would show, and posts nothing (the panel is optional).
+        if (!posted.HasCostAllocations) return null;
+
+        CostAllocations.Clear();
+        foreach (var a in posted.CostAllocations)
+        {
+            var row = AddCostAllocation();
+            var category = _costCategories.FirstOrDefault(c => c.Id == a.CategoryId);
+            if (category is null)
+                return $"a cost allocation on '{ledger.Name}' names a cost category that is no longer in this "
+                     + "company, so it cannot be re-keyed.";
+            row.SelectedCategory = category;
+
+            var centre = _costCentres.FirstOrDefault(c => c.Id == a.CentreId);
+            if (centre is null || centre.CategoryId != category.Id)
+                return $"a cost allocation on '{ledger.Name}' names a cost centre that is no longer under its "
+                     + "category, so it cannot be re-keyed.";
+            row.SelectedCentre = centre;
+
+            row.AmountText = ExactDecimalText(a.Amount.Amount);
+        }
+
+        RecomputeCostSummary();
+        return null;
+    }
+
+    private string? RehydrateBank(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsBankLine != posted.HasBankAllocation)
+            return posted.HasBankAllocation
+                ? $"'{ledger.Name}' is no longer a bank account, so the bank panel would not open and the "
+                + "instrument details posted on that line would be lost."
+                : $"'{ledger.Name}' is now a bank account but the posted line carries no bank allocation, so "
+                + "re-accepting would add banking detail the voucher never had.";
+
+        if (posted.BankAllocation is not { } bank) return null;
+
+        BankTransactionType = bank.TransactionType;
+        InstrumentNumber = bank.InstrumentNumber ?? string.Empty;
+        InstrumentDateText = bank.InstrumentDate is { } d ? ApexDate.Format(d) : string.Empty;
+        // BankDate is NOT copied — see this method group's summary. LedgerService.Replace carries the reconcile
+        // tick, and its ECHO rule exists precisely because a rehydration that DID copy it would defeat the guard.
+        return null;
+    }
+
     /// <summary>The parent voucher's current date, so a forex rate can be defaulted from the rate in force.</summary>
     private DateOnly? _voucherDate;
 

@@ -1566,6 +1566,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>Recomputes Σ Dr, Σ Cr, the difference indicator, and whether Accept is allowed.</summary>
     public void Recalculate()
     {
+        // 🔴 S5b — inert while a posted voucher is being re-keyed line by line. In Single Entry this method stamps
+        // line 0's amount to Σ of the remaining lines, so running it against a half-built collection would zero the
+        // account line before the rest of the voucher existed. RehydrateFrom calls it once, at the end.
+        if (_rehydrating) return;
+
         // TDS withholding panel (Phase 7 slice 2): refresh first so it is cleared in item-invoice mode too (the
         // helper self-gates via TdsPossible, which is false when item-invoice is on). Cheap + pure.
         UpdateTdsPanel();
@@ -2825,14 +2830,410 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return notes.Count == 0 ? string.Empty : " " + string.Join(" ", notes);
     }
 
+    // =============================================================== Phase 10.11 S5b — ALTER a posted voucher
+
+    /// <summary>The posted voucher this screen was opened to ALTER, or <see cref="Guid.Empty"/> for a fresh entry.</summary>
+    private Guid _alteringVoucherId;
+
+    /// <summary>
+    /// Suppresses <see cref="Recalculate"/> while <see cref="RehydrateFrom(Voucher)"/> is mid-flight.
+    ///
+    /// <para>🔴 <b>Not an optimisation — a correctness guard.</b> In Single Entry, <c>Recalculate</c> calls
+    /// <c>SyncSingleEntrySides</c>, which OVERWRITES line 0's amount with Σ of the remaining lines. Rehydration adds
+    /// the posted lines one at a time, so the very first of those calls would see a single line, compute Σ of
+    /// nothing, and stamp the account line's amount to <b>zero</b> — silently, before any of the other lines
+    /// existed. One <c>Recalculate</c> runs at the end instead, when the collection is whole.</para>
+    /// </summary>
+    private bool _rehydrating;
+
+    /// <summary>True when this screen is altering a POSTED voucher rather than entering a new one.</summary>
+    public bool IsAltering => _alteringVoucherId != Guid.Empty;
+
+    /// <summary>The posted voucher being altered, or <see cref="Guid.Empty"/> for a fresh entry.</summary>
+    public Guid AlteringVoucherId => _alteringVoucherId;
+
+    /// <summary>
+    /// 🔴 <b>S5b's entry door — opens this screen on a POSTED voucher, pre-filled, or refuses BY NAME.</b>
+    ///
+    /// <para>The result is never a bare <c>null</c> and never a silent no-op: it holds either a rehydrated view
+    /// model or a family-specific sentence saying why this voucher's posted shape cannot be rebuilt from the entry
+    /// screen. See <see cref="VoucherAlterationEligibility"/> for the thirty-row enumeration behind those refusals,
+    /// and design §6.6a for their derivation.</para>
+    ///
+    /// <para><b>Accepting an alteration is <see cref="AcceptAlteration"/>, NOT <see cref="Accept"/></b>, and
+    /// <see cref="Accept"/> hard-refuses on an altering screen. <c>Accept</c> is build + <c>Post</c> + REGISTRATION
+    /// SIDE EFFECTS: it re-runs <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and <c>BuildAdvanceLines</c> against
+    /// <b>today's</b> masters, so a voucher that carried no withholding carve at posting could ACQUIRE one on a
+    /// narration-only alteration — and one that carried a carve could lose it. It would also mint a fresh
+    /// <see cref="Guid"/> and post a SECOND voucher, leaving the original standing (§6.6a.6, fourth thing).</para>
+    /// </summary>
+    public static VoucherAlterationOpen ForAlter(
+        Company company,
+        Guid voucherId,
+        CompanyStorage storage,
+        Action onSaved,
+        Action onCancelled)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        if (VoucherAlterationEligibility.RefusalFor(company, voucherId) is { } refusal)
+            return VoucherAlterationOpen.Refused(refusal);
+
+        // Both are non-null: RefusalFor returned null, which it only does after resolving each of them.
+        var voucher = company.FindVoucher(voucherId)!;
+        var type = company.FindVoucherType(voucher.TypeId)!;
+
+        // The date is deliberately NOT passed to the constructor: RehydrateFrom sets it, and having exactly one
+        // writer is what makes that assignment falsifiable by a test (a voucher that is not the latest in the book
+        // would otherwise open on the constructor's default and no assertion could tell).
+        var entry = new VoucherEntryViewModel(company, type, storage, onSaved, onCancelled);
+        return entry.RehydrateFrom(voucher) is { } lineRefusal
+            ? VoucherAlterationOpen.Refused(lineRefusal)
+            : VoucherAlterationOpen.Opened(entry);
+    }
+
+    /// <summary>
+    /// Re-keys this freshly-constructed screen from <paramref name="voucher"/>. Returns <c>null</c> on success, or a
+    /// named refusal when a line cannot be re-keyed (the master-drift and forex cases
+    /// <see cref="VoucherLineViewModel.RehydrateFrom"/> owns, which need the REAL panel gates and so cannot be
+    /// decided from the posted voucher alone).
+    ///
+    /// <para>🔴 <b>The provisional-state vector is carried onto the live header properties, not into a frozen
+    /// snapshot</b> (design §12.8 consequence 2). <c>Replace</c> REFUSES a change to <c>Optional</c>,
+    /// <c>PostDated</c> or <c>ApplicableUpto</c>, so a rehydration that dropped one would turn a silent balance
+    /// move into a loud failure — which is exactly why that refusal exists. Carrying them onto the live properties
+    /// (rather than freezing them and rebuilding from the frozen copy) keeps the OTHER half honest too: an operator
+    /// who really does press Ctrl+L gets the engine's refusal naming the verb they should have used, instead of
+    /// having their keystroke silently ignored.</para>
+    /// </summary>
+    private string? RehydrateFrom(Voucher voucher)
+    {
+        _alteringVoucherId = voucher.Id;
+        _rehydrating = true;
+        try
+        {
+            SeedAlterationMode(voucher);
+
+            // The voucher's OWN number, not the NextNumber preview the constructor computed — this screen is not
+            // adding to the sequence. Replace accepts a replacement carrying the voucher's own number by name.
+            VoucherNumber = voucher.Number;
+            Date = voucher.Date;
+            Narration = voucher.Narration ?? string.Empty;
+
+            // 🔴 the provisional-state vector — see this method's summary.
+            IsOptional = voucher.Optional;
+            IsPostDated = voucher.PostDated;
+            if (voucher.ApplicableUpto is { } upto) ApplicableUptoText = ApexDate.Format(upto);
+
+            // The counterparty capture is only keyed on a Purchase/Sales; on every other type AcceptAlteration
+            // carries the posted values straight through instead (TryResolveReferenceCapture hands back null/null
+            // off those two natures, which would DROP a reference an import had put there).
+            if (ShowReferenceCapture)
+            {
+                ReferenceNo = voucher.ReferenceNo ?? string.Empty;
+                ReferenceDateText = voucher.ReferenceDate is { } refDate ? ApexDate.Format(refDate) : string.Empty;
+            }
+
+            Lines.Clear();
+            foreach (var posted in voucher.Lines)
+            {
+                var line = AddLine(posted.Side);
+                if (line.RehydrateFrom(posted) is { } refusal)
+                    return "This voucher cannot be re-opened for alteration: " + refusal;
+            }
+        }
+        finally
+        {
+            _rehydrating = false;
+        }
+
+        Recalculate();
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Seeds the entry mode from the VOUCHER, never from the voucher type's opening default</b> (design
+    /// §6.6a.6 answer 2). <c>HasInventoryLines</c> and <c>IsAccountingInvoice</c> are both PERSISTED, and
+    /// <c>Replace</c> refuses a change to the latter by name — so a Sales type whose opening default is an item
+    /// invoice would otherwise re-open a plain Dr/Cr Sales in the wrong grid and post a different voucher.
+    ///
+    /// <para><b>Single Entry is seeded only when the posted shape actually IS one, and that condition is not
+    /// cosmetic.</b> Single Entry is not persisted — it is a re-render of the same lines — so it can only be
+    /// inferred. <c>SyncSingleEntrySides</c> stamps line 0 to the account side, every other line to the opposite,
+    /// and rewrites line 0's amount to Σ of the rest. On a voucher that genuinely was keyed in Single Entry those
+    /// are all no-ops by construction; on a Payment keyed in the double-entry grid with two bank credits, they
+    /// would silently FLIP a side and REWRITE an amount. So the shape is tested, and a voucher that does not match
+    /// it re-opens in the plain Dr/Cr grid — which posts through the identical path.</para>
+    /// </summary>
+    private void SeedAlterationMode(Voucher voucher)
+    {
+        if (voucher.HasInventoryLines) { Mode = VoucherEntryMode.ItemInvoice; return; }
+        if (voucher.IsAccountingInvoice) { Mode = VoucherEntryMode.AccountingInvoice; return; }
+        Mode = IsPostedAsSingleEntry(voucher) ? VoucherEntryMode.SingleEntry : VoucherEntryMode.AsVoucher;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="voucher"/>'s posted lines are exactly the shape Single Entry produces — one
+    /// account-side line FIRST, every other line on the opposite side. A balanced voucher of that shape has line
+    /// 0's amount equal to Σ of the rest, so <c>SyncSingleEntrySides</c>'s stamp is provably a no-op on it.
+    ///
+    /// <para><b>One clause, deliberately, and here is why the obvious second one is not here.</b> The natural
+    /// spelling adds <c>voucher.Lines[0].Side == SingleEntryAccountSide</c> — but for a POSTED voucher that is
+    /// IMPLIED: the voucher is balanced, so if every line from index 1 onward sits on the particulars side, line 0
+    /// must sit on the account side or Σ Dr ≠ Σ Cr. A mutation run confirmed it: deleting that clause reddened
+    /// nothing, because no reachable voucher can fail it while passing the clause below. A guard no test can fail
+    /// is dead code wearing the costume of safety, so it is stated in prose instead.</para>
+    /// </summary>
+    private bool IsPostedAsSingleEntry(Voucher voucher) =>
+        CanBeSingleEntry
+        && voucher.Lines.Skip(1).All(l => l.Side == SingleEntryParticularsSide);
+
+    /// <summary>
+    /// 🔴 <b>Accepts an ALTERATION — the same keying as <see cref="Accept"/>, with no registration side effect, and
+    /// ending in <c>LedgerService.Replace</c>.</b> Returns <c>false</c> with <see cref="Message"/> set on any
+    /// refusal.
+    ///
+    /// <para><b>Why it ends in <c>Replace</c> and never in <c>Post</c> (design §3.4, binding).</b>
+    /// <c>BankAllocation.BankDate</c> is written onto a POSTED voucher by a later human action
+    /// (<c>BankReconciliation.SetBankDate</c>) and exists NOWHERE on this screen, so
+    /// <see cref="VoucherLineViewModel.ToBankAllocation"/> never writes one. A <c>Post</c> would therefore destroy
+    /// every bank reconciliation date on the voucher, silently, with no test failing.
+    /// <c>Replace.CarryBankDatesForward</c> is what compensates — including its ECHO rule, which exists precisely
+    /// because this caller hands back the posted date it read.</para>
+    ///
+    /// <para><b>Why it re-runs eligibility.</b> The screen may have been open while a master moved. Eligibility is
+    /// cheap and the alternative is a refusal from the engine phrased in terms the operator never saw.</para>
+    ///
+    /// <para><b>Line tax is not echoed, and cannot be.</b> Finding L3-07 binds this caller to RE-DERIVE line tax
+    /// rather than carry a stale stamp, because GSTR-1 and GSTR-3B read the STAMPED taxable value, not the posted
+    /// amounts — so an echo makes a return declare a figure the book does not hold. S5b has no re-derivation, so it
+    /// takes the only other honest option: every voucher carrying a stamped <c>Gst</c>/<c>Tds</c>/<c>Tcs</c> line is
+    /// REFUSED at the door, and the lines this method builds are constructed WITHOUT those arguments — there is no
+    /// code path here that could carry one forward.</para>
+    /// </summary>
+    public bool AcceptAlteration()
+    {
+        Message = null;
+
+        if (!IsAltering)
+        {
+            Message = "This screen is entering a new voucher, not altering a posted one — use Accept.";
+            return false;
+        }
+
+        if (_company.FindVoucher(_alteringVoucherId) is not { } existing)
+        {
+            Message = "The voucher being altered is no longer in this company's books — it may have been deleted "
+                    + "meanwhile. Nothing was changed.";
+            return false;
+        }
+
+        // 🔴 Ctrl+H is still live on an altering screen, and it must not become a back door into a family S5b
+        // refuses. Both invoice modes key their voucher from a DIFFERENT collection — InventoryLines and
+        // AccountingInvoiceLines — which this method does not read at all, so accepting in one of them would post
+        // the old plain-grid lines while the operator was looking at (and had possibly keyed) an invoice grid.
+        // Cheaper and safer than trying to keep the two grids in step for a family whose inverse is not built yet.
+        if (!IsAsVoucherMode)
+        {
+            Message = "This voucher is being altered on the plain Dr/Cr grid. Switch back to it before accepting — "
+                    + "altering an item or service invoice is not available yet, and the invoice grids are not "
+                    + "what this alteration would post.";
+            return false;
+        }
+
+        if (VoucherAlterationEligibility.RefusalFor(_company, _alteringVoucherId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
+
+        if (PlainGridRefusal() is { } gridRefusal)
+        {
+            Message = gridRefusal;
+            return false;
+        }
+
+        var entryLines = BuildPlainEntryLines();
+        if (entryLines.Count < 2)
+        {
+            Message = "A voucher needs at least two lines.";
+            return false;
+        }
+
+        DateOnly? applicableUpto = null;
+        if (IsReversing)
+        {
+            if (!ApexDate.TryParse(ApplicableUptoText, Date, out var upto))
+            {
+                Message = ApexDate.ErrorFor(ApplicableUptoText);
+                return false;
+            }
+            if (upto < Date)
+            {
+                Message = "Applicable Upto must be on or after the voucher date.";
+                return false;
+            }
+            applicableUpto = upto;
+        }
+
+        // Off a Purchase/Sales the screen never captures a reference, so the POSTED values are carried rather than
+        // re-read as null — otherwise an imported Journal's reference would be dropped by the alteration.
+        var referenceNo = existing.ReferenceNo;
+        var referenceDate = existing.ReferenceDate;
+        if (ShowReferenceCapture && !TryResolveReferenceCapture(out referenceNo, out referenceDate)) return false;
+
+        var replacement = new Voucher(
+            existing.Id,                 // clause 2 — the Guid is every outside link's only handle
+            existing.TypeId,             // the preserved number belongs to THIS type's sequence
+            Date,
+            entryLines,
+            number: existing.Number,     // clause 3 — Replace accepts the voucher's own number by name
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: existing.PartyId,   // never keyed on the plain grid; dropping it would move the party analysis
+            cancelled: existing.Cancelled,          // Cancel's verb, not Alter's — Replace refuses a change
+            optional: IsOptional,                   // 🔴 the provisional-state vector, carried from the header
+            postDated: IsPostDated,                 //    properties RehydrateFrom seeded from the posted voucher
+            applicableUpto: applicableUpto,         //    (§12.8 — Replace refuses a change to any of the three)
+            referenceNo: referenceNo,
+            referenceDate: referenceDate,
+            isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
+
+        IReadOnlyList<VoucherAlterationWarning> warnings;
+        try
+        {
+            _service.Replace(existing.Id, replacement, out warnings);
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = $"Voucher is out of balance (Dr {TotalDebitText} ≠ Cr {TotalCreditText}). Not altered.";
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
+        {
+            Message = $"Cannot alter: {ex.Message}";
+            return false;
+        }
+
+        // 🔴 A FAILED SAVE ROLLS THE SWAP BACK, exactly as the Alt+X arm rolls its flag back. The engine mutates the
+        // in-memory aggregate and the save happens after it, so without this the books would hold the amended
+        // voucher, the .db the original, and every later save would carry the divergence. Restoring is a rollback of
+        // a transaction that did not commit — the second Replace is safe because CarryBankDatesForward only ever
+        // WRITES to the replacement it is handed and never to the outgoing voucher, so `existing` still holds the
+        // reconcile ticks it was posted with.
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            try
+            {
+                _service.Replace(existing.Id, existing, out _);
+                Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
+                        + "changed.";
+            }
+            catch (Exception rollbackFailure)
+            {
+                Message = $"Could not save the company: {ex.Message} Putting the original voucher back ALSO "
+                        + $"failed ({rollbackFailure.Message}), so this company is now ahead of its file — close "
+                        + "it without saving.";
+            }
+            return false;
+        }
+
+        SavedNumber = replacement.Number;
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered."
+                + WarningNote(warnings);
+        _onSaved();
+        return true;
+    }
+
+    /// <summary>The operator-facing tail of the alteration message: the warnings <c>Replace</c> raised (a cleared
+    /// bank reconciliation, a moved date, a diverged statutory record). Empty when it raised none, so an ordinary
+    /// alteration reads exactly as a plain success.</summary>
+    private static string WarningNote(IReadOnlyList<VoucherAlterationWarning> warnings) =>
+        warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message));
+
+    /// <summary>
+    /// The up-front, plain-grid refusals <see cref="Accept"/> makes before it touches the engine, factored out so
+    /// <see cref="AcceptAlteration"/> makes exactly the same ones. Returns the message, or <c>null</c> when the grid
+    /// is fit to post.
+    /// </summary>
+    private string? PlainGridRefusal()
+    {
+        if (UnstorableGridAmountError() is { } unstorable) return unstorable;
+
+        if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
+            return "Every entered line needs a ledger and a positive amount.";
+
+        if (Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate) is { } badLineDate)
+            return ApexDate.ErrorFor(badLineDate.InstrumentDateText);
+
+        if (Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate) is { } badDueDate)
+            return ApexDate.ErrorFor(badDueDate.DueDateText);
+
+        if (Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk) is { } badBill)
+            return $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount "
+                 + $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
+
+        if (SettlementAllocationError() is { } settlementError) return settlementError;
+
+        if (Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk) is { } badCost)
+            return $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount "
+                 + $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
+
+        if (Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk) is { } badForex)
+            return $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in "
+                 + $"{badForex.ForexCurrencyCode} and a rate of exchange.";
+
+        return null;
+    }
+
+    /// <summary>
+    /// The plain-grid <see cref="EntryLine"/> set — the four line writers run over every complete row, and
+    /// <b>nothing else</b>. No withholding carve, no reverse-charge pair, no advance pair, and no stamped
+    /// <c>Gst</c>/<c>Tds</c>/<c>Tcs</c> argument anywhere: those are the arguments an alteration must never echo,
+    /// and the way to guarantee that is for this builder to have no way to supply one.
+    /// </summary>
+    private List<EntryLine> BuildPlainEntryLines() =>
+        Lines.Where(l => l.IsComplete)
+            .Select(l =>
+            {
+                var billAllocs = l.ToBillAllocations();
+                var costAllocs = l.ToCostAllocations();
+                return new EntryLine(
+                    l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
+                    billAllocs.Count > 0 ? billAllocs : null,
+                    costAllocs.Count > 0 ? costAllocs : null,
+                    l.ToBankAllocation(),
+                    l.ToForexInfo());
+            })
+            .ToList();
+
     /// <summary>
     /// Ctrl+A accept: builds the voucher from the non-blank lines, posts it (engine rejects an
     /// unbalanced/invalid voucher — nothing persists on failure), then saves the company to its
     /// <c>.db</c>. On success surfaces the assigned number and returns to the Gateway.
+    ///
+    /// <para>🔴 <b>Hard-refuses on an ALTERING screen</b> (design §6.6a.6, fourth thing). This method is
+    /// build + <c>Post</c> + REGISTRATION SIDE EFFECTS: it mints a fresh <see cref="Guid"/> and posts a SECOND
+    /// voucher — leaving the original standing, so the book would hold the entry twice — and it re-runs
+    /// <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and <c>BuildAdvanceLines</c> against TODAY'S masters, so a
+    /// narration-only alteration could acquire or lose a withholding carve. <see cref="AcceptAlteration"/> is the
+    /// alteration verb.</para>
     /// </summary>
     public bool Accept()
     {
         Message = null;
+
+        if (IsAltering)
+        {
+            Message = "This screen is altering a posted voucher — accepting it as a new entry would post a second "
+                    + "voucher and re-run withholding and reverse-charge detection against today's masters. Use "
+                    + "the alteration accept instead.";
+            return false;
+        }
+
 
         // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
         if (IsItemInvoice) return AcceptItemInvoice();
