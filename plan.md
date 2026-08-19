@@ -2178,6 +2178,64 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
       documentation slice**; Stream B is fenced out of `src/Apex.Ledger/Reports/**`.
 
 ### Phase 10.11 — Voucher lifecycle: alter, delete, cancel
+- **▶ ✅🔴 PHASE STATUS, WRITTEN 2026-08-19 (R6) — THE ENGINE IS COMPLETE AND THE PHASE IS NOT DONE IN THE
+  PRODUCT. BOTH SENTENCES ARE TRUE AND NEITHER ONE ALONE IS; a reader who takes only the first has the
+  overstated-closure defect this project has now shipped three times.**
+  **▶ HALF ONE — WHAT SHIPPED.** All five remaining diffs are on `claude/apex-wrong-figures-bc45f4`:
+  **S3 Cancel `099e7bc` · S4 Delete `17e8525` + `6fb5fe5` · S5a engine `Replace` `6eab601` + `95a0e9c` ·
+  S5b `ForAlter` rehydration `e0a9fa2` + `0d79104` · S5c carve inversions + the CARRY table `f73ff35` +
+  `0f56606`**, with **`0c2ee22`** and **`e952614`** carrying the §6.6a family enumeration and its totals. **S1
+  (`6a28d15`) and S2 (`f2abdbb`) were already merged ancestors** (D-1), so the slice list below is discharged
+  end to end. Each slice was reviewed **pre-merge** and **every single one shipped fixes**; the findings are
+  logged in `memory.md`'s 2026-08-19 lifecycle entry and are not restated here.
+  **▶ 🔴 HALF TWO — NO OPERATOR CAN REACH ALTERATION FROM ANY SCREEN. `VoucherEntryViewModel.ForAlter` HAS
+  ZERO PRODUCTION CALL SITES.** Do not take this sentence on trust — derive it:
+  `grep -rn "ForAlter" --include=*.cs src` returns the three **master** factories (`LedgerMasterViewModel`,
+  `AccountGroupMasterViewModel`, `StockItemMasterViewModel`) with their callers in `MainWindowViewModel`, plus
+  doc comments — and **not one call to the voucher factory**. Every caller of it lives in
+  `tests/Apex.Desktop.Tests`. `AcceptAlteration` and `VoucherAlterationEligibility` are reachable the same way
+  and no other. The design record states it in its own words in §6.6a.9, under ER-13.
+  **THE THIRD VERB IS ENGINE-SIDE ONLY — EXACTLY THE STATE CANCEL WAS IN BEFORE S3 WIRED IT, AND EXACTLY THE
+  STATE `StockItemMasterViewModel.ForAlter` WAS IN BEFORE ITS OWN REACHABILITY LOCK WAS WRITTEN** (see
+  `StockItemAlterReachabilityTests`, whose whole subject is a `ForAlter` that shipped with no production
+  caller while its tests called it directly and proved the mechanism and nothing about reachability). **The
+  same test never existed for the voucher screen.**
+  **▶ ⚠️ AND THE PRECISE SCOPE OF THAT GAP, BECAUSE "the whole lifecycle is engine-side" WOULD BE TOO WIDE AND
+  THIS ROW IS NOT ALLOWED TO OVERSTATE IN EITHER DIRECTION.** **Cancel and delete ARE reachable** — the tunnel
+  dispatcher in `src/Apex.Desktop/Views/MainWindow.axaml.cs` carries a live `Key.X` + `KeyModifiers.Alt` arm
+  calling `RequestCancelHighlightedVoucher()` and a live `Key.D` + `KeyModifiers.Alt` arm calling
+  `RequestDeleteHighlighted()`. **It is ALTERATION, the one verb the census calls the true root of the tree,
+  that an operator cannot reach.** `Ctrl+Enter` — the gesture USER DECISION 1 chose for it — is bound in that
+  same dispatcher to `AlterHighlightedStockItemRow()`, i.e. to **master** alteration, and to nothing else.
+  **▶ 🔴 THE WIRING IS CARRIED BY NO SLICE IN THIS ROW, AND THAT IS AN OPEN SEQUENCING QUESTION, NOT A
+  DECISION TAKEN HERE.** VL-1 specifies the gesture and the route; **S5b and S5c delivered the engine and the
+  screen behind it and stopped at the door.** Nothing in the slice list below, and nothing in the
+  re-sequenced order at the end of Phase 10.12, names the diff that opens `ForAlter` from the register drill
+  and routes Accept to `AcceptAlteration`. **It therefore needs either its own slice or an explicit user
+  ruling folding it into the edit-log work (step 3 of that order) — surfaced under R12, not settled here.**
+  ⚠️ **Read this together with the R9 exit gate below: the real-app evidence that gate demands — "alter a
+  posted invoice and see the same number at the same Day-Book position" — CANNOT BE PRODUCED TODAY.** The gate
+  is not met and must not be recorded as met.
+  **▶ OPEN ITEMS CARRIED OUT OF THE PHASE — THEY DO NOT LAPSE BECAUSE THE SLICES ENDED.** Beyond the
+  carry-forward block at the foot of this row, the S5b/S5c enumeration leaves four families **still refused
+  after S5c**, each with its blocker named (design record §6.6a.3, the `DEFER-DEFERRED` verdict):
+  - **Row 8 — the SERVICE GST advance receipt — is a 🔴 USER DECISION, not a next-slice item.** It is refused
+    by `VoucherAlterationEligibility.OffLineSideEffectRefusal`. **Lifting it means an alteration REGISTERING or
+    REPLACING a `GstAdvanceReceipt`** — the frozen record GSTR-1's 11A row is declared from — **and §6.6a.6
+    forbids an alteration performing a registration side effect.** So it cannot be built without the user
+    ruling on which of the two gives way.
+  - **Rows 17 and 22 — the item invoice on Sales and on Purchase — are SCHEMA-BLOCKED.** Two proven
+    non-inverses: a batch-split line posts **one item line per batch**, so one keyed row becomes N posted rows;
+    and the posted rate is the **effective** rate (list rate less the Price-Level discount) while
+    **`voucher_inventory_lines` has no discount column at all**, so the list rate and the discount are
+    unrecoverable from what was stored. **No inversion can be written against the current schema** — this one
+    is a migration, and the user has FULL schema authority (§5 ruling).
+  - **Row 23 — the PURCHASE accounting invoice — is blocked by the invoice grid's own writers**, not by the
+    carve. It is refused by `VoucherAlterationEligibility.EntryModeRefusal`; the party leg is **derived** there
+    and its bill-wise panel is targeted at the withholding **net**, so the plain-grid inversion S5c built does
+    not apply to it. (Row 18, its Sales twin, is the one that came out **SIMPLE on the round trip and REFUSE on
+    the edit** — do not read the two rows as the same case.)
+
 - **▶ 🔴 READ FIRST — THE ARITHMETIC OF THIS PHASE, STATED IN ONE SENTENCE SO IT CANNOT BE MIS-BRIEFED (D-2,
   2026-08-17). PHASE 10.11 IS **THREE VERBS** — **CANCEL · DELETE · ALTER** — DELIVERED AS **FIVE DIFFS**:
   **S3 · S4 · S5a · S5b · S5c**.** "Three" counts the verbs; "five" counts the slices. **The original five-slice
@@ -2563,6 +2621,54 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      is `docs/design-records/` a standing convention (design records are preserved verbatim as historical
      snapshots, with `file.ext line NN` pointers deliberately neutralised), or a one-off? **Recorded as an open
      decision rather than settled by whoever notices it next.**
+- **▶ 🔴 A FURTHER PLAN ITEM, OPENED 2026-08-19 BY THE S5c REVIEW (its finding L3-07) — AND IT IS A **USER
+  DECISION**, NOT A BUILD TASK. IT IS WRITTEN HERE BECAUSE THE REVIEW RECORDED IT AS *"routed to `plan.md` as a
+  user decision"* AND IT NEVER ARRIVED.** Until this entry, `plan.md` carried no deductee-type item, no
+  `DeducteeType` mention and no L3-07 anywhere, and the **only** record of the deferral in the whole repository
+  was a comment block inside `src/Apex.Ledger/Seed/SeedTdsTcsRates.cs`. **Under R6 that is the same as not
+  existing:** a deferral that lives in a code comment is a deferral the user is never asked about, and the
+  reason it is filed as its own item rather than appended to the block above is that the block above is dated
+  2026-08-17 and is the design review's — amending its header to make room would have destroyed a true record
+  to file a new one.
+  **▶ THE FACT — THE §194C DEDUCTEE-TYPE BRANCH IS NOT BUILT, SO A §194C DEDUCTION CAN BE COMPUTED AT THE WRONG
+  RATE.** Under §194C the with-PAN rate turns on the **deductee's legal status**, and there are exactly two
+  branches: **the deductee is an individual or a Hindu Undivided Family**, or **the deductee is anyone else** —
+  a company, firm, AOP/BOI, local authority and so on. **Our seeded §194C nature carries ONE with-PAN rate**
+  (plus the §206AA no-PAN rate), and the seed's own comment states what was measured rather than assumed:
+  `TdsService.ComputeWithholding` resolves the rate as `panApplied ? RateWithPanBp : RateWithoutPanBp` and
+  **reads `Ledger.DeducteeType` nowhere** — re-derivable at any time with
+  `grep -rn "DeducteeType" src/Apex.Ledger/Services`, which returns nothing at all. The comment records the
+  measurement too: on the seeded §194C, same party, same PAN, same ₹50,000.30 assessable, **varying only
+  `DeducteeType` — Individual, Firm, Company and HinduUndividedFamily all resolve 100bp and all withhold
+  ₹500.00.** So there is no bifurcation to test and **no test could have failed**; the gap is invisible to the
+  suite by construction.
+  **▶ 🔴 AND THE COMMENT THAT USED TO STAND IN THAT SEED FILE CLAIMED THE BRANCH EXISTED**, naming the very
+  method that would have had to implement it — *"(The 2% 'other than Ind/HUF' branch is applied at compute by
+  deductee type — Phase 7 slice 2.)"* It is struck in the file, with the quote kept beside the correction. **A
+  stale doc comment still asserts it elsewhere and is deliberately NOT fixed by this entry (report, do not
+  fix):** the `DeducteeType` enum in `src/Apex.Ledger/Domain/TdsTcsEnums.cs` reads *"At compute time it selects
+  the section-conditional rate (e.g. §194C Individual/HUF 1% vs 2%)"*. **It does not.**
+  **▶ WHAT THE USER IS ACTUALLY BEING ASKED, AND WHY AN IMPLEMENTER MAY NOT SETTLE IT.** Three things travel
+  with the second rate and not one of them is a coding choice:
+  1. **THE RATE IS UNSOURCED AT THE STANDARD THIS PROJECT NOW HOLDS ITSELF TO.** The split needs **A14 corpus
+     grounding plus an official-source verification before any figure ships**, and the seed comment routes it
+     explicitly to the standing decision at the head of that same file — **T0-6**, the shipped TDS rates cited
+     to commercial blogs (cleartax / disytax). **Do not ship the second rate from memory**; it would add a
+     third figure to the set the user is already being asked to rule on.
+  2. **THE SEQUENCING PREREQUISITE IS NOW DISCHARGED, AND WHAT IT WAS PROTECTING IS NOT.** The comment says the
+     branch must be sequenced **after the `ApplyReCarve` drift guard**. That guard **shipped in S5c** and its
+     rate arm is live — it refuses an alteration when *"the same section now resolves to"* a different rate,
+     in those words. **Consequence, which is the decision:** the moment a second §194C rate exists, **every
+     already-posted §194C voucher whose deductee is not an individual or HUF becomes unalterable**, refused by
+     a message about a rate the operator never chose. That is the **correct** behaviour on a wrong figure and
+     it is still a migration story somebody has to want.
+  3. **THE SEEDED STATUTORY MASTERS ARE IMMUTABLE (T1-21), SO THERE IS NO IN-APP REMEDY EITHER.** The
+     Nature-of-Payment and Nature-of-Goods screens are **create-only** and say so in their own doc comments, so
+     a user facing a wrong §194C rate cannot correct it inside the product. This is why the item is surfaced
+     to the user rather than parked for whichever slice next opens that file.
+  **▶ NOT SCHEDULED INTO ANY PHASE BY THIS ENTRY, DELIBERATELY.** By shape it is Wave-1 correctness work
+  alongside T0-6, but scheduling it would be taking the decision it exists to ask. **It is recorded as
+  OPEN-ON-THE-USER, and whoever next touches §194C must not settle it by building it.**
 
 > **▶ ONE POST-MERGE DOCUMENTATION SLICE, OWNED BY ONE AGENT — applies to BOTH 10.10 and 10.11 (R5/R6).** All
 > documentation edits arising from these two phases — `docs/invented-vs-cloned.md` (row status + the register
