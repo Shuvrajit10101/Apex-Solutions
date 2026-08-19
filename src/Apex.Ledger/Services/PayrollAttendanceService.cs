@@ -72,7 +72,12 @@ public sealed class PayrollAttendanceService
 
     /// <summary>
     /// The already-recorded entry for exactly this employee × attendance type × period, or <c>null</c>. Public so
-    /// the entry screen can warn before the operator commits a whole batch (T0-12).
+    /// the entry screen can warn before the operator commits a whole batch (T0-12) — called by
+    /// <c>AttendanceVoucherEntryViewModel.Accept</c>, which pre-validates every pending line against this before
+    /// recording any of them. It shipped public with that claim in this comment and <b>no caller but
+    /// <see cref="Record"/></b>; the pre-validation is what makes the claim true, and it matters because
+    /// <see cref="Record"/> mutates the company entry by entry, so a duplicate discovered mid-batch leaves the
+    /// earlier lines of the run in the open company.
     /// </summary>
     public AttendanceEntry? FindExact(Guid employeeId, Guid attendanceTypeId, DateOnly fromDate, DateOnly toDate)
     {
