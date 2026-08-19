@@ -55,7 +55,13 @@ public static class VoucherAlterationDerivedLegs
     /// <param name="RateBasisPoints">The posted rate — pinned, so a moved rate master, or a deductee PAN added or
     /// removed since posting (which flips the §206AA no-PAN rate), is refused rather than silently applied.</param>
     /// <param name="SectionCode">The posted section code, for the refusal sentences.</param>
-    /// <param name="PostedTdsAmount">What was actually withheld (0 below threshold).</param>
+    /// <param name="PostedTdsAmount">
+    /// What was actually withheld (0 below threshold). 🔴 <b>READ, not merely written</b>: this field was
+    /// captured and never compared, which left the applies/not-applies transition entirely unguarded — a posted
+    /// withholding was silently DELETED whenever the cumulative-FY projection moved for any reason other than the
+    /// voucher's own gross. <c>VoucherEntryViewModel.ApplyReCarve</c> is where it is compared, and the comment
+    /// there records the three measured routes.
+    /// </param>
     /// <param name="RestoredGross">The party's gross obligation as KEYED — the net credit plus the withheld
     /// amount. This is the figure the re-opened grid shows and the base the re-carve works from.</param>
     public sealed record TdsPin(
@@ -202,17 +208,54 @@ public static class VoucherAlterationDerivedLegs
         var party = partyLines[0];
         var gross = party.Amount + detail.TdsAmount;
 
+        // 🔴 THE CHILDREN COME BACK TO THE GROSS TOO, and that is not decoration: the entry grid demands that a
+        // bill-wise split sum to the line amount and that a cost split total it per category, so restoring the leg
+        // to the gross while leaving a split keyed at the net produces a grid the screen refuses to accept
+        // ("Bill-wise allocations for 'X' must sum to the line amount"). This is the exact inverse of
+        // TdsService.CarveBills / CarveCosts, which take the withheld amount OUT of the single reference.
+        var restoredBills = RestoreAllocation(
+            party.BillAllocations, detail.TdsAmount,
+            b => new BillAllocation(b.RefType, b.Name, b.Amount + detail.TdsAmount, b.DueDate, b.CreditPeriodDays));
+        var restoredCosts = RestoreAllocation(
+            party.CostAllocations, detail.TdsAmount,
+            a => new CostAllocation(a.CategoryId, a.CentreId, a.Amount + detail.TdsAmount));
+
+        // More than one reference on a withheld leg cannot have come from this screen (the carve refuses to post
+        // it), so it is an import shape, and there is no way to decide which reference the withholding came out of.
+        if (restoredBills is null && party.BillAllocations.Count > 1)
+            return $"This voucher's withheld credit to the deductee is split across {party.BillAllocations.Count} "
+                 + "bill references. The gross the operator keyed can only be restored by adding the withholding "
+                 + "back onto one of them, and there is no way to tell which — so this shape cannot be re-keyed on "
+                 + "the entry grid.";
+        if (restoredCosts is null && party.CostAllocations.Count > 1)
+            return $"This voucher's withheld credit to the deductee is split across {party.CostAllocations.Count} "
+                 + "cost-centre allocations. The gross the operator keyed can only be restored by adding the "
+                 + "withholding back onto one of them, and there is no way to tell which — so this shape cannot be "
+                 + "re-keyed on the entry grid.";
+
         lines.Remove(carveLine);
         lines[lines.IndexOf(party)] = new EntryLine(
             party.LedgerId, gross, party.Side,
-            party.BillAllocations.Count > 0 ? party.BillAllocations : null,
-            party.CostAllocations.Count > 0 ? party.CostAllocations : null,
+            restoredBills,
+            restoredCosts,
             party.BankAllocation,
             party.Forex);
 
         pin = new TdsPin(detail.NatureId, detail.DeducteeLedgerId, detail.RateBasisPoints, detail.SectionCode,
             detail.TdsAmount, gross);
         return null;
+    }
+
+    /// <summary>
+    /// Adds <paramref name="tds"/> back onto the ONE allocation the carve took it out of. <c>null</c> when there is
+    /// nothing to restore (no allocation at all) <b>and</b> when there is more than one — the caller distinguishes
+    /// those two cases by the source count, because only the second is a refusal.
+    /// </summary>
+    private static IReadOnlyList<T>? RestoreAllocation<T>(
+        IReadOnlyList<T> allocations, Money tds, Func<T, T> restore)
+    {
+        if (allocations.Count != 1) return null;
+        return tds.Amount == 0m ? allocations : new[] { restore(allocations[0]) };
     }
 
     private static EntryLine Untagged(EntryLine line) =>
@@ -229,12 +272,25 @@ public static class VoucherAlterationDerivedLegs
     /// REGULAR registration the pair is <c>Cr RCM Output {head}</c> + <c>Dr Input {head}</c> and BOTH legs carry
     /// <c>GstLineTax.IsReverseCharge</c>, so the tag is a complete and exact selector.
     ///
-    /// <para>🔴 <b>A COMPOSITION dealer's pair is refused by name rather than inverted, and that is a measured
+    /// <para>🔴 <b>A COMPOSITION-SHAPED pair is refused by name rather than inverted, and that is a measured
     /// limit, not an oversight.</b> Under composition <c>BuildReverseCharge</c> routes the balancing debit to the
     /// non-creditable "RCM Tax" expense ledger and deliberately leaves it UNTAGGED (there must be no ITC-tagged
     /// line, because composition blocks all credit). An untagged ordinary expense debit is indistinguishable from
     /// one the operator keyed, so lifting it would mean guessing — and guessing wrong either drops a real expense
     /// leg or keeps an engine one.</para>
+    ///
+    /// <para>🔴 <b>The shape is read off the BOOK, never off today's registration type — and it used to be the
+    /// other way round, which failed in BOTH directions.</b> <c>company.Gst.RegistrationType</c> is a master an
+    /// operator can change in production (the GST configuration screen), and the two directions were measured:
+    /// a voucher posted under REGULAR, whose balancing debit IS tagged and IS exactly invertible, became
+    /// PERMANENTLY unalterable the moment the company opted into composition — refused by a sentence describing a
+    /// shape it demonstrably did not have; and a voucher posted under COMPOSITION, after a conversion to Regular,
+    /// OPENED, put the engine's untagged RCM-tax debit on the grid as if the operator had keyed it, and left the
+    /// alteration screen out of balance by exactly that leg (Dr 11,800.59 against Cr 10,000.50) before refusing
+    /// with a raw engine exception telling the operator to enable GST on a company where GST was already enabled.
+    /// The posted shape is self-describing and needs no master at all: under Regular each pair is a tagged CREDIT
+    /// plus a tagged DEBIT, and under composition it is a tagged CREDIT with an UNTAGGED debit — so "no tagged
+    /// reverse-charge debit" IS the composition shape.</para>
     /// </summary>
     private static string? InvertReverseCharge(Company company, List<EntryLine> lines, out RcmPin? pin)
     {
@@ -243,11 +299,22 @@ public static class VoucherAlterationDerivedLegs
         var rcmLines = lines.Where(l => l.Gst is { IsReverseCharge: true }).ToList();
         if (rcmLines.Count == 0) return null;
 
-        if (company.Gst?.RegistrationType == GstRegistrationType.Composition)
-            return "This voucher self-accounts reverse charge under a COMPOSITION registration, where the balancing "
-                 + "debit is booked to the non-creditable RCM tax expense and carries no tax tag at all (composition "
-                 + "blocks input credit). That leg is indistinguishable on the grid from an expense the operator "
-                 + "keyed, so the engine's own lines cannot be told apart from the keyed ones.";
+        if (rcmLines.All(l => l.Side == DrCr.Credit))
+            return "This voucher self-accounts reverse charge with the balancing debit booked to the non-creditable "
+                 + "RCM tax expense, carrying no tax tag at all — the shape a COMPOSITION registration posts, "
+                 + "because composition blocks input credit. That leg is indistinguishable on the grid from an "
+                 + "expense the operator keyed, so the engine's own lines cannot be told apart from the keyed ones.";
+
+        // The supply KIND is keyed at entry and is persisted NOWHERE, so an import-of-services voucher cannot be
+        // re-opened under the routing it was posted with: the screen rehydrates the selector to Domestic and shows
+        // "Domestic inward supply (§9(3) / §9(4))" on a §5(3) voucher. The ITC scheme IS on the book, which is what
+        // makes that refusable at the DOOR rather than opened under a re-labelled routing and refused at accept —
+        // and a wrong routing on the screen is a wrong figure even when nothing is posted.
+        if (rcmLines.FirstOrDefault(l => l.Gst!.RcmScheme == RcmItcScheme.ImportOfServices) is not null)
+            return "This voucher self-accounts reverse charge on an IMPORT OF SERVICES (§5(3), GSTR-3B table "
+                 + "4A(2)). The supply kind is keyed on the entry screen and is not stored on the voucher, so "
+                 + "re-opening it would show the supply routed as a domestic inward supply — a different table of "
+                 + "the return from the one this voucher was posted under.";
 
         pin = new RcmPin(SignatureOf(rcmLines));
         foreach (var l in rcmLines) lines.Remove(l);

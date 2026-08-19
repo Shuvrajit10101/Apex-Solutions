@@ -42,7 +42,19 @@ public static class SeedTdsTcsRates
             N("194A", "Interest other than interest on securities", 1000, 2000, "94A",
                 cumulative: R(10_000m)),
             // §194C Contractors: 1% (Ind/HUF base rate) / 20% no-PAN; single ₹30,000, cumulative ₹1,00,000.
-            //   (The 2% "other than Ind/HUF" branch is applied at compute by deductee type — Phase 7 slice 2.)
+            //   🔴 THE PARENTHESIS THAT USED TO SIT HERE WAS FALSE, and it named the method that would have had to
+            //   do it. It read: "(The 2% 'other than Ind/HUF' branch is applied at compute by deductee type — Phase 7
+            //   slice 2.)" — but TdsService.ComputeWithholding resolves the rate as `panApplied ? RateWithPanBp :
+            //   RateWithoutPanBp` and reads Ledger.DeducteeType NOWHERE (grep it over TdsService and you get nothing).
+            //   Measured on the seeded §194C with the same party, the same PAN and the same ₹50,000.30 assessable, and
+            //   only DeducteeType varied: Individual, Firm, Company and HinduUndividedFamily all resolve 100bp and all
+            //   withhold ₹500.00. So there is no bifurcation and no test could have failed.
+            //   OPEN ITEM, deliberately not built inside Phase 10.11: the split needs A14 corpus grounding plus an
+            //   official-source verification before any rate ships (this belongs with the standing user decision on
+            //   the cleartax/disytax citations at the head of this file), and it must be sequenced AFTER the
+            //   ApplyReCarve drift guard, because turning it on makes the rate pin refuse EVERY already-posted §194C
+            //   voucher whose deductee is not an individual or HUF — the correct behaviour, but one that needs a
+            //   migration story.
             N("194C", "Payment to contractors/sub-contractors", 100, 2000, "94C",
                 single: R(30_000m), cumulative: R(1_00_000m)),
             // §194H Commission/brokerage: 2% (w.e.f 01-Oct-2024) / 20% no-PAN; cumulative ₹20,000 (FA2025).

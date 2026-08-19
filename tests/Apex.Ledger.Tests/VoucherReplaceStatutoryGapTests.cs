@@ -7,14 +7,20 @@ namespace Apex.Ledger.Tests;
 /// <summary>
 /// <b>Phase 10.11 S5c — the §3.3 records that survive a <c>Replace</c> and then LIE, with no warning at all.</b>
 ///
-/// <para>S5a shipped <c>StatutoryRecordDiverged</c> for five families: the e-invoice, the e-Way bill, the GST
-/// advance receipt, the §34 credit/debit-note link and the RCM document. The brief for this slice asked whether it
-/// fires <b>for every record that can go stale this way, not just that one</b>. Audited row by row against §3.3's
-/// twelve-record table, it did not: <b>five more families raised nothing</b> — the TDS challan link, the TCS
-/// challan link, the GST challan (PMT-06), the DRC-03, the ITC reversal, the GSTR-2B reconciliation result and the
-/// Rule-88A set-off. Each freezes a figure computed off a voucher, each survives the swap because the
-/// <see cref="Voucher.Id"/> is preserved, and each then declares the pre-alteration figure with no detector
-/// anywhere in the app.</para>
+/// <para>S5a shipped <c>StatutoryRecordDiverged</c> for the e-invoice, the e-Way bill, the GST advance receipt,
+/// the §34 credit/debit-note link and the RCM document — and no others. The brief for this slice asked whether
+/// it fires <b>for every record that can go stale this way, not just that one</b>. Audited row by row against the
+/// record table in §3.3, it did not. The families that raised NOTHING are enumerated below, one test each — the
+/// TDS challan link, the TCS challan link, the GST challan (PMT-06), the DRC-03, the ITC reversal, the GSTR-2B
+/// reconciliation result and the Rule-88A set-off. Each freezes a figure computed off a voucher, each survives the
+/// swap because the <see cref="Voucher.Id"/> is preserved, and each then declares the pre-alteration figure with no
+/// detector anywhere in the app.</para>
+///
+/// <para>🔴 <b>THE COUNT IS DELIBERATELY NOT RESTATED IN THIS PROSE.</b> An earlier draft of this header said
+/// "five more families" over a list that did not hold that many — the identical stale-count trap
+/// <c>LedgerService.RaiseStatutoryDivergenceWarnings</c> carries its own warning about — and a reviewer checking
+/// coverage looks HERE first. Count the <c>[Fact]</c>s and the <c>Diverged(</c> call sites; do not carry a number
+/// forward.</para>
 ///
 /// <para>🔴 <b>Why the engine and not only the screen.</b> <c>VoucherAlterationEligibility</c> refuses several of
 /// these families at the entry screen, which is where an operator meets them. But <c>Replace</c> is the ENGINE
@@ -22,8 +28,12 @@ namespace Apex.Ledger.Tests;
 /// CARRY <b>+ WARN</b>, not "CARRY, and hope the only caller checks". A guard that lives in one caller is already
 /// half missing.</para>
 ///
-/// <para>Every test below asserts the SENTENCE, and the paired "no move ⇒ no warning" case, so the family cannot
-/// become noise nobody reads.</para>
+/// <para>🔴 <b>Each family is tested in BOTH directions — it fires when the record has diverged, and it stays
+/// SILENT when the record is attached and nothing it froze has moved.</b> That second direction is not decoration:
+/// with only the fire direction covered, nearly all of the guards could be made to fire on EVERY alteration and
+/// every test project stayed at exact baseline. A warning that always fires is the failure this family's
+/// own doc names as fatal to it, and the generic "no record attached ⇒ no warning" tests cannot see it,
+/// because a guard that only runs once a record is present is never reached on a book that has none.</para>
 /// </summary>
 public class VoucherReplaceStatutoryGapTests
 {
@@ -179,6 +189,66 @@ public class VoucherReplaceStatutoryGapTests
         Assert.Contains("2025-04", message, StringComparison.Ordinal);
     }
 
+    /// <summary>Attached, and the total did not move ⇒ silent. Without this the guard could fire on every
+    /// alteration and nothing in the repository would notice.</summary>
+    [Fact]
+    public void An_alteration_that_leaves_the_total_alone_raises_no_TCS_challan_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 7500.55m));
+
+        var challan = new TcsChallan(
+            Guid.NewGuid(), "0009876", "0510308", D1.AddDays(20), new Money(7500.55m), "206C(1H)", "200");
+        b.Company.AddTcsChallan(challan);
+        b.Company.LinkTcsChallanToVoucher(challan.Id, id);
+
+        var narrationOnly = Entry(b, id, 7500.55m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>Attached, and the total did not move ⇒ silent.</summary>
+    [Fact]
+    public void An_alteration_that_leaves_the_total_alone_raises_no_GST_challan_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 25000.75m));
+
+        b.Company.AddGstChallan(new GstChallan(
+            Guid.NewGuid(), "25040700012345", cin: null, brn: null, D1, GstTaxHead.Integrated,
+            GstMinorHead.Tax, new Money(25000.75m), id));
+
+        var narrationOnly = Entry(b, id, 25000.75m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>Attached, and the total did not move ⇒ silent.</summary>
+    [Fact]
+    public void An_alteration_that_leaves_the_total_alone_raises_no_DRC_03_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 11800.40m));
+
+        b.Company.AddGstDrc03(new GstDrc03(
+            Guid.NewGuid(), "DRC03/2025/1", "Voluntary", "2025-04",
+            cgstPaisa: 500000, sgstPaisa: 500000, igstPaisa: 0, cessPaisa: 0, interestPaisa: 18040,
+            drc03aDemandRef: null, voucherId: id, createdAt: DateTimeOffset.UnixEpoch));
+
+        var narrationOnly = Entry(b, id, 11800.40m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
     // ================================================================ ITC reversal / GSTR-2B / set-off
 
     [Fact]
@@ -241,21 +311,87 @@ public class VoucherReplaceStatutoryGapTests
         Assert.Contains("re-run the period", message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ================================================================ the ELEVEN carries, verified
+    /// <summary>Attached, and neither the total nor the date moved ⇒ silent.</summary>
+    [Fact]
+    public void An_alteration_that_moves_neither_total_nor_date_raises_no_ITC_reversal_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 60000.60m));
+
+        b.Company.AddItcReversal(new ItcReversal(
+            Guid.NewGuid(), ItcReversalRule.Rule42, "2025-04",
+            cgstPaisa: 90000, sgstPaisa: 90000, igstPaisa: 0, cessPaisa: 0,
+            d1BasisPaisa: null, d2BasisPaisa: null,
+            sourceVoucherId: id, sourceLineId: null, reversalVoucherId: Guid.NewGuid(),
+            reclaimOfId: null, drc03Id: null, table4bBucket: Table4bBucket.Table4B1,
+            createdAt: DateTimeOffset.UnixEpoch));
+
+        var narrationOnly = Entry(b, id, 60000.60m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>Attached, and neither the total nor the date moved ⇒ silent.</summary>
+    [Fact]
+    public void An_alteration_that_moves_neither_total_nor_date_raises_no_GSTR2B_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 45000.45m));
+
+        b.Company.AddGstr2bReconResult(new Gstr2bReconResult(
+            Guid.NewGuid(), Guid.NewGuid(), ReconBucket.PartialMismatch, id,
+            taxableVariancePaisa: 12345, taxVariancePaisa: 2222));
+
+        var narrationOnly = Entry(b, id, 45000.45m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>Attached, and neither the total nor the date moved ⇒ silent.</summary>
+    [Fact]
+    public void An_alteration_that_moves_neither_total_nor_date_raises_no_set_off_warning()
+    {
+        var b = Build();
+        var id = Guid.NewGuid();
+        b.Service.Post(Entry(b, id, 33000.33m));
+
+        b.Company.AddGstSetoffLine(new GstSetoffLine(
+            Guid.NewGuid(), id, "2025-04", GstTaxHead.Integrated, GstTaxHead.Central, isCash: false, 1000000));
+        b.Company.AddGstSetoffLine(new GstSetoffLine(
+            Guid.NewGuid(), id, "2025-04", GstTaxHead.Integrated, GstTaxHead.State, isCash: false, 2300033));
+
+        var narrationOnly = Entry(b, id, 33000.33m);
+        narrationOnly.Narration = "corrected wording";
+        b.Service.Replace(id, narrationOnly, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    // ================================================================ the carries, verified
 
     /// <summary>
-    /// 🔴 <b>S5a's measured claim, re-verified rather than re-asserted: eleven of the twelve §3.3 records are
+    /// 🔴 <b>S5a's measured claim, re-verified rather than re-asserted: the §3.3 records stored BESIDE a voucher are
     /// carried BY CONSTRUCTION.</b> Each is a separate object on <see cref="Company"/> keyed by the voucher's
     /// <see cref="Voucher.Id"/>; <c>Replace</c> preserves the Guid and never touches those collections, so every one
-    /// of them still resolves afterwards. The twelfth, <c>BankAllocation.BankDate</c>, is a LINE child rather than a
-    /// separate object, needed code, and got it in S5a (<c>CarryBankDatesForward</c>).
+    /// of them still resolves afterwards. <c>BankAllocation.BankDate</c> is the exception — a LINE child rather than
+    /// a separate object — which needed code, and got it in S5a (<c>CarryBankDatesForward</c>).
     ///
-    /// <para>This test attaches ALL eleven to one voucher, replaces it, and asserts each one still points at it.
+    /// <para>This test attaches every one of them to one voucher, replaces it, and asserts each still points at it.
     /// It is deliberately a survival test and not a correctness test — <b>surviving is exactly what lets them
     /// lie</b>, which is what the divergence warnings above are for.</para>
+    ///
+    /// <para>🔴 The name used to say ELEVEN while the body attaches and asserts more than that. The count is
+    /// gone rather than corrected, exactly as the source-side header does it: count the <c>Assert.Contains</c>
+    /// lines.</para>
     /// </summary>
     [Fact]
-    public void All_eleven_records_stored_beside_a_voucher_survive_a_Replace_by_construction()
+    public void All_records_stored_beside_a_voucher_survive_a_Replace_by_construction()
     {
         var b = Build();
         var id = Guid.NewGuid();
@@ -318,7 +454,7 @@ public class VoucherReplaceStatutoryGapTests
 
     /// <summary>
     /// The whole family stays silent for an ordinary alteration on a book carrying none of these records — if a
-    /// warning fires when nothing is attached, the operator stops reading them and the five that matter are lost.
+    /// warning fires when nothing is attached, the operator stops reading them and the ones that matter are lost.
     /// </summary>
     [Fact]
     public void A_plain_alteration_on_a_book_with_no_attached_records_raises_no_new_warning()

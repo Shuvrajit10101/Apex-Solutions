@@ -8,7 +8,7 @@ namespace Apex.Ledger.Tests;
 /// <summary>
 /// Design §3.3 — the records stored <b>BESIDE</b> the voucher, and the CARRY + WARN the design assigned them.
 ///
-/// <para><b>The finding these tests close.</b> The slice's headline claim was that all twelve §3.3 families
+/// <para><b>The finding these tests close.</b> The slice's headline claim was that the §3.3 families all
 /// survive a Replace because the <see cref="Voucher.Id"/> is preserved. That is TRUE — and it is the wrong
 /// claim: they survive and then <b>lie</b>, because each freezes a fact about a voucher that just moved, and
 /// §3.3's right-hand column says CARRY <b>+ WARN</b>, not CARRY. Measured before these tests existed, every one
@@ -342,6 +342,105 @@ public class VoucherReplaceStatutoryRecordTests
         g.Service.Replace(id, Sale(g, id, 60000m, SaleDate.AddDays(9)), out var warnings);
 
         Assert.Contains(
+            warnings,
+            w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged
+                 && w.Message.Contains("RCM", StringComparison.Ordinal));
+    }
+
+    // =================================================================================================
+    // 🔴 The paired SILENCE case for each family: the record IS attached, and what it froze did NOT move.
+    //
+    // The "no record attached" test at the bottom of this file cannot reach these guards at all — each one only
+    // runs once its record is present — so without the silence cases below, their warnings could each be made to
+    // fire on EVERY alteration with every test project still at exact baseline. A warning that always fires is the
+    // failure this family's own doc names as fatal to it.
+    // =================================================================================================
+
+    /// <summary>Advance receipt attached, total and date both unmoved ⇒ silent.</summary>
+    [Fact]
+    public void An_advance_receipt_whose_voucher_did_not_move_raises_no_Table_11A_warning()
+    {
+        var g = Build();
+        var id = Guid.NewGuid();
+
+        Voucher Receipt(Money amount, string? narration = null) => new(
+            id, g.ReceiptTypeId, SaleDate,
+            new[]
+            {
+                new EntryLine(g.Cash.Id, amount, DrCr.Debit),
+                new EntryLine(g.Party.Id, amount, DrCr.Credit),
+            },
+            narration: narration,
+            partyId: g.Party.Id);
+
+        g.Service.Post(Receipt(Money.FromRupees(11800m)));
+        g.Company.AddAdvanceReceipt(new GstAdvanceReceipt(
+            Guid.NewGuid(), id, isService: true, Money.FromRupees(10000m), 1800, interState: false, "27",
+            Money.FromRupees(1800m)));
+
+        g.Service.Replace(id, Receipt(Money.FromRupees(11800m), "corrected wording"), out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>A Generated IRN whose document did not move ⇒ silent.</summary>
+    [Fact]
+    public void An_IRN_tagged_invoice_that_did_not_move_raises_no_eInvoice_warning()
+    {
+        var g = Build();
+        var id = Guid.NewGuid();
+        g.Service.Post(Sale(g, id, 60000m));
+
+        g.Company.AddEInvoiceRecord(EInvoiceRecord.Rehydrate(
+            Guid.NewGuid(), id, EInvoiceService.DocumentNumberOf(g.Company, g.Company.FindVoucher(id)!),
+            EInvoiceStatus.Generated, irn: new string('a', 64), ackNo: "112233445566",
+            ackDate: SaleDate, signedQr: "qr", signedJson: null, cancelledOn: null, cancelReasonCode: null));
+
+        var sameFigures = Sale(g, id, 60000m);
+        sameFigures.Narration = "corrected wording";
+        g.Service.Replace(id, sameFigures, out var warnings);
+
+        Assert.DoesNotContain(warnings, w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged);
+    }
+
+    /// <summary>A §34 link whose frozen number AND date both still match ⇒ silent. Both stale arms are held false
+    /// here (the number is preserved by Replace, and the date is unchanged), which is what makes this the paired
+    /// case for that guard rather than for one half of it.</summary>
+    [Fact]
+    public void A_section_34_link_whose_invoice_did_not_move_raises_no_cut_off_warning()
+    {
+        var g = Build();
+        var invoiceId = Guid.NewGuid();
+        g.Service.Post(Sale(g, invoiceId, 60000m));
+        var invoice = g.Company.FindVoucher(invoiceId)!;
+
+        g.Company.AddCreditDebitNoteLink(new GstCreditDebitNoteLink(
+            Guid.NewGuid(), Guid.NewGuid(), CdnType.Credit, invoiceId,
+            g.Company.FormatVoucherNumber(invoice), invoice.Date, reasonCode: "01"));
+
+        var sameDate = Sale(g, invoiceId, 6000m);   // the AMOUNT may move; the cut-off basis is number + date
+        g.Service.Replace(invoiceId, sameDate, out var warnings);
+
+        Assert.DoesNotContain(
+            warnings,
+            w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged
+                 && w.Message.Contains("30-Nov", StringComparison.Ordinal));
+    }
+
+    /// <summary>An RCM document whose source voucher kept its date ⇒ silent.</summary>
+    [Fact]
+    public void An_RCM_document_whose_source_voucher_kept_its_date_raises_no_warning()
+    {
+        var g = Build();
+        var id = Guid.NewGuid();
+        g.Service.Post(Sale(g, id, 60000m));
+
+        g.Company.AddRcmDocument(new RcmDocument(
+            Guid.NewGuid(), RcmDocumentKind.SelfInvoice, id, seriesNumber: 1, docDate: SaleDate));
+
+        g.Service.Replace(id, Sale(g, id, 6000m), out var warnings);   // amount moves, date does not
+
+        Assert.DoesNotContain(
             warnings,
             w => w.Code == VoucherAlterationWarningCode.StatutoryRecordDiverged
                  && w.Message.Contains("RCM", StringComparison.Ordinal));

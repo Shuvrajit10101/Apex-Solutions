@@ -60,13 +60,44 @@ public sealed class VoucherAlterReDeriveTests
         return open.Entry!;
     }
 
+    /// <summary>
+    /// 🔴 <b>A refusal has to leave the BOOK where it found it, and that is asserted HERE so every refusal test
+    /// inherits it.</b> Asserting only the sentence cannot tell "refused and nothing written" from "refused after a
+    /// partial write, with a message that happens to contain the expected words" — and the difference was real:
+    /// <c>ApplyReStamp</c> called the impure reverse-charge builder before the shape-drift check could refuse, so a
+    /// REFUSED alteration added "RCM Output CGST" and "RCM Output SGST" to the chart of accounts and the next
+    /// unrelated save persisted them. One sibling test had the export assertion and the other did not; the one that
+    /// did not was the only one reaching a new tax head. Both directions are asserted (memory and disk) because the
+    /// leak was invisible on disk until something else saved.
+    /// </summary>
     private static string RefuseOrThrow(AlterationBook book, Guid voucherId, Action<VoucherEntryViewModel> edit)
     {
+        var before = book.Export();
+        var beforeDisk = book.ExportReloaded();
+
         var entry = OpenOrThrow(book, voucherId);
         edit(entry);
         Assert.False(entry.AcceptAlteration(), "Expected the alteration to be refused; it was accepted.");
         Assert.False(string.IsNullOrWhiteSpace(entry.Message));
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeDisk, book.ExportReloaded());
         return entry.Message!;
+    }
+
+    /// <summary>The same book-did-not-move assertion for a refusal raised at the DOOR, by <c>ForAlter</c>.</summary>
+    private static string RefuseAtDoorOrThrow(AlterationBook book, Guid voucherId)
+    {
+        var before = book.Export();
+        var beforeDisk = book.ExportReloaded();
+
+        var open = book.ForAlter(voucherId);
+        Assert.True(open.IsRefused, "Expected the alteration screen to refuse to open; it opened.");
+        Assert.False(string.IsNullOrWhiteSpace(open.Refusal));
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeDisk, book.ExportReloaded());
+        return open.Refusal!;
     }
 
     /// <summary>A Regular-GST Maharashtra book with the notified reverse-charge categories + dated rates seeded.</summary>
@@ -425,7 +456,10 @@ public sealed class VoucherAlterReDeriveTests
     // ================================================================ (F) the reverse-charge RE-STAMP
 
     /// <summary>
-    /// 🔴 <b>Rows 12 and 21's reverse-charge arm lifted.</b> An inter-state legal-services purchase of ₹10,000.50
+    /// 🔴 <b>Row 21's reverse-charge arm lifted, on the fixture that actually is one.</b> This is a PURCHASE, so
+    /// it evidences row 21 and not row 12 — row 12 is a Journal and has its own round trip below. (The previous
+    /// wording claimed both rows over this one Purchase fixture, which is exactly the mis-attribution that has had
+    /// §6.6a found wrong nine times.) An inter-state legal-services purchase of ₹10,000.50
     /// self-accounts IGST @18% = ₹1,800.09 as <c>Cr RCM Output IGST</c> + <c>Dr Input IGST</c>. Those two legs are
     /// the ENGINE's, not the operator's, so they must not re-open as grid rows — and the stamped taxable value
     /// GSTR-3B reads must come back identical.
@@ -619,10 +653,9 @@ public sealed class VoucherAlterReDeriveTests
                 tds: new TdsLineTax(nature.Id, Section, new Money(120000.30m), 1000,
                     new Money(12000.00m), Guid.NewGuid(), panApplied: true)));
 
-        var open = book.ForAlter(posted.Id);
-        Assert.True(open.IsRefused);
-        Assert.Contains("no longer in this company", open.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("gross", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        var refusal = RefuseAtDoorOrThrow(book, posted.Id);
+        Assert.Contains("no longer in this company", refusal, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("gross", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -646,10 +679,9 @@ public sealed class VoucherAlterReDeriveTests
             new EntryLine(payable.Id, new Money(12000.00m), DrCr.Credit, tds: Detail(120000.30m, 12000m)),
             new EntryLine(payable.Id, new Money(12000.00m), DrCr.Credit, tds: Detail(120000.30m, 12000m)));
 
-        var open = book.ForAlter(posted.Id);
-        Assert.True(open.IsRefused);
-        Assert.Contains("2 withholding assessments", open.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("exactly one carve-out", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        var refusal = RefuseAtDoorOrThrow(book, posted.Id);
+        Assert.Contains("2 withholding assessments", refusal, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one carve-out", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -711,26 +743,128 @@ public sealed class VoucherAlterReDeriveTests
     // ================================================================ (H) what stays refused
 
     /// <summary>
-    /// A COMPOSITION dealer's reverse-charge pair routes its balancing debit to the non-creditable RCM tax expense
-    /// and leaves it UNTAGGED (composition blocks all ITC), so the engine's leg is indistinguishable on the grid
-    /// from one the operator keyed. Refused by name — the one reverse-charge shape S5c does not lift.
+    /// A COMPOSITION-POSTED reverse-charge pair routes its balancing debit to the non-creditable RCM tax expense and
+    /// leaves it UNTAGGED (composition blocks all ITC), so the engine's leg is indistinguishable on the grid from
+    /// one the operator keyed. Refused by name — the one reverse-charge shape S5c does not lift.
+    ///
+    /// <para>🔴 <b>The fixture posts UNDER composition, which the previous version of this test did not.</b> It
+    /// posted under REGULAR — producing a pair whose balancing debit IS tagged and IS exactly invertible — and then
+    /// flipped <c>Gst.RegistrationType</c> and asserted a refusal. That "proved" a refusal on a voucher that has
+    /// none of the properties the refusal describes, and it is why the arm was reading TODAY'S REGISTRATION instead
+    /// of the posted shape. Measured on the old code, this fixture (a genuine composition-posted voucher, with the
+    /// company converted to Regular afterwards) OPENED, put the engine's untagged RCM-tax debit on the grid as a
+    /// keyed row, and left the screen unbalanced by exactly that leg.</para>
     /// </summary>
     [Fact]
-    public void A_composition_dealers_reverse_charge_pair_stays_refused_by_name()
+    public void A_composition_posted_reverse_charge_pair_stays_refused_by_name()
     {
         using var book = AlterationBook.New("rcm-composition");
         EnableAdvancedGst(book);
+        book.Company.Gst!.RegistrationType = GstRegistrationType.Composition;
         var fees = RcmExpense(book, "Legal Fees", "Legal", 1800);
         var advocate = RcmSupplier(book, "Advocate (Gujarat)", GstinGujarat, "24");
 
         var posted = book.Post(VoucherBaseType.Purchase, book.On(),
             new[] { (fees, DrCr.Debit, "10000.50"), (advocate, DrCr.Credit, "10000.50") });
 
+        // The composition shape, read off the book: a TAGGED reverse-charge credit and an UNTAGGED balancing debit.
+        Assert.Single(posted.Lines, l => l.Gst is { IsReverseCharge: true });
+        Assert.Equal(DrCr.Credit, posted.Lines.Single(l => l.Gst is { IsReverseCharge: true }).Side);
+
+        // Converting BACK to Regular must not make it openable: the refusal is about this voucher's shape.
+        book.Company.Gst!.RegistrationType = GstRegistrationType.Regular;
+
+        var refusal = RefuseAtDoorOrThrow(book, posted.Id);
+        Assert.Contains("COMPOSITION", refusal, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no tax tag", refusal, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The other direction of the same defect.</b> A voucher posted under REGULAR carries a TAGGED
+    /// balancing debit and is exactly invertible, so opting the COMPANY into composition afterwards must not make it
+    /// unalterable — the pin is a fact about the book, not about today's masters. Measured on the old code this
+    /// voucher was refused permanently, by a sentence stating that its balancing debit "carries no tax tag at all"
+    /// while that debit was Input IGST carrying a GstLineTax with an ITC scheme on it.
+    ///
+    /// <para>Accepting is still refused here, and by the RIGHT name: under composition the pair re-computes to the
+    /// untagged non-creditable shape, which is a SHAPE change, so the drift guard catches it. The distinction this
+    /// test pins is between "refused at the door for a shape this voucher does not have" and "opened, shown
+    /// correctly, and refused by name for a shape change that really would restate a filed §49(4) liability".</para>
+    /// </summary>
+    [Fact]
+    public void A_regular_posted_reverse_charge_voucher_still_opens_after_the_company_opts_into_composition()
+    {
+        using var book = AlterationBook.New("rcm-composition-later");
+        EnableAdvancedGst(book);
+        var fees = RcmExpense(book, "Legal Fees", "Legal", 1800);
+        var advocate = RcmSupplier(book, "Advocate (Gujarat)", GstinGujarat, "24");
+
+        var posted = book.Post(VoucherBaseType.Purchase, book.On(),
+            new[] { (fees, DrCr.Debit, "10000.50"), (advocate, DrCr.Credit, "10000.50") });
+        Assert.Equal(2, posted.Lines.Count(l => l.Gst is { IsReverseCharge: true }));
+
         book.Company.Gst!.RegistrationType = GstRegistrationType.Composition;
 
-        var open = book.ForAlter(posted.Id);
-        Assert.True(open.IsRefused);
-        Assert.Contains("COMPOSITION", open.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("no tax tag", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        var entry = OpenOrThrow(book, posted.Id);
+        Assert.Equal(2, entry.Lines.Count(l => l.IsComplete));       // the engine pair is not a grid row
+        Assert.Equal(entry.TotalDebitText, entry.TotalCreditText);   // and the grid opens BALANCED
+
+        var message = RefuseOrThrow(book, posted.Id, e => e.Narration = "harmless");
+        Assert.Contains("no longer re-computes to the same shape", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ================================================================ (I) the two round trips row 11 and row 12 lacked
+
+    /// <summary>
+    /// <b>Row 11's own round trip.</b> Row 11 is a Journal carrying a TDS carve; it had a re-open test and drift
+    /// tests but no canonical-export round trip, while the slice note claimed one for it. It passes on first
+    /// writing, which is the point — the gap was coverage, not behaviour.
+    /// </summary>
+    [Fact]
+    public void A_TDS_carved_Journal_round_trips_byte_identically()
+    {
+        using var book = AlterationBook.New("tds-rt-journal");
+        var (expense, party) = book.EnableTds(Section);
+
+        var posted = PostCarved(book, VoucherBaseType.Journal, expense, party, "120000.30");
+        var before = book.Export();
+        var beforeDisk = book.ExportReloaded();
+
+        var entry = OpenOrThrow(book, posted.Id);
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeDisk, book.ExportReloaded());
+    }
+
+    /// <summary>
+    /// <b>Row 12's own round trip — a JOURNAL carrying a reverse-charge pair.</b> Every reverse-charge alteration
+    /// fixture in this repository was a Purchase, so row 12 had no test of any kind while a doc comment attributed
+    /// it to a Purchase fixture. Behaviour was already right; this is the evidence.
+    /// </summary>
+    [Fact]
+    public void A_reverse_charge_Journal_round_trips_byte_identically()
+    {
+        using var book = AlterationBook.New("rcm-rt-journal");
+        EnableAdvancedGst(book);
+        var fees = RcmExpense(book, "Legal Fees", "Legal", 1800);
+        var advocate = RcmSupplier(book, "Advocate (Gujarat)", GstinGujarat, "24");
+
+        var posted = book.Post(VoucherBaseType.Journal, book.On(),
+            new[] { (fees, DrCr.Debit, "10000.50"), (advocate, DrCr.Credit, "10000.50") });
+
+        Assert.Equal(4, posted.Lines.Count);
+        Assert.Equal(2, posted.Lines.Count(l => l.Gst is { IsReverseCharge: true }));
+        Assert.All(posted.Lines.Where(l => l.HasGst), l => Assert.Equal(new Money(1800.09m), l.Amount));
+
+        var before = book.Export();
+        var beforeDisk = book.ExportReloaded();
+
+        var entry = OpenOrThrow(book, posted.Id);
+        Assert.Equal(2, entry.Lines.Count(l => l.IsComplete));   // the engine pair is NOT a grid row
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeDisk, book.ExportReloaded());
     }
 }

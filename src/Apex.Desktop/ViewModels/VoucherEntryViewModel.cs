@@ -1876,7 +1876,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             TdsService.CarveOut carve;
             try
             {
-                carve = _tds.BuildCarveOut(ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date);
+                // 🔴 ON AN ALTERING SCREEN THE PANEL MUST EXCLUDE THE VOUCHER'S OWN POSTED ASSESSMENT, exactly
+                // as the accept path does (ER-4: one engine, and one set of arguments to it). Without this the panel
+                // read the voucher back as its own "prior": a below-threshold 30,000.30 fee re-opened showing
+                // "TDS 194J(b) @ 10%: 3,000.00 withheld - Net payable 27,000.30" while AcceptAlteration posted the
+                // full gross and no payable leg at all. The figure was on screen before any keystroke, because
+                // RehydrateFrom ends in Recalculate().
+                carve = _tds.BuildCarveOut(
+                    ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -1902,6 +1909,35 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             _updatingTds = false;
         }
+    }
+
+    /// <summary>
+    /// The voucher whose POSTING MOMENT the cumulative-FY threshold projection must be taken at — the voucher being
+    /// altered, or <c>null</c> on a fresh entry screen (there is nothing to exclude: the voucher is not in the book
+    /// yet). Every <see cref="TdsService.BuildCarveOut"/> call on this screen passes it, so the panel, the bill-wise
+    /// preview and the accept path cannot disagree about which transactions count towards the threshold.
+    /// </summary>
+    private Guid? AlterationProjectionMarker => IsAltering ? _alteringVoucherId : null;
+
+    /// <summary>
+    /// The deductee's grid row as an <see cref="EntryLine"/> — ledger, amount, side and every keyed child. Handed to
+    /// <see cref="TdsService.BuildCarveOut"/> so the derived party leg keeps the bill-wise / cost-centre / bank /
+    /// forex detail instead of the carve destroying it (both accept paths SPLICE the derived leg over this whole
+    /// row, so anything the builder does not put back is gone).
+    /// </summary>
+    private static EntryLine? KeyedPartyTemplate(VoucherLineViewModel? line)
+    {
+        // Null on the accounting-invoice path, where the party leg is BUILT rather than keyed on a grid row (its
+        // bill-wise panel is already targeted at the net, so there is nothing to carry and nothing to re-derive).
+        if (line?.SelectedLedger is null) return null;
+        var bills = line.ToBillAllocations();
+        var costs = line.ToCostAllocations();
+        return new EntryLine(
+            line.SelectedLedger.Id, new Money(line.ParsedAmount), line.Side,
+            bills.Count > 0 ? bills : null,
+            costs.Count > 0 ? costs : null,
+            line.ToBankAllocation(),
+            line.ToForexInfo());
     }
 
     /// <summary>The operator changing the TDS section re-computes the deduction (unless the change came from the
@@ -3075,6 +3111,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         Message = null;
 
+        // 🔴 THE SAME WHOLE-WINDOW ROLLBACK Accept HAS (see the `undo` stack there), and for the same measured
+        // reason. ApplyReStamp calls the IMPURE RcmService.BuildReverseCharge — which calls
+        // GstService.EnsureRcmOutputLedger — BEFORE the shape-drift check can refuse, so a REFUSED alteration was
+        // leaving new tax ledgers on the company: measured, "RCM Output CGST" and "RCM Output SGST" added by a
+        // refusal, the in-memory canonical export no longer identical, and then PERSISTED by the next unrelated
+        // save. It reproduced on two unrelated fixtures — a supplier state moved after posting, and an
+        // import-of-services voucher with NO master drift at all — so it is generic to any refusal whose
+        // re-resolution reaches a tax head the book does not yet have.
+        //
+        // A LEDGER SNAPSHOT rather than a per-engine undo, on purpose: it catches every ledger any engine on this
+        // path creates, including the ones a future family will add, without each engine having to report what it
+        // made. And a WHOLE-WINDOW guard rather than a patch at each refusal exit, because this method has nine of
+        // them and PostAndSave's own history is that a per-exit rollback leaks from the exits nobody thought of.
+        var ledgersBefore = _company.Ledgers.Select(l => l.Id).ToHashSet();
+        var committed = false;
+        try
+        {
+            committed = AcceptAlterationCore();
+            return committed;
+        }
+        finally
+        {
+            if (!committed) UnwindLedgersCreatedSince(ledgersBefore);
+        }
+    }
+
+    /// <summary>
+    /// The body of <see cref="AcceptAlteration"/>, run inside that method's rollback window. Returns false ⇒ refused
+    /// with <see cref="Message"/> set, and every ledger the engines created on the way is unwound by the caller.
+    /// </summary>
+    private bool AcceptAlterationCore()
+    {
         if (!IsAltering)
         {
             Message = "This screen is entering a new voucher, not altering a posted one — use Accept.";
@@ -3249,6 +3317,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return true;
     }
 
+    /// <summary>
+    /// Removes every ledger that appeared on the company since <paramref name="before"/> was taken — the
+    /// compensating undo for the impure engines <see cref="ReDeriveEngineLegs"/> runs. A refused alteration has to
+    /// leave the book exactly as it found it; a successful one keeps what it created, which is the point of
+    /// creating it.
+    /// </summary>
+    private void UnwindLedgersCreatedSince(HashSet<Guid> before)
+    {
+        foreach (var created in _company.Ledgers.Where(l => !before.Contains(l.Id)).ToList())
+            _company.RemoveLedger(created);
+    }
+
     /// <summary>The operator-facing tail of the alteration message: the warnings <c>Replace</c> raised (a cleared
     /// bank reconciliation, a moved date, a diverged statutory record). Empty when it raised none, so an ordinary
     /// alteration reads exactly as a plain success.</summary>
@@ -3291,13 +3371,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// to a new base instead would move the party credit by exactly the withholding, which is the single worst
     /// outcome available in this phase (design §3.2).
     ///
-    /// <para>🔴 <b>And the voucher is excluded from its OWN cumulative-FY threshold.</b> At posting the voucher was
-    /// not in the book yet; at re-accept it is, carrying its own <c>TdsLineTax</c>, so
-    /// <c>ProjectPriorCumulative</c> would read the voucher's own assessable back as "prior" and add it to the
-    /// amended current. Measured on §194J (₹50,000 cumulative threshold): a ₹30,000 payment that was correctly
-    /// BELOW threshold at posting becomes 30,000 prior + 30,000 current = 60,000 and ACQUIRES a withholding on a
-    /// narration-only alteration. The <c>excludingVoucherId</c> argument is what keeps the re-carve's threshold test
-    /// identical to the one the posting made.</para>
+    /// <para>🔴 <b>And the cumulative-FY threshold is projected at this voucher's POSTING MOMENT, through
+    /// <c>asPostedBefore</c>.</b> At posting the voucher was not in the book yet; at re-accept it is, carrying its
+    /// own <c>TdsLineTax</c> — and so is everything posted after it. Handing this voucher's id to
+    /// <c>TdsService.BuildCarveOut</c> as <c>asPostedBefore</c> makes <c>ProjectPriorCumulative</c> resolve that
+    /// marker to a <b>list index</b> and project over <c>vouchers[0..limit)</c> only, which is exactly the set that
+    /// stood in the book when this voucher was posted (<c>Company.Vouchers</c> is in posting order, and
+    /// <c>LedgerService.Replace</c> deliberately preserves it). Without it, on §194J (₹50,000 cumulative) a
+    /// ₹30,000 payment that was correctly BELOW threshold at posting reads 30,000 prior + 30,000 current =
+    /// 60,000 and ACQUIRES a withholding on a narration-only alteration.</para>
+    ///
+    /// <para>🔴 <b>Do not reintroduce the "exclude this voucher's own id" form — it shipped as a
+    /// blocker.</b> That earlier argument dropped only the named voucher and left the projection selecting by DATE,
+    /// so a sibling posted LATER but dated on or before this voucher still counted as "prior" although it was not in
+    /// the book at posting. Measured on §194J(b): two same-dated ₹30,000.30 journals, then a NARRATION-ONLY
+    /// alteration of the first moved the party credit ₹30,000.30 → ₹27,000.30 and created a
+    /// ₹3,000.00 TDS Payable leg — a statutory liability raised by editing a narration. The reachable
+    /// window was "posted later, dated on or before", i.e. every same-day batch and every back-dated correction.
+    /// Cutting the projection at the posting moment closes that window; excluding an id cannot, because what it
+    /// leaves behind is still a date test.</para>
     /// </summary>
     private string? ApplyReCarve(
         Voucher existing,
@@ -3325,7 +3417,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         try
         {
             carve = _tds.BuildCarveOut(
-                ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, excludingVoucherId: existing.Id);
+                ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date,
+                asPostedBefore: existing.Id,
+                keyedPartyLine: KeyedPartyTemplate(ctx.PartyLine));
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
@@ -3338,6 +3432,35 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                  + "or the deductee's PAN (which decides whether the §206AA no-PAN rate applies), has changed since "
                  + "this voucher was posted. Re-computing at the new rate would restate a deduction that has already "
                  + "been reported, so it is refused.";
+
+        // 🔴 NOTHING THE OPERATOR TYPED MOVED, BUT THE ANSWER DID — refused, in BOTH directions.
+        //
+        // The three refusals above compare the deductee, the section and the rate. None of them compared whether
+        // the voucher WITHHELD AT ALL, and none of them compared the assessable base, so the applies/not-applies
+        // transition and every input to that base were unguarded. Measured, each on an alteration that changed
+        // nothing but the narration (or, in the third, nothing but the date) of a voucher that had withheld
+        // 3,000.00 under 194J(b):
+        //   * cancel a sibling voucher in the same FY  => party 27,000.30 / TDS Payable 3,000.00 / 3 lines became
+        //     party 30,000.30 / no payable leg / 2 lines, AcceptAlteration true, and no warning of any kind;
+        //   * delete that sibling                      => identical;
+        //   * move the voucher's own DATE into the next FY (which S5a's contract makes warn-and-proceed) =>
+        //     identical, and the success message reported the date change while saying nothing about the statutory
+        //     liability it had just removed;
+        //   * re-classify an ordinary debit ledger under Duties & Taxes, which shrinks AssessableExGst => a filed
+        //     12,000.00 deduction restated to 10,000.00 with 2,000 moved back to the party.
+        // The contract this breaks is stated in bold on VoucherAlterationDerivedLegs: a voucher posted WITH a
+        // derived leg "can never silently LOSE it ... Silence is the one outcome that is not available."
+        //
+        // The rule is deliberately stated on the OPERATOR'S input rather than on any one master: while the restored
+        // gross is unchanged the re-carve MUST reproduce the posted withholding, whatever moved underneath it. An
+        // amendment that does move the gross is a legitimate re-carve and is not touched by this.
+        if (ctx.Gross == pin.RestoredGross && carve.TdsAmount != pin.PostedTdsAmount)
+            return $"This voucher withheld {pin.PostedTdsAmount} of {pin.SectionCode} TDS. Nothing on this grid has "
+                 + $"moved the party's gross of {pin.RestoredGross}, and yet the same section now computes "
+                 + $"{carve.TdsAmount} — a voucher cancelled, deleted or re-dated since posting has changed the "
+                 + "year's aggregate for this deductee, or a master edit has moved the assessable base. "
+                 + "Re-computing would restate a deduction that has already been reported, so it is refused. Amend "
+                 + "the gross if the supply itself changed.";
 
         // The deductee's leg becomes the DERIVED net (or the full gross carrying the assessment detail, below
         // threshold) and the TDS-Payable leg is appended — the identical splice PostAndSave makes, over the same
@@ -3651,7 +3774,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             try
             {
-                carve = _tds.BuildCarveOut(tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date);
+                // The keyed party row goes IN so its bill-wise / cost / bank / forex children come back OUT on the
+                // derived leg. Without it the splice below dropped every child the operator had keyed, silently: a
+                // bill-by-bill creditor's New Ref vanished at posting and Outstandings then reported NO open bill at
+                // all for a vendor the company owed 1,08,000.30, on BOTH the withheld and the below-threshold arm.
+                carve = _tds.BuildCarveOut(
+                    tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date,
+                    keyedPartyLine: KeyedPartyTemplate(tctx.PartyLine));
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -4689,7 +4818,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (DetectTdsContext() is not { } ctx) return partyTotal;
         try
         {
-            return _tds.BuildCarveOut(ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date)
+            // Same argument as UpdateTdsPanel: one engine, one set of arguments (ER-4). Today's alter path refuses
+            // the accounting-invoice family before this is reachable, but the day that family is lifted a preview
+            // that projected the voucher against itself would target the bill-wise panel at a net Accept does not
+            // post.
+            return _tds.BuildCarveOut(
+                           ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker)
                        .NetPartyAmount.Amount;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

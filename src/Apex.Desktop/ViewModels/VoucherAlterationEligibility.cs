@@ -353,7 +353,15 @@ public static class VoucherAlterationEligibility
     /// engine's own lines be told apart from the keyed ones and rebuilt?"</i> — which is exactly what
     /// <see cref="VoucherAlterationDerivedLegs.Invert"/> answers, and it is the SAME call the rehydration and the
     /// accept path make. One implementation decides for all three, so a shape that opens is by construction a shape
-    /// that inverts.</para>
+    /// on which <b>Invert raised no refusal</b>.</para>
+    ///
+    /// <para>🔴 <b>That is deliberately weaker than "a shape that opens inverts", which is what this paragraph
+    /// used to claim, and the difference was measured.</b> A reverse-charge voucher posted under COMPOSITION and
+    /// then converted to Regular passed <c>Invert</c> without a refusal and still handed back a grid nobody keyed:
+    /// the engine's untagged RCM-tax debit appeared as an ordinary row and the screen opened out of balance by
+    /// exactly that leg. The refusal for that shape now reads the POSTED lines instead of today's registration type,
+    /// which closes that particular gap — but the invariant stays stated as what the code actually guarantees,
+    /// because "opens ⇒ correct" is the claim that stopped anyone looking.</para>
     ///
     /// <para><b>What is still refused, and why each is a real limit rather than a deferral:</b> a TCS collection
     /// (collected only on the invoice screens, so the Dr/Cr grid has nothing to re-derive it from); a

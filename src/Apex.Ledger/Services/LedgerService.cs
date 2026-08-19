@@ -748,13 +748,18 @@ public sealed class LedgerService
                 + "and it no longer matches this voucher.");
         }
 
-        // 🔴 THE FIVE §3.3 FAMILIES THAT HAD NO WARNING AT ALL (Phase 10.11 S5c). S5a covered the e-invoice, the
+        // 🔴 THE §3.3 FAMILIES THAT HAD NO WARNING AT ALL (Phase 10.11 S5c). S5a covered the e-invoice, the
         // e-Way bill, the advance receipt, the §34 link and the RCM document, and §3.3's own table lists SEVEN more
-        // records that FREEZE a figure about a voucher. Audited one by one against this method, five of them raised
+        // records that FREEZE a figure about a voucher. Audited one by one against this method, they raised
         // NOTHING — they survive the swap (the Guid is preserved) and go on declaring the pre-alteration figure with
         // no detector anywhere in the app. The screen-level predicate refuses some of these families at the door, but
         // Replace is the ENGINE contract: the canonical importer and every future caller reach it directly, and a
         // guard that exists only in one caller is a guard that is already half missing.
+        //
+        // 🔴 THE COUNT IS DELIBERATELY NOT RESTATED HERE. An earlier draft of this header said "FIVE" while the
+        // block below covers more than that, and a reviewer who trusts a stale count DELETES WARNINGS. The
+        // authority is the `Diverged(` call sites below — count them; do not carry a number forward into prose.
+        // Several families share one block (TDS with TCS, PMT-06 with DRC-03), so blocks and families differ.
 
         // TDS / TCS challan links — §3.3 records the asymmetry explicitly: ChallanReconciliation drops a challan whose
         // booking voucher is cancelled or deleted, so cancel and delete SELF-HEAL; AMEND does not. The challan's

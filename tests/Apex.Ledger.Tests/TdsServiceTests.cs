@@ -154,7 +154,7 @@ public class TdsServiceTests
     }
 
     [Fact]
-    public void Projection_is_pure_ignores_cancelled_and_other_financial_years()
+    public void Projection_is_pure_and_ignores_a_cancelled_voucher()
     {
         var c = NewTdsCompany();
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
@@ -170,8 +170,50 @@ public class TdsServiceTests
         { Cancelled = true });
 
         Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2025, 12, 31)));
-        // A next-FY date sees nothing from this FY.
+    }
+
+    /// <summary>
+    /// 🔴 <b>The FY window and the as-of date, on a LIVE voucher.</b> This used to be the tail of the cancelled
+    /// test above, on a fixture whose only voucher was <c>Cancelled = true</c> — so both of its assertions returned
+    /// zero through the cancelled filter no matter what the date line did, and the whole date/FY clause of
+    /// <c>ProjectPriorCumulative</c> could be DELETED with the full Ledger and Desktop suites green. That line is
+    /// the one the S5c re-carve threshold now stands on, so it gets its own oracle here: a live assessment, and
+    /// both bounds tested in the direction that fails when the clause is dropped.
+    /// </summary>
+    [Fact]
+    public void Projection_counts_only_this_financial_year_up_to_the_as_of_date()
+    {
+        var c = NewTdsCompany();
+        var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
+        var vendor = Vendor(c, DeducteePan);
+        var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
+        var svc = new TdsService(c);
+        var post = new LedgerService(c);
+
+        void PostLive(decimal amount, DateOnly on)
+        {
+            var carve = svc.BuildCarveOut(Money.FromRupees(amount), Money.FromRupees(amount), nop, vendor, on);
+            Assert.False(carve.Applies);                        // each one below the 50,000 cumulative on its own
+            post.Post(new Voucher(Guid.NewGuid(), JournalTypeId(c), on,
+                new[] { new EntryLine(fees.Id, Money.FromRupees(amount), DrCr.Debit), carve.PartyLine }));
+        }
+
+        PostLive(30_000m, D1);                                  // 10-May-2025, i.e. FY 2025-26
+
+        // The as-of date is an UPPER bound: a projection taken the day BEFORE this assessment sees nothing.
+        Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, D1.AddDays(-1)));
+        Assert.Equal(Money.FromRupees(30_000m), svc.ProjectPriorCumulative(vendor.Id, nop.Id, D1));
+
+        // And the FY start is a LOWER bound: the next financial year starts the aggregate again at zero, even
+        // though the voucher is live, uncancelled and earlier than the projection date.
         Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 5, 1)));
+
+        // A second live assessment inside the SAME FY does accumulate — so "zero" above is the window, not apathy.
+        PostLive(15_000m, new DateOnly(2026, 3, 31));            // still FY 2025-26 (ends 31-Mar-2026)
+        Assert.Equal(
+            Money.FromRupees(45_000m),
+            svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 3, 31)));
+        Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 4, 1)));
     }
 
     // ---- TDS assessed on the GST-exclusive base (CBDT Circular 23/2017) ----
