@@ -2937,6 +2937,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private string? RehydrateFrom(Voucher voucher)
     {
+        // 🔴 S5c — INVERT the engine's own legs FIRST, so the grid holds what the operator KEYED. On a
+        // TDS-carved voucher the posted party leg is the DERIVED net and a separate TDS-Payable leg sits beside it;
+        // filling the grid from the posted lines would show the operator a net they never typed and, on accept,
+        // re-carve THAT net — drifting the party credit by exactly the withholding. The refusal returned here is
+        // the same one VoucherAlterationEligibility.DerivedLegRefusal already made, so this cannot open a shape the
+        // predicate refuses; it is repeated because the two must never diverge and there is only one implementation.
+        if (VoucherAlterationDerivedLegs.Invert(_company, voucher, out var inverted) is { } inversionRefusal)
+            return inversionRefusal;
+
         _alteringVoucherId = voucher.Id;
         _rehydrating = true;
         try
@@ -2964,12 +2973,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             }
 
             Lines.Clear();
-            foreach (var posted in voucher.Lines)
+            foreach (var posted in inverted!.KeyedLines)
             {
                 var line = AddLine(posted.Side);
                 if (line.RehydrateFrom(posted) is { } refusal)
                     return "This voucher cannot be re-opened for alteration: " + refusal;
             }
+
+            // 🔴 The withholding panel opens on the section that was POSTED, not on the expense ledger's
+            // default. Without this the panel would default through DefaultNatureFor(expense) — and if that master
+            // default has moved since posting, the operator would be shown a section the voucher never carried and
+            // AcceptAlteration's pin check would refuse an alteration nobody had changed.
+            if (inverted.Tds is { } tdsPin && _company.FindNatureOfPayment(tdsPin.NatureId) is { } postedNature)
+                SelectedTdsNature = postedNature;
         }
         finally
         {
@@ -3044,10 +3060,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     ///
     /// <para><b>Line tax is not echoed, and cannot be.</b> Finding L3-07 binds this caller to RE-DERIVE line tax
     /// rather than carry a stale stamp, because GSTR-1 and GSTR-3B read the STAMPED taxable value, not the posted
-    /// amounts — so an echo makes a return declare a figure the book does not hold. S5b has no re-derivation, so it
-    /// takes the only other honest option: every voucher carrying a stamped <c>Gst</c>/<c>Tds</c>/<c>Tcs</c> line is
-    /// REFUSED at the door, and the lines this method builds are constructed WITHOUT those arguments — there is no
-    /// code path here that could carry one forward.</para>
+    /// amounts — so an echo makes a return declare a figure the book does not hold. <see cref="BuildPlainEntryLines()"/>
+    /// is constructed WITHOUT any <c>gst</c>/<c>tds</c>/<c>tcs</c> argument, so there is no code path here that could
+    /// carry one forward; every derived leg on the replacement is built fresh by
+    /// <see cref="ReDeriveEngineLegs"/> through the same engine that posted it.</para>
+    ///
+    /// <para>🔴 <b>S5c — and the DETECTION problem S5b left behind.</b> This method still runs NO detection of
+    /// its own: the POSTED voucher decides WHETHER a leg is derived, the amended content decides HOW MUCH, and any
+    /// disagreement is refused by name. That is why a narration-only alteration cannot ACQUIRE a withholding
+    /// because a party master gained a <c>DeducteeType</c> after posting, and cannot LOSE one because a master
+    /// lost it. See <see cref="VoucherAlterationDerivedLegs"/> for the rule in full.</para>
     /// </summary>
     public bool AcceptAlteration()
     {
@@ -3118,7 +3140,21 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return false;
         }
 
-        var entryLines = BuildPlainEntryLines();
+        // 🔴 The engine's own legs, re-derived. Invert reads the POSTED voucher again (not screen state) so the
+        // pin is a fact about the book rather than about anything the operator may have moved since it opened.
+        if (VoucherAlterationDerivedLegs.Invert(_company, existing, out var inverted) is { } inversionRefusal)
+        {
+            Message = inversionRefusal;
+            return false;
+        }
+
+        var entryLines = BuildPlainEntryLines(out var sources);
+        if (ReDeriveEngineLegs(existing, inverted!, sources, entryLines) is { } deriveRefusal)
+        {
+            Message = deriveRefusal;
+            return false;
+        }
+
         if (entryLines.Count < 2)
         {
             Message = "A voucher needs at least two lines.";
@@ -3219,6 +3255,158 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     private static string WarningNote(IReadOnlyList<VoucherAlterationWarning> warnings) =>
         warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message));
 
+    // =============================================================== Phase 10.11 S5c — the RE-DERIVATION
+
+    /// <summary>
+    /// 🔴 <b>Rebuilds the engine-derived legs of an alteration — the whole point of S5c.</b> Nothing is copied
+    /// forward: the withholding carve-out is re-computed from the RESTORED GROSS and the reverse-charge pair is
+    /// re-stamped from the amended taxable value, both through the same engines that posted them (ER-4).
+    ///
+    /// <para><b>The detection rule, stated where it is enforced.</b> Detection is consulted <b>only for a family the
+    /// POSTED voucher already carries</b> — <paramref name="inverted"/>'s pins are read off the book, never off
+    /// today's masters. So a voucher posted with no carve never meets a detector at all (it cannot ACQUIRE one when
+    /// a party master gains a <c>DeducteeType</c> after posting), and a voucher posted WITH one re-derives it and is
+    /// refused by name if today's masters would produce a different SHAPE (it cannot silently LOSE one). The only
+    /// thing an alteration may move is the AMOUNT.</para>
+    /// </summary>
+    private string? ReDeriveEngineLegs(
+        Voucher existing,
+        VoucherAlterationDerivedLegs.Inversion inverted,
+        List<VoucherLineViewModel> sources,
+        List<EntryLine> entryLines)
+    {
+        if (inverted.Tds is { } tdsPin && ApplyReCarve(existing, tdsPin, sources, entryLines) is { } carveRefusal)
+            return carveRefusal;
+
+        if (inverted.Rcm is { } rcmPin && ApplyReStamp(rcmPin, entryLines) is { } stampRefusal)
+            return stampRefusal;
+
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Re-carves the withholding FROM THE RESTORED GROSS.</b> The rehydration put the withheld amount back
+    /// onto the deductee's leg, so <c>DetectTdsContext</c> reads the gross the operator keyed (or the gross they
+    /// have just amended it to) — exactly the figure the original posting carved from. Re-applying the stored carve
+    /// to a new base instead would move the party credit by exactly the withholding, which is the single worst
+    /// outcome available in this phase (design §3.2).
+    ///
+    /// <para>🔴 <b>And the voucher is excluded from its OWN cumulative-FY threshold.</b> At posting the voucher was
+    /// not in the book yet; at re-accept it is, carrying its own <c>TdsLineTax</c>, so
+    /// <c>ProjectPriorCumulative</c> would read the voucher's own assessable back as "prior" and add it to the
+    /// amended current. Measured on §194J (₹50,000 cumulative threshold): a ₹30,000 payment that was correctly
+    /// BELOW threshold at posting becomes 30,000 prior + 30,000 current = 60,000 and ACQUIRES a withholding on a
+    /// narration-only alteration. The <c>excludingVoucherId</c> argument is what keeps the re-carve's threshold test
+    /// identical to the one the posting made.</para>
+    /// </summary>
+    private string? ApplyReCarve(
+        Voucher existing,
+        VoucherAlterationDerivedLegs.TdsPin pin,
+        List<VoucherLineViewModel> sources,
+        List<EntryLine> entryLines)
+    {
+        if (DetectTdsContext() is not { } ctx)
+            return $"This voucher was posted with a {pin.SectionCode} TDS withholding, and the entry screen no "
+                 + "longer finds one on it — the expense ledger's 'Is TDS Applicable' flag, the party's deductee "
+                 + "status or the section may have been changed since it was posted, or TDS has been switched off. "
+                 + "Accepting would drop the withholding and credit the party the full gross, so it is refused.";
+
+        if (ctx.Deductee.Id != pin.DeducteeLedgerId)
+            return $"This voucher withheld {pin.SectionCode} TDS from a different party than the one the grid now "
+                 + $"shows as the deductee ('{ctx.Deductee.Name}'). Alter does not move a posted withholding to "
+                 + "another party.";
+
+        if (ctx.Nature.Id != pin.NatureId)
+            return $"This voucher was posted under section {pin.SectionCode} and the withholding panel now shows "
+                 + $"{ctx.Nature.SectionCode}. Alter re-computes the AMOUNT of a posted withholding, never its "
+                 + "section — a re-sectioned deduction belongs to a different challan and a different return line.";
+
+        TdsService.CarveOut carve;
+        try
+        {
+            carve = _tds.BuildCarveOut(
+                ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, excludingVoucherId: existing.Id);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return $"Cannot re-compute the TDS withholding: {ex.Message}";
+        }
+
+        if (carve.Withholding.RateBasisPoints != pin.RateBasisPoints)
+            return $"This voucher withheld {pin.SectionCode} TDS at {pin.RateBasisPoints / 100m:0.##}% and the same "
+                 + $"section now resolves to {carve.Withholding.RateBasisPoints / 100m:0.##}% — the section's rate, "
+                 + "or the deductee's PAN (which decides whether the §206AA no-PAN rate applies), has changed since "
+                 + "this voucher was posted. Re-computing at the new rate would restate a deduction that has already "
+                 + "been reported, so it is refused.";
+
+        // The deductee's leg becomes the DERIVED net (or the full gross carrying the assessment detail, below
+        // threshold) and the TDS-Payable leg is appended — the identical splice PostAndSave makes, over the same
+        // ordered source rows, so no index can drift out of step with the builder.
+        var index = sources.FindIndex(l => ReferenceEquals(l, ctx.PartyLine));
+        if (index < 0)
+            return "The deductee's line is no longer complete on this grid, so the withholding cannot be re-carved "
+                 + "onto it.";
+
+        entryLines[index] = carve.PartyLine;
+        if (carve.TdsPayableLine is { } payableLine) entryLines.Add(payableLine);
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Re-stamps the reverse-charge pair — RECOMPUTED, never echoed</b> (design finding L3-07). GSTR-1 and
+    /// GSTR-3B read the STAMPED <c>GstLineTax.TaxableValue</c>, not the posted amounts, so a replacement that
+    /// carried the posted pair forward would let a filed return declare a figure the book no longer holds. The pair
+    /// is therefore rebuilt from the amended expense legs through <see cref="RcmService.BuildReverseCharge"/>, the
+    /// same call <c>PostAndSave</c> makes.
+    ///
+    /// <para><b>The drift guard is a SHAPE comparison, not an amount comparison.</b> The pin holds ledger, side,
+    /// head, rate and ITC scheme; amounts and taxable values are excluded because they are exactly what an
+    /// alteration moves. So an amended expense re-stamps cleanly, while a notified rate that moved, a supplier
+    /// whose registration changed, a place of supply that flipped the intra/inter split, or an operator-only input
+    /// this screen cannot recover from the posted voucher (the supply KIND, the promoter and body-corporate
+    /// qualifiers — none of which is persisted anywhere) all change the shape and are refused by name.</para>
+    /// </summary>
+    private string? ApplyReStamp(VoucherAlterationDerivedLegs.RcmPin pin, List<EntryLine> entryLines)
+    {
+        if (IsRcmDeclined)
+            return "This voucher self-accounts reverse charge, and the reverse-charge panel is now set to 'Not "
+                 + "Applicable'. Accepting would drop the §49(4) liability and its matching input credit, so it is "
+                 + "refused — Alter re-computes a posted reverse charge, it does not withdraw one.";
+
+        if (DetectRcmShape() is not { } shape)
+            return "This voucher self-accounts reverse charge, and the entry screen no longer finds a "
+                 + "reverse-charge shape on it — the expense ledger's 'reverse charge applicable' flag or the "
+                 + "supplier's identity may have changed since it was posted. Accepting would drop the §49(4) "
+                 + "liability and its matching input credit, so it is refused.";
+
+        var rebuilt = new List<EntryLine>();
+        foreach (var leg in shape.Legs)
+        {
+            if (!ResolveRcm(shape, leg).Applies) continue;
+            try
+            {
+                rebuilt.AddRange(_rcm.BuildReverseCharge(
+                    leg.Taxable, item: null, leg.Expense, shape.Party.PartyGst, Date,
+                    SelectedRcmSupplyKind?.Kind ?? RcmService.SupplyKind.Domestic,
+                    RcmRecipientIsPromoter, RcmRecipientIsBodyCorporate).Lines);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                return $"Cannot re-compute reverse charge on '{leg.Expense.Name}': {ex.Message}";
+            }
+        }
+
+        if (!pin.Matches(rebuilt))
+            return "The reverse-charge tax this voucher self-accounted no longer re-computes to the same shape: "
+                 + "the heads, the notified rate or the input-credit scheme have moved since it was posted, or it "
+                 + "was posted under a supply routing this screen cannot read back from the voucher (the supply "
+                 + "kind, and the promoter / body-corporate qualifiers, are keyed at entry and are not stored on "
+                 + "the voucher). Restating an already-reported §49(4) liability is refused.";
+
+        entryLines.AddRange(rebuilt);
+        return null;
+    }
+
     /// <summary>
     /// The up-front, plain-grid refusals made before the engine is touched — <b>the single copy</b> that both
     /// <see cref="Accept"/> and <see cref="AcceptAlteration"/> call. Returns the message, or <c>null</c> when the
@@ -3294,8 +3482,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <c>Gst</c>/<c>Tds</c>/<c>Tcs</c> argument anywhere: those are the arguments an alteration must never echo,
     /// and the way to guarantee that is for this builder to have no way to supply one.
     /// </summary>
-    private List<EntryLine> BuildPlainEntryLines() =>
-        Lines.Where(l => l.IsComplete)
+    private List<EntryLine> BuildPlainEntryLines() => BuildPlainEntryLines(out _);
+
+    /// <summary>
+    /// The same builder, also handing back the ROW VIEW MODELS it built from, in the same order. S5c's re-carve
+    /// needs to splice the deductee's carved leg into the built list, and matching by index against a separately
+    /// re-evaluated <c>Where(IsComplete)</c> would be a silent alignment bug waiting for the day the predicate
+    /// changes. One enumeration, one order, no matching.
+    /// </summary>
+    private List<EntryLine> BuildPlainEntryLines(out List<VoucherLineViewModel> sources)
+    {
+        sources = Lines.Where(l => l.IsComplete).ToList();
+        return sources
             .Select(l =>
             {
                 var billAllocs = l.ToBillAllocations();
@@ -3308,6 +3506,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     l.ToForexInfo());
             })
             .ToList();
+    }
 
     /// <summary>
     /// Ctrl+A accept: builds the voucher from the non-blank lines, posts it (engine rejects an

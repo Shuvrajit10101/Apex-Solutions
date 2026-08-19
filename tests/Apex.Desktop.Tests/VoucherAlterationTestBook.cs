@@ -111,6 +111,27 @@ internal sealed class AlterationBook : IDisposable
             Periodicity = GstReturnPeriodicity.Monthly,
         });
 
+    /// <summary>
+    /// Turns TDS on for this book and wires the correct (Tally) model: the EXPENSE ledger is Is-TDS-Applicable and
+    /// carries the default Nature of Payment (the expense drives applicability AND the section), while the PARTY
+    /// carries a <see cref="DeducteeType"/> and a PAN (the party drives only the RATE). Returns the two ledgers.
+    /// </summary>
+    public (DomainLedger Expense, DomainLedger Deductee) EnableTds(
+        string sectionCode = "194J(b)", string? pan = "AAPFU0939F",
+        string expenseName = "Professional Fees", string partyName = "Acme Consultants")
+    {
+        new Apex.Ledger.Services.TdsTcsService(Company).EnableTds(new TdsConfig { Tan = "MUMA12345B" });
+        var expense = Ledger(expenseName, "Indirect Expenses");
+        var party = Ledger(partyName, "Sundry Creditors");
+        var nature = Company.FindNatureOfPaymentByCode(sectionCode)
+                     ?? throw new InvalidOperationException($"No seeded Nature of Payment '{sectionCode}'.");
+        expense.TdsApplicable = true;
+        expense.TdsNatureOfPaymentId = nature.Id;
+        party.DeducteeType = DeducteeType.Firm;
+        party.PartyPan = pan;
+        return (expense, party);
+    }
+
     public VoucherType Type(VoucherBaseType baseType) =>
         Company.VoucherTypes.First(t => t.BaseType == baseType && !t.IsPosSales && !t.IsStatPaymentType);
 

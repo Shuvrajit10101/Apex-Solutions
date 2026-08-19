@@ -84,7 +84,7 @@ public static class VoucherAlterationEligibility
             ?? OffLineSideEffectRefusal(company, voucher) // then the five untagged families
             ?? StatutoryDocumentRefusal(company, voucher)
             ?? EntryModeRefusal(voucher, type)
-            ?? StampedTaxRefusal(voucher)
+            ?? DerivedLegRefusal(company, voucher)
             ?? ProvisionalShapeRefusal(voucher, type);
     }
 
@@ -341,35 +341,29 @@ public static class VoucherAlterationEligibility
         return null;
     }
 
-    // ------------------------------------------------------------------ the stamped-tax families (DEFER)
+    // ------------------------------------------------------------------ the engine-DERIVED legs (S5c)
 
     /// <summary>
-    /// The tag scan — necessary but, on its own, <b>provably insufficient</b> (which is why it runs last and not
-    /// first). A stamped figure on a line is a figure the engine DERIVED, and design finding L3-07 binds this
-    /// caller to RE-DERIVE rather than echo it. S5b does not re-derive anything, so it refuses instead: refusing is
-    /// the only form of "never echo" available to a slice that has no re-derivation.
+    /// 🔴 <b>S5c LIFTED S5b's TEMPORARY BLANKET REFUSAL HERE.</b> S5b refused any voucher carrying
+    /// <c>EntryLine.Gst</c> / <c>.Tds</c> / <c>.Tcs</c> outright, with a stated reason: design finding L3-07 binds
+    /// this caller to RE-DERIVE a stamped figure rather than echo it (GSTR-1 and GSTR-3B read the STAMPED taxable
+    /// value, not the posted amounts), and a slice with no re-derivation has no honest option but to refuse.
+    ///
+    /// <para>S5c has the re-derivation, so the question is no longer <i>"is anything stamped?"</i> but <i>"can the
+    /// engine's own lines be told apart from the keyed ones and rebuilt?"</i> — which is exactly what
+    /// <see cref="VoucherAlterationDerivedLegs.Invert"/> answers, and it is the SAME call the rehydration and the
+    /// accept path make. One implementation decides for all three, so a shape that opens is by construction a shape
+    /// that inverts.</para>
+    ///
+    /// <para><b>What is still refused, and why each is a real limit rather than a deferral:</b> a TCS collection
+    /// (collected only on the invoice screens, so the Dr/Cr grid has nothing to re-derive it from); a
+    /// reverse-charge pair under a COMPOSITION registration (its balancing debit is deliberately untagged and
+    /// cannot be told from a keyed expense); a stamped GST figure that is not part of a reverse-charge pair (no
+    /// appender on this screen writes one, so it can only have arrived from an import); and every import-shaped
+    /// withholding the entry screen cannot produce.</para>
     /// </summary>
-    private static string? StampedTaxRefusal(Voucher voucher)
-    {
-        if (voucher.Lines.Any(l => l.HasGst))
-            return "This voucher carries engine-stamped GST on its lines — the head, rate and taxable value GSTR-1 "
-                 + "and GSTR-3B read. Those figures must be RE-DERIVED from the amended content, never carried "
-                 + "forward, or a return would declare a figure the book no longer holds. The re-stamp arrives in "
-                 + "a later slice.";
-
-        if (voucher.Lines.Any(l => l.HasTds))
-            return "This voucher carries a TDS withholding carve-out: the party leg holds the DERIVED net, not the "
-                 + "gross that was keyed, and a separate TDS-payable leg sits beside it. Re-opening it means "
-                 + "inverting the carve to recover the gross and re-carving from the restored gross; that arrives "
-                 + "in a later slice.";
-
-        if (voucher.Lines.Any(l => l.HasTcs))
-            return "This voucher carries a TCS collection: the collected amount and its assessable value are "
-                 + "stamped on the line and read by Form 27EQ. They must be re-derived from the amended content, "
-                 + "which arrives in a later slice.";
-
-        return null;
-    }
+    private static string? DerivedLegRefusal(Company company, Voucher voucher) =>
+        VoucherAlterationDerivedLegs.Invert(company, voucher, out _);
 
     // ------------------------------------------------------------------ the provisional vector's shape
 

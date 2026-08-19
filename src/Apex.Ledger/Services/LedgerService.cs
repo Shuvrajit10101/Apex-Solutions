@@ -748,6 +748,101 @@ public sealed class LedgerService
                 + "and it no longer matches this voucher.");
         }
 
+        // 🔴 THE FIVE §3.3 FAMILIES THAT HAD NO WARNING AT ALL (Phase 10.11 S5c). S5a covered the e-invoice, the
+        // e-Way bill, the advance receipt, the §34 link and the RCM document, and §3.3's own table lists SEVEN more
+        // records that FREEZE a figure about a voucher. Audited one by one against this method, five of them raised
+        // NOTHING — they survive the swap (the Guid is preserved) and go on declaring the pre-alteration figure with
+        // no detector anywhere in the app. The screen-level predicate refuses some of these families at the door, but
+        // Replace is the ENGINE contract: the canonical importer and every future caller reach it directly, and a
+        // guard that exists only in one caller is a guard that is already half missing.
+
+        // TDS / TCS challan links — §3.3 records the asymmetry explicitly: ChallanReconciliation drops a challan whose
+        // booking voucher is cancelled or deleted, so cancel and delete SELF-HEAL; AMEND does not. The challan's
+        // frozen Amount simply stops matching and the reconciliation reports the wrong Remaining.
+        if (totalMoved)
+        {
+            foreach (var link in _company.ChallanVoucherLinks)
+            {
+                if (link.VoucherId != id) continue;
+                var challan = _company.TdsChallans.FirstOrDefault(c => c.Id == link.ChallanId);
+                Diverged(
+                    "A TDS challan is linked to this voucher and froze"
+                    + (challan is null ? " its deposit figures" : $" {challan.Amount} deposited under {challan.Section} "
+                        + $"on challan {challan.ChallanNo}")
+                    + $". The challan reconciliation drops a challan whose booking voucher is cancelled or deleted, but "
+                    + "it does not re-derive anything when one is AMENDED — so it will go on reporting a Remaining "
+                    + "computed from the figure this alteration has just moved.");
+            }
+
+            foreach (var link in _company.TcsChallanVoucherLinks)
+            {
+                if (link.VoucherId != id) continue;
+                var challan = _company.TcsChallans.FirstOrDefault(c => c.Id == link.ChallanId);
+                Diverged(
+                    "A TCS challan is linked to this voucher and froze"
+                    + (challan is null ? " its deposit figures" : $" {challan.Amount} deposited under "
+                        + $"{challan.CollectionCode} on challan {challan.ChallanNo}")
+                    + ". The challan reconciliation does not re-derive it when a voucher is amended.");
+            }
+
+            foreach (var challan in _company.GstChallans)
+            {
+                if (challan.VoucherId != id) continue;
+                Diverged(
+                    $"The GST challan (PMT-06) for this voucher froze {challan.Amount} under CPIN {challan.Cpin}, "
+                    + "deposited against the electronic cash ledger. That deposit is a portal fact and this "
+                    + "alteration does not change it, so the voucher and the challan no longer agree.");
+            }
+
+            foreach (var drc03 in _company.GstDrc03s)
+            {
+                if (drc03.VoucherId != id) continue;
+                Diverged(
+                    $"The DRC-03 voluntary payment booked on this voucher froze "
+                    + $"{PaisaConversion.ToMoney(drc03.TotalTaxPaisa)} of tax plus "
+                    + $"{PaisaConversion.ToMoney(drc03.InterestPaisa)} of interest for period {drc03.Period}. "
+                    + "Those are the figures filed with the portal and nothing re-derives them from the voucher.");
+            }
+        }
+
+        // ITC reversal — §3.3 classes it CARRY + named gap: the reversal freezes the head-wise paisa it computed off
+        // this voucher's line, and GSTR-3B Table 4(B) declares the frozen figure.
+        foreach (var reversal in _company.ItcReversals)
+        {
+            if (reversal.SourceVoucherId != id) continue;
+            if (!totalMoved && !dateMoved) continue;
+            Diverged(
+                $"An ITC reversal ({reversal.Rule}, period {reversal.Period}) was computed off this voucher and "
+                + $"froze {PaisaConversion.ToMoney(reversal.CgstPaisa + reversal.SgstPaisa + reversal.IgstPaisa + reversal.CessPaisa)} "
+                + "of credit reversed. GSTR-3B Table 4(B) declares the frozen figure and does not re-derive it, so "
+                + "the reversal no longer follows the voucher it was computed from.");
+        }
+
+        // GSTR-2B reconciliation — a frozen variance against a voucher that has just moved.
+        foreach (var recon in _company.Gstr2bReconResults)
+        {
+            if (recon.MatchedVoucherId != id) continue;
+            if (!totalMoved && !dateMoved) continue;
+            Diverged(
+                $"A GSTR-2B reconciliation result is matched to this voucher and froze a taxable variance of "
+                + $"{PaisaConversion.ToMoney(recon.TaxableVariancePaisa)} and a tax variance of "
+                + $"{PaisaConversion.ToMoney(recon.TaxVariancePaisa)} (bucket {recon.Bucket}). Re-run the "
+                + "reconciliation for the period — the stored variance is measured against the pre-alteration figure.");
+        }
+
+        // GST set-off (Rule 88A) — §3.3 classes it RE-DERIVE-but-not-by-us: GstSetOffService deletes and re-posts on a
+        // period re-run, so the fix is the re-run and the warning is what tells the operator it is now needed.
+        foreach (var setoff in _company.GstSetoffLines)
+        {
+            if (setoff.VoucherId != id) continue;
+            if (!totalMoved && !dateMoved) continue;
+            Diverged(
+                $"This voucher carries the Rule-88A set-off for period {setoff.Period}, which froze how much of "
+                + "each credit head was applied against each liability head. Altering it does not re-derive the "
+                + "set-off — re-run the period so the set-off is computed from the amended book.");
+            break; // one sentence per voucher, not one per head
+        }
+
         // RcmDocument (self-invoice / Rule-52 payment voucher) freezes its own DocDate off the source voucher.
         foreach (var rcm in _company.RcmDocuments)
         {

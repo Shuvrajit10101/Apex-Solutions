@@ -55,7 +55,19 @@ public sealed class TdsService
     /// the TDS as <c>round_half_up(assessable × rate / 10000)</c> to the <b>nearest rupee</b>. Pure and total; posts
     /// nothing.
     /// </summary>
-    public Withholding ComputeWithholding(Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date)
+    /// <param name="excludingVoucherId">
+    /// 🔴 <b>The voucher whose OWN posted assessable value must not count against it</b> — Phase 10.11 S5c.
+    /// <c>null</c> for a fresh posting (the voucher is not in the book yet, so nothing needs excluding, and every
+    /// pre-S5c caller is byte-identical). On an ALTERATION the voucher IS already in
+    /// <c>Company.Vouchers</c> carrying its own <see cref="TdsLineTax"/>, so a re-carve would read its own posted
+    /// assessable back as "prior" and add it to the amended current — measured, that turns a ₹30,000 §194J
+    /// payment (below the ₹50,000 cumulative threshold at posting) into 30,000 prior + 30,000 current = 60,000 and
+    /// ACQUIRES a withholding on a narration-only alteration. Passing the voucher's id here is what keeps the
+    /// re-carve's threshold test identical to the one the original posting made.
+    /// </param>
+    public Withholding ComputeWithholding(
+        Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
+        Guid? excludingVoucherId = null)
     {
         ArgumentNullException.ThrowIfNull(nature);
         ArgumentNullException.ThrowIfNull(deductee);
@@ -67,7 +79,7 @@ public sealed class TdsService
         var panApplied = Pan.IsValid(deductee.PartyPan);
         var rateBp = panApplied ? nature.RateWithPanBp : nature.RateWithoutPanBp;
 
-        var prior = ProjectPriorCumulative(deductee.Id, nature.Id, date);
+        var prior = ProjectPriorCumulative(deductee.Id, nature.Id, date, excludingVoucherId);
         if (!ThresholdCrossed(nature, assessableValue, prior))
             return new Withholding(false, assessableValue, rateBp, Money.Zero, panApplied, prior);
 
@@ -103,13 +115,18 @@ public sealed class TdsService
     /// threshold). Deterministic and order-independent for a fixed voucher set; the not-yet-posted current
     /// transaction is naturally excluded. Mirrors how <c>Gstr1</c> accumulates posted <see cref="GstLineTax"/>.
     /// </summary>
-    public Money ProjectPriorCumulative(Guid deducteeLedgerId, Guid natureId, DateOnly date)
+    /// <param name="excludingVoucherId">A voucher to leave OUT of the projection — the voucher currently being
+    /// ALTERED, which is already in the book carrying its own assessment and would otherwise be counted against
+    /// itself (Phase 10.11 S5c). <c>null</c> (the default) projects over the whole book, exactly as before.</param>
+    public Money ProjectPriorCumulative(
+        Guid deducteeLedgerId, Guid natureId, DateOnly date, Guid? excludingVoucherId = null)
     {
         var (fyStart, _) = FinancialYearOf(date);
         var sum = 0m;
         foreach (var v in _company.Vouchers)
         {
             if (v.Cancelled) continue;
+            if (excludingVoucherId is { } skip && v.Id == skip) continue;
             if (v.Date < fyStart || v.Date > date) continue;
             foreach (var line in v.Lines)
             {
@@ -163,15 +180,19 @@ public sealed class TdsService
     /// line so the cumulative projection and the Not-Deducted report still see the transaction). Requires TDS to be
     /// enabled (the auto-created "TDS Payable" ledger).
     /// </summary>
+    /// <param name="excludingVoucherId">The voucher being ALTERED, excluded from the cumulative-FY projection so a
+    /// re-carve cannot count the voucher's own posted assessable against itself (Phase 10.11 S5c). <c>null</c> for a
+    /// fresh posting.</param>
     public CarveOut BuildCarveOut(
-        Money partyGrossObligation, Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date)
+        Money partyGrossObligation, Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
+        Guid? excludingVoucherId = null)
     {
         if (partyGrossObligation.Amount <= 0m)
             throw new ArgumentException("Party gross obligation must be > 0.", nameof(partyGrossObligation));
         if (!partyGrossObligation.IsPaisaExact)
             throw new InvalidOperationException($"Party gross obligation {partyGrossObligation} must be paisa-exact.");
 
-        var w = ComputeWithholding(assessableValue, nature, deductee, date);
+        var w = ComputeWithholding(assessableValue, nature, deductee, date, excludingVoucherId);
         var detail = new TdsLineTax(
             nature.Id, nature.SectionCode, assessableValue, w.RateBasisPoints, w.TdsAmount, deductee.Id, w.PanApplied);
 

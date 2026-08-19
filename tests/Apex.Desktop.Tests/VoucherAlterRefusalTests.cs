@@ -684,12 +684,18 @@ public sealed class VoucherAlterRefusalTests
         Assert.Contains("reverse-charge detection", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ================================================================ (F) the stamped-tax families (DEFER)
+    // ================================================================ (F) the stamped-tax families
 
-    /// <summary>Rows 12 etc. — an engine-stamped <c>GstLineTax</c> is what GSTR-1 and GSTR-3B read, so it must be
-    /// RE-DERIVED and never echoed; S5b has no re-derivation, so it refuses.</summary>
+    /// <summary>
+    /// 🔴 <b>S5c NARROWED THIS ARM AND THE NARROWING IS THE POINT.</b> S5b refused ANY line carrying
+    /// <c>GstLineTax</c>. S5c re-derives the one stamped shape the plain grid can produce — the reverse-charge
+    /// self-accounting pair — so what is left here is a stamp NO appender on this screen writes: a hand-stamped
+    /// tax line, reachable only from a canonical-XML import. It is still refused, and for the original reason
+    /// (finding L3-07): GSTR-1 and GSTR-3B read the STAMPED taxable value, so a figure that cannot be re-derived
+    /// must never be carried forward.
+    /// </summary>
     [Fact]
-    public void A_voucher_carrying_engine_stamped_GST_is_refused_by_name()
+    public void A_voucher_carrying_engine_stamped_GST_outside_a_reverse_charge_pair_is_refused_by_name()
     {
         using var book = AlterationBook.New("gsttag");
         var debtor = book.Ledger("GST Customer", "Sundry Debtors");
@@ -704,12 +710,19 @@ public sealed class VoucherAlterRefusalTests
                 gst: new GstLineTax(GstTaxHead.Central, 900, new Money(10000.10m))),
         });
 
-        AssertRefused(book, posted.Id, "engine-stamped GST", "RE-DERIVED");
+        var refusal = AssertRefused(book, posted.Id, "engine-stamped", "reverse-charge pair", "re-derived");
+        // It must NOT be refused by the old blanket sentence — that arm is gone, and a test that passed on either
+        // message would not notice if it came back.
+        Assert.DoesNotContain("arrives in a later slice", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Rows 3 / 11 / 21 — the TDS carve: the party leg holds the DERIVED net, not the keyed gross.</summary>
+    /// <summary>
+    /// Rows 3 / 11 / 21 are LIFTED by S5c — but only for a carve this company can re-compute. An import-shaped
+    /// voucher whose Nature of Payment is not in the book has no section to re-carve under, so it is refused AT
+    /// THE DOOR rather than opened and then refused at accept.
+    /// </summary>
     [Fact]
-    public void A_voucher_carrying_a_TDS_carve_out_is_refused_by_name()
+    public void A_TDS_carve_out_whose_section_is_not_in_the_company_is_refused_by_name()
     {
         using var book = AlterationBook.New("tdstag");
         var creditor = book.Ledger("Consultant", "Sundry Creditors");
@@ -725,7 +738,8 @@ public sealed class VoucherAlterRefusalTests
                     new Money(10000.00m), creditor.Id, panApplied: true)),
         });
 
-        AssertRefused(book, posted.Id, "TDS withholding carve-out", "gross");
+        var refusal = AssertRefused(book, posted.Id, "194J", "Natures of Payment", "gross");
+        Assert.DoesNotContain("arrives in a later slice", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The TCS arm — additive rather than withholding, and read by Form 27EQ.</summary>
