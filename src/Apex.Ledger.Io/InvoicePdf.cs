@@ -184,6 +184,9 @@ public static class InvoicePdf
         h += 0.5;                                 // rule
         h += (page.BodyFontSize + 2) * 2;         // invoice-no/date + place-of-supply rows
         h += 6;                                   // rule spacer
+        // census T0-9: the e-invoice band (signed QR + IRN + Ack). Zero on every document that is not an e-invoice,
+        // so the paginator's arithmetic is unchanged for them (ER-13).
+        h += EInvoiceBandHeight(data, page);
         h += page.BodyFontSize + 2;               // item-table header offset
         return h;
     }
@@ -200,6 +203,105 @@ public static class InvoicePdf
     /// of a cancelled document; the over-print, its wording and its placement are our decision (R7).</para>
     /// </summary>
     private const string CancelledBanner = "CANCELLED";
+
+    // ================================================================ e-Invoice band (census T0-9)
+
+    /// <summary>
+    /// The printed side of the QR square, in points (about 34 mm). <b>OURS, and deliberately generous.</b>
+    ///
+    /// <para>No official source mandates a size. The GST Network's e-invoice FAQ (v1.4, 30-03-2021, Q71) says the QR
+    /// "shall be extracted and printed on the invoice", that "printing of QR code on separate paper is not allowed",
+    /// and that "while the printed QR code shall be clear enough to be readable by a QR Code reader, the size and its
+    /// placing on invoice is upto the preference of the businesses" - the NIC procedure note
+    /// (<c>https://einvoice1.gst.gov.in/Documents/Qrcode_procedure.pdf</c>) says the same. Two figures circulate in
+    /// secondary commentary (2x2 inches, 3x3 inches) which contradict each other and trace to no primary document, so
+    /// neither is treated as a rule here.</para>
+    ///
+    /// <para><b>What the number is actually chosen against: module size at print resolution.</b> An IRP signed QR is a
+    /// long JWS. Measured on an 804-character one, error-correction level L lands on symbol version 20 - 97 modules,
+    /// plus the 4-module quiet zone on each side, 105 across. At 96 pt that is 0.914 pt per module, i.e. 3.81 dots at
+    /// 300 dpi. Halving the box to 48 pt would halve that to 1.9 dots, which is below what a printed QR survives.</para>
+    /// </summary>
+    private const double EInvoiceQrSize = 96;
+
+    /// <summary>
+    /// The error-correction level the e-invoice QR is encoded at. <b>OURS; no source specifies one.</b>
+    ///
+    /// <para><b>L, and the reason is the opposite of the intuitive one.</b> A higher level recovers more damaged
+    /// modules, but it does so by adding codewords, which pushes the symbol to a higher version, which - inside a box
+    /// of FIXED printed size - makes every module smaller. Measured on an 804-character signed QR the choice is
+    /// version 20 at L against version 23 at M: 0.914 pt per module against 0.821, i.e. 3.81 dots at 300 dpi against
+    /// 3.42. On a document that is laser-printed once and scanned at close range from a flat page, module size
+    /// dominates damage tolerance, so the level that keeps the modules largest is the level most likely to scan.</para>
+    /// </summary>
+    private const QrErrorCorrection EInvoiceQrEcc = QrErrorCorrection.Low;
+
+    /// <summary>The text lines printed beside the QR. <b>The single source</b> for the band's measured height and its
+    /// drawing, in the same spirit as <see cref="HeadRows"/> - the two used to be independent expressions elsewhere in
+    /// this file and drifted.</summary>
+    private static List<string> EInvoiceLines(InvoicePrintData data)
+    {
+        var lines = new List<string>();
+        if (!data.StatesEInvoice) return lines;
+        lines.Add("e-Invoice (IRP registered)");
+        if (!string.IsNullOrWhiteSpace(data.EInvoiceIrn)) lines.Add("IRN: " + data.EInvoiceIrn.Trim());
+        if (!string.IsNullOrWhiteSpace(data.EInvoiceAckNo)) lines.Add("Ack No: " + data.EInvoiceAckNo.Trim());
+        if (!string.IsNullOrWhiteSpace(data.EInvoiceAckDateText))
+            lines.Add("Ack Date: " + data.EInvoiceAckDateText.Trim());
+        return lines;
+    }
+
+    /// <summary>The band's height, or zero when the document carries no e-invoice particulars - so a document that is
+    /// not an e-invoice reserves nothing, draws nothing and renders byte-identically (ER-13).</summary>
+    private static double EInvoiceBandHeight(InvoicePrintData data, PageConfig page)
+    {
+        if (!data.StatesEInvoice) return 0;
+        double textHeight = EInvoiceLines(data).Count * (page.FooterFontSize + 2);
+        return Math.Max(EInvoiceQrSize, textHeight) + 6;
+    }
+
+    /// <summary>
+    /// Draws the e-invoice band: the signed QR on the right, the IRN and IRP acknowledgement to its left. Returns the
+    /// new baseline. Placement is <b>OURS</b> - the GSTN FAQ leaves it "upto the preference of the businesses" and the
+    /// source corpus describes no placement at all - chosen here so the QR sits inside the header block, above the
+    /// item table, where it cannot be cut off by a page break or crossed by a table rule.
+    ///
+    /// <para><b>Page 1 only.</b> Rule 46(r) is a particular of the invoice, not of every sheet, and one symbol per
+    /// document is what a scanner expects. This differs from the CANCELLED over-print, which repeats precisely because
+    /// a loose continuation sheet must still say it is void; a continuation sheet carrying a second QR would instead
+    /// invite a second scan of the same IRN. <b>OURS</b>; no source addresses it.</para>
+    /// </summary>
+    private static double DrawEInvoiceBand(
+        PdfWriter writer, InvoicePrintData data, PageConfig page, double left, double right, double y)
+    {
+        if (!data.StatesEInvoice) return y;
+
+        double top = y;
+        double qrLeft = right - EInvoiceQrSize;
+
+        if (!string.IsNullOrWhiteSpace(data.EInvoiceSignedQr))
+        {
+            // VERBATIM (ER-5): the IRP's own signed string, encoded as-is. Nothing here parses, reformats, trims to a
+            // field or de-brands it - any of which would invalidate the signature the QR exists to carry.
+            var symbol = QrCode.Encode(data.EInvoiceSignedQr, EInvoiceQrEcc);
+            var bitmap = PdfBitmap.FromQr(symbol);
+            writer.Image(qrLeft, top - EInvoiceQrSize, EInvoiceQrSize, EInvoiceQrSize, bitmap);
+        }
+
+        double ty = top - page.FooterFontSize;
+        bool first = true;
+        foreach (var line in EInvoiceLines(data))
+        {
+            // The IRN is 64 characters; fit it to the space left of the QR rather than letting it run under the
+            // symbol, where it would be unreadable and would look like part of the picture.
+            var text = PdfWriter.FitToWidth(line, qrLeft - left - 8, page.FooterFontSize);
+            writer.Text(left, ty, text, page.FooterFontSize, bold: first);
+            ty -= page.FooterFontSize + 2;
+            first = false;
+        }
+
+        return top - EInvoiceBandHeight(data, page);
+    }
 
     private static double PartyBlockHeight(InvoicePartyBlock seller, InvoicePartyBlock buyer, PageConfig page)
     {
@@ -352,6 +454,10 @@ public static class InvoicePdf
         }
         y -= 6;
         writer.Line(left, y, right, y, 0.8);
+        // census T0-9 - the e-invoice band sits between the document's own particulars and the item table: below the
+        // rule that closes the Rule-46 header block, above the goods. Draws and consumes nothing when the document is
+        // not an e-invoice, in lockstep with FirstHeaderHeight's reservation.
+        y = DrawEInvoiceBand(writer, data, page, left, right, y);
         y -= page.BodyFontSize + 2;
         return y;
     }

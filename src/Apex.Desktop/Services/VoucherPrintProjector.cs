@@ -139,6 +139,44 @@ public static class VoucherPrintProjector
     public static bool IsServiceAccountingInvoice(Company company, Voucher voucher) =>
         GstReportSupport.IsServiceAccountingInvoice(company, voucher);
 
+    // ---------------------------------------------------------------- census T0-9: the e-invoice artefacts
+
+    /// <summary>
+    /// The IRP artefacts to print on this voucher's document, or all-blank when it has none.
+    ///
+    /// <para><b>ONE gate, and it is <see cref="EInvoiceStatus.Generated"/> - nothing else.</b> An
+    /// <see cref="EInvoiceRecord"/> exists from the moment a request is staged and it survives cancellation, so
+    /// "a record exists" and "this document has a live IRN" are different questions. Printing on the wrong one is not
+    /// a cosmetic error in either direction:</para>
+    /// <list type="bullet">
+    /// <item><see cref="EInvoiceStatus.Cancelled"/> - the IRN was withdrawn at the IRP within the 24-hour window. Its
+    /// signed QR still verifies against the IRP's public key, because the signature was genuine when it was made, so a
+    /// scanner would report a valid e-invoice for a document that no longer has one. This is the shape that matters:
+    /// the artefact outlives the authority it stood for.</item>
+    /// <item><see cref="EInvoiceStatus.Pending"/> / <see cref="EInvoiceStatus.Failed"/> - there is no IRN at all
+    /// (<c>Irn</c> is null by construction until <c>RecordIrpResponse</c> runs), so there is nothing to print; the
+    /// document is simply not yet, or not, an e-invoice.</item>
+    /// <item><see cref="EInvoiceStatus.NotApplicable"/> - never was one.</item>
+    /// </list>
+    ///
+    /// <para><b>Read VERBATIM (ER-5).</b> The IRN and the signed QR are copied character for character from the stored
+    /// record. They are not trimmed to a field width, not case-folded, not passed through
+    /// <c>ReportPrintProjector.Ascii</c> or <c>Debrand.Text</c> - every one of which would silently invalidate the
+    /// IRP's signature over the payload, producing a QR that scans and then fails verification, which is worse than no
+    /// QR at all. The Ack No. is de-branded because it is our own caption text, not part of the signed artefact.</para>
+    /// </summary>
+    private static (string SignedQr, string Irn, string AckNo, string AckDateText) EInvoiceArtefacts(
+        Company company, Voucher voucher)
+    {
+        var record = company.FindEInvoiceRecordForVoucher(voucher.Id);
+        if (record is not { Status: EInvoiceStatus.Generated }) return (string.Empty, string.Empty, string.Empty, string.Empty);
+        return (
+            record.SignedQr ?? string.Empty,
+            record.Irn ?? string.Empty,
+            record.AckNo ?? string.Empty,
+            record.AckDate is { } d ? d.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
+    }
+
     // ---------------------------------------------------------------- RQ-10: plain voucher
 
     /// <summary>
@@ -394,6 +432,8 @@ public static class VoucherPrintProjector
         // cess is zero, and every branch below can only ever zero a figure that is already zero. Do not delete them —
         // they are what makes that reasoning a local, checkable property of this method.</para>
         bool billOfSupply = IsBillOfSupply(company, voucher);
+        var eInvoice = EInvoiceArtefacts(company, voucher);
+
         return new InvoicePrintData
         {
             DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
@@ -415,6 +455,12 @@ public static class VoucherPrintProjector
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
             PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
+            // census T0-9 - CGST Rule 46(r). All blank unless this voucher carries a GENERATED IRP record, so a
+            // document that is not an e-invoice renders byte-identically (ER-13).
+            EInvoiceSignedQr = eInvoice.SignedQr,
+            EInvoiceIrn = eInvoice.Irn,
+            EInvoiceAckNo = eInvoice.AckNo,
+            EInvoiceAckDateText = eInvoice.AckDateText,
             IsInterState = money.InterState,
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,
@@ -519,6 +565,8 @@ public static class VoucherPrintProjector
         // figure here is read from the POSTED legs), so the suppressions below can only ever drop empty rows and zero
         // figures — a taxed service invoice is byte-identical (ER-13).
         bool billOfSupply = IsBillOfSupply(company, voucher);
+        var eInvoice = EInvoiceArtefacts(company, voucher);
+
         return new InvoicePrintData
         {
             DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
@@ -538,6 +586,12 @@ public static class VoucherPrintProjector
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
             PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
+            // census T0-9 - CGST Rule 46(r). All blank unless this voucher carries a GENERATED IRP record, so a
+            // document that is not an e-invoice renders byte-identically (ER-13).
+            EInvoiceSignedQr = eInvoice.SignedQr,
+            EInvoiceIrn = eInvoice.Irn,
+            EInvoiceAckNo = eInvoice.AckNo,
+            EInvoiceAckDateText = eInvoice.AckDateText,
             IsInterState = money.InterState,
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,

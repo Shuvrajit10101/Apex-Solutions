@@ -2852,7 +2852,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
     `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
     typed into the screen is refused. Recorded here rather than left to be discovered.
-    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:758-761`).** Country/PIN
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:812-815`).** Country/PIN
     are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
     `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
     `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
@@ -2973,7 +2973,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
     wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
     alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
-    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:742` is
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:796` is
     `StateText = StateText(company.Gst?.HomeStateCode)`.
     **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
