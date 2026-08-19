@@ -1575,4 +1575,61 @@ public sealed class VoucherDeleteAltDTests
         }
         finally { Close(window, dir); }
     }
+
+    // ============================================================ the VOUCHER EDIT LOG (schema v52)
+
+    /// <summary>
+    /// 🔴 <b>THE ENTRY THAT MATTERS MOST.</b> Before v52 an Alt+D removed the row and left NOTHING — no flag, no
+    /// gap the book admits to, no trace anywhere in the product. This is the one verb whose log entry is the sole
+    /// surviving evidence of what was posted, which is also why <c>voucher_edit_log.voucher_id</c> is deliberately
+    /// not a foreign key: the voucher it names is gone by design.
+    /// </summary>
+    [AvaloniaFact]
+    public void Y_writes_one_edit_log_entry_that_outlives_the_deleted_voucher()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Log Co");
+            var c = vm.Company!;
+            Assert.Empty(c.VoucherEditLog);
+
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+            AltD(window);
+            Answer(window, PhysicalKey.Y);
+
+            Assert.Null(c.FindVoucher(k.Receipt.Id));
+            var entry = Assert.Single(c.VoucherEditLog);
+            Assert.Equal(VoucherEditVerb.Delete, entry.Verb);
+            Assert.Equal(k.Receipt.Id, entry.VoucherId);
+            Assert.Contains("50000", entry.BeforeSnapshot, StringComparison.Ordinal);
+
+            // Reopened: the voucher is still gone and the record of its going is still there.
+            var storage = new CompanyStorage(dir);
+            var reopened = storage.Load(storage.ListCompanies().Single(e => e.Name == c.Name));
+            Assert.Null(reopened.FindVoucher(k.Receipt.Id));
+            Assert.Equal(entry.BeforeSnapshot, Assert.Single(reopened.VoucherEditLog).BeforeSnapshot);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>A refused deletion writes no entry — the guards answer before anything happens.</summary>
+    [AvaloniaFact]
+    public void A_declined_deletion_writes_no_edit_log_entry()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete NoLog Co");
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+
+            AltD(window);
+            Answer(window, PhysicalKey.N);
+
+            Assert.NotNull(vm.Company!.FindVoucher(k.Receipt.Id));
+            Assert.Empty(vm.Company!.VoucherEditLog);
+        }
+        finally { Close(window, dir); }
+    }
+
 }

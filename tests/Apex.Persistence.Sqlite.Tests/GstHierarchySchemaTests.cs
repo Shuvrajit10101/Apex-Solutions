@@ -215,6 +215,7 @@ public sealed class GstHierarchySchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -291,6 +292,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -377,6 +379,7 @@ public sealed class GstHierarchySchemaTests
             {
                 using (var conn = Open(dbPath))
                 {
+                    SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                     SchemaDowngrade.V51ToV50(conn);
                     SqliteConnection.ClearPool(conn);
                 }
@@ -493,6 +496,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -663,6 +667,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -715,6 +720,7 @@ public sealed class GstHierarchySchemaTests
             using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -761,9 +767,22 @@ public sealed class GstHierarchySchemaTests
         {
             using (var store = new SqliteCompanyStore(dbPath)) store.Save(SeedPopulatedBook());
 
+            var atCurrentVersion = IndexNames(dbPath);
+
+            // 🔴 STEP DOWN OFF v52 FIRST, AND TAKE THE BASELINE AFTER IT. v52's downgrade DROPS the whole
+            // voucher_edit_log table, so its index goes with it BY DESIGN — that is what dropping a table means,
+            // not an index this rebuild lost. Measuring from a v52 baseline would have folded that intended loss
+            // into the assertion and made the v51→v50 contract this test exists for unfalsifiable.
+            using (var conn = Open(dbPath))
+            {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
+                SqliteConnection.ClearPool(conn);
+            }
+
             var before = IndexNames(dbPath);
             Assert.Contains("ix_groups_company", before);
             Assert.Contains("ix_stock_groups_company", before);
+            Assert.DoesNotContain("ix_voucher_edit_log_company", before);
 
             using (var conn = Open(dbPath))
             {
@@ -774,9 +793,10 @@ public sealed class GstHierarchySchemaTests
             // Not "the two we happened to think of" — NO index anywhere in the database may go missing.
             Assert.Equal(before, IndexNames(dbPath));
 
-            // …and they survive the round trip back up, so the migrated book is index-complete too.
+            // …and they survive the round trip back up, so the migrated book is index-complete too — all the way
+            // to the CURRENT version, which puts voucher_edit_log's index back.
             using (new SqliteCompanyStore(dbPath)) { }
-            Assert.Equal(before, IndexNames(dbPath));
+            Assert.Equal(atCurrentVersion, IndexNames(dbPath));
         }
         finally { TempDbFile.Delete(dbPath); }
     }

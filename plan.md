@@ -484,7 +484,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > **`Schema.CurrentVersion` is now `51`, not 50** — `src/Apex.Persistence.Sqlite/Schema.cs:159` reads
 > `public const int CurrentVersion = 51;`, because **WF-1 took v51 in `e49b88e`**, exactly as this ruling
 > authorises and as **W0-2b's own `▶ SCHEMA` note already records**. **The next free version is therefore v52
-> only in arithmetic — v52 and v53 are RESERVED by Phase 10.10's binding allocation (WF-2, WF-3). Read W0-2b's
+> only in arithmetic — ~~v52 and~~ v53 is RESERVED by Phase 10.10's binding allocation (WF-3); **v52 WAS TAKEN 2026-08-19 by the voucher edit log, and WF-2 is unallocated**. Read W0-2b's
 > schema note before taking any number.**
 > **▶ WHAT THIS SUPERSEDES, NAMED SO IT CANNOT BE READ PAST.** Phase 10.12's `Schema:` bullet said any slice
 > finding it needs a column **"stops"**. It no longer stops — it takes the next version under the conditions
@@ -1985,12 +1985,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
-     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3863`.**
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4844`**,
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3904`.**
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4970`**,
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**
-     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:378`**, inside `DropColumns`.
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:411`**, inside `DropColumns`.
      **(3) The DDL `DEFAULT` had no behavioural test.** The forbidden simplification (both `DEFAULT`s 0→1 +
      back-fill deleted) previously left **1** test red, and only on a hard-coded string literal; it now turns
      **4** red. **(4) Taxability was never exported at a non-default value** — a mapper hard-coding `"Taxable"`
@@ -2048,14 +2048,14 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      50 — so it is a robustness gap, not a recovery hole. **(l) 0.125% is not representable**: `RateBasisPoints`
      is `int` and there is no percent-to-basis-point converter, so such a rate is *unexpressible* rather than
      silently wrong — the same conclusion Phase 10.12's D8 false-positive reached.
-  6. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
+  6. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / ~~owns v52~~ HOLDS NO VERSION as at 2026-08-19 — v52 went to the voucher edit log; take the next free number at implementation time**.
   7. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
      migration that **rewrites customer data**, and it wants the two preceding parity gates green first.
   - **▶ Why the worst row is fourth:** WF-1 was the only slice whose back-fill moves an existing customer's
     future invoices, so it could not start before that R12 ruling. The ruling has landed, so **WF-1 may now be
     pulled ahead of WF-6** without disturbing the version chain.
 - **Schema (v50 → v53) — binding allocation, replacing three colliding "v50 → v51" claims: WF-1 = v51,
-  WF-2 = v52, WF-3 = v53.**
+  ~~WF-2 = v52~~ **→ v52 WAS TAKEN 2026-08-19 BY THE VOUCHER EDIT LOG under the first-to-ship rule stated below; WF-2 IS NOW UNALLOCATED and takes the next free number by reading `Schema.CurrentVersion` FIRST**, WF-3 = v53.**
   **🔴 THE ALLOCATION ENDS AT v53. NOTHING IS RESERVED BEYOND IT — RESOLUTION OF THE v54 COLLISION,
   2026-08-16 (owed review, lens 3 finding 14).** Two rows were both promised **v54** by different sentences,
   neither referencing the other: the WF-8 row below (*"a persisted closure flag … would take v54"*, pre-existing)
@@ -2076,7 +2076,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (`SchemaMigrationEquivalenceTests`), a true-inverse `DowngradeTo`, and Io parity. **Watch the
   default-asymmetry trap in both directions:** a `DEFAULT` back-filling an upgraded book to the *new* behaviour
   silently changes shipped figures (v51); a `DEFAULT 0` back-filling to the *old* one silently re-ships the bug
-  (v52). v53 is the first **data rewrite** in the chain.
+  (v52 — that was WF-2's *expected* trap; the v52 that actually shipped is the voucher edit log, which adds a TABLE with no column and no `DEFAULT`, so NEITHER arm of the trap applies to it). v53 is the first **data rewrite** in the chain.
 - **USER DECISIONS (R12 — settled; do not re-litigate):**
   1. **(WF-1) `MigrateV50ToV51` back-fills `StockItemFirst`** for books that already exist. **Fresh companies
      get TallyPrime's shipped `LedgerFirst`.**
@@ -2940,8 +2940,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **▶ SCHEMA — DO NOT HARD-CODE v51, AND DO NOT ASSUME v52 EITHER.** The grounding doc's "`CurrentVersion` is
     50, so the next is v51" was arithmetic, not a reservation. **v51 is already taken** — by Phase 10.10's WF-1
     (the GST five-level hierarchy), which landed in the SAME commit `e49b88e` and also adds **six `companies`
-    columns**. And **v52 and v53 are RESERVED too**, by Phase 10.10's own **binding allocation** (search this
-    file for *"binding allocation, replacing three colliding"*): **WF-1 = v51, WF-2 = v52, WF-3 = v53.**
+    columns**. And **v53 is RESERVED too**, by Phase 10.10's own **binding allocation** (search this
+    file for *"binding allocation, replacing three colliding"*): **WF-1 = v51, ~~WF-2 = v52~~ — v52 TAKEN 2026-08-19 by the voucher edit log, WF-2 unallocated — WF-3 = v53.**
     ⚠️ **CORRECTED 2026-08-16 (owed review, lens 3 finding 14): this said "the first free number for W0-2b is
     v54", which collided head-on with the WF-8 row's own claim on v54 — the exact "book-eater" the sentence
     above warns about, one number further down. NOTHING IS RESERVED BEYOND v53 FOR ANYONE.** v54 goes to
@@ -2953,7 +2953,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     §7.6 / §7.7.
     ✅ **ANSWERED 2026-08-16: W0-2b needed NO migration.** The premise held — all eleven columns already
     existed. `src/Apex.Persistence.Sqlite/` has **zero** modifications from this slice,
-    `Schema.cs` still reads `CurrentVersion = 51`, and **the v51/v52/v53 allocation above is byte-unchanged**.
+    `Schema.cs` still reads `CurrentVersion = 51`, and **the v51/v52/v53 allocation above is byte-unchanged** — *both TRUE AS AT W0-2b and left standing as history; `CurrentVersion` is **52** since the voucher edit log, which took v52 and amended that allocation line in the same commit*.
     **v54 is therefore still unclaimed by anyone**, and this row no longer expects it.
     **▶ R7 GROUNDING — `docs/w0-2-company-screen-grounding.md`** (written 2026-08-14 at `fa651ae`; this row had
     NO pointer to it until then, which left the gate below governing nothing). It is the A14 corpus pass written
@@ -4709,7 +4709,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   the next is **51**.~~ **▶ 🔴 BOTH FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb` AND CORRECTED IN PLACE (the
   same correction is made on ruling 2 itself in §5).** The migration-equivalence rule now lives at
   `src/Apex.Persistence.Sqlite/Schema.cs:157-158`, and **`Schema.CurrentVersion` is `51`**
-  (`src/Apex.Persistence.Sqlite/Schema.cs:159`) — **WF-1 took v51 in `e49b88e`**. **v52 and v53 are RESERVED**
+  (`src/Apex.Persistence.Sqlite/Schema.cs:159`) — **WF-1 took v51 in `e49b88e`**. **v53 is RESERVED** (v52 TAKEN 2026-08-19 by the voucher edit log)
   by Phase 10.10's binding allocation, so *"the next is 51"* must not be re-read as *"the next is 52"*: consult
   **W0-2b's `▶ SCHEMA` note** before any slice takes a number.
   **"NONE expected" still stands as the expectation** — the wave's items are UI over persisted

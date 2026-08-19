@@ -1265,6 +1265,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 51;
         }
 
+        // v51 → v52: create the voucher_edit_log table + its index, then bump the marker. Existing v51 data
+        // survives untouched - this migration adds NO column to any existing table, so it carries no DEFAULT and
+        // no back-fill UPDATE at all, and nothing it creates is read by any figure-producing code. The upgraded
+        // book simply gains an empty log, which is the truth: this application kept no record of cancellations,
+        // deletions or alterations before v52, so there is nothing to reconstruct and any row written here for a
+        // pre-v52 edit would be fabricated.
+        if (version == 51)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV51ToV52;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 52);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 52;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1682,6 +1708,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var a in ReadAttendanceEntries(companyId))
             company.AddAttendanceEntry(a);
 
+        // The voucher edit log (v52). Loaded LAST and deliberately NOT keyed against the vouchers just rehydrated:
+        // an entry whose verb was Delete names a voucher that is no longer on the book, and that dangling id is
+        // the record, not a fault. Empty on every book that has never cancelled, deleted or altered (ER-13).
+        foreach (var entry in ReadVoucherEditLog(companyId))
+            company.AddVoucherEditLogEntry(entry);
+
         return company;
     }
 
@@ -1807,6 +1839,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // groups reference companies(id), so insert the company row first WITHOUT the head fk, then
         // patch the head id once the head group row exists.
         InsertCompany(tx, company, storedSourceOrders);
+        // v52 - the voucher edit log. Written here rather than beside the vouchers because it is NOT part of the
+        // aggregate snapshot: DeleteCompanyRows deliberately leaves this table alone (see the note there) and the
+        // writer only ever appends. Nothing below it depends on it, and it depends on nothing below.
+        InsertVoucherEditLog(tx, company);
         InsertGroups(tx, company);
         SetProfitAndLossHead(tx, company);
         // Currencies + rates before ledgers (ledgers.currency_id FK currencies) and before vouchers
@@ -1944,6 +1980,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     /// <para>Pinned by <c>VoucherRemoveFenceTests</c> in the Sqlite suite, which asserts the FK failure on an
     /// item-invoice voucher so that "fixing" this method without removing the fence goes red and lands the reader
     /// on decision D-7.</para>
+    ///
+    /// <para>🔴 <b>v52 adds a SECOND reason the fence must hold.</b> This method deletes a voucher's rows straight
+    /// out of the database, so it bypasses <c>LedgerService.Delete</c> and therefore writes no
+    /// <c>voucher_edit_log</c> entry. A deletion routed through here would be exactly the thing the edit log
+    /// exists to make impossible: a voucher gone from the books with nothing anywhere recording that it went.</para>
     /// </remarks>
     public void Remove(Guid companyId, Guid voucherId)
     {
@@ -4388,8 +4429,93 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     // ------------------------------------------------------------------ writers
 
+    /// <summary>
+    /// Appends the company's <c>voucher_edit_log</c> rows (v52). <b><c>INSERT OR IGNORE</c> on the entry's own
+    /// primary key, and no matching DELETE anywhere</b> — this table is the one part of a company that
+    /// <see cref="Save"/> does not own.
+    ///
+    /// <para>🔴 <b>WHY IT IS APPEND-ONLY RATHER THAN SNAPSHOTTED LIKE EVERYTHING ELSE.</b> <see cref="Save"/> is
+    /// delete-all + full re-insert, so every other table is exactly as complete as the in-memory aggregate that
+    /// was handed to it. For an audit log that is the wrong contract in the one direction that matters: a single
+    /// save from a <see cref="Company"/> that never loaded the log — a stale instance, a screen that built its own,
+    /// a future code path that forgets — would silently erase every recorded edit, and no invariant in this
+    /// repository would see it. With no DELETE and an ignoring INSERT, the worst such a save can do is add
+    /// nothing. Re-saving the same company repeatedly is a no-op after the first write because the entry's
+    /// <see cref="VoucherEditLogEntry.Id"/> is the primary key.</para>
+    ///
+    /// <para><c>recorded_at</c> is written round-trip (<c>"o"</c>), which keeps the offset, so a log read back in
+    /// another time zone still says when the edit happened rather than what o'clock it looked like.</para>
+    /// </summary>
+    private void InsertVoucherEditLog(SqliteTransaction tx, Company company)
+    {
+        if (company.VoucherEditLog.Count == 0) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO voucher_edit_log
+                (id, company_id, voucher_id, verb, recorded_at, before_snapshot)
+            VALUES ($id, $cid, $vid, $verb, $at, $snap);
+            """;
+        var pId = cmd.Parameters.Add("$id", SqliteType.Text);
+        var pCid = cmd.Parameters.Add("$cid", SqliteType.Text);
+        var pVid = cmd.Parameters.Add("$vid", SqliteType.Text);
+        var pVerb = cmd.Parameters.Add("$verb", SqliteType.Integer);
+        var pAt = cmd.Parameters.Add("$at", SqliteType.Text);
+        var pSnap = cmd.Parameters.Add("$snap", SqliteType.Text);
+
+        foreach (var e in company.VoucherEditLog)
+        {
+            pId.Value = e.Id.ToString("D");
+            pCid.Value = company.Id.ToString("D");
+            pVid.Value = e.VoucherId.ToString("D");
+            pVerb.Value = (int)e.Verb;
+            pAt.Value = e.RecordedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+            pSnap.Value = e.BeforeSnapshot;
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Reads the company's <c>voucher_edit_log</c> rows back in the order they were written (v52). Ordered by
+    /// <c>rowid</c> — the same idiom <c>ReadVouchers</c> uses — which here really is insertion order, because
+    /// unlike every other table these rows are never deleted and re-inserted.
+    /// </summary>
+    private IEnumerable<VoucherEditLogEntry> ReadVoucherEditLog(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, voucher_id, verb, recorded_at, before_snapshot
+            FROM voucher_edit_log WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<VoucherEditLogEntry>();
+        while (r.Read())
+        {
+            list.Add(new VoucherEditLogEntry(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                (VoucherEditVerb)(int)r.GetInt64(2),
+                DateTimeOffset.Parse(
+                    r.GetString(3),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind),
+                r.GetString(4)));
+        }
+        return list;
+    }
+
     private void DeleteCompanyRows(SqliteTransaction tx, Guid companyId)
     {
+        // 🔴 `voucher_edit_log` (v52) IS DELIBERATELY ABSENT FROM THIS METHOD, and this note is here so its
+        // absence reads as a decision rather than an omission. Save is a whole-aggregate snapshot: delete every
+        // row this company owns, then re-insert from memory. Putting the edit log through that cycle would mean a
+        // single save from a Company instance that never loaded it erases every recorded cancellation, deletion
+        // and alteration — and nothing in this repository would notice. The log is append-only in the store
+        // instead (InsertVoucherEditLog is INSERT OR IGNORE), following `saved_views`, the other table Save does
+        // not own. Anything added here for `voucher_edit_log` is a regression, not a tidy-up.
+        //
         // Child-first so foreign keys are satisfied. Break the company→head fk before deleting groups.
         var cid = companyId.ToString("D");
         ExecTx(tx, "UPDATE companies SET profit_and_loss_head_id = NULL WHERE id = $cid;", ("$cid", cid));

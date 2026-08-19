@@ -341,6 +341,39 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV51ToV52"/>: drops the <c>voucher_edit_log</c> table
+    /// (<see cref="Schema.V52EditLogTables"/>) — its <c>ix_voucher_edit_log_company</c> index goes with it — and
+    /// stamps <c>schema_version</c> back to 51.
+    ///
+    /// <para><b>This is the first TRUE inverse in this file, and it is one only because v52 adds nothing to an
+    /// existing table.</b> Every downgrade above rebuilds a table it cannot fully reconstruct, and each documents
+    /// the residual PRIMARY KEY / NOT NULL / DEFAULT loss (F6). Here there is no rebuild: v51 had no
+    /// <c>voucher_edit_log</c>, so removing it restores the v51 shape exactly — same tables, same columns, same
+    /// indexes, nothing rewritten and nothing else touched. Re-migrating up produces the same empty table the
+    /// forward migration produces on any other v51 book.</para>
+    ///
+    /// <para>⚠️ <b>It is not information-preserving, and cannot be.</b> Every recorded cancellation, deletion and
+    /// alteration is discarded — there is nowhere in a v51 database to keep it. That is what a downgrade means,
+    /// and it is the sharpest illustration of why the table had to exist: a v51 book carries no evidence that its
+    /// vouchers were ever edited, because a v51 book never could.</para>
+    ///
+    /// <para><c>DROP TABLE</c> rather than the <c>CREATE … AS SELECT</c> rebuild idiom of the downgrades above,
+    /// because there is no column to drop — the whole object goes. The commented-DDL problem that forces the
+    /// rebuild elsewhere (SQLite's <c>ALTER TABLE … DROP COLUMN</c> re-parses the stored <c>CREATE TABLE</c> text)
+    /// does not arise for a <c>DROP TABLE</c>. Nothing references this table, so no <c>PRAGMA foreign_keys</c>
+    /// dance is needed either.</para>
+    /// </summary>
+    public static void V52ToV51(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        foreach (var table in Schema.V52EditLogTables)
+            Exec(connection, $"DROP TABLE IF EXISTS \"{table}\";");
+
+        Exec(connection, "UPDATE schema_version SET version = 51;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, via the <c>CREATE … AS SELECT</c> / swap
     /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
     /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the

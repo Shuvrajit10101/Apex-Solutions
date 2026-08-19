@@ -3298,6 +3298,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             try
             {
                 _service.Replace(existing.Id, existing, out _);
+
+                // 🔴 v52 — DISCARD BOTH EDIT-LOG ENTRIES, NEWEST FIRST. The failed alteration appended one and the
+                // rollback Replace immediately above appended a second; neither describes anything that reached
+                // disk, and leaving them would make the next successful save on any screen persist a pair of
+                // fictitious alterations. `DiscardUncommittedEditLogEntry` refuses anything but the most recent
+                // entry, so this LIFO order is the only order it accepts — which is exactly the bound that stops
+                // it being an audit-erasure API.
+                for (var i = 0; i < 2; i++)
+                    if (_company.LastVoucherEditLogEntry is { } appended)
+                        _service.DiscardUncommittedEditLogEntry(appended);
+
                 Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
                         + "changed.";
             }

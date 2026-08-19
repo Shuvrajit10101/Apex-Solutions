@@ -5201,15 +5201,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// with the voucher already flagged. Restoring <c>Cancelled = false</c> is a ROLLBACK of a transaction that did
     /// not commit — it is NOT an un-cancel feature (ORCHESTRATOR RULING 3 ships none) and no UI route reaches
     /// it.</para>
+    ///
+    /// <para>🔴 <b>v52 — THE ROLLBACK NOW UNDOES BOTH HALVES.</b> <c>LedgerService.Cancel</c> also appends a
+    /// <c>VoucherEditLogEntry</c>, and a rollback that put the flag back while leaving the log line standing would
+    /// have left this company asserting a cancellation that never reached disk — which the NEXT successful save on
+    /// any screen would then persist. So the failure arm calls <c>LedgerService.DiscardUncommittedCancel</c>,
+    /// which clears the flag and drops that one entry together. It is also now the ONLY way this screen can clear
+    /// the flag at all: <c>Voucher.Cancelled</c>'s setter is <c>internal</c>.</para>
     /// </summary>
     private void CancelPendingVoucher(Guid voucherId)
     {
         if (Company is null) return;
 
         var voucher = Company.FindVoucher(voucherId);
+        var service = new Apex.Ledger.Services.LedgerService(Company);
+
+        // v52 — the edit-log entry Cancel appends. Held so the failure arm can discard it: the rollback has to
+        // undo BOTH halves of the verb, or the log keeps a line saying this voucher was cancelled when it was not.
+        Apex.Ledger.Domain.VoucherEditLogEntry? logEntry = null;
         try
         {
-            new Apex.Ledger.Services.LedgerService(Company).Cancel(voucherId);
+            logEntry = service.Cancel(voucherId);
             _storage.Save(Company);
         }
         // 🔴 W0-13's shared predicate, NOT the narrow `is InvalidOperationException or ArgumentException` filter
@@ -5221,7 +5233,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // report-vs-crash decision consults the predicate, which is the separation SaveFailure's own doc requires.
         catch (Exception ex) when (SaveFailure.IsReportable(ex))
         {
-            if (voucher is not null) voucher.Cancelled = false;
+            // `logEntry` is null only when Cancel itself threw (an unknown voucher — also reportable), in which
+            // case nothing was flagged and nothing was logged, so there is nothing to undo.
+            if (logEntry is not null) service.DiscardUncommittedCancel(voucherId, logEntry);
             RaiseLifecycleNotice($"Cannot cancel: {ex.Message}");
             return;
         }

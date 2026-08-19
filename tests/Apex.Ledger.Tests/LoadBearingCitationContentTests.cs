@@ -111,10 +111,16 @@ public sealed class LoadBearingCitationContentTests
 
         // The schema version itself. memory.md's WF-1 entry is the record a new session reads first, and it was
         // absent altogether until the review (lens 3 finding 6); this keeps its headline number honest.
+        // 🔴 RE-ANCHORED when the voucher edit log took the schema to v52. This row used to require
+        // "CurrentVersion = 51" on the cited line, which made it a lock on THE CURRENT VERSION rather than on the
+        // bump the sentence describes - so the very next bump falsified a memory.md sentence that was, and still
+        // is, historically true. A row that goes red on every future schema change is a row that will eventually
+        // be edited to shut it up. It now requires the v50 -> 51 MIGRATION CONSTANT, which is what "SCHEMA v50 ->
+        // 51" actually means and which no later version can move off its own meaning.
         new("memory.md",
             "SCHEMA v50 → 51, AND NOTHING READS IT",
             "Schema.cs",
-            "CurrentVersion = 51"),
+            "MigrateV50ToV51"),
 
         // ---- W0-2b (the company profile screen): the two claims its register row rests on ----
         // Added 2026-08-16, following this file's own lesson: point the tool at the code nobody has read yet.

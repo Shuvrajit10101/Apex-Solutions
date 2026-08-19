@@ -116,12 +116,21 @@ namespace Apex.Persistence.Sqlite;
 /// <c>0</c> (LedgerFirst, the reference application's shipped order), upgraded = <c>1</c> (StockItemFirst, what this
 /// application has always resolved). The difference is carried by an explicit <c>UPDATE</c> in
 /// <see cref="MigrateV50ToV51"/>, never by the column default — see that constant.
-/// <b><see cref="CurrentVersion"/> = 51</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v52</b> adds the <b>voucher edit log</b>: one new table <c>voucher_edit_log</c> and its <c>company_id</c>
+/// index. The first bump whose subject is EVIDENCE rather than figures - it records that a posted voucher was
+/// cancelled, deleted or altered, together with the pre-change voucher. Purely additive: no column is added to any
+/// existing table, so there is no DEFAULT anywhere in it and no existing row is rewritten.
+/// <b><see cref="CurrentVersion"/> = 52</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v51</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v52</b> is the latest bump
+    /// (the <b>voucher edit log</b>: one new table <c>voucher_edit_log</c> + its <c>company_id</c> index, recording
+    /// every Cancel / Delete / Alter / memorandum-conversion applied to a posted voucher, with the pre-change
+    /// voucher serialised into <c>before_snapshot</c>. Purely additive - no column is added to any existing table,
+    /// so no existing row is rewritten and no DEFAULT can back-fill a figure. See <see cref="MigrateV51ToV52"/>).
+    /// v51 was the latest bump
     /// (the <b>GST five-level hierarchy masters</b>: a four-column <c>MasterGstDetails</c> block on <c>groups</c> and
     /// on <c>stock_groups</c>, the same block prefixed <c>gst_default_</c> on <c>companies</c>, and the two
     /// independent source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>. ⚠️ <b>The only bump
@@ -156,7 +165,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 51;
+    public const int CurrentVersion = 52;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1830,6 +1839,38 @@ public static class Schema
             amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
         );
         CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
+
+        -- v52 (the VOUCHER EDIT LOG): one row per Cancel / Delete / Alter / memorandum-conversion applied to a
+        -- posted voucher. Before this table, Cancel was the only one of the verbs that left ANY evidence (it sets
+        -- a flag and the voucher stays on the book); Delete removed the row and Alter overwrote it in place, after
+        -- which nothing in the product could tell an auditor the book had been edited.
+        --
+        -- !! NEITHER `company_id` NOR `voucher_id` IS A FOREIGN KEY, AND BOTH OMISSIONS ARE LOAD-BEARING.
+        --   * `voucher_id`: Delete's whole purpose is that the voucher is gone. A REFERENCES vouchers(id) would
+        --     make the one entry that matters most - the record of a deletion - the one entry that cannot be
+        --     stored. (`company_id` follows `saved_views`, which documents it as "a plain isolation key".)
+        --   * `company_id`: this is the second table (after saved_views) that whole-company Save does NOT own.
+        --     Save is DELETE-ALL + full re-INSERT, and it deletes the `companies` row itself mid-transaction; a
+        --     companies FK would fail on that delete for any book that had ever been edited.
+        --
+        -- APPEND-ONLY IN THE STORE, not merely by convention: SqliteCompanyStore.DeleteCompanyRows deliberately
+        -- does not delete from this table and the writer is INSERT OR IGNORE on `id`, so a save from an aggregate
+        -- that never loaded the log cannot erase it and re-saving the same entry is a no-op.
+        --
+        -- `before_snapshot` is the pre-change voucher serialised by Domain.VoucherSnapshot - the whole object
+        -- graph, so the record cannot silently narrow as Voucher gains fields. There is deliberately NO actor /
+        -- user / modified_by column: this application has no identity model of any kind, and a column whose only
+        -- honest value is "unknown" would invite a fabricated one.
+        CREATE TABLE voucher_edit_log (
+            id               TEXT    NOT NULL PRIMARY KEY,   -- VoucherEditLogEntry.Id
+            company_id       TEXT    NOT NULL,               -- owning company (isolation key; no FK - see above)
+            voucher_id       TEXT    NOT NULL,               -- the edited voucher (no FK - Delete removes it)
+            verb             INTEGER NOT NULL,               -- VoucherEditVerb ordinal (0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum)
+            recorded_at      TEXT    NOT NULL,               -- ISO-8601 round-trip ("o") with offset
+            before_snapshot  TEXT    NOT NULL                -- VoucherSnapshot.Of(the pre-change voucher)
+        );
+
+        CREATE INDEX ix_voucher_edit_log_company ON voucher_edit_log(company_id);
         """;
 
     /// <summary>
@@ -3877,4 +3918,69 @@ public static class Schema
     /// removes from each. One list, because the two masters carry the identical block by design.</summary>
     public static readonly IReadOnlyList<string> V51GstHierarchyMasterColumns =
         new[] { "gst_hsn_sac", "gst_taxability", "gst_rate_bp", "gst_supply_type" };
+
+    /// <summary>
+    /// v51 → v52 (the <b>voucher edit log</b>): creates the <c>voucher_edit_log</c> table and its
+    /// <c>ix_voucher_edit_log_company</c> index. <b>Pure CREATE TABLE/INDEX</b> - no <c>ALTER</c>, no new column on
+    /// any existing table, no row rewrite anywhere. An existing v51 database keeps every table and every row byte
+    /// for byte and simply gains an empty log.
+    ///
+    /// <para>⚠️ <b>THE BACK-FILL DIRECTION, stated because the last two bumps were each caught by the opposite
+    /// mistake.</b> v51's lesson was that a <c>DEFAULT</c> which back-fills to the NEW behaviour silently changes
+    /// shipped figures; v50's was that a <c>DEFAULT 0</c> which back-fills to the OLD one silently re-ships a bug.
+    /// <b>This migration back-fills NOTHING, in either direction, because it cannot:</b> it adds no column to any
+    /// existing table, so there is no <c>DEFAULT</c> literal anywhere in it and no <c>UPDATE</c> statement. The
+    /// only "back-fill" is the new table's own emptiness on an upgraded book, and that empty log is the TRUTH -
+    /// this application kept no record of past cancellations, deletions or alterations, so there is nothing to
+    /// reconstruct and any row written here for a pre-v52 edit would be fabricated. The log therefore begins at
+    /// the upgrade, and says so by being empty before it. <b>Zero shipped figures can move</b>: nothing reads this
+    /// table to compute anything.</para>
+    ///
+    /// <para><b>No foreign keys, deliberately - see the comment block on the identical DDL in
+    /// <see cref="CreateV1"/>.</b> <c>voucher_id</c> would make a Delete's own log line unstorable, and
+    /// <c>company_id</c> would break whole-company <c>Save</c>, which deletes the <c>companies</c> row
+    /// mid-transaction and does not own this table.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 52. The DDL is byte-identical to its
+    /// counterpart in <see cref="CreateV1"/> - <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk) and the <c>sqlite_master</c> index SQL, so the two
+    /// copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV51ToV52 = """
+        -- v52 (the VOUCHER EDIT LOG): one row per Cancel / Delete / Alter / memorandum-conversion applied to a
+        -- posted voucher. Before this table, Cancel was the only one of the verbs that left ANY evidence (it sets
+        -- a flag and the voucher stays on the book); Delete removed the row and Alter overwrote it in place, after
+        -- which nothing in the product could tell an auditor the book had been edited.
+        --
+        -- !! NEITHER `company_id` NOR `voucher_id` IS A FOREIGN KEY, AND BOTH OMISSIONS ARE LOAD-BEARING.
+        --   * `voucher_id`: Delete's whole purpose is that the voucher is gone. A REFERENCES vouchers(id) would
+        --     make the one entry that matters most - the record of a deletion - the one entry that cannot be
+        --     stored. (`company_id` follows `saved_views`, which documents it as "a plain isolation key".)
+        --   * `company_id`: this is the second table (after saved_views) that whole-company Save does NOT own.
+        --     Save is DELETE-ALL + full re-INSERT, and it deletes the `companies` row itself mid-transaction; a
+        --     companies FK would fail on that delete for any book that had ever been edited.
+        --
+        -- APPEND-ONLY IN THE STORE, not merely by convention: SqliteCompanyStore.DeleteCompanyRows deliberately
+        -- does not delete from this table and the writer is INSERT OR IGNORE on `id`, so a save from an aggregate
+        -- that never loaded the log cannot erase it and re-saving the same entry is a no-op.
+        --
+        -- `before_snapshot` is the pre-change voucher serialised by Domain.VoucherSnapshot - the whole object
+        -- graph, so the record cannot silently narrow as Voucher gains fields. There is deliberately NO actor /
+        -- user / modified_by column: this application has no identity model of any kind, and a column whose only
+        -- honest value is "unknown" would invite a fabricated one.
+        CREATE TABLE voucher_edit_log (
+            id               TEXT    NOT NULL PRIMARY KEY,   -- VoucherEditLogEntry.Id
+            company_id       TEXT    NOT NULL,               -- owning company (isolation key; no FK - see above)
+            voucher_id       TEXT    NOT NULL,               -- the edited voucher (no FK - Delete removes it)
+            verb             INTEGER NOT NULL,               -- VoucherEditVerb ordinal (0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum)
+            recorded_at      TEXT    NOT NULL,               -- ISO-8601 round-trip ("o") with offset
+            before_snapshot  TEXT    NOT NULL                -- VoucherSnapshot.Of(the pre-change voucher)
+        );
+
+        CREATE INDEX ix_voucher_edit_log_company ON voucher_edit_log(company_id);
+        """;
+
+    /// <summary>The single table v52 adds - the exact object <see cref="MigrateV51ToV52"/> creates and
+    /// <c>SchemaDowngrade.V52ToV51</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V52EditLogTables = new[] { "voucher_edit_log" };
 }
