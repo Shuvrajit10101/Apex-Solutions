@@ -18,8 +18,9 @@ namespace Apex.Ledger.Services;
 /// Duties &amp; Taxes, so <c>ClassificationRules.IsDutiesAndTaxesLedger</c> excludes it from the item-invoice
 /// pairing sum, exactly like the GST tax ledgers — the carve-out foots without changing that invariant.
 /// <para>
-/// <see cref="ComputeWithholding"/> resolves the rate (PAN ⇒ with-PAN rate; no PAN ⇒ the nature's §206AA no-PAN
-/// rate, which the seed sets to 20% generally and 5% for §194Q), applies the section threshold (single-transaction
+/// <see cref="ComputeWithholding"/> resolves the rate (PAN ⇒ with-PAN rate — which on <b>§194C</b> branches on the
+/// deductee's legal status, 1% to an individual or HUF and 2% to anyone else per §194C(1); no PAN ⇒ the nature's
+/// §206AA no-PAN rate, which the seed sets to 20% generally and 5% for §194Q), applies the section threshold (single-transaction
 /// and cumulative-FY, the latter a <b>pure projection</b> over prior posted vouchers per party×nature — like
 /// <c>Gstr1</c> YTD accumulation, deterministic with no clock/order side-effects), and applies income-tax
 /// <b>nearest-rupee, round-half-up</b> rounding (per A14). TDS is assessed on the <b>GST-exclusive</b> base
@@ -54,7 +55,9 @@ public sealed class TdsService
     /// <summary>
     /// Assesses a payment of <paramref name="assessableValue"/> (the GST-exclusive base) to
     /// <paramref name="deductee"/> under <paramref name="nature"/> dated <paramref name="date"/>: resolves the rate
-    /// (PAN ⇒ <see cref="NatureOfPayment.RateWithPanBp"/>; no PAN ⇒ <see cref="NatureOfPayment.RateWithoutPanBp"/> —
+    /// (PAN ⇒ <see cref="ResolveWithPanRate"/> — <see cref="NatureOfPayment.RateWithPanBp"/>, or on §194C the
+    /// <see cref="NatureOfPayment.RateWithPanOtherThanIndividualBp"/> arm when the deductee is not an individual or a
+    /// HUF; no PAN ⇒ <see cref="NatureOfPayment.RateWithoutPanBp"/> —
     /// the §206AA 20% general / §194Q 5% special the seed encodes), tests the section threshold (single-transaction
     /// OR cumulative-FY, the cumulative a pure projection over prior posted vouchers), and — when crossed — computes
     /// the TDS as <c>round_half_up(assessable × rate / 10000)</c> to the <b>nearest rupee</b>. Pure and total; posts
@@ -67,9 +70,16 @@ public sealed class TdsService
     /// carrying its own <see cref="TdsLineTax"/>, and so is everything posted after it.
     /// See <see cref="ProjectPriorCumulative"/> for why excluding the voucher's own id is not enough.
     /// </param>
+    /// <param name="postedRateBasisPoints">
+    /// 🔴 <b>The rate the voucher being ALTERED was POSTED with</b>, read off its own stamped
+    /// <see cref="TdsLineTax.RateBasisPoints"/> — the grandfathering carrier. <c>null</c> for a fresh posting, and
+    /// every pre-bifurcation caller is byte-identical. It is an <b>explicit fact about the voucher</b>, never a
+    /// date comparison: see <see cref="GrandfatheredRate"/> for exactly the one disagreement it absorbs and the
+    /// four it refuses to.
+    /// </param>
     public Withholding ComputeWithholding(
         Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
-        Guid? asPostedBefore = null)
+        Guid? asPostedBefore = null, int? postedRateBasisPoints = null)
     {
         ArgumentNullException.ThrowIfNull(nature);
         ArgumentNullException.ThrowIfNull(deductee);
@@ -79,7 +89,10 @@ public sealed class TdsService
             throw new InvalidOperationException($"Assessable value {assessableValue} must be paisa-exact.");
 
         var panApplied = Pan.IsValid(deductee.PartyPan);
-        var rateBp = panApplied ? nature.RateWithPanBp : nature.RateWithoutPanBp;
+        var rateBp = GrandfatheredRate(
+            nature,
+            panApplied ? ResolveWithPanRate(nature, deductee) : nature.RateWithoutPanBp,
+            panApplied, postedRateBasisPoints);
 
         var prior = ProjectPriorCumulative(deductee.Id, nature.Id, date, asPostedBefore);
         if (!ThresholdCrossed(nature, assessableValue, prior))
@@ -92,6 +105,90 @@ public sealed class TdsService
         var chargeableBase = ChargeableBase(nature, assessableValue, prior);
         var tds = NearestRupee(chargeableBase.Amount * rateBp / 10_000m);
         return new Withholding(true, assessableValue, rateBp, tds, panApplied, prior);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The with-PAN rate, which on §194C turns on the DEDUCTEE'S LEGAL STATUS.</b>
+    /// <para><b>Statute.</b> Income-tax Act 1961 <b>§194C(1)</b>: "(i) <b>one per cent</b> where the payment is
+    /// being made or credit is being given to an <b>individual or a Hindu undivided family</b>; (ii) <b>two per
+    /// cent</b> where the payment is being made or credit is being given to a <b>person other than an individual or
+    /// a Hindu undivided family</b>" (<c>https://www.incometaxindia.gov.in/w/section-194c</c>; the Department's rate
+    /// chart for AY 2026-27 states the same split). Every other seeded section has one with-PAN rate whatever the
+    /// deductee is, so <see cref="NatureOfPayment.RateWithPanOtherThanIndividualBp"/> is <c>null</c> for them and
+    /// this method returns <see cref="NatureOfPayment.RateWithPanBp"/> unchanged — byte-identical to the pre-branch
+    /// engine for §194A, §194H, §194I(a), §194I(b), §194J(a), §194J(b) and §194Q.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS FIXED, WITH THE LITERAL FIGURES.</b> The rate used to be
+    /// <c>panApplied ? nature.RateWithPanBp : nature.RateWithoutPanBp</c> and read
+    /// <see cref="Domain.Ledger.DeducteeType"/> nowhere, so Individual, HUF, Firm and Company all resolved the
+    /// seeded 100 bp. Measured on a PAN-holding <b>company</b> contractor and a ₹50,000 bill (liable through
+    /// §194C's ₹30,000 single-transaction limb) the engine withheld <b>₹500.00</b> where §194C(1)(ii) requires
+    /// <b>₹1,000.00</b> — an under-deduction the deductor answers for under §201. Two tests in the suite asserted
+    /// the wrong figure against a company deductee and are corrected alongside this change.</para>
+    ///
+    /// <para><b>An unrecorded legal status is refused by name.</b> §194C(1)(i) grants the 1% arm only where the
+    /// payee <i>is</i> an individual or a HUF; a party with no <see cref="Domain.Ledger.DeducteeType"/> does not
+    /// evidence that, and guessing either way moves money. The entry screen cannot produce the shape — a party is
+    /// only recognised as a deductee when it carries a deductee type (<c>VoucherEntryViewModel.IsDeducteeLedger</c>)
+    /// — so this guards the engine API and the import path, not the operator.</para>
+    /// </summary>
+    private static int ResolveWithPanRate(NatureOfPayment nature, Domain.Ledger deductee)
+    {
+        if (nature.RateWithPanOtherThanIndividualBp is not { } otherThanIndividualBp) return nature.RateWithPanBp;
+        if (deductee.DeducteeType is not { } status)
+            throw new InvalidOperationException(
+                $"'{deductee.Name}' is a §{nature.SectionCode} deductee with no deductee type recorded, and "
+                + $"§{nature.SectionCode} withholds at different rates depending on whether the payee is an "
+                + "individual or a Hindu undivided family. Set the party's Deductee Type on the ledger master "
+                + "before withholding from it.");
+        return status is DeducteeType.Individual or DeducteeType.HinduUndividedFamily
+            ? nature.RateWithPanBp
+            : otherThanIndividualBp;
+    }
+
+    /// <summary>
+    /// 🔴 <b>GRANDFATHERING — a voucher posted before the §194C deductee-type branch existed keeps the rate it was
+    /// posted with. That is a fact about the VOUCHER, carried explicitly; nothing here reads a clock.</b>
+    ///
+    /// <para><b>Why it is needed.</b> Before the branch, EVERY §194C voucher resolved
+    /// <see cref="NatureOfPayment.RateWithPanBp"/> — 100 bp — including those whose deductee is a company, a firm
+    /// or an AOP. The alteration path pins <c>RateBasisPoints</c> off the posted voucher and refuses a
+    /// disagreement (<c>VoucherEntryViewModel.ApplyReCarve</c>), so switching the branch on would have made every
+    /// one of those vouchers <b>unalterable</b> — turning a rate defect into a data-migration problem for anyone
+    /// with §194C history. <paramref name="postedBp"/> comes off the voucher's own stamped
+    /// <see cref="TdsLineTax.RateBasisPoints"/>, so the rule is explicit and pinned rather than implicit in a date
+    /// test.</para>
+    ///
+    /// <para>🔴 <b>EXACTLY ONE DISAGREEMENT IS ABSORBED, AND IT IS DIRECTIONAL:</b> posted on the section's own
+    /// <see cref="NatureOfPayment.RateWithPanBp"/> arm, now resolving its
+    /// <see cref="NatureOfPayment.RateWithPanOtherThanIndividualBp"/> arm. That is the one shape a pre-bifurcation
+    /// voucher can have, because before the branch that arm was the only reachable answer. Everything else falls
+    /// through to <paramref name="resolvedBp"/> and is therefore still refused upstream:</para>
+    /// <list type="bullet">
+    ///   <item><b>No PAN.</b> The §206AA rate is never grandfathered — a PAN added or removed after posting must
+    ///     still be refused, and that refusal is pinned by
+    ///     <c>VoucherAlterReDeriveTests.A_deductee_PAN_added_after_posting_is_refused_rather_than_re_carved_at_the_new_rate</c>.</item>
+    ///   <item><b>A section with no deductee-type branch.</b> A moved §194J / §194I / §194A rate master is still a
+    ///     disagreement.</item>
+    ///   <item><b>The other direction.</b> Posted at 200 bp and now resolving 100 bp means the party was RE-TYPED
+    ///     down to an individual or HUF after posting — drift, not history, and still refused.</item>
+    ///   <item><b>A posted rate outside this section's own two arms</b> — a hand-edited or imported figure — is not
+    ///     honoured, so an arbitrary stamped rate cannot be resurrected by handing it back.</item>
+    /// </list>
+    ///
+    /// <para><b>What it cannot distinguish, stated plainly.</b> A genuinely pre-bifurcation company voucher
+    /// (posted 100, resolves 200) and a post-bifurcation <i>individual</i> voucher whose party was later re-typed
+    /// UP to a company (also posted 100, resolves 200) are the same two numbers, and no persisted field tells them
+    /// apart without a schema change. The ambiguity is resolved towards grandfathering because that is the ruling's
+    /// purpose, and the safety property holds either way: <b>a deduction that has already been posted and reported
+    /// is never restated.</b></para>
+    /// </summary>
+    internal static int GrandfatheredRate(NatureOfPayment nature, int resolvedBp, bool panApplied, int? postedBp)
+    {
+        if (postedBp is not { } posted || posted == resolvedBp) return resolvedBp;
+        if (!panApplied) return resolvedBp;
+        if (nature.RateWithPanOtherThanIndividualBp is not { } otherThanIndividualBp) return resolvedBp;
+        return posted == nature.RateWithPanBp && resolvedBp == otherThanIndividualBp ? posted : resolvedBp;
     }
 
     /// <summary>
@@ -253,17 +350,23 @@ public sealed class TdsService
     /// where nothing is carved at all. <c>null</c> ⇒ the pre-S5c childless legs, byte-identical for every
     /// engine-level caller.
     /// </param>
+    /// <param name="postedRateBasisPoints">
+    /// 🔴 <b>The rate the voucher being ALTERED was POSTED with</b> — the §194C grandfathering carrier, passed
+    /// straight through to <see cref="ComputeWithholding"/>. <c>null</c> for a fresh posting. See
+    /// <see cref="GrandfatheredRate"/>.
+    /// </param>
     public CarveOut BuildCarveOut(
         Money partyGrossObligation, Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
         Guid? asPostedBefore = null,
-        EntryLine? keyedPartyLine = null)
+        EntryLine? keyedPartyLine = null,
+        int? postedRateBasisPoints = null)
     {
         if (partyGrossObligation.Amount <= 0m)
             throw new ArgumentException("Party gross obligation must be > 0.", nameof(partyGrossObligation));
         if (!partyGrossObligation.IsPaisaExact)
             throw new InvalidOperationException($"Party gross obligation {partyGrossObligation} must be paisa-exact.");
 
-        var w = ComputeWithholding(assessableValue, nature, deductee, date, asPostedBefore);
+        var w = ComputeWithholding(assessableValue, nature, deductee, date, asPostedBefore, postedRateBasisPoints);
         var detail = new TdsLineTax(
             nature.Id, nature.SectionCode, assessableValue, w.RateBasisPoints, w.TdsAmount, deductee.Id, w.PanApplied);
 

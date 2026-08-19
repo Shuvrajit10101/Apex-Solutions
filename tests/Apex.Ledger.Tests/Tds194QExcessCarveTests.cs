@@ -173,22 +173,29 @@ public class Tds194QExcessCarveTests
 
     /// <summary>
     /// 🔴 THE LIMB GUARD. §194C's ₹50,000 bill is liable through its ₹30,000 SINGLE-transaction limb while the
-    /// FY cumulative (₹1,00,000) is nowhere near crossed. TDS is 1% of the FULL ₹50,000 = <b>₹500</b>. If the
+    /// FY cumulative (₹1,00,000) is nowhere near crossed. TDS is charged on the FULL ₹50,000. If the
     /// excess carve were applied to every threshold section (or against the cumulative limb regardless of which
     /// limb fired) this bill would compute (0 + 50,000 − 1,00,000) → clamp 0 → <b>₹0 on a liable bill</b>.
+    /// <para>
+    /// 🔴 <b>THIS TEST USED TO ASSERT THE WRONG MONEY, AND IT IS CORRECTED HERE, NOT RELAXED.</b> The
+    /// <see cref="Seller"/> fixture makes the contractor a <c>DeducteeType.Company</c>, and §194C(1)(ii) charges a
+    /// person other than an individual or a HUF at <b>2%</b> — <b>₹1,000.00</b>. It asserted <c>100</c> bp and
+    /// <b>₹500.00</b> because <c>ComputeWithholding</c> read <c>Ledger.DeducteeType</c> nowhere; the limb it exists
+    /// to guard is unchanged, only the arm of the rate it lands on. See <see cref="Tds194CDeducteeTypeTests"/>.
+    /// </para>
     /// </summary>
     [Fact]
     public void Section_194C_single_limb_bill_still_deducts_on_the_full_value()
     {
         var c = NewTdsCompany();
-        var contractor = Seller(c, "194C", DeducteePan);
+        var contractor = Seller(c, "194C", DeducteePan);   // DeducteeType.Company ⇒ §194C(1)(ii) 2%
         var nop = c.FindNatureOfPaymentByCode("194C")!;
 
         var w = new TdsService(c).ComputeWithholding(Money.FromRupees(50_000m), nop, contractor, D1);
 
         Assert.True(w.Applies);
-        Assert.Equal(100, w.RateBasisPoints);
-        Assert.Equal(Money.FromRupees(500m), w.TdsAmount);
+        Assert.Equal(200, w.RateBasisPoints);
+        Assert.Equal(Money.FromRupees(1_000m), w.TdsAmount);   // 2% of the FULL 50,000, not of a cumulative excess
         Assert.NotEqual(Money.Zero, w.TdsAmount);
     }
 

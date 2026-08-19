@@ -261,10 +261,13 @@ public class TdsServiceTests
         supplier.DeducteeType = DeducteeType.Company; supplier.PartyPan = DeducteePan;
 
         var nop = c.FindNatureOfPaymentByCode("194C")!;
-        var gross = Money.FromRupees(2_00_000m); // > ₹1,00,000 194C aggregate ⇒ TDS applies at 1% (with-PAN Ind/HUF base)
+        // > ₹1,00,000 194C aggregate ⇒ TDS applies. The supplier is a COMPANY, so §194C(1)(ii) charges 2%.
+        // 🔴 This assertion read ₹2,000.00 (1%) until the deductee-type branch shipped — the engine resolved
+        // RateWithPanBp for every legal status. ₹4,000.00 is the statutory figure; see Tds194CDeducteeTypeTests.
+        var gross = Money.FromRupees(2_00_000m);
         var carve = new TdsService(c).BuildCarveOut(gross, gross, nop, supplier, D1);
         Assert.True(carve.Applies);
-        Assert.Equal(Money.FromRupees(2_000m), carve.TdsAmount); // 1% of 2,00,000
+        Assert.Equal(Money.FromRupees(4_000m), carve.TdsAmount); // 2% of 2,00,000
 
         var v = post.Post(new Voucher(Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id, D1,
             new[] { new EntryLine(purchases.Id, gross, DrCr.Debit), carve.PartyLine, carve.TdsPayableLine! },

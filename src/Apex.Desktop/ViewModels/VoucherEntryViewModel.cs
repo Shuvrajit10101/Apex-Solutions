@@ -1883,7 +1883,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // full gross and no payable leg at all. The figure was on screen before any keystroke, because
                 // RehydrateFrom ends in Recalculate().
                 carve = _tds.BuildCarveOut(
-                    ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker);
+                    ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
+                    postedRateBasisPoints: AlterationPostedTdsRateBasisPoints);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -1918,6 +1919,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// preview and the accept path cannot disagree about which transactions count towards the threshold.
     /// </summary>
     private Guid? AlterationProjectionMarker => IsAltering ? _alteringVoucherId : null;
+
+    /// <summary>
+    /// 🔴 <b>The rate the voucher being altered was POSTED with</b> — read straight off its own stamped
+    /// <c>TdsLineTax.RateBasisPoints</c>; <c>null</c> on a fresh entry screen. Handed to every
+    /// <see cref="TdsService.BuildCarveOut"/> call on this screen so the advisory panel, the bill-wise net preview
+    /// and the accept path cannot disagree about a <b>grandfathered §194C rate</b> (ER-4: one engine, one set of
+    /// arguments to it). Without it the panel would read "§194C @ 2%" while Accept posted 1% — exactly the class
+    /// of defect <c>VoucherAlterDerivedLegDriftTests.The_withholding_panel_on_an_altering_screen_states_what_accept
+    /// _will_post</c> exists to catch.
+    /// <para>The ACCEPT path does not use this property: <see cref="ApplyReCarve"/> passes
+    /// <c>pin.RateBasisPoints</c>, which <c>VoucherAlterationDerivedLegs.Invert</c> already read off the posted
+    /// voucher and validated on the way in. Both are the same number by construction; the pin is the stronger
+    /// source, so the path that moves money uses it.</para>
+    /// </summary>
+    private int? AlterationPostedTdsRateBasisPoints =>
+        IsAltering && _company.FindVoucher(_alteringVoucherId) is { } posted
+            ? posted.Lines.Select(l => l.Tds).FirstOrDefault(t => t is not null)?.RateBasisPoints
+            : null;
 
     /// <summary>
     /// The deductee's grid row as an <see cref="EntryLine"/> — ledger, amount, side and every keyed child. Handed to
@@ -3419,7 +3438,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             carve = _tds.BuildCarveOut(
                 ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date,
                 asPostedBefore: existing.Id,
-                keyedPartyLine: KeyedPartyTemplate(ctx.PartyLine));
+                keyedPartyLine: KeyedPartyTemplate(ctx.PartyLine),
+                // 🔴 GRANDFATHERING, AND IT IS THE PIN ITSELF THAT CARRIES IT. A §194C voucher posted before the
+                // deductee-type branch existed carries 100 bp although its deductee is a company or a firm; without
+                // this argument the re-carve would resolve 200 bp, the rate pin four lines below would disagree, and
+                // EVERY already-posted non-Ind/HUF §194C voucher would become unalterable — a rate defect turned into
+                // a data-migration problem. The value is the POSTED voucher's own stamped RateBasisPoints, read back
+                // by VoucherAlterationDerivedLegs.InvertWithholding, so the rule is a fact about this voucher and
+                // never a date comparison. TdsService.GrandfatheredRate absorbs exactly one disagreement (posted on
+                // the section's Ind/HUF arm, now resolving its other-than-individual arm) and refuses the rest, so
+                // a moved rate master and a PAN added or removed since posting still reach the pin below.
+                postedRateBasisPoints: pin.RateBasisPoints);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
@@ -4823,7 +4852,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // that projected the voucher against itself would target the bill-wise panel at a net Accept does not
             // post.
             return _tds.BuildCarveOut(
-                           ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker)
+                           ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
+                           postedRateBasisPoints: AlterationPostedTdsRateBasisPoints)
                        .NetPartyAmount.Amount;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

@@ -103,4 +103,46 @@ public sealed class NatureOfPayment
     /// </summary>
     public bool ChargesOnlyExcessOverCumulativeThreshold =>
         CumulativeThreshold is not null && string.Equals(SectionCode, "194Q", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 🔴 <b>§194C's second with-PAN rate — the one that applies when the deductee is NOT an individual or a Hindu
+    /// undivided family.</b> <c>null</c> for every other section, whose with-PAN rate does not turn on who is being
+    /// paid.
+    ///
+    /// <para><b>Statutory ground.</b> Income-tax Act 1961 <b>§194C(1)</b>, bare Act text as published by the
+    /// Income-tax Department (<c>https://www.incometaxindia.gov.in/w/section-194c</c>): the deductor shall "deduct
+    /// an amount equal to — (i) <b>one per cent</b> where the payment is being made or credit is being given to an
+    /// individual or a Hindu undivided family; (ii) <b>two per cent</b> where the payment is being made or credit
+    /// is being given to a person other than an individual or a Hindu undivided family". The Department's own rate
+    /// chart for <b>Assessment Year 2026-27</b> (= FY 2025-26, the year this build's seed encodes) states the same
+    /// split — "Section 194C: Payment to contractor/sub-contractor — a) HUF/Individuals 1 — b) Others 2"
+    /// (<c>https://www.incometaxindia.gov.in/w/tds-rates-1</c>). <see cref="RateWithPanBp"/> is therefore the
+    /// §194C(1)(i) <b>individual/HUF</b> arm on a §194C nature, and this is the §194C(1)(ii) arm.</para>
+    ///
+    /// <para>🔴 <b>DERIVED FROM <see cref="SectionCode"/>, NOT STORED — same reason, same precedent, as
+    /// <see cref="ChargesOnlyExcessOverCumulativeThreshold"/> directly above.</b> A stored second rate needs a
+    /// `nature_of_payment` column and therefore a schema migration, and the schema versions after 51 are allocated
+    /// to other tracks. Deriving it from the section code round-trips exactly — the code is persisted, unique per
+    /// company and already the lookup key — so no book can load back with a different answer than it saved, which
+    /// is precisely what a non-persisted settable property could not promise. The trade-off is stated plainly: on a
+    /// §194C nature this ONE figure is not editable data the way every other seeded figure is. When a schema version
+    /// is available it becomes a stored column and its back-fill is exactly this predicate, so the promotion is
+    /// figure-for-figure identical for every existing book.</para>
+    ///
+    /// <para><b>Scope of the match.</b> §194C only, compared case-insensitively against the trimmed code, so a
+    /// hand-authored "194c" master behaves identically to the seeded row. The <b>no-PAN</b> rate is untouched:
+    /// §206AA(1) charges the higher of the section rate, the rates in force, or 20% — one figure, with no
+    /// individual/HUF concession to choose between.</para>
+    /// </summary>
+    public int? RateWithPanOtherThanIndividualBp =>
+        string.Equals(SectionCode, "194C", StringComparison.OrdinalIgnoreCase) ? 200 : null;
+
+    /// <summary>
+    /// True iff this section's <b>with-PAN</b> rate turns on the deductee's legal status
+    /// (<see cref="Ledger.DeducteeType"/>) — i.e. iff <see cref="RateWithPanOtherThanIndividualBp"/> is set. §194C
+    /// is the only such section in the seeded set; see
+    /// <c>Tds194CDeducteeTypeTests.Exactly_one_seeded_nature_of_payment_branches_on_deductee_type_and_it_is_194C</c>,
+    /// which asserts that over the whole seed so a future row cannot quietly acquire the branch.
+    /// </summary>
+    public bool RateTurnsOnDeducteeType => RateWithPanOtherThanIndividualBp is not null;
 }
