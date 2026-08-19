@@ -23,6 +23,24 @@ public sealed class PayrollAttendanceService
     /// Records an attendance / production value for an employee against an attendance type over
     /// <c>[fromDate, toDate]</c>. The employee and attendance type must exist; the value must be ≥ 0; the end
     /// date must be on or after the start date. Returns the recorded entry.
+    ///
+    /// <para>🔴 <b>T0-12 — an EXACT duplicate is refused, because the computation sums and the operator cannot
+    /// undo.</b> This method used to append unconditionally, with no dedupe on employee × type × period, while
+    /// <c>PayrollComputationService.SumAttendance</c> adds every matching entry. A re-key of the same month
+    /// therefore paid an On-Attendance head <b>twice</b> — measured at ₹52,000 on a ₹26,000 / 26-day head — and
+    /// nothing in the product could remove either entry (<see cref="Delete"/> had no desktop caller and there is no
+    /// voucher alteration). Recording the same employee, the same attendance type and the SAME From and To is now
+    /// refused with a message naming the value already on record; correct it by deleting that entry and recording
+    /// again.</para>
+    ///
+    /// <para><b>This is a deliberate NARROWING of an attested behaviour, not a corpus-silent design choice.</b> In
+    /// the reference application an Attendance voucher is a voucher: two for one period sum, and the operator alters
+    /// or deletes one. We are narrower only because that compensating control is absent here (census T1-1). Lift the
+    /// refusal when alteration reaches this surface.</para>
+    ///
+    /// <para><b>The refusal is EXACT, deliberately.</b> Only a coinciding From <i>and</i> To collides. Overlapping
+    /// but non-identical spans still record, because the computation already pro-rates an entry by its overlap with
+    /// the payroll period and splitting a month into genuine part-period records is ordinary practice.</para>
     /// </summary>
     public AttendanceEntry Record(
         Guid employeeId,
@@ -40,9 +58,29 @@ public sealed class PayrollAttendanceService
         if (value < 0m)
             throw new InvalidOperationException("An attendance value must be ≥ 0.");
 
+        if (FindExact(employeeId, attendanceTypeId, fromDate, toDate) is { } duplicate)
+            throw new InvalidOperationException(
+                $"{_company.FindAttendanceType(attendanceTypeId)!.Name} for " +
+                $"{_company.FindEmployee(employeeId)!.Name} over {fromDate:dd-MM-yyyy} to {toDate:dd-MM-yyyy} is " +
+                $"already recorded as {duplicate.Value:0.##}. Recording it again would ADD to that figure and pay " +
+                $"twice — delete the existing entry first if you meant to correct it.");
+
         var entry = new AttendanceEntry(Guid.NewGuid(), employeeId, attendanceTypeId, fromDate, toDate, value);
         _company.AddAttendanceEntry(entry);
         return entry;
+    }
+
+    /// <summary>
+    /// The already-recorded entry for exactly this employee × attendance type × period, or <c>null</c>. Public so
+    /// the entry screen can warn before the operator commits a whole batch (T0-12).
+    /// </summary>
+    public AttendanceEntry? FindExact(Guid employeeId, Guid attendanceTypeId, DateOnly fromDate, DateOnly toDate)
+    {
+        foreach (var e in _company.AttendanceEntries)
+            if (e.EmployeeId == employeeId && e.AttendanceTypeId == attendanceTypeId
+                && e.FromDate == fromDate && e.ToDate == toDate)
+                return e;
+        return null;
     }
 
     /// <summary>Deletes a recorded attendance entry.</summary>

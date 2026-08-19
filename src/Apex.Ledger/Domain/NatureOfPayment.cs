@@ -75,4 +75,32 @@ public sealed class NatureOfPayment
 
     /// <summary>The with-PAN rate as a percentage (e.g. 10.00 for 1000 bp).</summary>
     public decimal RateWithPanPercent => RateWithPanBp / 100m;
+
+    /// <summary>
+    /// 🔴 <b>T0-1.</b> True iff this section charges the tax only on the value <b>EXCEEDING</b> its
+    /// <see cref="CumulativeThreshold"/>, rather than on the whole transaction once the gate is crossed.
+    /// <para><b>Statutory ground.</b> Income-tax Act 1961 <b>§194Q(1)</b>: a buyer whose purchases from a resident
+    /// seller exceed fifty lakh rupees in a previous year deducts "0.1 per cent. of such sum <b>exceeding fifty lakh
+    /// rupees</b>". Contrast §194C / §194J / §194H / §194I / §194A, which are qualifying gates — once crossed the
+    /// <b>whole</b> credit or payment bears the tax. The product's TCS twin already encodes exactly this distinction
+    /// for the mirror section §206C(1H) (see <c>TcsService.ChargeableBase</c>, whose comment names §194Q as the
+    /// mirror); before T0-1 the two sibling engines disagreed about the same statutory shape.</para>
+    ///
+    /// <para>🔴 <b>DERIVED FROM <see cref="SectionCode"/>, NOT STORED — and that is a deliberate, temporary
+    /// NARROWING of an ATTESTED TallyPrime behaviour, not a "corpus silent, ours by design" choice.</b>
+    /// `plan.md`'s WF-2 R7 source of record is TallyHelp's §194Q option <i>"Calculate tax on value exceeding the
+    /// threshold"</i> — i.e. in TallyPrime this is a <b>user-settable field on the Nature of Payment master</b>.
+    /// Storing it needs a `natures_of_payment` column and therefore a schema migration, and the next schema
+    /// versions are allocated elsewhere, so this build derives the flag instead. Deriving it from the section code
+    /// round-trips exactly (the code is persisted, unique per company and already the lookup key), so no book can
+    /// load back with a different answer than it saved — which a non-persisted settable property could not promise.
+    /// WF-2 promotes this to the stored, user-settable flag; its back-fill is precisely this predicate, so the
+    /// promotion is figure-for-figure identical for every existing book.</para>
+    ///
+    /// <para><b>Scope of the match.</b> §194Q only, compared case-insensitively against the trimmed code, so a
+    /// hand-authored "194q" master behaves identically to the seeded row. A nature with no
+    /// <see cref="CumulativeThreshold"/> has nothing to carve against and is never excess-charging.</para>
+    /// </summary>
+    public bool ChargesOnlyExcessOverCumulativeThreshold =>
+        CumulativeThreshold is not null && string.Equals(SectionCode, "194Q", StringComparison.OrdinalIgnoreCase);
 }

@@ -8,6 +8,7 @@ using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -53,6 +54,11 @@ public sealed partial class AttendanceVoucherLineRowViewModel : ViewModelBase
 /// <summary>A recorded attendance entry shown in the read-back list on the voucher screen.</summary>
 public sealed class AttendanceEntryRow
 {
+    /// <summary>🔴 T0-12. The recorded entry's id — the handle the Remove button needs. Without it the row was a
+    /// read-back string with no way back to the entry, which is why a wrongly-keyed attendance figure could not be
+    /// undone anywhere in the product.</summary>
+    public Guid Id { get; init; }
+
     public string Employee { get; init; } = string.Empty;
     public string AttendanceType { get; init; } = string.Empty;
     public string Period { get; init; } = string.Empty;
@@ -224,6 +230,34 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
         AddBlankRow();
     }
 
+    /// <summary>
+    /// 🔴 <b>T0-12 — the correction route.</b> Removes one recorded attendance/production entry and persists. The
+    /// engine has always had <see cref="PayrollAttendanceService.Delete"/>; it had <b>no caller in this layer</b>,
+    /// so a wrongly-keyed attendance figure was permanent and the only "fix" available to an operator was to record
+    /// it again — which added to it and paid twice. This button is also what makes the duplicate REFUSAL fair:
+    /// delete, then re-record the right figure.
+    /// </summary>
+    [RelayCommand]
+    private void RemoveEntry(AttendanceEntryRow? row)
+    {
+        Message = null;
+        if (row is null) return;
+        try
+        {
+            new PayrollAttendanceService(_company).Delete(row.Id);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Could not remove the entry: {ex.Message}";
+            return;
+        }
+
+        _onChanged();
+        Message = $"Removed {row.AttendanceType} for {row.Employee} ({row.Period}).";
+        RebuildRecentEntries();
+    }
+
     private void RebuildRecentEntries()
     {
         RecentEntries.Clear();
@@ -238,6 +272,7 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
         {
             RecentEntries.Add(new AttendanceEntryRow
             {
+                Id = e.Id,
                 Employee = _company.FindEmployee(e.EmployeeId)?.Name ?? "(unknown)",
                 AttendanceType = _company.FindAttendanceType(e.AttendanceTypeId)?.Name ?? "(unknown)",
                 Period = $"{e.FromDate:dd-MM-yyyy} – {e.ToDate:dd-MM-yyyy}",

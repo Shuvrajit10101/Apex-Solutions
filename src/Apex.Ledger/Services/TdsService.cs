@@ -24,6 +24,9 @@ namespace Apex.Ledger.Services;
 /// <c>Gstr1</c> YTD accumulation, deterministic with no clock/order side-effects), and applies income-tax
 /// <b>nearest-rupee, round-half-up</b> rounding (per A14). TDS is assessed on the <b>GST-exclusive</b> base
 /// (Circular 23/2017): the caller passes the assessable value separately from the party's gross obligation.
+/// 🔴 <b>T0-1:</b> §194Q charges only the value <b>exceeding</b> its ₹50-lakh cumulative threshold (§194Q(1)); every
+/// other section is a qualifying gate and charges the full value once crossed. See <see cref="ChargeableBase"/>,
+/// and <see cref="TcsService"/> for the mirror §206C(1H) carve — register IV-2.
 /// </para>
 /// </summary>
 public sealed class TdsService
@@ -39,7 +42,9 @@ public sealed class TdsService
     /// <param name="Applies">True iff the section threshold is crossed so TDS must be withheld.</param>
     /// <param name="AssessableValue">The GST-exclusive base the TDS is (or would be) computed on.</param>
     /// <param name="RateBasisPoints">The resolved rate in basis points (with-PAN, or the no-PAN §206AA/§194Q rate).</param>
-    /// <param name="TdsAmount">The TDS withheld (nearest rupee, round-half-up); <see cref="Money.Zero"/> when below threshold.</param>
+    /// <param name="TdsAmount">The TDS withheld (nearest rupee, round-half-up); <see cref="Money.Zero"/> when below
+    /// threshold. 🔴 T0-1: for §194Q this is the rate applied to the value <b>exceeding</b> the ₹50-lakh cumulative
+    /// threshold, NOT to <c>AssessableValue</c> — see <c>ChargeableBase</c>.</param>
     /// <param name="PanApplied">True iff the deductee PAN was present+valid so the with-PAN rate applied.</param>
     /// <param name="PriorCumulativeInFy">Σ prior-posted assessable for this party×nature in the FY (the projection).</param>
     public readonly record struct Withholding(
@@ -80,8 +85,43 @@ public sealed class TdsService
         if (!ThresholdCrossed(nature, assessableValue, prior))
             return new Withholding(false, assessableValue, rateBp, Money.Zero, panApplied, prior);
 
-        var tds = NearestRupee(assessableValue.Amount * rateBp / 10_000m);
+        // 🔴 T0-1. The base the TDS is actually CHARGED on. §194Q charges only the value EXCEEDING its ₹50-lakh
+        // cumulative threshold; every other section is a qualifying gate that charges the FULL value once crossed.
+        // AssessableValue (returned, and stamped on the line for the FY projection) stays the FULL value, so later
+        // cumulative arithmetic is unaffected — only the charged base is carved.
+        var chargeableBase = ChargeableBase(nature, assessableValue, prior);
+        var tds = NearestRupee(chargeableBase.Amount * rateBp / 10_000m);
         return new Withholding(true, assessableValue, rateBp, tds, panApplied, prior);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-1 — the portion of <paramref name="current"/> the TDS is actually charged on.</b> For a section
+    /// flagged <see cref="NatureOfPayment.ChargesOnlyExcessOverCumulativeThreshold"/> (§194Q — Income-tax Act 1961
+    /// §194Q(1), "0.1 per cent. of such sum exceeding fifty lakh rupees") only the value above the cumulative-FY
+    /// threshold is charged: the excess is <c>(prior + current) − cumulativeThreshold</c>, clamped to
+    /// <c>[0, current]</c>. Every other section charges the full value once its gate is crossed. Callers reach here
+    /// only after <see cref="ThresholdCrossed"/> returned true.
+    ///
+    /// <para>🔴 <b>LIMB-AWARE, and the naive version returns ₹0 on a liable bill.</b> A section can be liable
+    /// through EITHER of two limbs — §194C has a ₹30,000 single-transaction limb AND a ₹1,00,000 cumulative one. A
+    /// ₹50,000 §194C bill is liable through the SINGLE limb while the cumulative is nowhere near crossed; carving
+    /// against the cumulative limb gives <c>(0 + 50,000) − 1,00,000 = −50,000</c>, clamps to 0, and withholds
+    /// NOTHING on a bill that owes ₹500. So the carve is refused whenever the single-transaction limb is the one
+    /// that fired. §194Q has no single-transaction limb, so for it this guard never engages — it exists to stop the
+    /// carve leaking onto a two-limb section, which is exactly what copying <c>TcsService.ChargeableBase</c>
+    /// verbatim would have done (that engine is single-limb by construction).</para>
+    /// </summary>
+    private static Money ChargeableBase(NatureOfPayment nature, Money current, Money prior)
+    {
+        if (!nature.ChargesOnlyExcessOverCumulativeThreshold) return current;
+        if (nature.CumulativeThreshold is not { } cumulative) return current;
+        // Liable through the single-transaction limb ⇒ the whole value is charged, never the cumulative excess.
+        if (nature.SingleTransactionThreshold is { } single && current > single) return current;
+
+        var excess = (prior.Amount + current.Amount) - cumulative.Amount;
+        if (excess < 0m) excess = 0m;
+        if (excess > current.Amount) excess = current.Amount;
+        return new Money(excess);
     }
 
     /// <summary>Rounds a raw amount to the nearest whole rupee, <b>round-half-up</b> (away-from-zero) — the

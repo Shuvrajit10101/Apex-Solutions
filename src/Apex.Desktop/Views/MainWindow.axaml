@@ -6601,6 +6601,22 @@
                                              PlaceholderText="Min order qty"/>
                                   </Grid>
 
+                                  <!-- T0-3: the standard rate the "Standard Cost" valuation method values closing
+                                       stock at. It was persisted, exported and read by three engines but had no
+                                       input anywhere, so picking Standard Cost silently fell back to the last
+                                       purchase rate. The hint takes the star track and is trimmed, so it can never
+                                       push the fixed 140px entry box out of view. -->
+                                  <Grid ColumnDefinitions="90,140,*">
+                                    <TextBlock Grid.Column="0" Text="Std rate" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding StandardCostText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="₹ / unit"/>
+                                    <TextBlock Grid.Column="2" Text="Required when Valuation is Standard Cost."
+                                               VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource Ink}" Opacity="0.65"/>
+                                  </Grid>
+
                                   <!-- GST details (shown when GST is enabled; catalog §12) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -9484,19 +9500,30 @@
                                 </Border>
 
                                 <!-- Recorded entries in this period (read-back) -->
+                                <!-- T0-12: the Remove column. A wrongly-keyed attendance figure used to be
+                                     permanent — the delete service existed with no caller here — so the only way an
+                                     operator could "fix" it was to record it again, which ADDED to it and paid
+                                     twice. The engine now refuses an exact-duplicate period; this button is the
+                                     correction route that makes that refusal fair.
+                                     Column arithmetic (XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read):
+                                     the page column is 638px and each * must keep >= 150px, so the fixed tracks may
+                                     total at most 338. Adding Remove at the original 200/120 would have left the
+                                     Employee and Type stars at 124px each, so Period and Value were trimmed with it:
+                                     180 + 80 + 60 = 320 leaves 159px per star. -->
                                 <Border Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="*,*,200,120">
+                                  <Grid ColumnDefinitions="*,*,180,80,60">
                                     <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Type" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="Period" Classes="colHdr"/>
                                     <TextBlock Grid.Column="3" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Remove" Classes="colHdr" TextAlignment="Center"/>
                                   </Grid>
                                 </Border>
                                 <ItemsControl ItemsSource="{Binding RecentEntries}" Background="White">
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:AttendanceEntryRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="*,*,200,120" MinHeight="24">
+                                        <Grid ColumnDefinitions="*,*,180,80,60" MinHeight="24">
                                           <TextBlock Grid.Column="0" Text="{Binding Employee}" Margin="8,0"
                                                      VerticalAlignment="Center" FontSize="12"/>
                                           <TextBlock Grid.Column="1" Text="{Binding AttendanceType}"
@@ -9505,6 +9532,10 @@
                                                      VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
                                           <TextBlock Grid.Column="3" Text="{Binding Value}" Margin="0,0,10,0"
                                                      VerticalAlignment="Center" FontSize="12" TextAlignment="Right"/>
+                                          <Button Grid.Column="4" Content="✕" Padding="4,0" FontSize="12"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Command="{Binding $parent[ItemsControl].DataContext.RemoveEntryCommand}"
+                                                  CommandParameter="{Binding}"/>
                                         </Grid>
                                       </Border>
                                     </DataTemplate>
