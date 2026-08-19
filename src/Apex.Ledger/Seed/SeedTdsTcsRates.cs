@@ -20,10 +20,40 @@ namespace Apex.Ledger.Seed;
 ///
 /// <para><b>The primary sources, once, so the rows below can cite them short:</b>
 /// <list type="bullet">
-///   <item><b>[CHART-TDS]</b> Income-tax Department, "TDS Rates", <i>[For Assessment year 2026-27]</i> —
-///     <c>https://www.incometaxindia.gov.in/w/tds-rates-1</c></item>
-///   <item><b>[CHART-TCS]</b> Income-tax Department, "TCS Rates" —
-///     <c>https://www.incometaxindia.gov.in/w/tcs-rates</c></item>
+///   <item>🔴 <b>[CHART-TDS]</b> Income-tax Department, "TDS Rates" —
+///     <c>https://www.incometaxindia.gov.in/w/tds-rates-1</c>.
+///     <b>THIS PAGE CONTRADICTS ITSELF ABOUT ITS OWN VINTAGE. DO NOT CITE IT AS "[For Assessment year 2026-27]"
+///     UNQUALIFIED — THIS ROW USED TO, AND THAT WAS THE PAGE'S CLAIM RESTATED AS IF IT WERE SETTLED.</b>
+///     Re-read 2026-08-20; it declares, in the same document, all three of:
+///     <list type="bullet">
+///       <item>“This document contains the provisions of the Income-tax Act, 1961, as amended by the Finance
+///         Act, 2026.”</item>
+///       <item><i>[For Assessment year 2026-27]</i> — immediately above the rate table</item>
+///       <item><i>[As amended by Finance Act, 2026]</i> — the closing line; "Last reviewed and updated on:
+///         30-Jul-2026"</item>
+///     </list>
+///     Those do not agree. <b>AY 2026-27 IS FY 2025-26, WHICH RESTS ON THE FINANCE ACT 2025, NOT 2026.</b> A table
+///     built on Finance Act 2026 states the FY 2026-27 position. Which of the two the page actually shows is not
+///     determinable from the page: unlike every bare-Act section page, <b>the chart carries NO "Year" metadata
+///     field at all</b>, so the discriminator that resolves the section slugs does not exist here. No archived
+///     correct-vintage chart was found either — <c>/w/tds-rates-2</c>, <c>-3</c> and <c>-4</c> all 404.
+///     <para>The sibling slug is a DIFFERENT ACT, not an older copy, and reading one for the other is the easy
+///     mistake: <c>https://www.incometaxindia.gov.in/w/tds-rates</c> is the <b>Income-tax Act 2025</b> chart —
+///     “...the provisions of the Income-tax Act, 2025, as amended by the Finance Act, 2026”, <i>[For tax year
+///     2026-27]</i>, sections renumbered to 392/393. Same review date, same Finance Act, different statute and a
+///     different year. Only the <c>-1</c> slug is the 1961-Act chart this file is about.</para>
+///     <para>✅ <b>WHY THIS IS SURVIVABLE, AND THE ONE PLACE IT IS NOT.</b> The ambiguity was chased through every
+///     figure that cites this chart (§194A, §194C, §194H, §194I(a), §194I(b), §194Q). For all of them <b>except
+///     one</b> the chart is <b>CORROBORATION ONLY</b> — the shipped rate and threshold are stated in the operative
+///     sentence of the bare Act itself, quoted in each row below, so the chart could be wrong or mis-vintaged and
+///     nothing shipped would move. <b>THE EXCEPTION IS §194A's 10%, WHICH RESTS ON THIS CHART ALONE</b>, because
+///     §194A states no rate — see the §194A row.</para></item>
+///   <item>⚠️ <b>[CHART-TCS]</b> Income-tax Department, "TCS Rates" —
+///     <c>https://www.incometaxindia.gov.in/w/tcs-rates</c>. Not self-contradictory, but <b>UNDATED</b>: re-read
+///     2026-08-20, it declares no assessment year, no tax year and no Finance Act anywhere — its only date-like
+///     fields are "Upload Date 30/04/2026" and "Last reviewed and updated on: 30-Jul-2026", and it too has no
+///     "Year" metadata field. <b>Unlike [CHART-TDS] this one IS load-bearing, for every with-PAN TCS rate in
+///     BuildTcsDefaults</b>, because no §206C bare-Act page is cited anywhere in this file; see the note there.</item>
 ///   <item><b>[194A]</b> <c>https://www.incometaxindia.gov.in/w/section-194a</c> ·
 ///     <b>[194C]</b> <c>https://www.incometaxindia.gov.in/w/section-194c</c> ·
 ///     <b>[194H]</b> <c>https://www.incometaxindia.gov.in/w/section-194h-34</c> ·
@@ -32,13 +62,23 @@ namespace Apex.Ledger.Seed;
 ///     <b>[194Q]</b> <c>https://www.incometaxindia.gov.in/w/section-194q-5</c> ·
 ///     <b>[206AA]</b> <c>https://www.incometaxindia.gov.in/w/section-206aa-16</c> ·
 ///     <b>[206CC]</b> <c>https://www.incometaxindia.gov.in/w/section-206cc-8</c>
-///     — each the bare Act text for the version that governs FY 2025-26.</item>
+///     — the bare Act text. <b>🔴 THE SIX NUMBERED SLUGS ARE Year 2025 (= FY 2025-26). THE TWO PLAIN SLUGS ARE
+///     NOT — RE-MEASURED 2026-08-20, <c>/w/section-194a</c> AND <c>/w/section-194c</c> BOTH NOW SERVE Year 2026.</b>
+///     This row used to claim all eight were "the version that governs FY 2025-26"; that is no longer true and the
+///     claim is withdrawn rather than restated. What the Year-2026 pages do establish is quoted in the §194A and
+///     §194C rows; what they cannot establish on their own is the FY 2025-26 position, and no Year-2025 slug was
+///     located for either (the section pages render no footnote definitions and offer no version picker, so the
+///     substituting Act and w.e.f. date behind §194A's ₹10,000 could not be read off).</item>
 /// </list>
-/// <b>A trap in those URLs, recorded because it cost time:</b> the Department's site serves ARCHIVED versions of a
-/// section under both the plain slug and the numbered ones, and which slug holds the current text is not
-/// predictable — the plain <c>/w/section-194i</c> serves the <b>2009</b> text with its long-repealed ₹1,20,000
-/// threshold, and the plain <c>/w/section-194h</c> serves the version <b>omitted in 1999</b>. Each page states the
-/// year of the text it is showing; read that field before quoting the page.</para>
+/// <b>A trap in those URLs, recorded because it cost time — and it cuts BOTH WAYS:</b> the Department's site serves
+/// ARCHIVED versions of a section under both the plain slug and the numbered ones, and which slug holds which text
+/// is not predictable — the plain <c>/w/section-194i</c> serves the <b>2009</b> text with its long-repealed
+/// ₹1,20,000 threshold, and the plain <c>/w/section-194h</c> serves the version <b>omitted in 1999</b>. <b>The
+/// newly measured half: a plain slug also rolls FORWARD without notice.</b> <c>/w/section-194a</c> and
+/// <c>/w/section-194c</c> were Year 2025 when this file was written and are Year 2026 now, so a plain slug that
+/// verified correctly once can silently stop verifying. Prefer the numbered slug that pins the year. Each page
+/// states the year of the text it is showing; read that field before quoting the page — and note that <b>the two
+/// rate CHARTS have no such field</b>, which is exactly why [CHART-TDS]'s vintage cannot be resolved.</para>
 ///
 /// <para>The seed reflects the Phase-7 approved decisions: §194I and §194J are <b>bifurcated</b> per Form-26Q section
 /// codes (4IA/4IB, 94J-A/94J-B); §194Q no-PAN uses the special §206AA cap of 5% (not 20%); §206C(1H) sale-of-goods
@@ -67,15 +107,44 @@ public static class SeedTdsTcsRates
 
         return new[]
         {
-            // §194A Interest other than interest on securities — AGREES with the statute.
-            //   Rate 10% [CHART-TDS, "Section 194A: Income by way of interest other than 'Interest on securities' 10"];
-            //   no-PAN 20% [206AA(1)(iii)]. Threshold: §194A(3)(i)(d) [194A] — no deduction where the FY aggregate
+            // §194A Interest other than interest on securities — THRESHOLD agrees with the statute; THE RATE IS NOT
+            //   IN THE STATUTE AT ALL. Read the next paragraph before treating this row as sourced.
+            //   🔴🔴 THE 1000bp BELOW IS THE ONE FIGURE IN THE TDS SET THAT RESTS ON [CHART-TDS] ALONE, AND
+            //   [CHART-TDS] IS THE PAGE THAT CONTRADICTS ITSELF ABOUT ITS OWN VINTAGE (class doc). §194A DOES NOT
+            //   STATE A RATE. Its operative sentence, §194A(1) [194A], ends "...deduct income-tax thereon AT THE
+            //   RATES IN FORCE" — the phrase occurs exactly once in the section and no percentage appears anywhere
+            //   in it. "Rates in force" is §2(37A), which points at Part II of the First Schedule to the annual
+            //   Finance Act. So the true primary source for this 10% is the FINANCE ACT 2025, FIRST SCHEDULE,
+            //   PART II — a document this file does not cite and which could NOT be retrieved: the Department's
+            //   Finance Acts browser (/w/finance-acts) serves only "As amended by Finance Act 2026" and exposes
+            //   sections, not schedules. [CHART-TDS] is a transcription of that Part II, and it is currently the
+            //   only thing standing behind this figure.
+            //   WHAT THAT DOES AND DOES NOT MEAN. It is NOT evidence the 10% is wrong — no source contradicts it,
+            //   both live charts (1961-Act and 2025-Act) state 10%, and the figure is long-standing. It IS an
+            //   unclosed R7 gap of exactly the kind T0-6 was opened for: a shipped rate with no retrievable
+            //   primary basis, differing from the cleartax/disytax defect only in that the surviving source is at
+            //   least a government one. THE FIGURE IS LEFT AS SHIPPED AND FLAGGED, NOT RE-ASSERTED. Closing it
+            //   needs Part II of the First Schedule to the Finance Act 2025, not another chart.
+            //   Chart text as read: [CHART-TDS, "Section 194A: Income by way of interest other than 'Interest on
+            //   securities' 10"] — present in both the resident non-company and the domestic-company blocks.
+            //   no-PAN 20% is NOT affected and is properly sourced: §206AA(1) [206AA, Year 2025] takes the HIGHER
+            //   of "(i) at the rate specified in the relevant provision of this Act; or (ii) at the rate or rates
+            //   in force; or (iii) at the rate of twenty per cent", and 20% is the higher whatever (ii) is.
+            //   Threshold: §194A(3)(i)(d) [194A] — no deduction where the FY aggregate
             //   "does not exceed ... ten thousand rupees IN ANY OTHER CASE". That is the GENERIC (non-bank) payer,
             //   which is this SMB clone's default deductor.
             //   The sibling limbs in the same sub-clause are DELIBERATELY NOT MODELLED and are a payer-type-aware
             //   refinement, not a defect in this row: ₹50,000 where the payer is a banking company, a co-operative
             //   society carrying on banking, or a post-office deposit scheme [194A(3)(i)(a)-(c)], and ₹1,00,000 in
             //   place of that ₹50,000 where the payee is a senior citizen [194A(3), third proviso].
+            //   ⚠️ VINTAGE CAVEAT ON THE THRESHOLD ONLY. Re-read 2026-08-20, [194A] now serves Year 2026,
+            //   not the Year 2025 text this was originally verified against. Its §194A(3)(i)(d) reads "25[ten]
+            //   thousand rupees in any other case" and (a)-(c) read "24[fifty] thousand rupees", so the ₹10,000
+            //   below still matches the page — but the page now states the FY 2026-27 position, and the bracketed
+            //   footnote markers 24/25 mean both figures were SUBSTITUTED. The substituting Act and its w.e.f.
+            //   date could not be read: this page renders footnote MARKERS but not footnote DEFINITIONS, and no
+            //   Year-2025 slug for §194A was located. So ₹10,000 is confirmed current and NOT confirmed to have
+            //   been in force for FY 2025-26 by a source in this file. Left as shipped and flagged.
             N("194A", "Interest other than interest on securities", 1000, 2000, "94A",
                 cumulative: R(10_000m)),
             // §194C Payments to contractors — AGREES with the statute, and the missing second rate is now BUILT.
@@ -85,6 +154,12 @@ public static class SeedTdsTcsRates
             //   undivided family". [CHART-TDS] states the same split: "a) HUF/Individuals 1 - b) Others 2".
             //   Thresholds §194C(5) [194C]: no deduction where the sum "does not exceed thirty thousand rupees";
             //   proviso: liable where the FY aggregate "exceeds one lakh rupees". No-PAN 20% [206AA(1)(iii)].
+            //   ✅ THE CHART IS CORROBORATION ONLY HERE — both rates and both thresholds are in the bare Act's own
+            //   operative sentences, quoted above, so [CHART-TDS]'s vintage ambiguity cannot move this row.
+            //   ⚠️ VINTAGE CAVEAT. Re-read 2026-08-20, [194C] now serves Year 2026, not Year 2025. All four
+            //   figures re-verified verbatim on it and all four carry NO footnote marker — unsubstituted text, so
+            //   nothing indicates a change between the two years — but as with §194A no Year-2025 slug was located
+            //   and the FY 2025-26 position is therefore corroborated, not proved, by a source in this file.
             //   🔴 RateWithPanBp BELOW IS THE §194C(1)(i) INDIVIDUAL/HUF ARM. The §194C(1)(ii) 2% arm is
             //   NatureOfPayment.RateWithPanOtherThanIndividualBp — derived from this SectionCode rather than stored,
             //   because a stored second rate needs a nature_of_payment column and therefore a schema migration.
@@ -107,6 +182,9 @@ public static class SeedTdsTcsRates
             //   §194H [194H]: "deduct income-tax thereon at the rate of TWO per cent"; proviso: no deduction where the
             //   FY aggregate "does not exceed ... TWENTY thousand rupees". [CHART-TDS]: "Section 194H: Commission or
             //   brokerage 2". No-PAN 20% [206AA(1)(iii)].
+            //   ✅ CHART IS CORROBORATION ONLY. Both figures re-verified 2026-08-20 in the operative sentence of
+            //   [194H], which is Year 2025 — the right vintage — and reads "at the rate of 85[two] per cent"
+            //   and "does not exceed 86-87[twenty] thousand rupees".
             N("194H", "Commission or brokerage", 200, 2000, "94H",
                 cumulative: R(20_000m)),
             // §194I(a) Rent — plant/machinery/equipment. RATE AGREES; the THRESHOLD IS A PER-MONTH LIMB — SEE BELOW.
@@ -117,6 +195,9 @@ public static class SeedTdsTcsRates
             //   §194-I(b) [194I]: "TEN per cent for the use of any land or building (including factory building) or
             //   land appurtenant to a building (including factory building) or furniture or fittings".
             //   [CHART-TDS]: "b) Land or building or furniture or fitting 10". No-PAN 20% [206AA(1)(iii)].
+            //   ✅ CHART IS CORROBORATION ONLY FOR BOTH §194I ROWS. Re-verified 2026-08-20: [194I] is
+            //   Year 2025 — the right vintage — and its single operative sentence carries both rates as
+            //   "(a) two per cent ... and (b) ten per cent ...". The chart's vintage ambiguity cannot move either.
             //
             //   🔴🔴 NEITHER §194I ROW ABOVE CARRIES A THRESHOLD ARGUMENT, AND THAT IS DELIBERATE. READ THIS BEFORE
             //   ADDING ONE BACK.
@@ -165,13 +246,47 @@ public static class SeedTdsTcsRates
             //   §194Q(1) [194Q]: a buyer paying a resident seller "for purchase of any goods of the value or aggregate
             //   of such value EXCEEDING FIFTY LAKH RUPEES in any previous year ... shall ... deduct an amount equal to
             //   0.1 PER CENT OF SUCH SUM EXCEEDING FIFTY LAKH RUPEES". [CHART-TDS] repeats the excess-only rule:
-            //   "Note: TDS is deductible on sum exceeding Rs. 50 lakhs". The excess-only carve is T0-1; see
+            //   "Note: TDS is deductible on sum exceeding Rs. 50 lakhs".
+            //   ✅ CHART IS CORROBORATION ONLY. Re-verified 2026-08-20: [194Q] is Year 2025 — the right
+            //   vintage — and the rate, the ₹50,00,000 trigger AND the excess-only base are all in the one
+            //   operative sentence of §194Q(1), so this row does not depend on the chart in any respect.
+            //   The excess-only carve is T0-1; see
             //   NatureOfPayment.ChargesOnlyExcessOverCumulativeThreshold.
             //   No-PAN 5%, NOT 20% — §206AA, second proviso [206AA]: "where the tax is required to be deducted under
             //   section 194Q, the provisions of clause (iii) shall apply as if for the words 'twenty per cent', the
             //   words 'FIVE PER CENT' had been substituted".
             N("194Q", "Purchase of goods", 10, 500, "94Q",
                 cumulative: R(50_00_000m)),
+            // ───────────────────────────────────────────────────────────────────────────────────────────────────
+            // 🔴 FORWARD NOTE FOR WHOEVER SEEDS §194N — READ BEFORE COPYING [CHART-TDS]. NOT A DEFECT TODAY:
+            // §194N IS NOT SEEDED, so nothing shipped is wrong. This is here so the next seeding pass does not
+            // ship the chart's error.
+            // [CHART-TDS] STATES §194N INCONSISTENTLY ACROSS ITS OWN BLOCKS, and the block a reader is most
+            // likely to copy is the WRONG one. Measured 2026-08-20:
+            //   · §1.1 "where the person is resident in India" — WRONG. Non-filer limb: "a) 2% from the amount
+            //     withdrawn in cash if the aggregate of the amount of withdrawal exceeds Rs. 20 lakhs during the
+            //     previous year; or b) 5% ... exceeds Rs. 1 crore". THE 2% LIMB HAS NO UPPER BOUND, so read
+            //     literally the two limbs OVERLAP above ₹1 crore and 2% appears to apply there too.
+            //   · §1.2 "where the person is not resident in India" — WRONG, same missing bound.
+            //   · §2.1 "where the company is a domestic company" — CORRECT: "a) 2% ... exceeds Rs. 20 lakhs BUT
+            //     NOT EXCEEDING RS. 1 CRORE during the previous year; or b) 5% ... exceeds Rs. 1 crore".
+            // THE STATUTE SETTLES IT, and the correct boundary is the domestic-company block's. §194N, first
+            // proviso, clause (ii) — https://www.incometaxindia.gov.in/w/section-194n-7, Year 2025, so the
+            // vintage is right — reads: "(a) an amount equal to two per cent of the sum where the amount or
+            // aggregate of amounts, as the case may be, being paid in cash exceeds twenty lakh rupees during the
+            // previous year BUT DOES NOT EXCEED ONE CRORE RUPEES; or (b) an amount equal to five per cent of the
+            // sum where the amount or aggregate of amounts ... exceeds one crore rupees".
+            // SO: 2% applies ONLY on the band ₹20 lakh → ₹1 crore, and 5% above ₹1 crore, and both limbs are
+            // NON-FILER-ONLY — the first proviso applies solely to "a recipient who has not filed the returns of
+            // income for all of the three assessment years ...". The ordinary (filer) case is the main sentence:
+            // 2% on cash exceeding ₹1 crore. Two further limbs a seeding pass must not lose, both from the same
+            // page: the co-operative-society substitution reading "one crore rupees" as "three crore rupees", and
+            // the exemptions in the last proviso (Government, banks/co-operative banks/post office, business
+            // correspondents, and the rest).
+            // ⚠️ AND NOTE WHAT §194N IS: a rate borne by BANKS, CO-OPERATIVE BANKS AND POST OFFICES on cash
+            // withdrawals. It is almost certainly out of scope for this SMB clone's deductor set; seed it only on
+            // a deliberate decision, not because it appears on the chart.
+            // ───────────────────────────────────────────────────────────────────────────────────────────────────
         };
     }
 
@@ -185,6 +300,25 @@ public static class SeedTdsTcsRates
     /// TWICE the rate specified in the relevant provision of this Act; or (ii) at the rate of FIVE per cent",
     /// subject to "Provided that the rate of tax collection at source under this section shall not exceed twenty
     /// per cent." Each row states its own arithmetic. The blog citations these figures used to carry are gone.</para>
+    /// <para>🔴 <b>BUT NOTE THE ASYMMETRY WITH THE TDS SET, MEASURED 2026-08-20. THERE, THE CHART IS
+    /// CORROBORATION FOR ALL BUT ONE FIGURE, BECAUSE EVERY RATE IS ALSO IN A CITED BARE-ACT SECTION. HERE IT IS
+    /// NOT: NO §206C BARE-ACT PAGE IS CITED ANYWHERE IN THIS FILE, SO EVERY WITH-PAN RATE IN THIS BUILDER RESTS
+    /// ON [CHART-TCS] ALONE</b> — and the no-PAN rates are computed FROM those rates by §206CC, so they inherit
+    /// the same single point of failure. That is not a new regression; it follows from what the §206C(1H) row
+    /// below already records, that "the Department's site served only pre-2020 archived texts of §206C at every
+    /// slug tried". It is written here because the reader of the class doc's [CHART-TCS] entry needs to know
+    /// which of the two charts actually carries weight.
+    /// <para>The chart's own vintage is <b>UNSTATED</b>, which is a different flaw from [CHART-TDS]'s
+    /// self-contradiction and arguably a quieter one: re-read 2026-08-20, it declares no assessment year, no tax
+    /// year and no Finance Act anywhere on the page, and carries no "Year" metadata field. Its only dates are
+    /// "Upload Date 30/04/2026" and "Last reviewed and updated on: 30-Jul-2026". The rates read off it that day —
+    /// alcoholic liquor 1, tendu leaves 5, timber under a forest lease 2, timber by any other mode 2, scrap 1,
+    /// minerals 1 — all still match the figures seeded below, so nothing is asserted to have moved. What cannot
+    /// be said is which year they are the rates FOR. (Cosmetic, noted so a future reader is not confused by it:
+    /// the Category-1 table prints "Timber obtained by any mode other than a forest lease 2" TWICE.)</para>
+    /// <b>To close this properly, cite §206C(1) itself</b>, not a chart — the same numbered-slug technique that
+    /// resolved §194H and §194-I should be tried again on §206C, since the site has since been re-published and
+    /// the earlier attempt predates that.</para>
     /// </summary>
     public static IReadOnlyList<NatureOfGoods> BuildTcsDefaults()
     {
