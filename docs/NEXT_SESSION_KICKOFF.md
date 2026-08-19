@@ -60,11 +60,11 @@ Rewritten **2026-08-17**, in full.
 >
 > **▶ TRAP 3 — WORKTREES.** **`isolation: 'worktree'` cuts from `main`, NOT from the current branch.** A
 > parallel track created that way starts at `c655dc2` and silently lacks **every commit on the branch** (≥85
-> as of `bdd3389`) — **schema v51 among
-> them** — so it would build a v50 database and every migration fixture in it would be a lie. **A12, and only
+> as of `bdd3389`) — **schema `52` among
+> them, against `origin/main`'s `46`** — so it would build a far older database and every migration fixture in it would be a lie. **A12, and only
 > A12 (R4), cuts the worktree explicitly from the branch tip, and `Schema.CurrentVersion` is verified INSIDE
-> it before any build** (`src/Apex.Persistence.Sqlite/Schema.cs:159` must read
-> `public const int CurrentVersion = 51;`). **A worktree that comes up at v50 was cut from `main` — re-cut it;
+> it before any build** — **⚠️ CORRECTED 2026-08-19: grep `public const int CurrentVersion` in
+> `src/Apex.Persistence.Sqlite/Schema.cs`, NEVER by line — ~~`:159`~~ moved when the voucher edit log took v52.** **A worktree that comes up at a LOWER number than this branch was cut from `main` — re-cut it;
 > do not debug the difference.**
 >
 > **▶ THE EIGHT STANDING USER RULINGS (R12) — all in `plan.md` §5; do not re-litigate:**
@@ -120,7 +120,7 @@ Rewritten **2026-08-17**, in full.
 | HEAD | **at or after `bdd3389`** — a floor pinned to a sha, as of 2026-08-17, and stale by construction the instant it is written: the commit that carries this table moves HEAD past `bdd3389`. `git rev-parse HEAD`. The previous revision of this file asserted `3e968b3` as a bare fact and was two commits wrong by the time anyone read it. |
 | Ahead of `origin/main` | **≥85 as of `bdd3389`** — a floor pinned to a sha, never a live figure. Re-run `git rev-list --count origin/main..HEAD`; this cell goes stale on the next push and on any move of `origin/main`. |
 | `origin/main` | **`c655dc2`** — unmoved for the whole run |
-| Schema | **v51** (`src/Apex.Persistence.Sqlite/Schema.cs:159`) |
+| Schema | **v52** — grep `public const int CurrentVersion` in `src/Apex.Persistence.Sqlite/Schema.cs`; never cite it by line, it has moved twice |
 | Gate | build **0W/0E** · Ledger **1668** · Io **414** · Sqlite **231** · Desktop **2195** |
 | PR | **#34 — OPEN, NOT MERGED**, mergeable, not a draft |
 
@@ -130,7 +130,7 @@ already at ≥85 commits as of `bdd3389`. Read those four numbers as a snapshot 
 live figures from the PR itself. **The PR body is A12's artefact and is not edited from here (R4).**)*
 `origin/main` is at `CurrentVersion` **46**; HEAD is at **51**, so the PR spans `MigrateV46ToV47` through
 `MigrateV50ToV51`. The main loop's brief said "one migration"; A12 re-derived it from
-`git show origin/main:…/Schema.cs` and corrected it **before it reached the PR body**. Record that as a save.
+`git show origin/main:…/Schema.cs` and corrected it **before it reached the PR body**. Record that as a save. *(2026-08-19: HEAD has since moved to `52` — the voucher edit log — so the span is one migration longer than this at-open snapshot says.)*
 
 ---
 

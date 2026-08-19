@@ -141,6 +141,38 @@ public sealed class LoadBearingCitationContentTests
             "not a stamp - `GstConfigViewModel.cs:583`",
             "GstConfigViewModel.cs",
             "HomeState ??="),
+
+        // ---- the migration-equivalence rule: the one Schema.cs citation that KEEPS a line number ----
+        // Added 2026-08-19, after the voucher edit log added lines above the top of Schema.cs and silently moved
+        // BOTH of that file's load-bearing anchors. Every citing site in plan.md stayed green under the reach
+        // check - `:157-158` and `:159` are still valid lines in a 3,986-line file - while pointing at the wrong
+        // content, and two of the drifted sites were ACTIONABLE INSTRUCTIONS telling a future session to verify a
+        // freshly-cut worktree by reading a named line for a named version. Nothing caught it because neither
+        // anchor was in this table.
+        //
+        // 🔴 WHY ONLY THE RULE IS HERE, AND NOT THE VERSION CONSTANT. This table can only guard a citation that
+        // CARRIES a line number - it locates `CitedFile:NN` on the document line and reads that range. The right
+        // repair for the version constant was to delete its line numbers outright ("grep
+        // `public const int CurrentVersion`"), because an instruction pinned to a line drifts on the next edit of
+        // the file and an instruction pinned to a grep cannot. Those sites therefore have no `Schema.cs:NN` left
+        // for this mechanism to bite on - by construction, not by oversight. Pinning them here would also have
+        // required a token carrying the version VALUE, which is precisely the row shape the memory.md comment
+        // above records as a mistake: red on every future bump, and edited away to shut it up.
+        //
+        // The migration-equivalence rule is the opposite case. Its citing sentences are ABOUT the location ("the
+        // rule ... now lives at"), so a line number is the claim itself, and the required token is a design rule
+        // whose wording does not move with the schema version - so this row bites on drift and never on a bump.
+        // The token is the file's ONLY occurrence of "Keep this in lock-step with"; the many other
+        // "the migration-equivalence test enforces this" sentences on the per-migration doc comments would have
+        // made a laxer token false-green on a drift into any of them.
+        new("plan.md",
+            "content drift, not a dangling citation",
+            "Schema.cs",
+            "Keep this in lock-step with"),
+        new("plan.md",
+            "guarded from here on by",
+            "Schema.cs",
+            "Keep this in lock-step with"),
     };
 
     private static string RepoRoot()
