@@ -5672,6 +5672,225 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    // ============================================ Phase 10.11 S5d: Ctrl+Enter — ALTER the highlighted voucher
+
+    /// <summary>
+    /// The three surfaces Ctrl+Enter opens a posted voucher for ALTERATION from — the live report page (the Day
+    /// Book carries the voucher rows), the register drill, and the read-only voucher-detail column beneath it.
+    ///
+    /// <para><b>They are EXACTLY the three voucher arms of <see cref="IsDeleteTargetPage"/>, deliberately.</b>
+    /// Alt+D and Ctrl+Enter resolve the highlighted voucher through the same three expressions, so the two verbs
+    /// can never disagree about which document the highlight means — the same reason
+    /// <see cref="RequestDeleteChartRow"/> resolves its row the way <see cref="AlterHighlightedChartRow"/> does.
+    /// <see cref="IsDeleteTargetPage"/>'s two MASTER arms (Chart of Accounts, Stock Item master) are absent
+    /// because master alteration already has its own route: Enter on the chart, and Ctrl+Enter on the Stock Item
+    /// list via <see cref="AlterHighlightedStockItemRow"/>, which the window's arm consults FIRST.</para>
+    ///
+    /// <para>🔴 <b>Why the report clause is <see cref="IsLiveReportPage"/> and not <see cref="IsReportContext"/>.</b>
+    /// Inherited from the S3 review finding and NOT re-derived: <c>IsReportContext</c> is deliberately TRUE while
+    /// an F12 config, an Alt+F12 sort/filter, an Alt+A add-voucher picker, an Alt+K saved-views panel or a Print
+    /// Preview column is stacked over the report, with the report's row still highlighted behind it. Opening an
+    /// alteration from inside one of those columns would push an entry screen over the operator's open panel for
+    /// the voucher BEHIND it. Alteration is not destructive the way Alt+X and Alt+D are — but it is the verb that
+    /// puts a posted voucher into an editable form, and the scope hole is the same hole.</para>
+    ///
+    /// <para>🔴 <b>MEASURED, not assumed, and the measurement corrected a claim.</b> Swapping the window arm's
+    /// clause for <see cref="IsReportContext"/> does NOT open the stacked-column hole, because
+    /// <see cref="RequestAlterHighlightedVoucher"/>'s <c>CurrentScreen</c> switch has no <c>ReportConfig</c> /
+    /// <c>ReportSortFilter</c> / <c>AddVoucherPicker</c> / <c>SavedViews</c> / <c>PrintPreview</c> arm and refuses
+    /// those a second time. The two are redundant for that case and the switch is what decides it. What this
+    /// property is measurably load-bearing for is the OTHER two surfaces: <see cref="IsReportContext"/> excludes
+    /// <see cref="Screen.LedgerVouchers"/> and <see cref="Screen.VoucherDetail"/> by construction, so an arm
+    /// written on it loses the register drill and the voucher-detail column entirely — which is exactly what the
+    /// mutation reddened.</para>
+    ///
+    /// <para>The <c>Company is not null</c> clause is a precondition, honestly labelled: it is not independently
+    /// falsifiable (every screen below needs an open company to reach, and nothing sets <c>Company</c> back to
+    /// null) and <see cref="RequestAlterHighlightedVoucher"/> re-tests it anyway. Kept for the same reason
+    /// <see cref="IsDeleteTargetPage"/> keeps its own.</para>
+    /// </summary>
+    public bool IsVoucherAlterTargetPage =>
+        Company is not null
+        && (IsLiveReportPage
+            || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+
+    /// <summary>
+    /// <b>Ctrl+Enter — open the highlighted posted voucher for ALTERATION.</b> Returns the THREE-VALUED
+    /// <see cref="VoucherAlterationRequest"/>: <c>Opened</c>, <c>NoVoucherHere</c> (a quiet no-op — the caller
+    /// MUST fall through so the row still drills), or <c>Refused</c> (terminal, with a NAMED refusal already on
+    /// the notice bar — the caller MUST consume the key, because falling through would drill and
+    /// <c>OnCurrentScreenChanged</c> wipes the notice on the way past).
+    ///
+    /// <para>🔴 It is deliberately NOT a <c>bool</c>. A bool conflates <c>NoVoucherHere</c> with <c>Refused</c>,
+    /// and those two demand OPPOSITE caller behaviour — fall through versus consume. That conflation is the
+    /// entire reason <see cref="VoucherAlterationRequest"/> exists, so do not "simplify" this signature.</para>
+    ///
+    /// <para><b>🔴 FIDELITY (R7) — TWO RECORDS, AND THEY MUST NOT BE MERGED.</b>
+    /// <list type="bullet">
+    ///   <item><b>(A) A DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR — the gesture.</b> The corpus attests
+    ///     <c>Ctrl+Enter</c> as an ALTERATION key reached from a report drill-down, verbatim
+    ///     <i>"To alter a master during voucher entry or from drilldown of a report"</i> (Book PDF p.436
+    ///     [printed p.432], re-extracted with <c>pdftotext -raw</c> — <c>-layout</c> scrambles that three-column
+    ///     table). What it attests is a <b>master</b>. Binding the same chord to a <b>voucher</b> from the same
+    ///     place widens an attested behaviour to a second object. It is <b>not</b> corpus silence, and it is not
+    ///     a narrowing.</item>
+    ///   <item><b>(B) A DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR — the chord we did NOT use.</b> The
+    ///     corpus's own route to voucher alteration is <b>plain Enter</b> on a register row:
+    ///     <i>"… &gt; \&lt;X&gt; Register &gt; Select Month &amp; Show/Edit Entry"</i>, repeated verbatim for every
+    ///     voucher family (Book PDF pp.32, 34, 37, 42, 47, 49, 64, 71 and the inventory families), and TallyPrime
+    ///     has no separate read-only voucher screen — one action is named, not two. We keep plain Enter for the
+    ///     read-only <see cref="Screen.VoucherDetail"/> column to preserve the Miller-column cascade. That is
+    ///     USER DECISION 1 / VL-1, settled, with a follow-up to reconsider — recorded here as a divergence from
+    ///     an ATTESTED behaviour, never as fidelity.</item>
+    /// </list>
+    /// <b>Attested and FOLLOWED, so it is neither of the above:</b> <c>Ctrl+A</c> saves the altered voucher —
+    /// <i>"… &amp; Show/Edit Entry &gt; Press \"Ctrl+A\" for Save"</i> (Book PDF pp.51, 53, 56, 58). That is why
+    /// <see cref="ActivateSelected"/> routes an altering entry screen to <c>AcceptAlteration</c> rather than
+    /// inventing a second accept key.
+    /// <br/><b>OURS — corpus silent:</b> the three surfaces above, the refusal sentences (they come from
+    /// <see cref="VoucherAlterationEligibility"/>), and the notice bar they are shown on.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Ctrl+Enter arm
+    /// decides only that the keystroke is ours (a voucher-alteration surface, not typing, no open picker, exactly
+    /// Ctrl). Everything that depends on DATA is decided here so a future button route cannot diverge from the
+    /// accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open — inert;</item>
+    ///   <item>🔴 a confirmation is already up — inert. An armed Alt+X or Alt+D question names a voucher and is
+    ///         answered by a bare Y; opening an entry screen over it would carry the arming into a screen that
+    ///         cannot show the question, exactly the class <see cref="ActivateSelected"/>'s own lifecycle gate
+    ///         was added for. Answer it first;</item>
+    ///   <item>nothing highlighted, or a row that resolves to no voucher (a header, a total, an empty-state note,
+    ///         or the <see cref="Guid.Empty"/> a non-drillable row carries) — a quiet no-op;</item>
+    ///   <item>🔴 <see cref="VoucherEntryViewModel.ForAlter"/> REFUSED — the family-specific sentence is put on
+    ///         the notice bar by name. 13 of the 33 enumerated shapes refuse and 8 more defer, so the refusal is
+    ///         the COMMON outcome on a real book, not the edge case. It reaches the operator through
+    ///         <see cref="RaiseLifecycleNotice"/> and not through <c>Message</c>, because the report page's
+    ///         <c>DataTemplate</c> is typed <c>x:DataType="vm:ReportsViewModel"</c> and has no <c>Message</c>
+    ///         property at all — the S3 review's finding, inherited rather than rediscovered.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Why the alteration opens as a DRILL column and not a page column.</b>
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// or register the operator drilled from; the cascade would come back to the Gateway on Esc instead of to the
+    /// row they were standing on. <see cref="OpenDrillColumn"/> appends to the right and leaves the pane beneath
+    /// intact, and <see cref="BindPageColumn"/> already re-binds a surviving
+    /// <see cref="VoucherEntryViewModel"/> when the column is popped.</para>
+    /// </summary>
+    public VoucherAlterationRequest RequestAlterHighlightedVoucher()
+    {
+        if (Company is null) return VoucherAlterationRequest.NoVoucherHere;
+
+        // 🔴 An armed Alt+X / Alt+D question is answered by a BARE Y, and the entry screen this would open cannot
+        // show it. Reported as Refused, not as NoVoucherHere: the operator is told what to do and the keystroke is
+        // consumed, so it cannot fall through and drill out from under the question instead.
+        if (IsAcceptPromptOpen)
+        {
+            RaiseLifecycleNotice(
+                "Answer the question on screen first (Y or N) — Ctrl+Enter does nothing while it is up.");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var voucherId = CurrentScreen switch
+        {
+            // `Reports?` rather than `Reports!` + an `IsLiveReportPage` clause, for the reason
+            // RequestDeleteHighlighted records: on Screen.Report that clause reduces to a null test, so it would
+            // be an unfalsifiable guard spelled as a screen predicate.
+            Screen.Report => Reports?.SelectedRow?.DrillVoucherId,
+            Screen.LedgerVouchers => LedgerVouchers?.SelectedRow?.DrillVoucherId,
+            Screen.VoucherDetail => VoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
+        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+
+        return ShowVoucherAlteration(voucher);
+    }
+
+    /// <summary>
+    /// Opens <paramref name="voucher"/>'s alteration screen, or puts its named refusal on the notice bar. Split
+    /// out from <see cref="RequestAlterHighlightedVoucher"/> so the surface resolution and the open are separately
+    /// legible — and so the refusal has exactly ONE exit.
+    /// </summary>
+    private VoucherAlterationRequest ShowVoucherAlteration(Voucher voucher)
+    {
+        // The surface the operator drilled from, captured as an INSTANCE: OpenDrillColumn does not clear the sub
+        // screens, but a later pop rebinds them, and a `() => Reports?.Show(...)` closure read at save time could
+        // see a different report. Same trap ShowLedgerAlter records for the Chart of Accounts tree.
+        var report = Reports;
+        var register = LedgerVouchers;
+
+        var open = VoucherEntryViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                // Pop the alteration column, then re-render whatever survived beneath it so the amended figures
+                // are on screen without the operator re-opening the report — the same courtesy S3's cancel and
+                // S4's delete already pay through RefreshDeletionSurface.
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // 🔴 The refusal is SHOWN, never swallowed. `ForAlter` returns a refusal for most shapes on a real
+            // book, and a caller that dropped it would make Ctrl+Enter indistinguishable from a dead key — the
+            // precise failure VoucherAlterationOpen was made a two-sided type to prevent.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        // The same batch-allocation cascade wiring OpenVoucher does. Without it a batch-tracked line on an
+        // altering screen would raise an event nobody handles — the shell owns the cascade, not the entry VM.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Accounting Voucher Alteration — {entry.Type.Name}";
+        // No `Notice = string.Empty` here: OpenDrillColumn moves CurrentScreen to VoucherEntry from one of three
+        // other screens, and OnCurrentScreenChanged clears the bar on every change. Writing it again would be a
+        // guard no test could fail.
+        // The CASCADE COLUMN label says Alteration too, not just the screen title above it. OpenVoucher labels
+        // its column `type.Name + " Voucher"`, and reusing that here left an operator with the Day Book on
+        // the left and a column on the right that read identically for a new entry and for an amendment of a
+        // posted one. The master screens already distinguish the two ("Stock Item Alteration").
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.VoucherEntry, title, () => VoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// 🔴 <b>The ONE place that decides which accept verb the voucher-entry screen runs</b> — <c>Accept</c> for a
+    /// new voucher, <see cref="VoucherEntryViewModel.AcceptAlteration"/> for a posted one being altered. Returns
+    /// what the verb returned; <c>false</c> when no entry screen is bound.
+    ///
+    /// <para><b>Why one method and not two call sites.</b> The screen has TWO accept routes — Ctrl+A through
+    /// <see cref="ActivateSelected"/>, and the on-screen <i>Accept</i> button through
+    /// <c>MainWindow.OnAcceptVoucherClick</c> — and until this slice the button called <c>VoucherEntry.Accept()</c>
+    /// directly. On an altering screen that is a HARD REFUSAL ("use AcceptAlteration"), so the button and the key
+    /// would have disagreed the moment alteration became reachable. Both now come through here, which is the same
+    /// discipline <c>RequestDeleteChartRow</c> follows in resolving its row exactly as
+    /// <see cref="AlterHighlightedChartRow"/> does.</para>
+    ///
+    /// <para><b>FIDELITY (R7) — ATTESTED AND FOLLOWED.</b> The corpus saves an altered voucher with the SAME key
+    /// as creation: <i>"… &amp; Show/Edit Entry &gt; Press \"Ctrl+A\" for Save"</i>, Book PDF pp.51, 53, 56, 58.
+    /// No second accept chord is invented. The branch on <c>IsAltering</c> (rather than on a separate screen id)
+    /// is what lets the alteration form BE the entry form pre-filled, which is also how the reference product
+    /// presents it — <i>"TallyPrime has no separate read-only voucher screen"</i>, design record §2.1.</para>
+    ///
+    /// <para><b>Why <c>Accept</c> could not simply be made to cope.</b> <c>Accept</c> is build + <c>Post</c> +
+    /// REGISTRATION SIDE EFFECTS: it re-runs <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and
+    /// <c>BuildAdvanceLines</c> against TODAY's masters, mints a fresh <see cref="Guid"/> and posts a SECOND
+    /// voucher beside the original (design §6.6a.6). Its refusal on an altering screen is a designed guard, not an
+    /// oversight, and this branch is what stops an operator ever meeting it.</para>
+    /// </summary>
+    public bool AcceptVoucherEntryOrAlteration() =>
+        VoucherEntry is { } entry && (entry.IsAltering ? entry.AcceptAlteration() : entry.Accept());
+
     // =============================================================== WI-11: the Accept? (Y/N) confirmation
 
     /// <summary>
@@ -6746,7 +6965,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 AlterCompany?.Accept();
                 return;
             case Screen.VoucherEntry:
-                VoucherEntry?.Accept();
+                AcceptVoucherEntryOrAlteration();
                 return;
             case Screen.InventoryVoucherEntry:
                 InventoryVoucherEntry?.Accept();

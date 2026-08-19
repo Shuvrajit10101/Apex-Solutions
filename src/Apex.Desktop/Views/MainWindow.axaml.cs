@@ -195,6 +195,84 @@ public partial class MainWindow : Window
             return;
         }
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // WHAT THIS CLOSES. `VoucherEntryViewModel.ForAlter` shipped with ZERO production callers — every caller
+        // lived in tests/Apex.Desktop.Tests — so no operator could reach voucher alteration by any sequence of
+        // keys. That is the SAME defect `StockItemAlterReachabilityTests` was written for one file away, and it
+        // shipped a second time in a codebase that already contained the test proving the shape. The standing
+        // lock against a third is `ViewModelAlterEntryPointReachabilityTests`, which derives its set rather than
+        // listing it.
+        //
+        // FIDELITY (R7) — TWO RECORDS, KEPT APART because conflating them is the defect lenses caught on S3 AND
+        // S5a. (A) The chord is a DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR: the corpus gives Ctrl+Enter as
+        // "To alter a master during voucher entry or from drilldown of a report" (Book PDF p.436 [printed p.432],
+        // `-raw`) — an alteration key, from a drill-down, for a MASTER; we widen it to a VOUCHER from the same
+        // place. (B) NOT using plain Enter is a DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR: the corpus
+        // reaches voucher alteration with plain Enter on a register row ("Select Month & Show/Edit Entry", Book
+        // PDF pp.32, 34, 37, 42, 47, 49, 64, 71) and has no separate read-only voucher screen — we keep plain
+        // Enter for the read-only VoucherDetail column, USER DECISION 1 / VL-1. Neither is corpus silence.
+        // 🔴 Ctrl+B STAYS RESERVED AND UNBOUND. Nothing here claims it.
+        //
+        // ORDER IS LOAD-BEARING, in both directions:
+        //   • BELOW the stock-item arm above, which owns Ctrl+Enter on Screen.StockItemMaster and returns false
+        //     everywhere else. The two surfaces are disjoint, so the order is a reading convenience — but it also
+        //     means master alteration keeps the chord it already had if a screen ever carries both.
+        //   • ABOVE the `vm.DrillSelectedRow()` arm immediately below, and THAT is a real behaviour change: that
+        //     arm tests `e.Key == Key.Enter` with NO modifier test at all, so before this block Ctrl+Enter on a
+        //     Day-Book row DRILLED, identically to plain Enter. Plain Enter still drills — the read-only column
+        //     is USER DECISION 1's half — and Ctrl+Enter now alters.
+        //
+        // EVERY GUARD, inherited from the S3/S4 reviews rather than re-derived:
+        //   • `vm.IsVoucherAlterTargetPage` — the live report page, the register drill, the voucher-detail
+        //     column: EXACTLY the three voucher arms of `IsDeleteTargetPage`, so Alt+D and Ctrl+Enter can never
+        //     disagree about which voucher the highlight means. It uses `IsLiveReportPage`, NOT
+        //     `IsReportContext`: the latter is deliberately TRUE while an F12 config, an Alt+F12 sort/filter, an
+        //     Alt+A picker, an Alt+K saved-views panel or a Print Preview column is stacked over the report with
+        //     the row still highlighted behind it. S3 measured that hole on five screens; it is not re-opened.
+        //     🔴 HONESTLY LABELLED, because the mutation was run and it did NOT say what this comment first
+        //     claimed: swapping this clause for `vm.IsReportContext` does NOT let a stacked column alter the row
+        //     behind it — `RequestAlterHighlightedVoucher`'s own `CurrentScreen` switch has no `ReportConfig`
+        //     arm and refuses it a second time. For THAT case the two guards are redundant and the view model is
+        //     what decides. This clause is still load-bearing, measurably, in the other direction: under that
+        //     same mutation the register drill and the voucher-detail column stop working entirely (both are
+        //     excluded from `IsReportContext` by construction), so the chord loses two of its three surfaces.
+        //     Read it as the readable statement of scope plus a cheap pre-filter — not as the thing standing
+        //     between an operator and S3's hole.
+        //   • `e.KeyModifiers == KeyModifiers.Control` — an EXACT match, not `HasFlag`. Ctrl+Alt+Enter,
+        //     Ctrl+Shift+Enter and Ctrl+Win+Enter are different chords. Same doctrine as the Alt+X and Alt+D arms
+        //     below and the bare-letter quick-jumps far beneath them. (The stock-item arm above keeps its own
+        //     `HasFlag` spelling; tightening it is not this slice's change to make.)
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, and labelled honestly. The three surfaces
+        //     this arm is scoped to carry no TextBox that takes focus today, and the report page's three
+        //     ComboBoxes are invisible on the report kinds that have voucher rows — so on the surfaces reachable
+        //     at this commit neither clause can change the outcome, and neither is independently pinnable. They
+        //     are kept, not deleted, for the same reason the Alt+X pair is: this arm puts a POSTED voucher into
+        //     an editable form, and the report page is one inline filter box away from making them load-bearing.
+        //     Do NOT write a test claiming to pin them — it would be pinning the screen gate.
+        // The view model does the REST of the gating (a row must be highlighted, it must resolve to a real
+        // voucher, no confirmation may already be up, and `ForAlter`'s eligibility predicate must accept the
+        // shape — 13 of 33 enumerated shapes REFUSE, and the refusal is shown on the notice bar, never swallowed).
+        //
+        // 🔴 `e.Handled` IS NOT UNCONDITIONAL HERE, and that is the one place this arm deliberately departs from
+        // Alt+X and Alt+D. Its outcome is three-valued (see `VoucherAlterationRequest`):
+        //   • Opened / Refused → CONSUMED. A refusal is terminal because the sentence has just been written to
+        //     the notice bar and `OnCurrentScreenChanged` clears that bar on any change of screen — falling
+        //     through to the drill below would open the voucher-detail column and wipe the explanation on the way
+        //     past, which is exactly the "invisible failed operation" defect S3's review found, by another route.
+        //   • NoVoucherHere → NOT consumed, so the keystroke continues to `DrillSelectedRow` below. That arm
+        //     tests `e.Key == Key.Enter` with no modifier test, so Ctrl+Enter on a Trial Balance ledger row (or
+        //     any header/total row) drills TODAY; swallowing it would take a working behaviour away in exchange
+        //     for a dead key.
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.Control
+            && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
+            && vm.RequestAlterHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
         // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble
@@ -1216,8 +1294,14 @@ public partial class MainWindow : Window
     private void OnAcceptCompanyProfileClick(object? sender, RoutedEventArgs e)
         => Vm?.AlterCompany?.Accept();
 
+    /// <summary>
+    /// The voucher-entry screen's on-screen <b>Accept</b> button. Phase 10.11 S5d routed it through the shell's
+    /// single accept decision instead of calling <c>VoucherEntry.Accept()</c> directly: the same screen now serves
+    /// entry AND alteration, and <c>Accept</c> HARD-REFUSES on an altering one, so the button and Ctrl+A would
+    /// have disagreed the moment alteration became reachable.
+    /// </summary>
     private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.VoucherEntry?.Accept();
+        => Vm?.AcceptVoucherEntryOrAlteration();
 
     /// <summary>
     /// The voucher-entry screen's "Cancel (Esc)" button — it <b>ABANDONS THE ENTRY SCREEN</b> (discards a

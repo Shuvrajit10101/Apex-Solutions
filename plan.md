@@ -2189,7 +2189,16 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   end to end. Each slice was reviewed **pre-merge** and **every single one shipped fixes**; the findings are
   logged in `memory.md`'s 2026-08-19 lifecycle entry and are not restated here.
   **▶ 🔴 HALF TWO — NO OPERATOR CAN REACH ALTERATION FROM ANY SCREEN. `VoucherEntryViewModel.ForAlter` HAS
-  ZERO PRODUCTION CALL SITES.** Do not take this sentence on trust — derive it:
+  ZERO PRODUCTION CALL SITES.**
+  **▶ 🔴 SUPERSEDED 2026-08-19 BY SLICE S5d. BOTH SENTENCES WERE TRUE WHEN WRITTEN AND ARE FALSE NOW; THE TEXT
+  IS KEPT AND NOT DELETED**, because the deviation record further down this row is precisely about the state it
+  describes. **Re-run the derivation below rather than believing either version** — a real production call to the
+  voucher factory now exists, in `MainWindowViewModel`'s `ShowVoucherAlteration`. ⚠️ **And note what that
+  derivation cannot do any more:** `grep -rn "VoucherEntryViewModel.ForAlter" --include=*.cs src` now returns
+  **mostly `<see cref=…/>` doc comments**, which a text scan cannot tell from call sites — that is why the
+  standing lock added by S5d reads **IL** instead. The full marker — including the **R6 breach** and its
+  attributed reason — is the `SUPERSEDED IN PART` block after the R9-gate warning below.
+  **What follows is HALF TWO as originally written.** Do not take this sentence on trust — derive it:
   `grep -rn "ForAlter" --include=*.cs src` returns the three **master** factories (`LedgerMasterViewModel`,
   `AccountGroupMasterViewModel`, `StockItemMasterViewModel`) with their callers in `MainWindowViewModel`, plus
   doc comments — and **not one call to the voucher factory**. Every caller of it lives in
@@ -2216,6 +2225,32 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   ⚠️ **Read this together with the R9 exit gate below: the real-app evidence that gate demands — "alter a
   posted invoice and see the same number at the same Day-Book position" — CANNOT BE PRODUCED TODAY.** The gate
   is not met and must not be recorded as met.
+  **▶ 🔴 SUPERSEDED IN PART, 2026-08-19 — THE WIRING WAS BUILT, AND IT WAS BUILT BEFORE THE SEQUENCING
+  QUESTION ABOVE WAS SETTLED. EVERYTHING ABOVE IS KEPT VERBATIM AND NOTHING IS DELETED**, because it is the
+  record of what this plan said at the moment the deviation was ordered, and a retro-fitted item that read as
+  though the work had always been planned would destroy exactly that. Read the two together:
+  - **WHAT IS NOW FALSE.** *"The wiring is carried by no slice in this row"* and *"`VoucherEntryViewModel.ForAlter`
+    has ZERO production call sites"*. The diff exists — it is **S5d** in the slice list below. `Ctrl+Enter`
+    opens a posted voucher for alteration from the register drill, the read-only voucher-detail column and the
+    live report page, and Accept branches on `IsAltering` to `AcceptAlteration`. The **HALF TWO** banner near
+    the top of this row is superseded by the same marker and carries a pointer to it.
+  - **WHAT IS STILL TRUE, AND IS THE POINT OF THIS ENTRY.** The sequencing question that paragraph raises —
+    *"its own slice, or folded into the edit-log work"* — **was never put to the user and was never answered.**
+    It was overtaken, not resolved.
+  - **▶ 🔴 R6 IS BREACHED HERE AND IS RECORDED AS A BREACH, NOT DRESSED AS A PLAN.** R6: no work is done
+    outside `plan.md` without first updating `plan.md`. **S5d was built first and planned afterwards.** This
+    marker and the S5d item below are the retrospective record.
+  - **▶ THE REASON, ATTRIBUTED — IT IS THE MAIN LOOP'S OWN, NOT THE USER'S, NOT A REVIEW'S, NOT A14's.**
+    *"Phase 10.11 had just been closed in the record with a prominent statement that `ForAlter` had zero
+    production call sites and no operator could reach alteration. That is the overstated-closure defect this
+    project has hit repeatedly, and leaving a five-diff phase in that state while moving on to the edit log
+    would have compounded it — the edit log is meant to cover alter / delete / cancel, and one of the three
+    would have been unreachable."*
+  - **▶ 🔴 THE USER MAY OVERTURN THIS (R12), AND OVERTURNING IT IS CHEAP TO DESCRIBE.** If the reasoning above
+    is wrong, S5d is a self-contained wiring diff — a key arm, a shell method, a three-valued request type and
+    two test files — and it can be reverted or re-sequenced behind the edit log without touching the S5a/S5b/S5c
+    engine. **The claim being made here is not that the decision was right; it is that it is VISIBLE rather
+    than silent.**
   **▶ OPEN ITEMS CARRIED OUT OF THE PHASE — THEY DO NOT LAPSE BECAUSE THE SLICES ENDED.** Beyond the
   carry-forward block at the foot of this row, the S5b/S5c enumeration leaves four families **still refused
   after S5c**, each with its blocker named (design record §6.6a.3, the `DEFER-DEFERRED` verdict):
@@ -2400,6 +2435,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     something that has already been done correctly.
 - **Slices (one sequential stream, all schema-clean; rationale in `memory.md`) — 🔴 AMENDED 2026-08-17 BY D-1
   AND D-2. THREE VERBS, FIVE REMAINING DIFFS. TWO SLICES ARE ALREADY SHIPPED AND MUST NOT BE RE-DONE:**
+  **▶ 🔴 AMENDED AGAIN 2026-08-19 — THE ARITHMETIC IN THE SENTENCE ABOVE IS PRE-S5d AND IS LEFT STANDING ON
+  PURPOSE, BECAUSE IT IS WHAT D-1/D-2 DECIDED.** A **sixth** item, **S5d**, was appended below **after it was
+  built** (the R6 deviation recorded in the status banner at the head of this row). It is a **UI wiring** diff,
+  **not** a fourth arm of D-2's engine split. **Do not re-count the list from any prose sentence in this row —
+  the items themselves are the authority; the D-2 sentence counts what D-2 planned, not what the list holds.**
   1. **~~S1 — the Alt+D modifier hole~~ (VL-2 step 1) — ✅ MERGED `6a28d15`, 2026-08-07.** Verified **in the
      code**, not in the log: `CanQuickJump` now reads
      `=> vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;`. Its reason still holds and is
@@ -2486,7 +2526,81 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      - **S5c — the carve inversions + the CARRY table** — **L / HIGH.** **Proves:** a TDS-carved / GST-stamped /
        bank-reconciled voucher survives alteration with its tax **re-derived from the restored gross** and its
        outside-world links **carried, not rebuilt**.
+  6. **🔴 S5d — THE ALTERATION WIRING (`Ctrl+Enter`). WRITTEN INTO THIS PLAN ON 2026-08-19, *AFTER* IT WAS
+     BUILT — AN R6 DEVIATION, RECORDED AS ONE.** It is numbered **S5d** because that is the id the shipped code
+     carries (`grep -rn "S5d" src tests --include=*.cs --include=*.axaml`), **not** because it is a fourth arm of
+     the D-2 three-way split of S5 — **D-2 split the ENGINE work into S5a/S5b/S5c and this is not engine work.**
+     **▶ 🔴 READ THE DEVIATION MARKER IN THE STATUS BANNER AT THE HEAD OF THIS ROW BEFORE THIS ITEM** (the
+     `SUPERSEDED IN PART` block). It holds the honest version: the sequencing question the banner raised —
+     *its own slice, or folded into the edit-log work* — **was never put to the user and never answered**; the
+     main loop ordered the build anyway; the reason is recorded there **as the main loop's own**; and the user
+     may overturn it. **This item exists to satisfy R6 retrospectively and says so rather than pretending
+     otherwise.**
+     - **WHAT IT DOES.** `Ctrl+Enter` opens the highlighted posted voucher for alteration from **three
+       surfaces** — the live report page, the register drill (`Screen.LedgerVouchers`) and the read-only
+       voucher-detail column — via a new `MainWindowViewModel.RequestAlterHighlightedVoucher()` returning the
+       three-valued `VoucherAlterationRequest` (`NoVoucherHere` / `Refused` / `Opened`), and `Accept` branches on
+       `IsAltering` to `AcceptAlteration` rather than `Accept`. The alteration opens as a **drill** column so the
+       cascade the operator came from survives, and the column label reads `… Voucher — Alteration`.
+     - **▶ 🔴 A BEHAVIOUR CHANGE THAT IS NOT A NEW GESTURE AND NEEDS ITS OWN LINE.** `Ctrl+Enter` on a **Day-Book
+       voucher row previously DRILLED** — the `DrillSelectedRow` arm tests `e.Key == Key.Enter` with no modifier
+       test at all — and **it now ALTERS**. Non-voucher rows (a Trial Balance ledger row, a header, a total) are
+       reported `NoVoucherHere`, are **not** consumed, and still drill. Plain Enter is untouched on every surface
+       (USER DECISION 1). **`Ctrl+B` is untouched and stays RESERVED-AND-UNBOUND.**
+     - **▶ R7 — TWO RECORDS THAT MUST STAY APART. Conflating them is the defect the lenses caught on S3 AND on
+       S5a, so they are filed separately here and separately in the code.**
+       **(A) A DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR.** The corpus gives `Ctrl+Enter` as *"To alter a
+       master during voucher entry or from drilldown of a report"* (Book PDF **p.436** [printed p.432], read with
+       `pdftotext -raw` because `-layout` scrambles that three-column table). That is an **alter** key, from a
+       **drill-down**, for a **MASTER**; we bind the same chord, from the same place, to a **VOUCHER**.
+       **(B) A DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR.** The corpus's own route is **plain Enter** on a
+       register row (*"Select Month & Show/Edit Entry"*), and TallyPrime has **no separate read-only voucher
+       screen** — one action is named, not two. We keep plain Enter for the read-only column per **USER
+       DECISION 1 / VL-1**. **Neither of these is corpus silence, and neither may be relabelled as fidelity.**
+       **ATTESTED AND FOLLOWED (so it is neither of the above):** `Ctrl+A` saves the altered voucher, which is why
+       the accept path **branches on `IsAltering`** instead of inventing a second accept chord.
+       **OURS, CORPUS SILENT:** the three surfaces, and the notice bar the refusals are shown on.
+     - **▶ ⚠️ WHAT S5d DOES *NOT* CLOSE — stated so the phase is not re-declared done off this item.** The **R9
+       real-app run has NOT been performed for this slice**; the gate's *"alter a posted invoice and see the same
+       number at the same Day-Book position"* is now **possible** but **not yet evidenced**. Everything the row's
+       `OPEN ITEMS` block lists as refused or deferred is refused or deferred exactly as before — S5d is a route,
+       not a widening of the eligible set.
+     - **▶ ⚠️ TWO HONEST LIMITS IN THE SLICE ITSELF, LABELLED IN THE CODE AND REPEATED HERE SO THEY ARE NOT
+       DISCOVERED INSTEAD.**
+       1. **`!IsTyping(e)` / `!IsPickerOpen(e)` on the new arm are NOT PINNED, and no test claims they are.**
+          They are **defence in depth, honestly labelled** — on the three surfaces reachable at this commit
+          neither clause can change the outcome, so neither is independently falsifiable. This is the same
+          treatment the **Alt+X** pair got, for the same reason, and a test claiming to pin them would in fact be
+          pinning the screen gate.
+       2. **The driving tests ASSIGN the report-row highlight rather than arrowing to it**, because `StepActive`
+          has no `Screen.Report` arm (the report's own `ListBox` owns its arrows, and nothing has focus in a
+          headless window). **S3 and S4 take the identical step.** ⚠️ **Nobody has verified by running the app
+          that the arrows move the report highlight there** — it is assumed from the binding, not measured.
+  - **▶ 🔴 STANDING INVARIANT ADDED BY S5d — `ViewModelAlterEntryPointReachabilityTests`. DURABLE: IT OUTLIVES
+    THIS SLICE AND THIS PHASE, AND IT IS A PLAN ITEM BECAUSE THE NEXT PERSON TO WEAKEN IT NEEDS TO KNOW WHAT IT
+    WAS FOR.**
+    - **WHY IT IS DERIVED AND NOT PER-SCREEN — the argument is a measurement, not a preference. THE SAME DEFECT
+      SHIPPED TWICE, ONE FILE APART.** `StockItemMasterViewModel.ForAlter` shipped with **zero production
+      callers while its own tests called it directly** — proving the mechanism and nothing about reachability —
+      and `StockItemAlterReachabilityTests` was written precisely to close it. Then `VoucherEntryViewModel.ForAlter`
+      shipped **the same way, in a codebase that already contained the test proving the shape.** A per-screen
+      lock only ever covers the screen somebody remembered to write one for; this one covers **the shape**.
+    - **WHAT IT COVERS.** The set of screen-opening `public static` view-model factories is derived by
+      **reflection** over the shipped `Apex.Desktop` assembly, and reachability is decided by **reading IL** —
+      because real `<see cref=…/>` doc comments exist for these factories and a source-text scan would count
+      documentation as call sites. Calls from the factory's own outermost type do not count (the same island is
+      not an operator route), and the test assembly is never scanned, which is the whole point.
+    - **▶ NON-VACUITY — three proofs, and the decisive one is worth keeping:** replacing the **sole** production
+      call with a same-signature stand-in — **the exact state the code actually shipped in** — reddens the lock
+      **naming the right method**, while the S5b/S5c suites that call the factory directly stay green.
+    - **▶ ⚠️ WHAT IT DOES **NOT** COVER — record this beside the lock, or it will be over-trusted.** It is
+      **NOT TRANSITIVE** (it proves somebody calls the factory, not that the caller is itself reachable from a
+      keystroke — the per-screen driving tests are what close that half, and neither subsumes the other); it is
+      **blind to reflection and `dynamic`**; and it **reads only the `Apex.Desktop` assembly**.
   - **▶ GATES (R9/R12) after S3, after S4, after S5a, and after S5c.**
+    **▶ 🔴 AMENDED 2026-08-19: A GATE IS OWED AFTER S5d AND HAS NOT BEEN TAKEN.** The line above predates the
+    slice. S5d is the diff that finally makes the row's own R9 real-app evidence **producible**, so its gate is
+    the one that matters most, and it is **open**, not passed.
 - **Schema: NONE — schema-clean end to end, and that is designed, not coincidental.** `SqliteCompanyStore.Save`
   re-inserts the whole aggregate in one transaction, so persistence is a pure function of the in-memory
   `Company` graph. **Io: none for the canonical model** — asserted, not assumed (a never-altered company must
