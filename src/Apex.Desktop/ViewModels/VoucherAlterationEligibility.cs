@@ -72,6 +72,25 @@ public static class VoucherAlterationEligibility
         return RefusalFor(company, voucher, type);
     }
 
+    /// <summary>
+    /// 🔴 <b>The refusals that are about the BOOK, not about which grid re-keys the voucher</b> — the off-line
+    /// side effects (an advance record, a §34 link, a challan link), the live IRN, and the provisional-state
+    /// vector's shape. Every alteration door must ask these, whatever screen it opens, so they are named once here
+    /// and consumed by <see cref="RefusalFor(Company, Voucher, VoucherType)"/> and by
+    /// <see cref="PosAlterationEligibility"/> alike. Splitting them out is what stops the POS door from quietly
+    /// growing a second, weaker copy of the same list.
+    /// </summary>
+    public static string? BookLevelRefusalFor(Company company, Voucher voucher, VoucherType type)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        ArgumentNullException.ThrowIfNull(type);
+
+        return OffLineSideEffectRefusal(company, voucher)
+            ?? StatutoryDocumentRefusal(company, voucher)
+            ?? ProvisionalShapeRefusal(voucher, type);
+    }
+
     /// <summary>The predicate proper, over an already-resolved voucher and its type.</summary>
     public static string? RefusalFor(Company company, Voucher voucher, VoucherType type)
     {
@@ -110,10 +129,19 @@ public static class VoucherAlterationEligibility
         // through LedgerService.Post into Company.Vouchers), so the refusal must be EXPLICIT rather than
         // architectural: without it a POS bill would open in the plain Dr/Cr grid and its tender split would be
         // rebuilt as ordinary debits.
+        //
+        // 🔴 S5e — THE REFUSAL STANDS AND ITS REASON IS UNCHANGED; only its LAST SENTENCE moved, because there is
+        // now a door that does open. A POS bill IS alterable — on the POS billing screen, which is the only screen
+        // that keys a tender split — through <see cref="PosAlterationEligibility"/> and
+        // <c>PosBillingViewModel.ForAlter</c>. What this predicate answers is narrower and still No: can the
+        // ACCOUNTING ENTRY SCREEN rebuild it? Neither of its grids has a tender panel (the item grid derives a
+        // single party debit, which is precisely the leg a POS bill does not have), so re-accepting here would
+        // rebuild the tender split as one ordinary customer debit. The shell routes a POS voucher to the POS
+        // screen before it ever reaches this predicate; an operator who lands here anyway is told where to go.
         if (type.IsPosSales)
-            return "This is a POS bill. Its single customer debit is a split of payment tenders keyed on the POS "
-                 + "billing screen, and the plain Dr/Cr grid has no way to express them, so re-accepting it here "
-                 + "would rebuild the tender split as ordinary debits.";
+            return "This is a POS bill. Its single customer debit is a split of payment tenders, and neither grid "
+                 + "on the accounting entry screen can express them, so re-accepting it here would rebuild the "
+                 + "tender split as one ordinary customer debit. Alter it on the POS billing screen.";
 
         // Row 5 — the GST / TDS / TCS challan. Posted by GstDepositService / TdsDepositService / TcsDepositService
         // with lines no entry screen ever keyed, and §3.3 records that ChallanReconciliation self-heals on cancel
@@ -300,15 +328,38 @@ public static class VoucherAlterationEligibility
 
     private static string? EntryModeRefusal(Voucher voucher, VoucherType type)
     {
-        // Rows 17 and 22 — the item invoice. Two proven non-inverses beyond tax: a batch-split line posts ONE item
-        // line PER BATCH (so one keyed row becomes N posted rows), and the posted rate is the EffectiveRate
-        // (rate x (1 - discount/100)) while VoucherInventoryLine has no discount field at all — the list rate and
-        // the Price-Level discount are unrecoverable from what was posted.
-        if (voucher.HasInventoryLines)
-            return "This voucher was entered as an ITEM INVOICE. Its accounting legs are derived from the stock "
-                 + "lines rather than keyed, a batch-split row posts one line per batch, and the posted rate is "
-                 + "already net of the price-level discount — so the list rate and the discount cannot be read "
-                 + "back. Altering an item invoice arrives in a later slice.";
+        // Rows 17 and 22 — the item invoice. 🔴 S5e NARROWED THIS ARM FROM THE WHOLE FAMILY TO SALES, and BOTH of
+        // the reasons the blanket sentence gave were re-measured rather than inherited:
+        //
+        //   • THE BATCH SPLIT IS AN AMBIGUITY, NOT AN IRRECOVERABILITY. TryAppendSplitBatchLines does post one item
+        //     line per batch, so N posted rows fit two keyed states (one split row, or N separate rows) — but the
+        //     guard directly above it REFUSES any split whose per-batch values do not foot to the line value, and
+        //     forces Billed == Actual on it. Every split that actually posts is therefore VALUE-IDENTICAL to the
+        //     N-separate-rows keying, so rehydrating FLAT is a true inverse of the posted shape. What is lost is
+        //     the operator's knowledge that the sub-screen was used, and no figure depends on it.
+        //
+        //   • THE DISCOUNT ONLY BITES SALES. ShowPriceLevelSelector is
+        //     `IsItemInvoice && CanBeItemInvoice && !IsPurchaseInvoice && _company.EnableMultiplePriceLevels`, and
+        //     it is the SOLE writer of InventoryVoucherLineViewModel.ShowDiscount (AddInventoryLine seeds it,
+        //     SyncPriceLevelOnLines maintains it, and nothing else in src/ assigns it — PosBillingViewModel builds
+        //     its item rows without touching it, so it defaults false there). ParsedDiscountPercent returns 0
+        //     whenever ShowDiscount is false, so EffectiveRate == ParsedRate EXACTLY on every Purchase item
+        //     invoice and on every POS bill, unconditionally and with no history dependence: the posted rate IS
+        //     the keyed rate.
+        //
+        // 🔴 AND THE SALES ARM IS NOT NARROWED FURTHER TO "the price-level flag is on", although only those
+        // invoices can actually carry an unrecoverable list rate. Company.EnableMultiplePriceLevels is a LIVE
+        // flag: reading it here to decide what a voucher POSTED months ago can carry is the master-drift trap this
+        // whole predicate exists to avoid — switch it off after posting a discounted invoice and the same voucher
+        // would suddenly look recoverable, with the discount column hidden and the list rate silently lost. The
+        // posted line carries no marker to tell the two apart, so the whole Sales arm is refused by name.
+        if (voucher.HasInventoryLines && type.BaseType == VoucherBaseType.Sales)
+            return "This voucher was entered as a SALES ITEM INVOICE. Only the effective rate is posted — the "
+                 + "list rate and the price-level discount that produced it are not recorded anywhere on the "
+                 + "line, so re-opening it could not show the operator the rate they keyed, and re-accepting "
+                 + "would discount the effective rate a second time. Altering a sales item invoice needs a "
+                 + "schema column for the list rate and the discount; a purchase item invoice, whose posted "
+                 + "rate IS the keyed rate, opens today.";
 
         // Row 18 — 🔴 NO LONGER "UNDETERMINED", AND THE REASON CHANGED (finding L1-04). The round trip WAS measured
         // after this arm shipped: with the arm lifted and SeedAlterationMode pointed at the plain grid, a wholly
@@ -371,7 +422,51 @@ public static class VoucherAlterationEligibility
     /// withholding the entry screen cannot produce.</para>
     /// </summary>
     private static string? DerivedLegRefusal(Company company, Voucher voucher) =>
-        VoucherAlterationDerivedLegs.Invert(company, voucher, out _);
+        voucher.HasInventoryLines
+            ? ItemGridDerivedLegRefusal(voucher)
+            : VoucherAlterationDerivedLegs.Invert(company, voucher, out _);
+
+    /// <summary>
+    /// 🔴 <b>The item invoice's own derived-leg question, and it has a DIFFERENT answer from the plain grid's.</b>
+    /// <see cref="VoucherAlterationDerivedLegs.Invert"/> refuses any line carrying a <c>GstLineTax</c> that is not
+    /// half of a reverse-charge pair, and that refusal is right FOR THE Dr/Cr GRID: no appender on that screen
+    /// writes one, so it can only have arrived from an import and there is nothing to re-derive it from. On the
+    /// ITEM grid the opposite holds — <c>ComputeItemInvoiceGst</c> is the very engine that stamped it, and
+    /// <c>AcceptItemInvoiceAlteration</c> re-runs it from the amended item lines, so the L3-07 obligation
+    /// (re-derive a stamped figure, never echo it) is DISCHARGED rather than dodged. Running Invert here would
+    /// refuse every GST-bearing purchase invoice for a reason that does not apply to the screen re-keying it.
+    ///
+    /// <para>What IS refused is a stamp the item screen has no engine for. A withholding never reaches this path
+    /// (<c>TdsPossible</c> is false in item-invoice mode by construction) and a TCS collection is a SALES-side
+    /// figure — so on a Purchase item invoice either tag can only have arrived from an import or from a screen
+    /// that no longer exists, and there is nothing here that could rebuild it.</para>
+    /// </summary>
+    public static string? ItemGridDerivedLegRefusal(Voucher voucher)
+    {
+        if (voucher.Lines.FirstOrDefault(l => l.HasTds) is { } withheld)
+            return $"This item invoice carries a {withheld.Tds!.SectionCode} TDS withholding on one of its legs. "
+                 + "The item-invoice screen computes no withholding at all — the panel is not wired to the stock "
+                 + "grid — so it has nothing to re-derive the carve-out from, and re-accepting would credit the "
+                 + "party the full gross.";
+
+        if (voucher.Lines.FirstOrDefault(l => l.HasTcs) is { } collected)
+            return $"This item invoice carries a TCS collection ({collected.Tcs!.CollectionCode}). The collected "
+                 + "amount and its assessable value are stamped on the line and read by Form 27EQ, and neither "
+                 + "the purchase item grid nor the POS screen runs the collection engine — so re-accepting would "
+                 + "drop it.";
+
+        if (voucher.Lines.FirstOrDefault(l => l.Gst is { IsReverseCharge: true }) is not null)
+            return "This item invoice carries a reverse-charge self-accounting pair. The reverse-charge engine is "
+                 + "wired to the plain Dr/Cr grid and to the service invoice, not to the stock grid, so the item "
+                 + "screen cannot re-stamp it and re-accepting would drop the self-accounted tax.";
+
+        if (voucher.Lines.FirstOrDefault(l => l.Gst is { Adjustment: not null }) is { } adjusted)
+            return $"This item invoice carries a GST statutory adjustment ({adjusted.Gst!.Adjustment}) on one of "
+                 + "its legs. It was computed for a return period by the GST engine, not keyed on the item grid, "
+                 + "so re-accepting would drop it.";
+
+        return null;
+    }
 
     // ------------------------------------------------------------------ the provisional vector's shape
 

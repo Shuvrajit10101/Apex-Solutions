@@ -510,6 +510,131 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         }
     }
 
+    // =============================================================== Phase 10.11 S5e — the rehydration INVERSE
+
+    /// <summary>
+    /// <b>The inverse of the item-line writer</b> - the <c>new VoucherInventoryLine(...)</c> call in
+    /// <c>VoucherEntryViewModel.AcceptItemInvoice</c> and <c>PosBillingViewModel.Accept</c>: re-keys this blank row
+    /// from a POSTED <see cref="VoucherInventoryLine"/> so that re-running the writer reproduces it exactly.
+    /// Returns <c>null</c> on success, or a <b>named refusal</b> when the posted line carries something this row
+    /// cannot express today.
+    ///
+    /// <para>&#x1F534; <b>REHYDRATION IS FLAT - one grid row per POSTED line, and a batch split is NEVER
+    /// reconstructed.</b> A line allocated across N batches posts N item rows
+    /// (<c>VoucherEntryViewModel.TryAppendSplitBatchLines</c>), so N posted rows fit two keyed states: one split
+    /// row, or N separate rows. They are not, however, two different VOUCHERS: the guard at that posting boundary
+    /// refuses any split whose per-batch values do not foot to the line value, and forces Billed = Actual on it, so
+    /// every split that actually posts is <b>value-identical</b> to the N-separate-rows keying. Rehydrating flat is
+    /// therefore a true inverse of the POSTED shape; the only thing lost is the operator's knowledge that the
+    /// sub-screen was used, and no figure depends on it.</para>
+    ///
+    /// <para>&#x1F534; <b>The Price-Level discount is what this method cannot invert, and it is CAUGHT rather than
+    /// assumed away.</b> <see cref="EffectiveRate"/> is <c>rate x (1 - discount/100)</c> and only the PRODUCT is
+    /// posted, so on a line whose <see cref="ShowDiscount"/> column is live the list rate is unrecoverable. That
+    /// family is refused at the door (<c>VoucherAlterationEligibility</c>) - but the closing round-trip check below
+    /// is the backstop that would catch it here too, because it compares what the writer will REBUILD against what
+    /// was POSTED. No assumption about which screens carry a discount is load-bearing in this method.</para>
+    /// </summary>
+    public string? RehydrateFrom(VoucherInventoryLine posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        var item = StockItems.FirstOrDefault(i => i.Id == posted.StockItemId);
+        if (item is null)
+            return "one of its item lines moves a stock item that is no longer in this company, so the entry "
+                 + "screen cannot show it.";
+
+        var godown = Godowns.FirstOrDefault(g => g.Id == posted.GodownId);
+        if (godown is null)
+            return $"the location one of its '{item.Name}' lines moved through is no longer in this company, so "
+                 + "the entry screen cannot show it.";
+
+        // Assigning the item is what rebuilds UnitOptions (and clears the price auto-fill dirt), so it comes first -
+        // exactly as VoucherLineViewModel.RehydrateFrom assigns the ledger before filling the panels it opens.
+        SelectedItem = item;
+        SelectedGodown = godown;
+
+        if (RehydrateUnit(posted, item) is { } unitRefusal) return unitRefusal;
+
+        QuantityText = ExactDecimalText(posted.Quantity);
+
+        // Billed is written ONLY when it differs from Actual: with the A/B columns off, ParsedBilledQuantity is
+        // DEFINED as Actual, so leaving the field blank is what keeps a feature-off line byte-identical (ER-13).
+        if (posted.BilledQuantity != posted.Quantity)
+        {
+            if (!ShowActualBilled)
+                return $"'{item.Name}' was billed {posted.BilledQuantity} against an actual {posted.Quantity}, "
+                     + "and the separate Actual/Billed quantity columns are switched off on this company - so the "
+                     + "screen would re-bill the actual quantity and move the invoice value.";
+            BilledQuantityText = ExactDecimalText(posted.BilledQuantity);
+        }
+
+        RateText = ExactDecimalText(posted.Rate.Amount);
+        BatchLabel = posted.BatchLabel ?? string.Empty;
+
+        // &#x1F534; THE WHOLE POINT OF AN INVERSE: what the writer will rebuild must be what was posted. Each figure
+        // is compared against the value this row now REBUILDS (not against the text it holds), so a lossy render, a
+        // hidden gate or a live discount column is caught HERE rather than at the store or, worse, nowhere.
+        //
+        // &#x1F534; MUTATION RESULT, RECORDED RATHER THAN CLAIMED. Deleting the RATE comparison alone reddens
+        // NOTHING on today's inputs, and that is not a gap in the tests - it is what the guard being a BACKSTOP
+        // means. Every reachable input satisfies it by construction: VoucherInventoryLine's own constructor
+        // refuses a rate that is not paisa-exact, ExactDecimalText is lossless, and the one lossy shape
+        // (EffectiveRate = rate x (1 - discount/100)) is refused at the door by VoucherAlterationEligibility. It is
+        // kept because the door is the thing most likely to be widened later, and because it DOES fire on a
+        // perturbed rate: injecting a nonce into RateText above reddens 13 tests in the alteration suite, and with
+        // this comparison removed the same nonce reddens the byte-identical export comparisons instead - i.e. the
+        // defect escapes the screen and is caught only at the end of the round trip.
+        if (ParsedQuantity != posted.Quantity)
+            return $"the actual quantity on '{item.Name}' cannot be re-keyed exactly ({posted.Quantity} was "
+                 + $"posted, the screen rebuilds {ParsedQuantity}).";
+        if (ParsedBilledQuantity != posted.BilledQuantity)
+            return $"the billed quantity on '{item.Name}' cannot be re-keyed exactly ({posted.BilledQuantity} was "
+                 + $"posted, the screen rebuilds {ParsedBilledQuantity}).";
+        if (EffectiveRate is not { } rebuiltRate || rebuiltRate.Amount != posted.Rate.Amount)
+            return $"the rate on '{item.Name}' cannot be re-keyed exactly ({posted.Rate.Amount} was posted, the "
+                 + $"screen rebuilds {RebuiltRateText()}) - the list rate and the price-level discount are not "
+                 + "recoverable from a posted effective rate.";
+        if (Batch != posted.BatchLabel)
+            return $"the batch on '{item.Name}' cannot be re-keyed exactly ('{posted.BatchLabel}' was posted, the "
+                 + $"screen rebuilds '{Batch}').";
+        if (UnitId != posted.UnitId)
+            return $"the unit on '{item.Name}' cannot be re-keyed exactly, so its quantity and rate would be "
+                 + "restated in a different unit from the one they were posted in.";
+
+        return null;
+    }
+
+    private string RebuiltRateText() =>
+        EffectiveRate is { } r ? r.Amount.ToString(CultureInfo.InvariantCulture) : "nothing";
+
+    /// <summary>
+    /// Re-keys <see cref="SelectedUnit"/> from the posted line. A posted <c>null</c> unit means "the item's own
+    /// base unit", which <see cref="RefreshUnitOptions"/> has already selected and which <see cref="UnitId"/>
+    /// renders back as <c>null</c> - so nothing is written for it. A posted unit the item no longer offers (its
+    /// compound unit deleted or repointed) is refused by name: silently falling back to the base unit would
+    /// restate a "2 Doz @ 10" line as "2 Nos @ 10".
+    /// </summary>
+    private string? RehydrateUnit(VoucherInventoryLine posted, StockItem item)
+    {
+        if (posted.UnitId is not { } unitId) return null;
+
+        var unit = UnitOptions.FirstOrDefault(u => u.Id == unitId);
+        if (unit is null || !ShowUnit)
+            return $"one of its '{item.Name}' lines states its quantity and rate in a unit this item no longer "
+                 + "offers, so the screen cannot re-key it without restating the line in another unit.";
+
+        SelectedUnit = unit;
+        return null;
+    }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> so that parsing it back yields the SAME decimal - the same lossless-render
+    /// discipline <c>VoucherLineViewModel.ExactDecimalText</c> follows on the plain grid, and for the same reason:
+    /// a tidy fixed-places format silently truncates, and a truncated quantity or rate moves money.
+    /// </summary>
+    private static string ExactDecimalText(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+
     private static bool TryParse(string? text, out decimal value)
         => decimal.TryParse(
             (text ?? string.Empty).Trim(),

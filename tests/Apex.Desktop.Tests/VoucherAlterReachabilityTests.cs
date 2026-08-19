@@ -381,14 +381,89 @@ public sealed class VoucherAlterReachabilityTests
         finally { Close(window, dir); }
     }
 
+    /// <summary>
+    /// 🔴 <b>S5e — Ctrl+Enter ON A POS BILL OPENS THE POS BILLING SCREEN, not a refusal.</b>
+    ///
+    /// <para><b>The defect this locks is the one this whole file exists for.</b> A POS bill can only be inverted on
+    /// the screen that keys a tender split, so S5e gave it its own door
+    /// (<c>PosBillingViewModel.ForAlter</c> + <c>PosAlterationEligibility</c>) — and a door with no route to it is
+    /// exactly the shape <c>VoucherEntryViewModel.ForAlter</c> shipped in: fully built, fully tested, and
+    /// unreachable by any sequence of keys. Nothing here calls <c>ForAlter</c>: the bill is posted through the real
+    /// POS screen, the Day Book is opened on it, and the REAL Ctrl+Enter is pressed.</para>
+    ///
+    /// <para>The accounting entry screen's refusal for this family still stands and is still right — its grids have
+    /// no tender panel — so the shell branches BEFORE it, and the assertion below is that the operator lands on the
+    /// POS screen rather than on that (correct, but unhelpful) sentence.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_Enter_on_a_POS_bill_opens_the_POS_billing_screen_altering_that_bill()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "POS Alter Reach Co";
+            vm.CreateCompany();
+            var c = vm.Company!;
+            c.FinancialYearStart = FyStart;
+            c.BooksBeginFrom = FyStart;
+
+            var masters = new InventoryService(c);
+            var group = masters.CreateStockGroup("Goods");
+            var nos = masters.CreateSimpleUnit("Nos", "Numbers");
+            var widget = masters.CreateStockItem("Till Widget", group.Id, nos.Id);
+            AddLedger(c, "Retail Sales", "Sales Accounts");
+            AddLedger(c, "Till Cash", "Cash-in-Hand");
+
+            // The POS screen resolves (and, on first use, creates) its own POS-flagged Sales type.
+            vm.OpenPosBilling();
+            Pump(window);
+            var pos = vm.PosBilling!;
+            pos.Date = FyStart.AddDays(9);
+            pos.SelectedSalesLedger = pos.SalesLedgers.Single(l => l.Name == "Retail Sales");
+            pos.CashRow.SelectedLedger = c.Ledgers.Single(l => l.Name == "Till Cash");
+            var line = pos.Items[0];
+            line.SelectedItem = pos.StockItems.Single(i => i.Id == widget.Id);
+            line.SelectedGodown = pos.Godowns.Single(g => g.Id == c.MainLocation!.Id);
+            line.QuantityText = "2";
+            line.RateText = "649.37";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);      // REAL Ctrl+A accepts
+
+            var bill = Assert.Single(c.Vouchers);
+            Assert.True(bill.HasPosTenders);
+
+            OpenDayBookOn(window, vm, bill.Id);
+            Assert.Equal(string.Empty, vm.Notice);
+
+            Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+
+            // The operator is on the POS screen, altering THAT bill — not on a notice bar, not on the read-only column.
+            Assert.Equal(Screen.PosBilling, vm.CurrentScreen);
+            Assert.NotNull(vm.PosBilling);
+            Assert.True(vm.PosBilling!.IsAltering);
+            Assert.Equal(bill.Id, vm.PosBilling!.AlteringVoucherId);
+            Assert.Equal(649.37m, vm.PosBilling!.Items[0].EffectiveRate!.Value.Amount);
+
+            // …and the cascade column beneath is intact, so Esc returns to the Day Book row they came from.
+            Assert.Contains(vm.Columns, col => col.Title.Contains("POS Alteration", StringComparison.Ordinal));
+
+            // REAL Ctrl+A on the altering screen runs AcceptAlteration, not Accept: one bill, same id, still one row.
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            var after = Assert.Single(c.Vouchers);
+            Assert.Equal(bill.Id, after.Id);
+        }
+        finally { Close(window, dir); }
+    }
+
     // ============================================================ (c) THE REFUSAL MUST REACH THE OPERATOR
 
     /// <summary>
     /// 🔴 <b><c>ForAlter</c> REFUSES most shapes — 13 REFUSE and 8 DEFER out of 33 enumerated rows — so the refusal
     /// is the COMMON outcome on a real book, not the edge case. It must be SHOWN.</b>
     ///
-    /// <para>An ITEM INVOICE is refused by name (<c>EntryModeRefusal</c>: a batch-split row posts one line per
-    /// batch, and the posted rate is already net of the price-level discount). This asserts the whole channel:
+    /// <para>A SALES ITEM INVOICE is refused by name (<c>EntryModeRefusal</c>: only the effective rate is
+    /// posted, so the list rate and the price-level discount that produced it cannot be read back — S5e narrowed
+    /// this arm from the whole family to Sales, and dropped the batch-split reason, which was measured and found
+    /// not to be one). This asserts the whole channel:
     /// the named sentence lands on the window-level <see cref="MainWindowViewModel.Notice"/> bar — NOT on
     /// <c>Message</c>, which the report page's <c>DataTemplate</c> (typed to <c>ReportsViewModel</c>) structurally
     /// cannot render — no entry screen opens, and the operator is still standing on the Day Book.</para>

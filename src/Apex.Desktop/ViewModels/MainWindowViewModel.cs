@@ -5822,6 +5822,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var report = Reports;
         var register = LedgerVouchers;
 
+        // 🔴 S5e — A POS BILL GOES TO THE POS SCREEN, and the branch is here rather than inside ForAlter because
+        // WHICH SCREEN opens is a shell decision. Every field of a POS bill's tender split is persisted, so it is
+        // fully recoverable — but only on the screen that keys a tender split. VoucherAlterationEligibility still
+        // refuses it for the accounting entry screen, correctly and for the unchanged reason; this route means an
+        // operator never has to read that refusal.
+        if (Company!.FindVoucherType(voucher.TypeId) is { IsPosSales: true })
+            return ShowPosBillAlteration(voucher, report, register);
+
         var open = VoucherEntryViewModel.ForAlter(
             Company!, voucher.Id, _storage,
             onSaved: () =>
@@ -5862,6 +5870,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Screen.VoucherEntry, title, () => VoucherEntry = entry);
         return VoucherAlterationRequest.Opened;
     }
+
+    /// <summary>
+    /// Opens <paramref name="voucher"/>'s alteration on the POS BILLING screen, or puts its named refusal on the
+    /// notice bar. The POS sibling of <see cref="ShowVoucherAlteration"/>, and it opens a DRILL column for the
+    /// identical reason: <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would
+    /// delete the report the operator drilled from and send Esc back to the Gateway instead of to the row they
+    /// were standing on.
+    /// </summary>
+    private VoucherAlterationRequest ShowPosBillAlteration(
+        Voucher voucher, ReportsViewModel? report, LedgerVouchersViewModel? register)
+    {
+        var open = PosBillingViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // 🔴 SHOWN, never swallowed — the same channel ShowVoucherAlteration uses, and for the same reason:
+            // the report page's DataTemplate is typed to ReportsViewModel and has no Message property at all.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        var title = $"POS Bill Alteration — {entry.Type.Name}";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " — POS Alteration", entry),
+            Screen.PosBilling, title, () => PosBilling = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// 🔴 <b>The ONE place that decides which accept verb the POS billing screen runs</b> — <c>Accept</c> for a new
+    /// bill, <see cref="PosBillingViewModel.AcceptAlteration"/> for a posted one being altered. The POS sibling of
+    /// <see cref="AcceptVoucherEntryOrAlteration"/>, and it exists for the identical reason: the screen has TWO
+    /// accept routes (Ctrl+A through <see cref="ActivateSelected"/>, and the on-screen Accept button through
+    /// <c>MainWindow.OnAcceptPosClick</c>), and on an altering screen <c>Accept</c> would Post a SECOND bill
+    /// beside the original. Both routes now come through here, so they cannot disagree.
+    /// </summary>
+    public bool AcceptPosBillingOrAlteration() =>
+        PosBilling is { } pos && (pos.IsAltering ? pos.AcceptAlteration() : pos.Accept());
 
     /// <summary>
     /// 🔴 <b>The ONE place that decides which accept verb the voucher-entry screen runs</b> — <c>Accept</c> for a
@@ -7065,7 +7119,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 MaterialMovementEntry?.Accept();
                 return;
             case Screen.PosBilling:
-                PosBilling?.Accept();
+                AcceptPosBillingOrAlteration();
                 return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();

@@ -322,6 +322,24 @@ public static class VoucherAlterationDerivedLegs
     }
 
     /// <summary>
+    /// 🔴 <b>The order-independent shape signature of an ITEM INVOICE's engine-stamped tax legs</b> — ledger, side,
+    /// head and rate, sorted. The item screen's inverse RE-DERIVES those legs through <c>ComputeItemInvoiceGst</c>
+    /// (the same engine that stamped them), so what has to be pinned is not the figures — an alteration is allowed
+    /// to move those — but the SHAPE: which heads, at which rates, to which ledgers. A rate master moved since
+    /// posting, an item repointed to another HSN, a party's state changed from intra to inter: each of those
+    /// silently restates the tax on a narration-only amendment, and each shows up here as a signature that no
+    /// longer matches. <b>Amounts are excluded on purpose</b>, exactly as they are from <see cref="SignatureOf"/>.
+    /// </summary>
+    internal static IReadOnlyList<string> TaxHeadSignature(IEnumerable<EntryLine> lines) =>
+        lines
+            .Where(l => l.HasGst)
+            .Select(l => string.Join(
+                "|", l.LedgerId.ToString("N"), l.Side.ToString(), l.Gst!.TaxHead.ToString(),
+                l.Gst.RateBasisPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
     /// The order-independent shape signature of a reverse-charge line set: ledger, side, head, rate and ITC scheme,
     /// sorted. <b>The taxable value and the amount are excluded on purpose</b> — they are precisely what an
     /// alteration moves, and pinning them would refuse every real amendment while pinning nothing that matters.

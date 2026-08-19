@@ -153,6 +153,18 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     private readonly Action _onCancelled;
     private bool _recomputing;
 
+    /// <summary>Suppresses <see cref="Recalculate"/> while <see cref="RehydrateFrom"/> is mid-flight.</summary>
+    private bool _rehydrating;
+
+    /// <summary>The posted bill this screen was opened to ALTER, or <see cref="Guid.Empty"/> for a fresh bill.</summary>
+    private Guid _alteringVoucherId;
+
+    /// <summary>True when this screen is altering a POSTED bill rather than keying a new one.</summary>
+    public bool IsAltering => _alteringVoucherId != Guid.Empty;
+
+    /// <summary>The posted bill being altered, or <see cref="Guid.Empty"/> for a fresh bill.</summary>
+    public Guid AlteringVoucherId => _alteringVoucherId;
+
     /// <summary>Raised after Accept when the POS config's print-after-save is on — carries the retail receipt to preview.</summary>
     public event Action<PosReceiptData>? PrintReceiptRequested;
 
@@ -447,6 +459,15 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     public void Recalculate()
     {
         if (_recomputing) return;
+        // 🔴 S5e — suppressed while ForAlter is mid-flight. The rehydration fills the party, the sales ledger, the
+        // item rows and the four tender rows one assignment at a time, and every one of those raises a change
+        // notification that re-enters here — where SetAutoValues would stamp the Cash tender from a bill total
+        // computed off the rows that happen to exist so far. One pass runs at the end, when the screen is whole.
+        //
+        // 🔴 MUTATION RESULT: deleting this line reddens nothing - the final pass overwrites every figure a
+        // mid-flight pass could have stamped. Kept as a suppression, not claimed as a live safeguard, exactly as
+        // its sibling in VoucherEntryViewModel.RecalculateItemInvoice is.
+        if (_rehydrating) return;
         // Guard against the change-notifications the constructor's header assignments (SelectedParty / SalesLedger /
         // Godown) raise BEFORE the four tender rows are added — the ctor calls Recalculate() once at the end, when the
         // Tenders list is fully populated. Without this the very first party/ledger/godown default crashes the screen.
@@ -583,13 +604,31 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     // =============================================================== accept
 
     /// <summary>
-    /// Ctrl+A accept: assembles the POS Sales voucher — item lines → outward inventory lines; Cr Sales(taxable) +
-    /// Cr Output GST (identical to a normal sale); the customer Dr replaced by the tender debits — pre-validates
-    /// for friendly messages, posts through <see cref="LedgerService.Post"/> (which enforces the tender grouping +
-    /// reconciliation and no-negative-stock; nothing persists on failure) and saves. When the POS config's
-    /// print-after-save is set it raises <see cref="PrintReceiptRequested"/> with the retail receipt.
+    /// Assembles the POS Sales voucher — item lines to outward inventory lines; Cr Sales(taxable) + Cr Output GST
+    /// (identical to a normal sale); the customer Dr replaced by the tender debits — and pre-validates it for
+    /// friendly messages.
     /// </summary>
-    public bool Accept()
+    /// <summary>
+    /// One built POS bill: the balanced accounting legs (tender debits + Cr Sales + Cr Output GST), the outward
+    /// stock lines, the tender records, and the figures the retail receipt needs. <b>Everything that decides a
+    /// FIGURE is in here</b>, so the Post caller and the Replace caller cannot drift apart on what a POS bill IS.
+    /// </summary>
+    private sealed record PosBillBuild(
+        List<EntryLine> EntryLines,
+        List<VoucherInventoryLine> InventoryLines,
+        List<PosTender> Tenders,
+        Guid? PartyId,
+        Money Taxable,
+        GstService.InvoiceTax? InvoiceTax,
+        bool InterState,
+        decimal Change);
+
+    /// <summary>
+    /// Builds the POS bill from the screen, or returns <c>null</c> with <see cref="Message"/> set on any refusal.
+    /// Shared verbatim by <see cref="Accept"/> (which Posts a new bill) and <see cref="AcceptAlteration"/> (which
+    /// Replaces a posted one), so GST, the tender split and the storability front lines are derived ONCE.
+    /// </summary>
+    private PosBillBuild? BuildPosBill()
     {
         Message = null;
         Recalculate();
@@ -597,18 +636,18 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         if (SelectedSalesLedger is not { } salesLedger)
         {
             Message = "No Sales ledger is configured to post the value leg to.";
-            return false;
+            return null;
         }
         if (Items.Any(l => !l.IsBlank && !l.IsComplete))
         {
             Message = "Every item line needs a stock item, a godown, a positive quantity and a positive rate.";
-            return false;
+            return null;
         }
         var complete = Items.Where(l => l.IsComplete).ToList();
         if (complete.Count == 0)
         {
             Message = "Enter at least one item line before accepting.";
-            return false;
+            return null;
         }
 
         // Outward inventory lines + taxable value (the pairing invariant holds by construction: Σ item == Cr Sales).
@@ -619,7 +658,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             if (l.ParsedRate is not { } rate || rate <= 0m)
             {
                 Message = $"Item '{l.SelectedItem!.Name}' needs a rate greater than zero.";
-                return false;
+                return null;
             }
             // W0-13 S2a, FRONT LINE ON THE RATE. InventoryVoucherLineViewModel.ParsedRate is a bare TryParse and
             // RefreshCanAccept tests only `r > 0m`, so a 17-digit rate — PAISA-EXACT, therefore invisible to every
@@ -630,7 +669,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             if (StorableAmount.ErrorFor(rate, l.RateText, $"the rate for '{l.SelectedItem!.Name}'") is { } rateError)
             {
                 Message = rateError;
-                return false;
+                return null;
             }
             var effRate = l.EffectiveRate ?? new Money(rate);
             inventoryLines.Add(new VoucherInventoryLine(
@@ -649,12 +688,12 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             PosGst gst;
             try { gst = ComputeGst()!.Value; }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-            { Message = $"Cannot accept: {ex.Message}"; return false; }
+            { Message = $"Cannot accept: {ex.Message}"; return null; }
             if (gst.HasUnresolved)
             {
                 Message = $"Item '{gst.Unresolved!.Name}' is taxable but no GST rate is set on the item, the Sales " +
                           "ledger, or the company. Set a rate before accepting.";
-                return false;
+                return null;
             }
             taxLines.AddRange(gst.Tax.TaxLines);
             invoiceTax = gst.Tax;
@@ -670,7 +709,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             is { } billError)
         {
             Message = billError;
-            return false;
+            return null;
         }
 
         // W0-13 S2a — refuse an unstorable typed tender BEFORE TryBuildTenders, which constructs PosTender records
@@ -682,24 +721,39 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         if (UnstorableTenderError() is { } unstorableTender)
         {
             Message = unstorableTender;
-            return false;
+            return null;
         }
 
         // Build the tender records (Cash posts the residual/bill — never the tendered; change is informational).
         if (!TryBuildTenders(billTotal.Amount, out var tenders, out var change))
-            return false; // Message already set
+            return null; // Message already set
 
         var entryLines = new List<EntryLine>();
         entryLines.AddRange(PosTenderService.BuildTenderDebitLines(tenders));
         entryLines.Add(new EntryLine(salesLedger.Id, taxable, DrCr.Credit));
         entryLines.AddRange(taxLines);
 
-        var party = SelectedParty?.Ledger;
+        return new PosBillBuild(
+            entryLines, inventoryLines, tenders, SelectedParty?.Ledger?.Id,
+            taxable, invoiceTax, interState, change);
+    }
+
+    /// <summary>
+    /// Ctrl+A accept: builds the POS Sales voucher (see <see cref="BuildPosBill"/>), posts it through
+    /// <see cref="LedgerService.Post"/> (which enforces the tender grouping + reconciliation; nothing persists on
+    /// failure) and saves. When the POS config's print-after-save is set it raises
+    /// <see cref="PrintReceiptRequested"/> with the retail receipt.
+    /// </summary>
+    public bool Accept()
+    {
+        if (BuildPosBill() is not { } built) return false;
+        var (entryLines, inventoryLines, tenders, partyId, taxable, invoiceTax, interState, change) = built;
+
         var voucher = new Voucher(
             Guid.NewGuid(), _type.Id, Date, entryLines,
             number: 0,
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
-            partyId: party?.Id,
+            partyId: partyId,
             inventoryLines: inventoryLines,
             posTenders: tenders);
 
@@ -827,6 +881,310 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         });
         return true;
     }
+
+
+    // =============================================================== Phase 10.11 S5e — ALTER a posted POS bill
+
+    /// <summary>
+    /// 🔴 <b>The POS screen's entry door — opens it on a POSTED bill, pre-filled, or refuses BY NAME.</b> The
+    /// sibling of <c>VoucherEntryViewModel.ForAlter</c>, and it exists because the POS screen is the ONLY screen
+    /// that keys a tender split: every field of <see cref="Voucher.PosTenders"/> is persisted, so a POS bill is
+    /// fully recoverable, but only here.
+    ///
+    /// <para><b>Accepting is <see cref="AcceptAlteration"/>, not <see cref="Accept"/></b>, and for the same reason
+    /// the accounting screen splits them: <c>Accept</c> mints a fresh <see cref="Guid"/> and Posts a SECOND bill
+    /// beside the original, and only <c>LedgerService.Replace</c> preserves the id every outside link holds and
+    /// carries the bank reconciliation dates forward.</para>
+    /// </summary>
+    public static PosAlterationOpen ForAlter(
+        Company company,
+        Guid voucherId,
+        CompanyStorage storage,
+        Action onSaved,
+        Action onCancelled)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        if (PosAlterationEligibility.RefusalFor(company, voucherId) is { } refusal)
+            return PosAlterationOpen.Refused(refusal);
+
+        // Both are non-null: RefusalFor returned null, which it only does after resolving each of them.
+        var voucher = company.FindVoucher(voucherId)!;
+        var type = company.FindVoucherType(voucher.TypeId)!;
+
+        var entry = new PosBillingViewModel(company, type, storage, onSaved, onCancelled);
+        return entry.RehydrateFrom(voucher) is { } lineRefusal
+            ? PosAlterationOpen.Refused(lineRefusal)
+            : PosAlterationOpen.Opened(entry);
+    }
+
+    /// <summary>
+    /// Re-keys this freshly-constructed screen from <paramref name="voucher"/>. Returns <c>null</c> on success, or
+    /// a named refusal when something posted cannot be re-keyed.
+    ///
+    /// <para><b>Every posted leg is CLASSIFIED and an unclassified one is REFUSED.</b> A POS bill's accounting
+    /// legs are exactly three kinds — the tender debits, the single Cr Sales value leg, and the engine's Cr Output
+    /// tax lines — so the inverse partitions them into those three and names anything left over. Silently ignoring
+    /// a leg would drop it from the replacement, and the bill would still reconcile (Σ tenders is checked against
+    /// the DEBIT total, which the tender rebuild reproduces), so nothing downstream would notice.</para>
+    ///
+    /// <para>🔴 <b>The tender MODE is inferred, not stored, and the inference is exact where it matters.</b> Multi
+    /// mode is "at least one non-cash tender was posted", because that is the only shape multi mode can produce
+    /// that single mode cannot: single mode posts exactly one Cash tender for the whole bill. A bill keyed in multi
+    /// mode with the non-cash rows all left blank posts that same single Cash tender and re-opens as single — the
+    /// SAME class of loss as the flat batch rehydration on the item grid, and the same answer: the rebuilt voucher
+    /// is byte-identical, and only the operator's knowledge of which panel they used is gone.</para>
+    /// </summary>
+    private string? RehydrateFrom(Voucher voucher)
+    {
+        _alteringVoucherId = voucher.Id;
+        _rehydrating = true;
+        try
+        {
+            Date = voucher.Date;
+            Narration = voucher.Narration ?? string.Empty;
+            Title = $"{_type.Name} — POS Bill Alteration";
+
+            // The party is informational on a B2C bill; a bill posted without one re-opens on the walk-in sentinel,
+            // which is exactly what re-posts partyId: null.
+            if (voucher.PartyId is { } partyId)
+            {
+                if (Parties.FirstOrDefault(o => o.Ledger?.Id == partyId) is not { } option)
+                    return "This bill cannot be re-opened: the customer it was billed to is no longer in this "
+                         + "company.";
+                SelectedParty = option;
+            }
+            else
+            {
+                SelectedParty = Parties.FirstOrDefault(o => o.Ledger is null) ?? Parties.FirstOrDefault();
+            }
+
+            var valueLegs = voucher.Lines.Where(l => l.Side == DrCr.Credit && !l.HasGst).ToList();
+            if (valueLegs.Count != 1)
+                return valueLegs.Count == 0
+                    ? "This bill cannot be re-opened: it carries no Sales value leg, so the item total has nothing "
+                    + "to post against."
+                    : $"This bill cannot be re-opened: it credits {valueLegs.Count} separate value legs, and the "
+                    + "POS screen derives exactly one — so it can only have arrived from an import.";
+            if (SalesLedgers.FirstOrDefault(l => l.Id == valueLegs[0].LedgerId) is not { } salesLedger)
+                return "This bill cannot be re-opened: the Sales ledger its value leg posts to is no longer one "
+                     + "this screen offers, so re-accepting would move the sale to a different ledger.";
+            SelectedSalesLedger = salesLedger;
+
+            foreach (var line in voucher.Lines)
+            {
+                if (line.HasGst) continue;                        // re-derived at accept from the item rows
+                if (ReferenceEquals(line, valueLegs[0])) continue;
+                if (line.Side != DrCr.Debit || !voucher.PosTenders.Any(t => t.LedgerId == line.LedgerId))
+                    return "This bill cannot be re-opened: it carries a leg that is none of the three a POS bill "
+                         + "builds (a tender debit, the Sales value leg or an engine tax line), so the screen "
+                         + "cannot re-key it and re-accepting would drop it.";
+            }
+
+            // The header godown is pushed onto every item row when it changes, so it is set BEFORE the rows are
+            // rehydrated — each row then states the godown it was actually posted against.
+            if (Godowns.FirstOrDefault(g => g.Id == voucher.InventoryLines[0].GodownId) is { } godown)
+                SelectedGodown = godown;
+
+            Items.Clear();
+            foreach (var posted in voucher.InventoryLines)
+            {
+                var row = AddItemLine();
+                if (row.RehydrateFrom(posted) is { } lineRefusal)
+                    return "This bill cannot be re-opened: " + lineRefusal;
+            }
+            AddItemLine();   // one blank trailing row, so the grid is ready to type into (as a fresh bill is)
+
+            if (RehydrateTenders(voucher) is { } tenderRefusal) return tenderRefusal;
+        }
+        finally
+        {
+            _rehydrating = false;
+        }
+
+        Recalculate();
+        return null;
+    }
+
+    /// <summary>
+    /// Re-keys the four tender rows from <see cref="Voucher.PosTenders"/>. The Cash row's AMOUNT is deliberately
+    /// not written: it is DERIVED (the residual in multi mode, the whole bill in single) and
+    /// <see cref="Recalculate"/> stamps it — writing it here would be a second source for one figure. What is
+    /// written is the cash TENDERED, which is keyed and from which the change follows.
+    /// </summary>
+    private string? RehydrateTenders(Voucher voucher)
+    {
+        // The mode inference — see RehydrateFrom's summary for why this clause is the exact one.
+        IsMultiTender = voucher.PosTenders.Any(t => t.Type != PosTenderType.Cash);
+
+        foreach (var tender in voucher.PosTenders)
+        {
+            var row = Tenders.FirstOrDefault(r => r.Type == tender.Type);
+            if (row is null)
+                return $"This bill cannot be re-opened: it carries a {tender.Type} tender, which this screen has "
+                     + "no panel for.";
+
+            if (row.LedgerChoices.FirstOrDefault(l => l.Id == tender.LedgerId) is not { } ledger)
+                return $"This bill cannot be re-opened: the ledger its {row.Label} tender debits is no longer "
+                     + "under the group that tender requires, so re-accepting would move the payment to another "
+                     + "ledger.";
+            row.SelectedLedger = ledger;
+
+            if (tender.Type == PosTenderType.Cash)
+            {
+                row.CashTenderedText = ExactDecimalText((tender.Tendered ?? tender.Amount).Amount);
+                continue;
+            }
+
+            row.AmountText = ExactDecimalText(tender.Amount.Amount);
+            if (tender.CardNo is { } card) row.CardNo = card;
+            if (tender.BankName is { } bank) row.BankName = bank;
+            if (tender.ChequeNo is { } cheque) row.ChequeNo = cheque;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Accepts an ALTERATION of a posted POS bill</b> — the same build the fresh Accept runs, ending in
+    /// <c>LedgerService.Replace</c> and never in <c>Post</c>.
+    ///
+    /// <para>🔴 <b>THE WHOLE-WINDOW LEDGER ROLLBACK the accounting screen's AcceptAlteration carries, and for the
+    /// same measured reason.</b> The GST engine this path re-runs is IMPURE — it creates the Output tax ledgers it
+    /// needs — and it runs BEFORE the shape-drift check can refuse, so a REFUSED alteration would otherwise leave
+    /// new tax ledgers on the company, the in-memory canonical export no longer identical, and the additions then
+    /// PERSISTED by the next unrelated save. A LEDGER SNAPSHOT rather than a per-engine undo, on purpose: it
+    /// catches every ledger any engine on this path creates, including ones a future family adds.</para>
+    /// </summary>
+    public bool AcceptAlteration()
+    {
+        Message = null;
+
+        var ledgersBefore = _company.Ledgers.Select(l => l.Id).ToHashSet();
+        var committed = false;
+        try
+        {
+            committed = AcceptAlterationCore();
+            return committed;
+        }
+        finally
+        {
+            if (!committed)
+                foreach (var created in _company.Ledgers.Where(l => !ledgersBefore.Contains(l.Id)).ToList())
+                    _company.RemoveLedger(created);
+        }
+    }
+
+    private bool AcceptAlterationCore()
+    {
+        if (!IsAltering)
+        {
+            Message = "This screen is keying a new bill, not altering a posted one — use Accept.";
+            return false;
+        }
+
+        if (_company.FindVoucher(_alteringVoucherId) is not { } existing)
+        {
+            Message = "The bill being altered is no longer in this company's books — it may have been deleted "
+                    + "meanwhile. Nothing was changed.";
+            return false;
+        }
+
+        // Re-run eligibility: the screen may have been open while a master moved, and a refusal phrased in the
+        // predicate's own words beats one phrased by the engine in terms the operator never saw.
+        if (PosAlterationEligibility.RefusalFor(_company, _alteringVoucherId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
+
+        if (BuildPosBill() is not { } built) return false;
+
+        // 🔴 THE SHAPE OF THE ENGINE'S TAX LEGS IS PINNED — the amounts are not. An alteration is ALLOWED to move a
+        // tax figure (that is what amending a quantity does); what it must never do is silently restate the tax
+        // because a MASTER moved under a bill nobody touched — GSTR-1 and GSTR-3B read the STAMPED figure.
+        if (!VoucherAlterationDerivedLegs.TaxHeadSignature(existing.Lines)
+                .SequenceEqual(VoucherAlterationDerivedLegs.TaxHeadSignature(built.EntryLines)))
+        {
+            Message = "The GST this bill would now be taxed under is not the shape it was posted with — the tax "
+                    + "heads or their rates have moved since (a rate master, an item's HSN, or the place of "
+                    + "supply). Alter re-computes the AMOUNT of a posted tax leg, never which legs there are, "
+                    + "because the GST returns read the stamped figures. Correct the master, or raise a credit "
+                    + "note and a fresh bill.";
+            return false;
+        }
+
+        var replacement = new Voucher(
+            existing.Id,                 // the Guid is every outside link's only handle
+            existing.TypeId,             // the preserved number belongs to THIS type's sequence
+            Date,
+            built.EntryLines,
+            number: existing.Number,     // Replace accepts the voucher's own number by name
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: built.PartyId,
+            cancelled: existing.Cancelled,           // Cancel's verb, not Alter's — Replace refuses a change
+            // 🔴 The provisional-state vector is CARRIED from the posted bill, not re-stated. This screen has no
+            // Ctrl+L / Ctrl+T and no 'Applicable Upto' field at all, so there is nothing here to state it FROM —
+            // and Replace refuses a change to any of the three by name, which would surface as an engine message
+            // about fields the operator never saw. PosAlterationEligibility refuses an ApplicableUpto up front.
+            optional: existing.Optional,
+            postDated: existing.PostDated,
+            applicableUpto: existing.ApplicableUpto,
+            inventoryLines: built.InventoryLines,
+            posTenders: built.Tenders,
+            referenceNo: existing.ReferenceNo,       // never keyed on this screen; dropping it would lose an import's
+            referenceDate: existing.ReferenceDate,
+            isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
+
+        IReadOnlyList<VoucherAlterationWarning> warnings;
+        try
+        {
+            _service.Replace(existing.Id, replacement, out warnings);
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = "The altered POS bill is out of balance. Not altered.";
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
+        {
+            Message = $"Cannot alter: {ex.Message}";
+            return false;
+        }
+
+        // A FAILED SAVE ROLLS THE SWAP BACK — the engine mutates the in-memory aggregate and the save happens
+        // after it, so without this the books would hold the amended bill, the .db the original, and every later
+        // save would carry the divergence.
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            try
+            {
+                _service.Replace(existing.Id, existing, out _);
+                Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
+                        + "changed.";
+            }
+            catch (Exception rollbackFailure)
+            {
+                Message = $"Could not save the company: {ex.Message} Putting the original bill back ALSO failed "
+                        + $"({rollbackFailure.Message}), so this company is now ahead of its file — close it "
+                        + "without saving.";
+            }
+            return false;
+        }
+
+        SavedNumber = replacement.Number;
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered."
+                + (warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message)));
+        _onSaved();
+        return true;
+    }
+
+    /// <summary>Renders <paramref name="value"/> so that parsing it back yields the SAME decimal.</summary>
+    private static string ExactDecimalText(decimal value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Builds the de-branded retail receipt DTO for the just-posted POS bill (RQ-44).</summary>
     private PosReceiptData BuildReceipt(Voucher posted, IReadOnlyList<PosTender> tenders, Money taxable,

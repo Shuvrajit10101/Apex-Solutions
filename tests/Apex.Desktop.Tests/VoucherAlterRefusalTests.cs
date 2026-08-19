@@ -615,10 +615,28 @@ public sealed class VoucherAlterRefusalTests
 
     // ================================================================ (E) the two invoice entry modes
 
-    /// <summary>Rows 17 / 22 — the item invoice: derived legs, one posted line PER BATCH, and a posted rate
-    /// already net of the price-level discount that <c>VoucherInventoryLine</c> has no field to carry back.</summary>
+    /// <summary>
+    /// 🔴 Rows 17 / 22 — <b>the item invoice: NARROWED TO SALES, and both halves of the old sentence were
+    /// re-measured rather than inherited</b> (S5e).
+    ///
+    /// <para>This test used to assert the BLANKET refusal and to require the word "batch" in it. Both of those
+    /// were wrong once the reasons were checked:</para>
+    /// <list type="bullet">
+    ///   <item><b>The batch split was never an irrecoverability.</b> <c>TryAppendSplitBatchLines</c> does post one
+    ///     item line per batch — but the guard immediately above it refuses any split whose per-batch values do
+    ///     not foot to the line value, and forces Billed == Actual on it. Every split that actually posts is
+    ///     therefore VALUE-IDENTICAL to keying the lots on separate rows, which is exactly how the rehydration
+    ///     re-opens it. Citing it as a reason to refuse would be citing something untrue, so the word must NOT be
+    ///     in the sentence.</item>
+    ///   <item><b>The discount only bites SALES.</b> <c>ShowPriceLevelSelector</c> carries
+    ///     <c>!IsPurchaseInvoice</c> and is the sole writer of the per-line <c>ShowDiscount</c> gate, so on a
+    ///     Purchase item invoice (and on a POS bill, whose screen never touches that gate) the posted rate IS the
+    ///     keyed rate. That half survives, and it is now the WHOLE reason.</item>
+    /// </list>
+    /// <para>The round trip the narrowing rests on is measured in <c>PurchaseAndPosAlterationTests</c>.</para>
+    /// </summary>
     [Fact]
-    public void An_item_invoice_is_refused_by_name()
+    public void A_sales_item_invoice_is_refused_by_name_for_its_unrecoverable_list_rate()
     {
         using var book = AlterationBook.New("iteminv");
         var voucher = new Voucher(
@@ -635,9 +653,34 @@ public sealed class VoucherAlterRefusalTests
             book.Company, voucher, book.Type(VoucherBaseType.Sales));
 
         Assert.False(string.IsNullOrWhiteSpace(refusal));
-        Assert.Contains("ITEM INVOICE", refusal!, StringComparison.Ordinal);
-        Assert.Contains("batch", refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SALES ITEM INVOICE", refusal!, StringComparison.Ordinal);
+        Assert.Contains("list rate", refusal!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("discount", refusal!, StringComparison.OrdinalIgnoreCase);
+
+        // 🔴 The dissolved blocker must not survive as a reason. See this test's summary.
+        Assert.DoesNotContain("batch", refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// …and the PURCHASE arm of the same family is NOT refused — the counterpart assertion, so the narrowing is
+    /// pinned from both sides and a re-widened predicate cannot pass unnoticed. Asserted on the predicate itself,
+    /// over a voucher whose only distinguishing feature is its base type.
+    /// </summary>
+    [Fact]
+    public void A_purchase_item_invoice_is_not_refused_for_its_entry_mode()
+    {
+        using var book = AlterationBook.New("iteminvpurchase");
+        var voucher = new Voucher(
+            Guid.NewGuid(), book.Type(VoucherBaseType.Purchase).Id, book.On(),
+            PlainLegs(book.Ledger("Item Dr P", "Purchase Accounts"), book.Ledger("Item Cr P", "Sundry Creditors"),
+                100m),
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(Guid.NewGuid(), Guid.NewGuid(), 2m, new Money(50m)),
+            });
+
+        Assert.Null(VoucherAlterationEligibility.RefusalFor(
+            book.Company, voucher, book.Type(VoucherBaseType.Purchase)));
     }
 
     /// <summary>

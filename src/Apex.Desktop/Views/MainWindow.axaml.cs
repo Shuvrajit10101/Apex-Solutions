@@ -1483,7 +1483,7 @@ public partial class MainWindow : Window
 
     // POS Billing (Phase 6 slice 7; RQ-38..RQ-44) — accept / cancel / add line / toggle payment mode / tax analysis.
     private void OnAcceptPosClick(object? sender, RoutedEventArgs e)
-        => Vm?.PosBilling?.Accept();
+        => Vm?.AcceptPosBillingOrAlteration();
 
     private void OnCancelPosClick(object? sender, RoutedEventArgs e)
         => Vm?.AbandonEntry();
