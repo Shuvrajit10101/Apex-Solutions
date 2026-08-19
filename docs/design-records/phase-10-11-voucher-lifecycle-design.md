@@ -1008,6 +1008,18 @@ kind (Sales) is keyed by three different Accept paths *and* a fourth screen; ano
 mutually-exclusive shapes on one base kind. **No figure written in the design or the plan is contradicted by
 this count; the design simply never wrote one.**
 
+> 🔴 **THE `file.cs lines NN` CITATIONS IN §6.6a WERE TAKEN BEFORE S5b WAS BUILT, AND S5b INSERTED ~700 LINES
+> INTO THE FILE THEY MOSTLY CITE** (fix-pass finding L3-08). They are now stale by roughly 400 lines and — worse
+> than dangling — they RESOLVE, into S5b's own code, and read plausibly: row 1's *"lines 3059-3086"* for
+> `PostAndSave`'s `entryLines` projection now lands inside `AcceptAlteration`; row 16's *"lines 2838-2841"* for
+> `Accept`'s mode routing now lands on the `_rehydrating` field's doc comment; row 28's line for the provisional
+> stamp now lands on the rollback's `_storage.Save`. The citation-verifying suite does not catch it, because
+> §6.6a writes `file.cs lines NN` rather than the colon form that suite checks.
+>
+> **Read every §6.6a citation as a MEMBER NAME, never as a line number**: `PostAndSave`'s `entryLines` projection,
+> `Accept`'s mode routing, `PostAndSave`'s provisional stamp, and so on. The member names are stable and are what
+> the rest of this record's most durable passages already use.
+
 ### 6.6a.2 🔴 THE DISCRIMINATOR IS NOT THE BASE KIND — and the product already knows it
 
 `MainWindowViewModel.PickAddVoucherType` (`MainWindowViewModel.cs lines 3233-3262`) is the existing precedent,
@@ -1031,7 +1043,7 @@ test, stays refused. `?` = **UNDETERMINED — do not treat as SIMPLE.**
 | 1 | **Contra** | (none — one shape) | **SIMPLE** | Every appender is gated OFF for Contra: `TdsPossible` admits only Payment/Journal/Purchase; `RcmPossible` only Purchase/Journal; `CanBeAdvanceReceipt` only Receipt; `AdvanceActionForType` returns `None`; `CanBeItemInvoice` / `CanBeAccountingInvoice` / `CanBeSection34Note` all exclude it. So `PostAndSave` builds `entryLines` from `Lines.Where(l => l.IsComplete)` and appends nothing (`VoucherEntryViewModel.cs lines 3059-3086`). Line children only: bill / cost / bank / forex |
 | 2 | **Payment** | plain — no `.Tds` line, no advance link, type is neither `IsStatPaymentType` nor `IsRcmPaymentVoucher` | **SIMPLE** | Same appender audit as row 1, minus the three carve-outs below |
 | 3 | **Payment** | any line carrying `EntryLine.Tds` | **DEFER** | `TdsPossible` is true for Payment; `TdsService.BuildCarveOut` replaces the party leg with the DERIVED net and appends the TDS-Payable leg (`VoucherEntryViewModel.cs lines 3006-3024`, `3065-3067`, `3079-3081`). §3.2's inversion trap; already the design's temporary refusal |
-| 4 | **Payment** | 🔴 the voucher's id is a `GstAdvanceReceipt.RefundVoucherId` | **REFUSE — a hole the `Gst`/`Tds`/`Tcs` filter does NOT close** | `AdvanceReceiptService.BuildAdvanceReversalPair` builds `Dr Output {head}` plus `Cr suspense`, and its own doc comment states *"The reversal legs carry **no** `GstLineTax`"* (`AdvanceReceiptService.cs lines 225`, `235`). So the voucher carries **zero** tagged lines while carrying two-to-three lines the operator never keyed, and `Refund` also REPLACES the record on the company. Rehydrating only the grid drops the reversal pair — self-balancing, so nothing goes unbalanced — and the advance's output tax silently returns to the books while the record still reads refunded |
+| 4 | **Payment** | 🔴 the voucher's id is a `GstAdvanceReceipt.RefundVoucherId` | **REFUSE — a hole the `Gst`/`Tds`/`Tcs` filter does NOT close** | `AdvanceReceiptService.BuildAdvanceReversalPair` builds `Dr Output {head}` plus `Cr suspense`, and its own doc comment states *"The reversal legs carry **no** `GstLineTax`"* (`AdvanceReceiptService.cs lines 225`, `235`). So the voucher carries **zero** tagged lines while carrying two-to-three lines the operator never keyed, and `Refund` also REPLACES the record on the company. Rehydrating only the grid drops the reversal pair — self-balancing, so nothing goes unbalanced — and the advance's output tax silently returns to the books while the record still reads refunded  🔴 **EVIDENCE CORRECTED BY THE S5b FIX PASS (finding L3-04).** The clause *"the voucher carries two-to-three lines the operator never keyed"* is true only for a **service** advance. `BuildAdvanceReversalPair`'s first statement returns `Array.Empty<EntryLine>()` when the advance is not a service or carries no tax, so a **goods** advance's refund Payment carries **no engine line at all** and its only off-line effect is the record replacement. The VERDICT survives regardless, and only because this row keys on `RefundVoucherId`, which the record does set for a goods advance — a shape proxy would have missed it. Implemented and locked (`An_advance_refund_Payment_is_refused_although_it_carries_no_tagged_line`). |
 | 5 | **Payment** | `VoucherType.IsStatPaymentType` — the GST / TDS / TCS challan | **REFUSE** | `GstDepositService.cs line 66`, `TdsDepositService.cs line 41`, `TcsDepositService.cs line 45` each create a `VoucherBaseType.Payment` type flagged `isStatPayment` and post lines **no entry screen ever keyed**. §3.3 freezes `ChallanNo` / `BsrCode` / `DepositDate` / `Amount` on `TdsChallan` and `ChallanVoucherLink`, and `ChallanReconciliation.cs lines 85-92` self-heals on cancel/delete but **not** on amend |
 | 6 | **Payment** | `VoucherType.IsRcmPaymentVoucher` (Rule 52) | **REFUSE** | Same shape as row 5 — a Payment base kind wearing a flag, with an `RcmDocument` series hung off it (§3.3) |
 | 7 | **Receipt** | plain — no advance opt-in | **SIMPLE** | Appender audit as row 1; `ShowAdvanceReceiptDetails` is `CanBeAdvanceReceipt && IsAdvanceReceipt` and is off |
@@ -1040,12 +1052,14 @@ test, stays refused. `?` = **UNDETERMINED — do not treat as SIMPLE.**
 | 10 | **Journal** | plain — no `.Tds`, no RCM pair, no advance link, type is not `IsGstStatAdjustment` | **SIMPLE** | Appender audit as row 1, minus the four carve-outs below |
 | 11 | **Journal** | any line carrying `EntryLine.Tds` | **DEFER** | `TdsPossible` admits Journal |
 | 12 | **Journal** | an RCM self-accounting pair | **DEFER** | `RcmPossible` admits Journal; `RcmService.cs lines 210-211`, `223-224` tag both legs with `GstLineTax`. ⚠️ Under **composition** the balancing debit at `RcmService.cs lines 216` / `259` is **untagged**, but its paired credit is always tagged, so the voucher is still caught |
-| 13 | **Journal** | 🔴 it adjusts a `GstAdvanceReceipt` (`AdjustedAgainstInvoiceVoucherId`) | **REFUSE — third hole** | The same untagged reversal pair as row 4. Worse than row 4 in one respect: `AdjustAgainstInvoice` throws *"This advance has already been adjusted against an invoice"* on a second call, so a rehydration that DOES restore the panel refuses with a message about the wrong thing, and one that does NOT restore it drops the suspense release silently |
+| 13 | **Journal** | 🔴 **CORRECTED** — it carries a line to the advance-tax suspense ledger (`GstService.AdvanceTaxSuspenseLedgerName`), i.e. the SERVICE advance's release pair | **REFUSE — third hole** | 🔴 **THIS ROW WAS WRONG ON ARRIVAL AND SHIPPED A BLOCKER** (fix-pass finding L1-01, measured). Its stated discriminator, `GstAdvanceReceipt.AdjustedAgainstInvoiceVoucherId`, does **not** name the adjusting journal: `AdvanceReceiptService.AdjustAgainstInvoice` stores `adjustedAgainstInvoiceVoucherId: invoiceVoucherId`, its only caller passes `SelectedAdvanceInvoice` (a picker built from `Company.Vouchers` filtered to `BaseType == Sales`), and `Gstr1` reports the 11B row in that id's window. So the shipped arm refused the **sales invoice** — with a sentence beginning *"This journal…"* — while the adjusting Journal opened: deleting its engine-built release pair (self-balancing, so nothing went unbalanced) declared the advance's output tax a SECOND time, stranded the suspense debit, left the record reading adjusted and removed the advance from every picker, and the alteration reported plain success. **Nothing on the record names the adjusting voucher**, so the discriminator is now the SHAPE — the untagged `Cr Output Tax on Advances` release leg. §6.7 forbids the schema change (a persisted adjusting-voucher id) that would allow anything better |
+| 13a | **Journal** | 🔴 **NEW ROW** — it adjusts a **GOODS** advance (de-taxed, Notn 66/2017) | **SIMPLE — measured, not assumed** | The stated limit of row 13's shape proxy, and it needs no refusal. `BuildAdvanceReversalPair` returns `Array.Empty<EntryLine>()` for a goods advance, so the adjusting Journal carries **nothing the operator did not key** and the suspense ledger is never even created; `AcceptAlteration` performs no registration side effect, so `AdjustAgainstInvoice` is not re-run and the record is untouched by `Replace`. Measured end to end: the journal opens, re-accepts, and the record still names the same invoice (`A_goods_advance_adjustment_Journal_opens_and_the_record_survives_the_alteration`) |
 | 14 | **Journal** | `VoucherType.IsGstStatAdjustment` — Rule-88A set-off / ITC reversal | **REFUSE** | `GstSetOffService.cs line 290` and `GstReversalService.cs lines 141-147` post through this type; §3.3 classes `GstSetoffLine` as RE-DERIVE-but-not-by-us and `ItcReversal` as CARRY-plus-named-gap |
 | 15 | **Journal** | posted by `PayrollVoucherService.PostGratuityProvision` or `ForexReportViewModel`'s revaluation | **SIMPLE — with the re-accept caveat in §6.6a.6** | Both post a plain balanced two-leg Journal with no line-level detail (`PayrollVoucherService.cs lines 168-181`; `ForexReportViewModel.cs lines 204-214`). The posted lines are exactly what a Journal screen would have keyed. The caveat is not about the shape but about re-running detection |
-| 16 | **Sales** | as-voucher (`IsAsVoucherMode`), plain grid | **SIMPLE** | `Accept` routes to `PostAndSave` only when neither `IsItemInvoice` nor `IsAccountingInvoice` (`VoucherEntryViewModel.cs lines 2838-2841`); `TdsPossible` and `RcmPossible` both exclude Sales, and `CanBeAdvanceReceipt` / `AdvanceActionForType` both exclude it |
+| 16a | **Sales** | as-voucher (`IsAsVoucherMode`), plain grid, **and no record of another voucher names it** | **SIMPLE** | `Accept` routes to `PostAndSave` only when neither `IsItemInvoice` nor `IsAccountingInvoice` (`VoucherEntryViewModel.cs lines 2838-2841`); `TdsPossible` and `RcmPossible` both exclude Sales, and `CanBeAdvanceReceipt` / `AdvanceActionForType` both exclude it  🔴 **NARROWED BY THE FIX PASS (finding L3-05).** This evidence audits only what `Accept` APPENDS, and so misses the roles a plain Sales voucher plays in records OTHER vouchers created — hence row 16b. |
+| 16b | **Sales** | 🔴 **NEW ROW** — a `GstAdvanceReceipt` names it as its `AdjustedAgainstInvoiceVoucherId` | **REFUSE** | This is the correct home for the arm row 13 mis-labelled. `AdjustAgainstInvoice` re-reads this invoice's posted taxable value (`GstReportSupport.InvoiceTaxableValue`) to prove the advance was fully consumed, and GSTR-1 11B's figures are frozen against it; nothing re-derives either when a voucher is amended. The tag filter cannot see it — a goods advance's anchor invoice can be wholly untagged (`The_sales_invoice_an_advance_was_released_against_is_refused_by_name`) |
 | 17 | **Sales** | item invoice (`Voucher.HasInventoryLines`) | **DEFER — and NOT covered by S5c's stated contents** | The value leg and the party leg are **derived, never keyed** (`VoucherEntryViewModel.cs lines 4828-4840`). Two proven non-inverses beyond tax: **(a)** a batch-split line posts **one item line PER BATCH** (`TryAppendSplitBatchLines`, called at `VoucherEntryViewModel.cs lines 4722-4726`), so one keyed row becomes N posted rows; **(b)** the posted rate is `EffectiveRate` = `rate × (1 − discount/100)` (`InventoryVoucherLineViewModel.cs lines 350-353`) and **`VoucherInventoryLine` has no discount field at all** — its whole public surface is item, godown, quantity, billed quantity, rate, direction, batch label, unit — so the list rate and the Price-Level discount are unrecoverable |
-| 18 | **Sales** | accounting invoice (`Voucher.IsAccountingInvoice`), **carrying no tax line** | **? UNDETERMINED — leaning DEFER** | The mode itself is safely recoverable: `IsAccountingInvoice` is persisted and `Replace` already REFUSES a change to it (`LedgerService.cs lines 404-412`). The party leg is identifiable as the line whose `LedgerId == Voucher.PartyId`, and the income legs are one-per-keyed-particulars-row (`VoucherEntryViewModel.cs lines 4134-4142`) — so an inverse looks mechanically available. **It has not been measured**, and the branch that worries me is the one the code calls out by name at the `isAccountingInvoice` stamp: a **zero-rated (LUT/export) or wholly exempt** service invoice posts **no tax leg**, so it would pass the tag filter while its party leg is still a derived total. Do not ship this as SIMPLE without measuring that branch |
+| 18 | **Sales** | accounting invoice (`Voucher.IsAccountingInvoice`), **carrying no tax line** | **? UNDETERMINED — leaning DEFER** | The mode itself is safely recoverable: `IsAccountingInvoice` is persisted and `Replace` already REFUSES a change to it (`LedgerService.cs lines 404-412`). The party leg is identifiable as the line whose `LedgerId == Voucher.PartyId`, and the income legs are one-per-keyed-particulars-row (`VoucherEntryViewModel.cs lines 4134-4142`) — so an inverse looks mechanically available. **It has not been measured**, and the branch that worries me is the one the code calls out by name at the `isAccountingInvoice` stamp: a **zero-rated (LUT/export) or wholly exempt** service invoice posts **no tax leg**, so it would pass the tag filter while its party leg is still a derived total. Do not ship this as SIMPLE without measuring that branch  🔴 **MEASURED BY THE FIX PASS — no longer UNDETERMINED (finding L1-04).** With the arm lifted and `SeedAlterationMode` pointed at the plain grid, a wholly exempt Sales accounting invoice posts, re-opens, re-accepts and exports **byte-identically** in memory and on disk, with `IsAccountingInvoice` and `PartyId` intact (both are already carried by `AcceptAlteration`) and GSTR-1's exempt value unmoved. **Verdict: SIMPLE on the ROUND TRIP, REFUSE on the EDIT** — what is not recoverable is the party leg's DERIVED STATUS: on the plain grid it becomes an ordinary editable row that nothing re-derives, so an operator can move the party total off the sum of the service rows and still balance. The refusal's SENTENCE was changed to say that; the old one said the round trip "has not been measured", which is no longer a fact about this repository, and also argued from the LINES when the arm reads the persisted flag |
 | 19 | **Sales** | `VoucherType.IsPosSales` (`Voucher.HasPosTenders`) | **REFUSE — permanent** | RULING 1. `PosBillingViewModel.cs lines 693`, `704-708` append `PosTenderService.BuildTenderDebitLines(tenders)` and post through `LedgerService.Post` **into `Company.Vouchers`** — so unlike the inventory screens this one IS reachable by `Replace`, and the refusal must be explicit rather than architectural |
 | 20 | **Purchase** | as-voucher, plain grid, no `.Tds`, no RCM | **SIMPLE** | As row 16, minus rows 21-23 |
 | 21 | **Purchase** | any line carrying `EntryLine.Tds`, or an RCM pair | **DEFER** | `TdsPossible` and `RcmPossible` both admit Purchase |
@@ -1056,7 +1070,7 @@ test, stays refused. `?` = **UNDETERMINED — do not treat as SIMPLE.**
 | 26 | **Debit Note** | plain | **SIMPLE** | As row 24 |
 | 27 | **Debit Note** | `ShowSection34Details` true | **REFUSE** | As row 25 — `CanBeSection34Note` admits both CN and DN (`VoucherEntryViewModel.cs lines 2256-2257`) |
 | 28 | **Memorandum** | (none) | **SIMPLE — and the flag carry is mandatory** | Provisional by base kind (`LedgerBalance.cs lines 37-38`), so `PostAndSave` forces `optional: !IsProvisionalType && IsOptional` to **false** (`VoucherEntryViewModel.cs line 3127`) and `applicableUpto` stays null. **`PostDated` can still be true**, and S5a REFUSES a change to it — so a rehydration that drops it fails the refusal rather than a balance check, which is the intended outcome and must have a test |
-| 29 | **Reversing Journal** | (none) | **SIMPLE — and `ApplicableUpto` is ALWAYS non-default** | `IsReversing` makes `ApplicableUptoText` mandatory and on/after the voucher date (`VoucherEntryViewModel.cs lines 3100-3112`), so **every** Reversing Journal carries a non-null `ApplicableUpto`. A `ForAlter` that does not rehydrate `ApplicableUptoText` throws S5a's provisional-vector refusal on **every** voucher of this family — the loudest possible failure, and the reason this family is the cheapest S5b smoke test |
+| 29 | **Reversing Journal** | (none) | **SIMPLE — and `ApplicableUpto` is ALWAYS non-default** | `IsReversing` makes `ApplicableUptoText` mandatory and on/after the voucher date (`VoucherEntryViewModel.cs lines 3100-3112`), so **every** Reversing Journal carries a non-null `ApplicableUpto`. A `ForAlter` that does not rehydrate `ApplicableUptoText` throws S5a's provisional-vector refusal on **every** voucher of this family — the loudest possible failure, and the reason this family is the cheapest S5b smoke test  🔴 **PREMISE REFUTED BY THE FIX PASS (findings L1-03 and L3-02).** *"Every Reversing Journal carries a non-null `ApplicableUpto`"* is a property of the ENTRY SCREEN, not of the model: `VoucherValidator` has no ReversingJournal clause, `LedgerService.Post` takes one straight through, and the product's own canonical import parses one with the attribute stripped with **zero** parse errors. Such a voucher OPENED, seeded `ApplicableUptoText` from the constructor's financial-year-end default, and could then never be accepted — `Replace` refused a provisional-state change *from (none) to 31-Mar-…*, an engine message about a field the operator never saw. **Split: a Reversing Journal WITH a date is SIMPLE (unchanged); one WITHOUT is REFUSED at the door**, by `ProvisionalShapeRefusal`'s new mirror arm |
 | 30 | **Payroll** | (none) | **REFUSE — permanent** | RULING 1. Every line carries `EntryLine.Payroll` written by `PayrollComputationService`, and the `EntryLine` constructor enforces `payroll.Amount == amount` (`EntryLine.cs lines 144-146`). It is keyed on `PayrollVoucherEntryViewModel` as a period plus an employee set, never as a Dr/Cr grid — `MainWindowViewModel.cs lines 3254-3256` already routes it away for exactly that stated reason |
 
 ### 6.6a.4 THE ENUMERATION — inventory aggregate (NOT reachable by `LedgerService.Replace`)
@@ -1098,7 +1112,7 @@ count a checkpoint that RESETS the running balance, so altering one changes on-h
 | **`ToCostAllocations()`** `VoucherLineViewModel.cs line 429` | `IsCostApplicable` ? complete rows → `CostAllocation` : empty | one row per posted `CostAllocation`, **carrying its `CategoryId`** | **Lossless on content** — the row VM does carry a category picker (`SelectedCategory`, used by `UsedCostCategories` at `VoucherLineViewModel.cs lines 348-353`), so the parallel multi-category axes of §4.2 rule C-27 are representable. **The same master-drift hole**: `SyncCostApplicable` gates on `_costCentres.Count > 0 && ClassificationRules.CostCentresApplicableFor(...)` (`VoucherLineViewModel.cs lines 277-280`) |
 | **`ToInvoiceBillAllocations()`** `VoucherEntryViewModel.cs line 544` | `InvoiceBillWiseApplies` ? complete rows : **`null`** (null, not empty, for ER-13 byte-identity) | the derived party leg's `BillAllocations` | **Lossless on content**, the same master-drift gate. Note it belongs only to the two invoice Accept paths, both of which are DEFER or UNDETERMINED above — so **S5b never exercises this writer's inverse at all**, and building it in S5b is premature |
 | **🔴 `ToBankAllocation()`** `VoucherLineViewModel.cs line 484` — **not named in §6.6** | transaction type, instrument number, instrument date | the same three | **NOT lossless — it never writes `BankDate`**, because `BankDate` is written post-entry by `BankReconciliation.SetBankDate` (§3.4). **The loss is already closed, but by S5a, not by S5b**: `LedgerService.CarryBankDatesForward` (`LedgerService.cs line 531`) carries the tick with a two-pass exact-first pairing and an ECHO rule that treats a rehydrated equal date as the posted fact rather than a statement. **The consequence for S5b is a constraint, not a task: `ForAlter`'s accept path must go through `Replace`, never through `Post`.** Through `Post`, every reconciliation tick on the voucher is destroyed silently |
-| **🔴 `ToForexInfo()`** `VoucherLineViewModel.cs line 590` — **not named in §6.6** | (currencyId, forexAmount, rate); returns null unless both parse > 0 | `ForexAmountText` and `ForexRateText` | **NOT lossless as the screen formats today.** `ForexInfo.Rate` persists at `Schema.ForexScale` = **1,000,000** (six decimal places; `Schema.cs lines 162`, `973`), but the screen's own rate formatter is `"0.####"` — **four** places (`VoucherLineViewModel.cs lines 528`, `608`). An inverse reusing that format truncates a six-place rate, and since `Money.ForexBase` snaps `forexAmount × rate` to the paisa, the rebuilt line's base amount can differ from the posted one — which `VoucherValidator` enforces. **The inverse must format the rate at six or more places.** This is a one-line fix, and exactly the kind that ships silently if nobody writes it down |
+| **🔴 `ToForexInfo()`** `VoucherLineViewModel.cs line 590` — **not named in §6.6** | (currencyId, forexAmount, rate); returns null unless both parse > 0 | `ForexAmountText`, `ForexRateText` **and the line's DENOMINATION** | **NOT lossless as the screen formats today, and the inverse's stated obligation was also INCOMPLETE (fix-pass finding L3-01).** The forward is `(currencyId, forexAmount, rate)` but the inverse was scoped to the amount and the rate only — and `currencyId` comes from `SelectedLedger.CurrencyId`, the **live master**. So `ToForexInfo` is a **FOURTH master-drift reader**, and the only one whose drift reaches a posted `EntryLine` as a VALUE rather than as a panel gate: a ledger repointed from USD to EUR after posting opened silently, accepted with a plain "altered.", and restated the line in a currency it was never denominated in — measured, with the canonical export no longer identical. `EnsureForexValid` cannot catch it (it checks only that the currency EXISTS and that base ≈ forex × rate) and `LedgerMasterViewModel` writes `CurrencyId` unconditionally with no transacted-ledger guard. **The inverse must compare the DENOMINATION and refuse by name**, which it now does. The formatting half, as originally stated: `ForexInfo.Rate` persists at `Schema.ForexScale` = **1,000,000** (six decimal places; `Schema.cs lines 162`, `973`), but the screen's own rate formatter is `"0.####"` — **four** places (`VoucherLineViewModel.cs lines 528`, `608`). An inverse reusing that format truncates a six-place rate, and since `Money.ForexBase` snaps `forexAmount × rate` to the paisa, the rebuilt line's base amount can differ from the posted one — which `VoucherValidator` enforces. **The inverse must format the rate at six or more places.** This is a one-line fix, and exactly the kind that ships silently if nobody writes it down |
 
 **Consequence for the verdicts above.** Two writers are not losslessly invertible, and **neither failure
 disqualifies a SIMPLE row**: the bank one is compensated in the engine by S5a, and the forex one is a
@@ -1157,6 +1171,31 @@ nor `VoucherEntryViewModel.ForAlter`. It must live in **`Apex.Desktop.Tests`**, 
 `Apex.Desktop`, `Apex.Ledger` and `Apex.Persistence.Sqlite` (`Apex.Desktop.Tests.csproj lines 26-28`) — the
 same project that already owns the coverage lock this test is modelled on.
 
+🔴 **AND WHAT WAS BUILT FROM THIS SECTION DID NOT REACH THE PREDICATE** (fix-pass finding L2-01, measured).
+The lock as written below iterates `SeededBaseTypes(PopulatedCompanyFixture.BuildRegular())` — a denominator of
+**base kinds**, decided by code the predicate does not own. Measured against the shipped slice: replacing the
+ENTIRE body of `VoucherAlterationEligibility.RefusalFor` with `return null` left the lock **green** while 23
+other S5b tests died, and deleting a whole L5 type-flag arm (`IsPosSales`) left it green too. In that fixture
+seven of the ten SIMPLE families are refused by MASTER DRIFT (a refusal `VoucherLineViewModel.RehydrateFrom`
+owns, in a different file), the twelve inventory kinds by the architectural aggregate check UPSTREAM of the
+predicate, and Sales/Purchase by the item-invoice arm — so its "at least one refused" clause is carried entirely
+by other checks, and its "at least one opened" clause by exactly ONE base kind, Memorandum.
+
+**The section's own §6.6a.2 says why: the discriminator is not the base kind.** The lock therefore has to be
+keyed on the layer the dispatcher actually switches on. Three tests now carry it, and the first two are the ones
+that bite:
+
+1. `Every_specialised_type_flag_has_its_own_named_refusal_from_the_predicate` — the **(type flag × base kind)**
+   cross-product, asserted against `VoucherAlterationEligibility.RefusalFor` ITSELF so no other layer can cover
+   for it, requiring a **distinct** sentence per flag, with the denominator read by REFLECTION off
+   `VoucherType`'s own derived (get-only) `Is…` predicates — so a NEW flag added without a decision fails on the
+   day it is added. Gutting the predicate, dropping the POS arm and dropping the inventory-base-kind arm each
+   redden it.
+2. `Every_SIMPLE_base_kind_opens_on_a_drift_free_book` — all ten SIMPLE base kinds on masters that have not
+   moved, so the OPENED side is not carried by Memorandum alone.
+3. The seeded-base-kind lock below, kept for what it genuinely does: it fails when a newly **seeded** base kind
+   has no decision at all.
+
 **What it must assert, phrased so a new seed row fails it:** for every base kind in
 `SeededBaseTypes(PopulatedCompanyFixture.BuildRegular())`, the S5b dispatcher returns either a rehydrated VM or
 a refusal **whose message is non-empty and family-specific** — never a null, never a silent no-op. That is
@@ -1173,6 +1212,14 @@ happened" passes for a silent no-op too.
 have at least one SIMPLE shape; the remaining thirteen (Payroll plus the twelve inventory kinds) have none.
 **Attendance is the 24th enum member and is NOT in the universe** — it is un-seeded and posts `AttendanceEntry`
 rows, never a `Voucher`; if it is ever seeded, the §6.6a.7 test is what fails on that day.
+
+🔴 **THE TOTALS ABOVE ARE THE PRE-FIX-PASS COUNT. After §6.6a.9's corrections the accounting aggregate holds
+THIRTY-THREE rows**: rows 13a, 16b and 31 are added, row 13 changes discriminator (and stays REFUSE), row 16
+splits into 16a (SIMPLE) and 16b (REFUSE), row 18 becomes REFUSE-on-the-edit with a stated reason rather than
+UNDETERMINED, and row 29 splits by whether the voucher carries an `ApplicableUpto` at all (with ⇒ SIMPLE,
+without ⇒ REFUSE). Restated: **twelve SIMPLE** (1, 2, 7, 10, 13a, 15, 16a, 20, 24, 26, 28, 29-with-a-date) ·
+**eight DEFER** (unchanged) · **thirteen REFUSE** (the original ten, plus 16b, 18 and 29-without-a-date) · **one
+OPEN-then-refuse** (31) · **zero UNDETERMINED**. Plus twelve inventory base kinds, all REFUSE.
 
 **🔴 STATED PLAINLY — what I could not decide.**
 
@@ -1191,6 +1238,68 @@ rows, never a `Voucher`; if it is ever seeded, the §6.6a.7 test is what fails o
    §3.3 CARRY/REFUSE table"*, none of which covers the item-invoice batch split or the Price-Level discount.
    Either S5c's scope widens or those two rows need a slice of their own. **That is a scoping decision, and it
    is not mine to take.**
+
+### 6.6a.9 🔴 THE S5b FIX PASS — WHAT THE THREE ADVERSARIAL LENSES CHANGED (added 2026-08-19)
+
+Twenty-six findings over three sequential lenses. This subsection records what they changed **in the
+enumeration**, so a later slice reads the corrected rows rather than re-deriving them. The code changes are
+carried in the files themselves; every one ships with a test that fails without it.
+
+**FOUR ROWS WERE WRONG ON ARRIVAL** (rows 13, 16, 18, 29 — joining the already-known row 15), and two more
+carried evidence that is false without changing the verdict (rows 4 and 13's mechanism). All six are corrected
+in place above. The corrections are not cosmetic: row 13's error shipped a **BLOCKER** — an alteration that
+silently declared ₹1,800 of output tax twice and stranded the suspense — and row 29's shipped a screen that could
+be opened and never accepted.
+
+**THREE ROWS ARE ADDED**: 13a (a goods advance's adjusting Journal — SIMPLE, measured), 16b (the sales invoice a
+GST advance was released against — REFUSE), and 31 below.
+
+| # | Base kind | Discriminating predicate | Verdict | Evidence |
+|---|---|---|---|---|
+| 31 | **any** | 🔴 **NEW** — the line carries cost allocations that foot only ACROSS axes (the superseded partition rule), admitted by `CostAllocationStrictness.Legacy` | **OPEN, then REFUSE at the accept — with an ACCURATE message** | The population `CostAllocationStrictness.Legacy` exists for: `SqliteCompanyStore.Load` re-posts every stored voucher through it and the canonical import uses it too, so these vouchers are on disk today. `Replace` validates with `Strict`, so such a voucher passes every S5b gate, opens, and cannot be accepted. The message it got said the allocations *"must sum to the line amount (5,000.00)"* while they summed to exactly 5,000.00 — the abolished rule quoted back at the operator on the ONE screen that can remediate it. It now names the short AXIS and states the per-category rule, mirroring `VoucherValidator`'s own C-27 text. **`ForAlter` deliberately still OPENS it**, because it is the remediation screen. 🔴 **And the general lesson: SIMPLE-by-line-equality is NECESSARY BUT NOT SUFFICIENT** — this shape satisfies "posted lines equal the keyed lines" and still does not round-trip, because a REHYDRATION TOLERANCE, not an appender, admitted it |
+
+**§6.6a.5's writer table gained a fourth master-drift reader** — `ToForexInfo`'s `currencyId`, see the row
+itself. That is the only value a live master contributes to a posted `EntryLine`; every other writer either
+reads a gate the inverse compares (`ToBillAllocations`, `ToCostAllocations`, `ToBankAllocation`) or reads no
+master at all (`BillAllocationRowViewModel.ToAllocation`).
+
+**TWO PREMISES OF THE SLICE'S OWN DISCLOSURE ARE CORRECTED.**
+
+1. **The canonical-export instrument is NOT vacuum-capable here** (finding L2-04, and no change was needed).
+   Short-circuited to a constant it reddens nothing — which is the expected shape for a snapshot instrument, a
+   constant being self-consistent — but made to return a fresh nonce per call it reddens **30 of 75**, and all
+   **eleven** SIMPLE round-trip tests are among them. S5a's 2-of-30 failure mode is absent. Recorded so the next
+   reviewer does not re-run it.
+2. **There are TWO unfalsifiable carries, not three** (finding L2-05). `number: existing.Number` was declared
+   unfalsifiable on the ground that `number: null` will not compile — true, but an ARITHMETIC mutant does, and
+   `existing.Number + 1000` kills 29 tests. The other two declarations hold under measurement
+   (`isAccountingInvoice: existing.IsAccountingInvoice` → `false` survives; `existing.Id` → a fresh Guid kills 32).
+
+**THE OTHER 24 ROWS SURVIVE CONTACT** — audited row by row against the code they describe rather than against
+themselves, and recorded here as CONFIRMED-BY-AUDIT so the next reviewer does not re-derive them: rows 1, 2, 7,
+10, 20, 24, 26, 28 (the appender audit re-verified, and each measured end to end: opened, re-accepted, export
+identical); 3, 11, 21, 12 (DEFER — `RcmService` tags the liability leg on every branch, composition included);
+5, 6, 14, 19, 30 (REFUSE — the type flags exist and are checked first); 8, 9 (the advance receipt itself); 17,
+22, 23, 25, 27 (item invoice, accounting invoice, §34 links); and §6.6a.4's twelve inventory kinds
+(`VoucherEffects.IsInventoryBaseType` lists exactly those twelve). §6.6a.5's parallel-cost-axes claim is
+MEASURED TRUE (two axes each at the full 5,000.55 posted, rehydrated, re-accepted, export identical in memory
+and on disk), and the lossiness it does not name — `CreditPeriodDays` — is MEASURED CLOSED (an import-shaped
+allocation carrying one is refused by name).
+
+**ER-13 holds by REACHABILITY, and that limit is stated rather than papered over.** `grep` over `src/` finds
+**zero** production call sites for `ForAlter(`, `AcceptAlteration` or `VoucherAlterationEligibility` on the
+voucher screen; the slice's two state fields are written only inside `RehydrateFrom`, which only `ForAlter`
+calls; and a fresh screen measures inert (`IsAltering=False`, and `AcceptAlteration` refuses by name). A byte
+diff against the pre-slice tree was NOT taken — the fix pass is forbidden every git command — so no such claim
+is made.
+
+**ONE DEFECT OUTSIDE THE SLICE WAS FOUND AND FIXED HERE, and it should be raised on its own** (finding L2-03): a
+forex line whose FOREX AMOUNT carried more than two decimal places posted through the real screen, passed
+`VoucherValidator.EnsureForexValid` and **saved** — SQLite stores the magnitude at 1,000,000 scale — after which
+`CanonicalXml.Export` threw, because the canonical model carries `ForexAmountPaisa` at two places. That is a
+company the app itself produced and cannot export, and Export Data → XML is the only door out of it. The typed
+amount is now guarded at the keyboard like every other. It is pre-existing and not S5b's doing, but it lands on
+S5b because it makes the round-trip INSTRUMENT unusable on a reachable shape of the eleven SIMPLE families.
 
 ## 6.7 🔴 WHAT I WOULD NOT BUILD IN THE FIRST SLICE — the explicit list
 

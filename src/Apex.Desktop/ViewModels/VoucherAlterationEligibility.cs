@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -52,11 +53,13 @@ public static class VoucherAlterationEligibility
             // §6.6a.4 — all twelve inventory base kinds post an InventoryVoucher into a DIFFERENT list on Company.
             // LedgerService.Replace cannot see them and says so by name; a caller that lands here deserves the same
             // answer rather than a bare "not found", which is indistinguishable from a mistyped Guid.
+            // 🔴 Written for the OPERATOR, not for the reader of this file (finding L3-07). The mechanism — a
+            // different aggregate that LedgerService.Replace cannot reach, so the refusal is architectural rather
+            // than a judgement about the voucher's shape — belongs in this comment; an accountant deciding what to
+            // do next needs the family, the reason in their own vocabulary, and the screen to go to.
             if (company.InventoryVouchers.Any(iv => iv.Id == voucherId))
-                return "This is a pure-stock inventory voucher. It lives in the inventory aggregate, which "
-                     + "LedgerService.Replace does not reach, so the accounting entry screen cannot re-open it — "
-                     + "the refusal is architectural, not a judgement about its shape. Alter it on the inventory "
-                     + "entry screen once that verb exists.";
+                return "This is an inventory voucher — it records goods moving, not double entry — so the "
+                     + "accounting entry screen cannot re-open it. Alter it on the inventory voucher screen.";
 
             return "That voucher is no longer in this company's books — it may have been deleted since the report "
                  + "was drawn. Re-open the report and try again.";
@@ -142,8 +145,8 @@ public static class VoucherAlterationEligibility
         // §6.6a.4 — the twelve inventory base kinds. Reached here only for the (impossible today) shape of an
         // accounting Voucher carrying an inventory base kind; the ordinary route is the aggregate check above.
         if (VoucherEffects.IsInventoryBaseType(type.BaseType))
-            return $"A {type.Name} is a pure-stock inventory voucher. It lives in the inventory aggregate, which "
-                 + "LedgerService.Replace does not reach, so the accounting entry screen cannot re-open it.";
+            return $"A {type.Name} is an inventory voucher — it records goods moving, not double entry — so the "
+                 + "accounting entry screen cannot re-open it. Alter it on the inventory voucher screen.";
 
         // Row 30 — Payroll. Every line carries EntryLine.Payroll written by PayrollComputationService, and the
         // EntryLine constructor enforces payroll.Amount == amount, so a Dr/Cr grid cannot express one leg of it.
@@ -191,20 +194,60 @@ public static class VoucherAlterationEligibility
                 + "points at it, and re-accepting from the grid alone would leave that record naming a voucher "
                 + "that no longer claims it.";
 
-        // Row 13 — the adjustment Journal. Same untagged reversal pair as the refund, and worse in one respect:
-        // AdjustAgainstInvoice throws "this advance has already been adjusted" on a second call, so a rehydration
-        // that DID restore the panel would refuse with a message about the wrong thing.
-        if (company.AdvanceReceipts.Any(a => a.AdjustedAgainstInvoiceVoucherId == id))
-            return "This journal releases a GST advance against an invoice. The suspense-releasing legs it "
-                 + "carries were built by the advance engine and are untagged, so the grid cannot tell them from "
-                 + "keyed lines; re-accepting would drop the release and leave the advance still outstanding.";
-
-        // Row 4 — the Rule-51 refund Payment. AdvanceReceiptService.BuildAdvanceReversalPair's own doc comment
-        // states the reversal legs carry NO GstLineTax, and Refund REPLACES the record on the company.
+        // Row 4 — the Rule-51 refund Payment. Refund REPLACES the record on the company, and on a SERVICE advance
+        // BuildAdvanceReversalPair's own doc comment states the reversal legs carry NO GstLineTax.
+        //
+        // 🔴 CORRECTION (finding L3-04), because the row's stated evidence is wrong for half the family:
+        // BuildAdvanceReversalPair's FIRST statement is `if (!advance.IsService || advance.AdvanceTax.Amount == 0m)
+        // return Array.Empty<EntryLine>()`. A GOODS advance is de-taxed (Notn 66/2017), so its refund voucher
+        // carries NO engine line at all — the off-line effect is the record replacement alone. The verdict survives
+        // anyway, and only because this arm keys on RefundVoucherId, which IS set for a goods advance: the record
+        // points straight at the refund voucher, so no shape proxy is needed here.
         if (company.AdvanceReceipts.Any(a => a.RefundVoucherId == id))
-            return "This payment refunds a GST advance (Rule 51). Its reversal legs carry no tax tag at all, so "
-                 + "they are indistinguishable from keyed lines on the grid; re-accepting would drop them and the "
-                 + "advance's output tax would silently return to the books while the record still reads refunded.";
+            return "This payment refunds a GST advance (Rule 51). The advance record names it, and on a service "
+                 + "advance its reversal legs carry no tax tag at all, so they are indistinguishable from keyed "
+                 + "lines on the grid; re-accepting would drop them and the advance's output tax would silently "
+                 + "return to the books while the record still reads refunded.";
+
+        // Row 13 — the adjustment Journal, selected BY SHAPE, because nothing on the record names it.
+        //
+        // 🔴 THIS ARM REPLACES A WRONG ONE (finding L1-01, a measured BLOCKER). The predicate shipped as
+        // `AdvanceReceipts.Any(a => a.AdjustedAgainstInvoiceVoucherId == id)` on the stated belief that the field
+        // names the adjusting journal. It does not: AdvanceReceiptService.AdjustAgainstInvoice stores
+        // `adjustedAgainstInvoiceVoucherId: invoiceVoucherId`, and its only caller passes SelectedAdvanceInvoice —
+        // a picker built from Company.Vouchers filtered to BaseType == Sales. Gstr1 corroborates it, reporting the
+        // 11B row in the window of that id. So the old arm refused the SALES INVOICE (with a sentence beginning
+        // "This journal…") and left the adjusting Journal OPEN — where removing its engine-built release pair
+        // declared the advance's output tax a second time and stranded the suspense, with the record still reading
+        // adjusted and the advance gone from every picker.
+        //
+        // The shape that DOES select it: the release pair is Dr Output {head} / Cr "Output Tax on Advances", so a
+        // line to the advance-tax suspense ledger is the discriminator. It also covers a hand-keyed voucher on that
+        // engine-owned ledger, which is the conservative direction.
+        //
+        // 🔴 AND ITS LIMIT, STATED (finding L3-04): a GOODS advance's adjusting Journal carries NO engine line, so
+        // this arm cannot see it — and it does not need to. With no appended line and no record mutation on the
+        // accept path (AcceptAlteration never calls AdjustAgainstInvoice), the voucher's posted lines ARE its keyed
+        // lines and the record is untouched by Replace. §6.6a row 13a records the measurement.
+        if (company.FindLedgerByName(GstService.AdvanceTaxSuspenseLedgerName) is { } suspense
+            && voucher.Lines.Any(l => l.LedgerId == suspense.Id))
+            return "This voucher moves the GST advance-tax suspense ('Output Tax on Advances') — the balance the "
+                 + "advance engine debits when a service advance is received and credits when the advance is "
+                 + "released against an invoice. Those release legs carry no tax tag, so the grid cannot tell them "
+                 + "from keyed lines; re-accepting would drop the release and the advance's output tax would stand "
+                 + "twice while the record still reads settled.";
+
+        // Row 16b — the SALES INVOICE an advance was adjusted against (finding L3-05). The old arm's PREDICATE was
+        // right about what it matched and wrong about what it said; this is the correct sentence for it, and the
+        // refusal is a real one: AdjustAgainstInvoice re-read this invoice's posted taxable value
+        // (GstReportSupport.InvoiceTaxableValue) to prove the advance was fully consumed, and GSTR-1 11B's figures
+        // were frozen against it. A plain-grid Sales invoice is otherwise SIMPLE (row 16a), so without this arm the
+        // taxable value behind a released advance could be amended with nothing reporting it.
+        if (company.AdvanceReceipts.Any(a => a.AdjustedAgainstInvoiceVoucherId == id))
+            return "A GST advance was released against this invoice. The advance engine tested the advance against "
+                 + "this invoice's taxable value and froze the GSTR-1 11B figures on it, and it does not re-derive "
+                 + "them when a voucher is amended — so altering the invoice would leave the release standing "
+                 + "against a figure the book no longer holds.";
 
         // Rows 25 and 27 — a §34 credit/debit note. RegisterSection34Link mints a fresh Guid.NewGuid() link on
         // EVERY Accept, so a re-accept adds a SECOND GstCreditDebitNoteLink for one note. §3.3 classes the link
@@ -217,9 +260,17 @@ public static class VoucherAlterationEligibility
         // Defensive, and NOT redundant with the IsStatPaymentType refusal above: the link is keyed on
         // (ChallanId, VoucherId) and nothing structurally confines it to a stat-payment TYPE. §3.3 records that
         // ChallanReconciliation self-heals on cancel and delete but not on amend.
+        //
+        // 🔴 ALL FOUR CHALLAN COLLECTIONS, not two (finding L1-05). GstChallan.VoucherId (non-null) and
+        // GstDrc03.VoucherId (nullable) are equally bare voucher ids with exactly the same reachability argument:
+        // GstDepositService creates both against the stat-payment type today, but ImportPlan builds both straight
+        // from canonical XML with an arbitrary voucher id. Keeping half of a defence whose own stated rationale
+        // covers all four is the shape that ships a hole.
         if (company.ChallanVoucherLinks.Any(l => l.VoucherId == id)
-            || company.TcsChallanVoucherLinks.Any(l => l.VoucherId == id))
-            return "This voucher is linked to a TDS/TCS challan, which freezes the challan number, BSR code, "
+            || company.TcsChallanVoucherLinks.Any(l => l.VoucherId == id)
+            || company.GstChallans.Any(c => c.VoucherId == id)
+            || company.GstDrc03s.Any(d => d.VoucherId == id))
+            return "This voucher is linked to a GST/TDS/TCS challan, which freezes the challan number, BSR code, "
                  + "deposit date and amount. The challan reconciliation does not re-derive those when a voucher "
                  + "is amended, so altering it would leave the reconciliation reporting a figure the book no "
                  + "longer holds.";
@@ -259,9 +310,21 @@ public static class VoucherAlterationEligibility
                  + "already net of the price-level discount — so the list rate and the discount cannot be read "
                  + "back. Altering an item invoice arrives in a later slice.";
 
-        // Row 18 — UNDETERMINED, and it must NOT ship as SIMPLE. The party leg is a DERIVED total, and the
-        // zero-rated / LUT / wholly-exempt branch posts no tax leg at all, so this shape passes every tag filter
-        // while still carrying a derived leg. It was never measured; refused by name until it is.
+        // Row 18 — 🔴 NO LONGER "UNDETERMINED", AND THE REASON CHANGED (finding L1-04). The round trip WAS measured
+        // after this arm shipped: with the arm lifted and SeedAlterationMode pointed at the plain grid, a wholly
+        // exempt Sales accounting invoice posted, re-opened, re-accepted and exported BYTE-IDENTICALLY, in memory
+        // and on disk, with IsAccountingInvoice and PartyId intact and GSTR-1's exempt value unmoved — because
+        // AcceptAlteration already carries `isAccountingInvoice: existing.IsAccountingInvoice` and
+        // `partyId: existing.PartyId`, and the two posted lines are ordinary plain-grid lines.
+        //
+        // So the refusal stands but its SENTENCE was wrong twice over. It said "it cannot be told apart from a
+        // plain voucher by its lines" — true, and irrelevant, because this arm reads the PERSISTED
+        // IsAccountingInvoice flag, not the lines — and it said the round trip "has not been measured", which is no
+        // longer a fact about this repository. What is genuinely not recoverable is the party leg's DERIVED STATUS:
+        // on the plain grid it re-opens as an ordinary editable row, AcceptAlteration re-derives nothing, and an
+        // operator can therefore move the party total away from the sum of the service rows and still balance.
+        // That is an EDIT hazard, not a round-trip one, and it is what the sentence now says.
+        //
         // Row 23 — the purchase arm, DEFER: DetectAccountingTdsShape / DetectAccountingRcmShape are wired to the
         // Particulars lines, so it is never tax-free by construction the way the sales arm can be.
         if (voucher.IsAccountingInvoice)
@@ -269,10 +332,11 @@ public static class VoucherAlterationEligibility
                 ? "This voucher was entered as an ACCOUNTING (service) INVOICE. Its party leg and tax legs are "
                 + "derived from the Particulars rows rather than keyed, and the withholding / reverse-charge "
                 + "detection is wired to those rows. Altering a service invoice arrives in a later slice."
-                : "This voucher was entered as an ACCOUNTING (service) INVOICE. Its party leg is a DERIVED total "
-                + "rather than a keyed line, and on a zero-rated (LUT/export) or wholly exempt supply it carries "
-                + "no tax leg at all — so it cannot be told apart from a plain voucher by its lines. Whether it "
-                + "round-trips has not been measured, so it is refused rather than guessed at.";
+                : "This voucher was entered as an ACCOUNTING (service) INVOICE. Its party leg is a DERIVED total of "
+                + "the service rows, not a keyed line — the plain Dr/Cr grid would re-open it as an ordinary "
+                + "editable row that nothing re-derives, so the party total could be moved off the sum of those "
+                + "rows and still balance. Altering a service invoice arrives with its own inverse in a later "
+                + "slice.";
 
         return null;
     }
@@ -317,10 +381,30 @@ public static class VoucherAlterationEligibility
     /// change, which is the correct outcome but arrives as an engine message about a field the operator never saw.
     /// Refusing it up front, by name, is the same answer with a sentence that makes sense.
     /// </summary>
-    private static string? ProvisionalShapeRefusal(Voucher voucher, VoucherType type) =>
-        voucher.ApplicableUpto is not null && type.BaseType != VoucherBaseType.ReversingJournal
-            ? $"This {type.Name} carries an 'Applicable Upto' date "
-            + $"({voucher.ApplicableUpto:dd-MMM-yyyy}), which only a Reversing Journal's entry screen can state. "
-            + "Re-accepting it here would drop the date and change when the entry lapses, so it is refused."
-            : null;
+    private static string? ProvisionalShapeRefusal(Voucher voucher, VoucherType type)
+    {
+        var isReversing = type.BaseType == VoucherBaseType.ReversingJournal;
+
+        if (voucher.ApplicableUpto is not null && !isReversing)
+            return $"This {type.Name} carries an 'Applicable Upto' date "
+                 + $"({voucher.ApplicableUpto:dd-MMM-yyyy}), which only a Reversing Journal's entry screen can "
+                 + "state. Re-accepting it here would drop the date and change when the entry lapses, so it is "
+                 + "refused.";
+
+        // 🔴 THE MIRROR DIRECTION, and it is reachable (findings L1-03 and L3-02). §6.6a row 29 asserted that
+        // "every Reversing Journal carries a non-null ApplicableUpto" on the strength of the ENTRY SCREEN's
+        // mandatory-field rule — but that rule is not an invariant of the model: VoucherValidator has no
+        // ReversingJournal clause, LedgerService.Post takes one straight through, and CanonicalXml.Parse accepts a
+        // reversing journal with the attribute stripped, with ZERO parse errors. Such a voucher opened, seeded
+        // ApplicableUptoText from the CONSTRUCTOR's financial-year-end default, and could then NEVER be accepted:
+        // Replace refused a provisional-state change to a field the operator never saw. That is exactly what the
+        // arm above exists to prevent, in the other direction, so it is refused at the door with a sentence that
+        // makes sense instead.
+        if (voucher.ApplicableUpto is null && isReversing)
+            return "This Reversing Journal carries no 'Applicable Upto' date, which the entry screen requires and "
+                 + "cannot state as blank — a book written by an import or by a service can hold one, this screen "
+                 + "cannot re-key it. Re-accepting it would silently stamp the financial year end on it.";
+
+        return null;
+    }
 }

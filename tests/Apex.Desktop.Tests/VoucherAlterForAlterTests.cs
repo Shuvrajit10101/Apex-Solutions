@@ -1074,4 +1074,315 @@ public sealed class VoucherAlterForAlterTests
         Assert.Equal(first.Number, open.Entry!.VoucherNumber);
         Assert.NotEqual(4, open.Entry.VoucherNumber);
     }
+
+    // ================================================================ 🔴 THE FIX PASS — S5b review findings
+
+    /// <summary>
+    /// 🔴 <b>CONSTRAINT 5's other half — Ctrl+H into SINGLE ENTRY</b> (finding L1-02, a measured BLOCKER).
+    ///
+    /// <para>The shipped gate refused only the two INVOICE modes, and Single Entry deliberately sits INSIDE
+    /// <c>IsAsVoucherMode</c> (it is a re-render of the same lines, which is what keeps Accept routing to the plain
+    /// path) — so one <c>ChangeMode()</c> on an altering Payment walked straight past it. Entering the mode runs
+    /// <c>SyncSingleEntrySides</c>, which stamps line 0 to the account side, every other line to the opposite side,
+    /// and rewrites line 0's amount to Σ of the rest. On this voucher — keyed in the Dr/Cr grid with TWO credits —
+    /// that flips every side: measured before the fix, Rent went from Dr 100.11 to Cr 100.11 (an expense became an
+    /// income), Cash went UP on a payment, the replacement still balanced, and the alteration reported
+    /// "Payment No. 1 altered." with no warning of any kind.</para>
+    /// </summary>
+    [Fact]
+    public void Constraint5_pressing_Ctrl_H_into_Single_Entry_on_a_grid_keyed_voucher_refuses_the_accept()
+    {
+        using var book = AlterationBook.New("ctrlh");
+        var rent = book.Ledger("Rent", "Indirect Expenses");
+        var cash = book.Company.FindLedgerByName("Cash")!;
+        var bank = book.Ledger("HDFC Current", "Bank Accounts");
+
+        // THREE legs, two of them on the credit side — the exact shape SeedAlterationMode's own doc comment names
+        // as the one Single Entry would corrupt.
+        var posted = book.Post(VoucherBaseType.Payment, book.On(),
+            new[] { (rent, DrCr.Debit, "100.11"), (cash, DrCr.Credit, "60.06"), (bank, DrCr.Credit, "40.05") });
+
+        var before = book.Export();
+        var beforeDisk = book.ExportReloaded();
+        var open = book.ForAlter(posted.Id);
+        var entry = open.Entry!;
+        Assert.False(entry.IsSingleEntry);            // the seed is right: it re-opened in the Dr/Cr grid
+
+        entry.ChangeMode();                            // Ctrl+H
+        Assert.True(entry.IsSingleEntry);
+        Assert.True(entry.IsAsVoucherMode);            // …and the invoice gate still does not see it
+
+        Assert.False(entry.AcceptAlteration());
+        Assert.Contains("keyed in the Dr/Cr grid", entry.Message!, StringComparison.Ordinal);
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeDisk, book.ExportReloaded());
+
+        // The book is what matters, so assert the two legs the flip inverted are still where they were posted.
+        var after = book.Company.FindVoucher(posted.Id)!;
+        Assert.Equal(DrCr.Debit, after.Lines.Single(l => l.LedgerId == rent.Id).Side);
+        Assert.Equal(DrCr.Credit, after.Lines.Single(l => l.LedgerId == cash.Id).Side);
+
+        // …and switching back lets the ordinary alteration through, so this is a gate and not a dead end.
+        entry.ChangeMode();
+        Assert.False(entry.IsSingleEntry);
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>The bill-allocation <c>RefType</c> carry — the one line-writer field with no lock</b> (finding L2-02).
+    /// Hardcoding <c>AddBillAllocation(a.RefType)</c> to <c>NewRef</c> survived the entire S5b suite, because every
+    /// allocation in it was a New Reference. <c>PreloadSettlement</c> pre-loads <c>AgstRef</c> rows onto the plain
+    /// grid straight from the Outstandings report, so a settlement is the ORDINARY shape, not an exotic one — and a
+    /// regression that turned one into a fresh bill would change the persisted allocation type and the canonical
+    /// export with it, while the accept reported plain success.
+    /// </summary>
+    [Fact]
+    public void An_AgstRef_settlement_round_trips_with_its_reference_type()
+    {
+        using var book = AlterationBook.New("agstref");
+        var debtor = book.Ledger("Bill-wise Customer", "Sundry Debtors", billWise: true);
+        var sales = book.Ledger("Sales A/c", "Sales Accounts");
+        var cash = book.Company.FindLedgerByName("Cash")!;
+
+        // The opening bill…
+        book.Post(VoucherBaseType.Sales, book.On(),
+            new[] { (debtor, DrCr.Debit, "40000.40"), (sales, DrCr.Credit, "40000.40") },
+            configure: e =>
+            {
+                var row = e.Lines[0].BillAllocations[0];
+                row.RefType = BillRefType.NewRef;
+                row.Name = "INV-77";
+                row.AmountText = "40000.40";
+            });
+
+        // …and the receipt that SETTLES it (Against Reference), which is what has never been round-tripped.
+        var settlement = book.Post(VoucherBaseType.Receipt, book.On(9),
+            new[] { (cash, DrCr.Debit, "40000.40"), (debtor, DrCr.Credit, "40000.40") },
+            configure: e =>
+            {
+                var row = e.Lines[1].BillAllocations[0];
+                row.RefType = BillRefType.AgstRef;
+                row.Name = "INV-77";
+                row.AmountText = "40000.40";
+            });
+
+        var postedAllocation = settlement.Lines.Single(l => l.LedgerId == debtor.Id).BillAllocations.Single();
+        Assert.Equal(BillRefType.AgstRef, postedAllocation.RefType);
+
+        var entry = AssertUnchangedRoundTrip(book, settlement.Id);
+
+        // The REHYDRATED row carries the settlement type — the assertion that dies when the carry is hardcoded…
+        var rehydrated = entry.Lines.Single(l => l.SelectedLedger!.Id == debtor.Id).BillAllocations.Single();
+        Assert.Equal(BillRefType.AgstRef, rehydrated.RefType);
+        Assert.Equal("INV-77", rehydrated.Name);
+        // …and so does the PERSISTED one, which is what the canonical export emits.
+        Assert.Equal(
+            BillRefType.AgstRef,
+            book.Company.FindVoucher(settlement.Id)!
+                .Lines.Single(l => l.LedgerId == debtor.Id).BillAllocations.Single().RefType);
+    }
+
+    /// <summary>
+    /// 🔴 <b>A LEGACY cross-category cost voucher — refused with the rule it actually breaks</b> (finding L3-03).
+    ///
+    /// <para><c>CostAllocationStrictness.Legacy</c> exists because books on disk hold lines whose axes foot only
+    /// when ADDED TOGETHER, under the partition rule C-27 abolished; <c>SqliteCompanyStore.Load</c> and the
+    /// canonical import both re-post through it, so this population is exactly what the tolerance admits.
+    /// <c>Replace</c> validates with <c>Strict</c>, so such a voucher opens and cannot be accepted — and the
+    /// message it used to get said the allocations "must sum to the line amount (5,000.00)" while they summed to
+    /// exactly 5,000.00. The operator was told to satisfy a rule the voucher already satisfied, on the only screen
+    /// that can remediate it. The wording now mirrors <c>VoucherValidator</c>'s own C-27 sentence and names the
+    /// short AXIS.</para>
+    /// </summary>
+    [Fact]
+    public void A_legacy_cross_category_cost_voucher_is_refused_with_the_per_axis_rule()
+    {
+        using var book = AlterationBook.New("legacycost");
+        var (branch, kolkata) = book.CostAxis("Branch", "Kolkata");
+        var (dept, marketing) = book.CostAxis("Department", "Marketing");
+        var travel = book.Ledger("Travel", "Indirect Expenses", costApplicable: true);
+        var cash = book.Company.FindLedgerByName("Cash")!;
+
+        // 3,000 under Branch + 2,000 under Department: no single axis foots, the cross-axis sum does. Posted
+        // through the door SqliteCompanyStore.Load uses on every open — the only door that accepts this shape.
+        var voucher = new Voucher(
+            Guid.NewGuid(), book.Type(VoucherBaseType.Payment).Id, book.On(),
+            new[]
+            {
+                new EntryLine(travel.Id, new Money(5000m), DrCr.Debit, costAllocations: new[]
+                {
+                    new CostAllocation(branch.Id, kolkata.Id, new Money(3000m)),
+                    new CostAllocation(dept.Id, marketing.Id, new Money(2000m)),
+                }),
+                new EntryLine(cash.Id, new Money(5000m), DrCr.Credit),
+            });
+        var posted = new LedgerService(book.Company).Post(voucher, CostAllocationStrictness.Legacy);
+        book.Storage.Save(book.Company);
+
+        var open = book.ForAlter(posted.Id);
+        Assert.Null(open.Refusal);                       // it opens — this IS the remediation screen
+        Assert.False(open.Entry!.AcceptAlteration());
+
+        var message = open.Entry.Message!;
+        Assert.Contains("under cost category", message, StringComparison.Ordinal);
+        Assert.Contains("each cost category must be allocated in full", message, StringComparison.Ordinal);
+        Assert.Contains("parallel axes", message, StringComparison.Ordinal);
+        // The abolished partition rule must not be quoted back at the operator ever again.
+        Assert.DoesNotContain("must sum to the line amount", message, StringComparison.Ordinal);
+
+        // Re-allocating each axis in FULL — the remediation the message now describes — is accepted.
+        var line = open.Entry.Lines.Single(l => l.SelectedLedger!.Id == travel.Id);
+        line.CostAllocations[0].AmountText = "5000";
+        line.CostAllocations[1].AmountText = "5000";
+        Assert.True(open.Entry.AcceptAlteration(), open.Entry.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>A forex amount finer than two decimal places is refused AT THE KEYBOARD</b> (finding L2-03). Before
+    /// this guard it posted, passed <c>VoucherValidator.EnsureForexValid</c> and SAVED — SQLite carries the
+    /// magnitude at 1,000,000 scale — and then <c>CanonicalXml.Export</c> threw "is not paisa-exact", because the
+    /// canonical model carries <c>ForexAmountPaisa</c> at two places. That is a company the app itself produced and
+    /// cannot export, and Export Data → XML is the only door out of it. The base amount cannot catch it:
+    /// <c>RecomputeForexBase</c> snaps forex × rate to the paisa, so the derived line amount is paisa-exact however
+    /// fine the forex figure is.
+    /// </summary>
+    [Fact]
+    public void A_forex_amount_finer_than_a_paisa_is_refused_before_it_can_be_posted()
+    {
+        using var book = AlterationBook.New("fxsubpaisa");
+        var usd = book.ForeignCurrency();
+        var creditor = book.Ledger("US Supplier", "Sundry Creditors", currencyId: usd.Id);
+        var purchases = book.Ledger("Imports", "Purchase Accounts");
+
+        var entry = book.Entry(VoucherBaseType.Purchase);
+        entry.Lines[0].SelectedLedger = purchases;
+        entry.Lines[0].Side = DrCr.Debit;
+        entry.Lines[1].SelectedLedger = creditor;
+        entry.Lines[1].Side = DrCr.Credit;
+        entry.Lines[1].ForexAmountText = "1234.567";     // THREE places
+        entry.Lines[1].ForexRateText = "83.25";
+        entry.Lines[0].AmountText = entry.Lines[1].ParsedAmount
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+        entry.Recalculate();
+
+        Assert.False(entry.Accept());
+        Assert.Contains("1234.567", entry.Message!, StringComparison.Ordinal);
+        Assert.Contains("USD", entry.Message!, StringComparison.Ordinal);
+        Assert.Empty(book.Company.Vouchers);
+
+        // Two places posts, saves AND exports — the guard is a floor on precision, not a ban on forex.
+        entry.Lines[1].ForexAmountText = "1234.56";
+        entry.Lines[0].AmountText = entry.Lines[1].ParsedAmount
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+        entry.Recalculate();
+        Assert.True(entry.Accept(), entry.Message);
+        Assert.NotEmpty(book.Export());
+    }
+
+    /// <summary>
+    /// The <c>ApplicableUpto</c>-before-the-date guard in <c>AcceptAlteration</c> (finding L2-11, item F08 — whose
+    /// stated reason this corrects: the guard is not unreachable, it runs BEFORE the replacement is built and long
+    /// before <c>Replace</c> sees anything. It was simply untested, so deleting it left the suite green while the
+    /// operator's message became an engine sentence about a provisional-state change instead).
+    /// </summary>
+    [Fact]
+    public void An_applicable_upto_before_the_voucher_date_is_refused_by_the_screen_not_by_the_engine()
+    {
+        using var book = AlterationBook.New("uptoback");
+        var dr = book.Ledger("Accrued Expense", "Indirect Expenses");
+        var cr = book.Ledger("Accrual Liability", "Current Liabilities");
+
+        var posted = book.Post(VoucherBaseType.ReversingJournal, book.On(10),
+            new[] { (dr, DrCr.Debit, "3000.33"), (cr, DrCr.Credit, "3000.33") },
+            configure: e => e.ApplicableUptoText = ApexDate.Format(book.On(45)));
+
+        var before = book.Export();
+        var open = book.ForAlter(posted.Id);
+        open.Entry!.ApplicableUptoText = ApexDate.Format(book.On(2));   // BEFORE the voucher date
+
+        Assert.False(open.Entry.AcceptAlteration());
+        Assert.Equal("Applicable Upto must be on or after the voucher date.", open.Entry.Message);
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// Blanking a line away until only one remains is refused by the screen's own sentence, not by the engine's
+    /// unbalanced exception (finding L2-11, item F06 — untested, so the guard survived deletion).
+    /// </summary>
+    [Fact]
+    public void An_alteration_left_with_a_single_line_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("oneline");
+        var posted = book.PostPlainPair(VoucherBaseType.Journal, 1234.56m);
+
+        var before = book.Export();
+        var open = book.ForAlter(posted.Id);
+        var entry = open.Entry!;
+        entry.Lines[1].SelectedLedger = null;
+        entry.Lines[1].AmountText = string.Empty;        // now BLANK, so it is dropped rather than half-filled
+        entry.Recalculate();
+
+        Assert.False(entry.AcceptAlteration());
+        Assert.Equal("A voucher needs at least two lines.", entry.Message);
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// The two things a successful alteration owes its CALLER (finding L2-11, items F25 and C24): the navigation
+    /// callback fires, and <c>SavedNumber</c> holds the number the replacement kept. Both survived deletion because
+    /// nothing asserted them, and the shell reads both.
+    /// </summary>
+    [Fact]
+    public void A_successful_alteration_notifies_its_caller_and_records_the_saved_number()
+    {
+        using var book = AlterationBook.New("onsaved");
+        var posted = book.PostPlainPair(VoucherBaseType.Journal, 8888.88m);
+
+        var saved = 0;
+        var open = VoucherEntryViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => saved++, onCancelled: () => { });
+
+        Assert.Equal(0, saved);
+        Assert.True(open.Entry!.AcceptAlteration(), open.Entry.Message);
+        Assert.Equal(1, saved);
+        Assert.Equal(posted.Number, open.Entry.SavedNumber);
+    }
+
+    /// <summary>
+    /// The rehydrated screen is RECALCULATED and its panels re-summarised before the operator sees it (finding
+    /// L2-11, items B09, B41 and B42). All three survived deletion: nothing asserted the totals or the panel
+    /// summary strings after a rehydration, so a screen that opened showing ₹0.00 totals under correctly-filled
+    /// lines would have shipped green.
+    /// </summary>
+    [Fact]
+    public void The_rehydrated_screen_shows_the_posted_totals_and_its_panel_summaries()
+    {
+        using var book = AlterationBook.New("recalc");
+        var (branch, kolkata) = book.CostAxis("Branch", "Kolkata");
+        var debtor = book.Ledger("Summary Customer", "Sundry Debtors", billWise: true);
+        var travel = book.Ledger("Travel", "Indirect Expenses", costApplicable: true);
+
+        var posted = book.Post(VoucherBaseType.Journal, book.On(),
+            new[] { (travel, DrCr.Debit, "5000.55"), (debtor, DrCr.Credit, "5000.55") },
+            configure: e =>
+            {
+                var cost = e.Lines[0].CostAllocations[0];
+                cost.SelectedCategory = branch;
+                cost.SelectedCentre = kolkata;
+                cost.AmountText = "5000.55";
+                var bill = e.Lines[1].BillAllocations[0];
+                bill.Name = "REF-9";
+                bill.AmountText = "5000.55";
+            });
+
+        var entry = book.ForAlter(posted.Id).Entry!;
+
+        // The final Recalculate: the totals are the voucher's, not a blank screen's.
+        Assert.Contains("5,000.55", entry.TotalDebitText, StringComparison.Ordinal);
+        Assert.Contains("5,000.55", entry.TotalCreditText, StringComparison.Ordinal);
+        // …and each panel re-summarised itself from the rows the rehydration put in it.
+        Assert.Contains("fully allocated", entry.Lines[0].CostSummary, StringComparison.Ordinal);
+        Assert.Contains("fully allocated", entry.Lines[1].BillSummary, StringComparison.Ordinal);
+    }
 }

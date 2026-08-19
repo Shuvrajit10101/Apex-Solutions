@@ -378,6 +378,33 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// The first cost category (in first-appearance order) whose own axis does NOT total the line amount, with what
+    /// it does total — or <c>null</c> when every used axis foots (or the panel fails for some other reason).
+    ///
+    /// <para>🔴 <b>Exists so the refusal can state the rule the line actually breaks</b> (finding L3-03). A voucher
+    /// carrying LEGACY cross-category allocations — the population <c>CostAllocationStrictness.Legacy</c> exists
+    /// for, admitted by <c>SqliteCompanyStore.Load</c> and by the canonical import — reaches the alteration screen
+    /// with allocations that sum ACROSS axes to the line and foot under no single one. The refusal it used to get
+    /// said they "must sum to the line amount (5,000.00)" while they summed to exactly 5,000.00: the superseded
+    /// partition rule C-27 abolished, quoted back at the operator on the one screen that can remediate it. The
+    /// wording below mirrors <c>VoucherValidator</c>'s own C-27 text, and the first-short-axis-in-first-appearance
+    /// -order choice mirrors its determinism.</para>
+    /// </summary>
+    public (CostCategory Category, decimal Allocated)? ShortCostAxis
+    {
+        get
+        {
+            if (!IsCostApplicable || ParsedAmount <= 0m) return null;
+            foreach (var category in UsedCostCategories())
+            {
+                var allocated = CostAllocatedTotalFor(category.Id);
+                if (allocated != ParsedAmount) return (category, allocated);
+            }
+            return null;
+        }
+    }
+
     private void RecomputeCostSummary()
     {
         if (!IsCostApplicable) { CostSummary = string.Empty; return; }
@@ -676,6 +703,27 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
                 : $"'{ledger.Name}' now holds a foreign currency but was posted in base currency, so the screen "
                 + "would demand a forex amount and rate the posted line never carried.";
 
+        // 🔴 WHICH currency, not merely WHETHER there is one (finding L3-01). The check above asks only that the
+        // line still holds A foreign currency; ToForexInfo then rebuilds the ForexInfo from
+        // `SelectedLedger.CurrencyId` — the LIVE master — so a ledger repointed from USD to EUR after posting
+        // opened silently, accepted with a plain "altered." and restated the posted line in a currency it was never
+        // denominated in. Nothing else caught it: EnsureForexValid checks only that the currency EXISTS and that
+        // base ≈ forex × rate, both of which survive the swap, and LedgerMasterViewModel writes
+        // `target.CurrencyId = SelectedCurrency?.CurrencyId` unconditionally, with no transacted-ledger guard.
+        //
+        // This is the FOURTH master-drift reader, and the only one whose drift reaches a posted EntryLine as a
+        // VALUE rather than as a panel gate: the other three (SyncBillWise, SyncCostApplicable, SyncBankLine) are
+        // compared against the posted shape above and below, and BillAllocationRowViewModel.ToAllocation /
+        // ToBankAllocation read no live master at all.
+        if (posted.Forex is { } postedForex && ledger.CurrencyId is { } liveCurrencyId
+            && postedForex.CurrencyId != liveCurrencyId)
+        {
+            var postedCode = _company?.FindCurrency(postedForex.CurrencyId)?.FormalName ?? "another currency";
+            var liveCode = _company?.FindCurrency(liveCurrencyId)?.FormalName ?? "a different currency";
+            return $"'{ledger.Name}' was posted in {postedCode} but now holds {liveCode}, so re-accepting would "
+                 + "restate the line in a currency it was never denominated in.";
+        }
+
         if (posted.Forex is { } forex)
         {
             ForexAmountText = ExactDecimalText(forex.ForexAmount.Amount);
@@ -834,6 +882,28 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     /// </summary>
     public string? AmountError =>
         TryParseAmount(out var amt) ? StorableAmount.ErrorFor(amt, AmountText, "the line amount") : null;
+
+    /// <summary>
+    /// The field-level refusal for the <b>forex magnitude</b> on this line, or <c>null</c> when it can be carried.
+    ///
+    /// <para>🔴 <b>The one typed amount on this screen that <see cref="AmountError"/> did NOT cover</b> (finding
+    /// L2-03). The line amount, the bill rows and the cost rows are all guarded; the forex amount was not, and
+    /// <see cref="ForexOk"/> only asks that it be positive. So a forex amount carrying three decimal places posted,
+    /// passed <c>VoucherValidator.EnsureForexValid</c> (which compares only base ≈ forex × rate) and SAVED — SQLite
+    /// stores the magnitude at 1,000,000 scale and holds it happily — and then <c>CanonicalXml.Export</c> THREW,
+    /// because the canonical model carries <c>ForexAmountPaisa</c> at two places. That is a company the app itself
+    /// produced and cannot export, and the Export Data → XML path is the only door out of it.</para>
+    ///
+    /// <para>The base amount cannot catch it: <c>RecomputeForexBase</c> snaps forex × rate to the paisa, so the
+    /// derived line amount is paisa-exact however fine the forex figure is.</para>
+    /// </summary>
+    public string? ForexAmountError =>
+        IsForexLine && TryParseDecimal(ForexAmountText, out var fx) && fx > 0m
+            ? StorableAmount.ErrorFor(
+                fx, ForexAmountText,
+                string.IsNullOrWhiteSpace(ForexCurrencyCode) ? "the amount in foreign currency"
+                                                             : $"the {ForexCurrencyCode} amount")
+            : null;
 
     /// <summary>True when the row has been touched at all (ledger or amount) — a blank row is ignored.</summary>
     public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText);

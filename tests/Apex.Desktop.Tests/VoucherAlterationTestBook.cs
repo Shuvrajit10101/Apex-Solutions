@@ -94,6 +94,23 @@ internal sealed class AlterationBook : IDisposable
         return currency;
     }
 
+    /// <summary>
+    /// Turns GST on for this book (home state 27, Regular), so the families whose off-line side effect is a GST
+    /// record — the Rule-50/51 advance engine and the §34 note link — can be posted through the REAL screens
+    /// instead of hand-built. Finding L1-01 is the reason this exists: the shipped advance-adjustment refusal test
+    /// hand-built a <see cref="GstAdvanceReceipt"/> carrying the JOURNAL's id in a field the product only ever
+    /// fills with an INVOICE's id, and so "proved" a refusal that never fired on anything the screen can produce.
+    /// </summary>
+    public void EnableGst() =>
+        new Apex.Ledger.Services.GstService(Company).EnableGst(new GstConfig
+        {
+            HomeStateCode = "27",
+            Gstin = "27AAPFU0939F1ZV",
+            RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = Company.FinancialYearStart,
+            Periodicity = GstReturnPeriodicity.Monthly,
+        });
+
     public VoucherType Type(VoucherBaseType baseType) =>
         Company.VoucherTypes.First(t => t.BaseType == baseType && !t.IsPosSales && !t.IsStatPaymentType);
 

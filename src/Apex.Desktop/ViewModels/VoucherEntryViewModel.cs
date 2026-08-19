@@ -566,6 +566,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             if (!line.IsBlank && line.AmountError is { } lineError) return lineError;
 
+            // W0-13's fourth typed amount, added by finding L2-03: the FOREX magnitude. It is not reached through
+            // AmountError — the base is DERIVED (forex x rate, snapped to the paisa), so it is paisa-exact however
+            // fine the forex figure is — and a >2dp forex amount posted, validated and SAVED, after which the
+            // canonical export threw on a company the app itself had produced.
+            if (line.ForexAmountError is { } forexError) return forexError;
+
             if (line.IsBillWise)
                 foreach (var bill in line.BillAllocations)
                     if (!bill.IsBlank && bill.AmountError is { } billError) return billError;
@@ -1518,6 +1524,20 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     private void SyncSingleEntrySides()
     {
         if (!IsSingleEntry) return;
+
+        // 🔴 NEVER ON AN ALTERING SCREEN THAT DID NOT OPEN IN SINGLE ENTRY (finding L1-02). This stamp is a no-op by
+        // construction on a voucher genuinely keyed in Single Entry — which is what SeedAlterationMode tests for —
+        // but on one keyed in the Dr/Cr grid it FLIPS every side and REWRITES line 0's amount. One Ctrl+H did
+        // exactly that: an expense became an income, cash went UP on a payment, and the replacement still balanced,
+        // so nothing downstream objected.
+        //
+        // The guard is here rather than only on the accept, because the damage is done on the way IN and Ctrl+H
+        // does not undo it: OnModeChanged's own comment records that "leaving it simply stops re-stamping, so the
+        // lines survive the flip intact" — so a gate that only refused while IsSingleEntry was true would be walked
+        // past by pressing Ctrl+H twice. Blocking the stamp itself makes the mode a pure view switch on an altering
+        // screen, and AcceptAlteration still refuses to POST from that view (it does not describe the voucher).
+        if (IsAltering && !_alteringPostedAsSingleEntry) return;
+
         if (_syncingSingleEntry) return;
         _syncingSingleEntry = true;
         try
@@ -2846,6 +2866,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private bool _rehydrating;
 
+    /// <summary>
+    /// Whether the voucher being altered was POSTED in the Single-Entry shape — captured once by
+    /// <see cref="RehydrateFrom(Voucher)"/> from the same predicate <see cref="SeedAlterationMode"/> used, and read
+    /// by <see cref="SyncSingleEntrySides"/> so a Ctrl+H on a grid-keyed voucher cannot re-stamp its sides
+    /// (finding L1-02). It is re-derived from the POSTED voucher rather than read off screen state, because screen
+    /// state is precisely what a stray mode change has already corrupted.
+    /// </summary>
+    private bool _alteringPostedAsSingleEntry;
+
     /// <summary>True when this screen is altering a POSTED voucher rather than entering a new one.</summary>
     public bool IsAltering => _alteringVoucherId != Guid.Empty;
 
@@ -2967,9 +2996,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private void SeedAlterationMode(Voucher voucher)
     {
+        // 🔴 THESE TWO BRANCHES ARE UNREACHABLE TODAY, AND THAT IS STATED RATHER THAN IMPLIED (finding L2-10).
+        // VoucherAlterationEligibility.EntryModeRefusal refuses BOTH families at the door — an item invoice by
+        // HasInventoryLines and a service invoice by IsAccountingInvoice — so ForAlter never reaches this method
+        // with either shape, and deleting either line reddens nothing. They are kept, not as a live safeguard, but
+        // because S5c lifts exactly those two refusals: the branch that must exist on the day the family is served
+        // is cheaper to keep than to remember. The live half of this method is the Single-Entry inference below,
+        // which IS load-bearing and IS locked (dropping its shape clause kills five tests).
         if (voucher.HasInventoryLines) { Mode = VoucherEntryMode.ItemInvoice; return; }
         if (voucher.IsAccountingInvoice) { Mode = VoucherEntryMode.AccountingInvoice; return; }
-        Mode = IsPostedAsSingleEntry(voucher) ? VoucherEntryMode.SingleEntry : VoucherEntryMode.AsVoucher;
+
+        _alteringPostedAsSingleEntry = IsPostedAsSingleEntry(voucher);
+        Mode = _alteringPostedAsSingleEntry ? VoucherEntryMode.SingleEntry : VoucherEntryMode.AsVoucher;
     }
 
     /// <summary>
@@ -3038,6 +3076,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             Message = "This voucher is being altered on the plain Dr/Cr grid. Switch back to it before accepting — "
                     + "altering an item or service invoice is not available yet, and the invoice grids are not "
                     + "what this alteration would post.";
+            return false;
+        }
+
+        // 🔴 AND CTRL+H'S OTHER HALF — the one the gate above does NOT close (finding L1-02, a measured BLOCKER).
+        // Single Entry sits INSIDE IsAsVoucherMode by design (it is a re-render of the same lines, which is what
+        // keeps Accept routing to the plain path), so one ChangeMode() on an altering Payment/Receipt/Contra walked
+        // straight past the check above. Entering the mode runs SyncSingleEntrySides, which stamps line 0 to the
+        // account side, EVERY other line to the opposite side, and rewrites line 0's amount to Σ of the rest — on a
+        // voucher keyed in the Dr/Cr grid with two bank credits that silently FLIPS every side and REWRITES an
+        // amount. The replacement still balances, so Replace accepted it and the alteration reported success while
+        // an expense became an income and cash went UP on a payment.
+        //
+        // 🔴 THIS IS THE SECOND OF TWO HALVES, and on its own it is NOT enough — measured. OnModeChanged's own
+        // comment records that "leaving it simply stops re-stamping, so the lines survive the flip intact", so a
+        // gate that only fires while IsSingleEntry is true is walked past by pressing Ctrl+H TWICE: the sides are
+        // flipped on the way in and stay flipped on the way out. The stamp is therefore blocked at its source (see
+        // SyncSingleEntrySides), and this gate exists because accepting from a view that does not describe the
+        // voucher is wrong even when it is no longer destructive.
+        //
+        // The shape is re-derived from the POSTED voucher, not read off screen state, by the same predicate
+        // SeedAlterationMode used: on a voucher genuinely keyed in Single Entry the stamp is a no-op by
+        // construction, so that shape is still free to accept.
+        if (IsSingleEntry && !IsPostedAsSingleEntry(existing))
+        {
+            Message = "This voucher was keyed in the Dr/Cr grid, not in Single Entry. Accepting it here would "
+                    + "re-stamp every line's side and rewrite the first line's amount, so switch back to the "
+                    + "Dr/Cr grid before accepting.";
             return false;
         }
 
@@ -3155,32 +3220,66 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message));
 
     /// <summary>
-    /// The up-front, plain-grid refusals <see cref="Accept"/> makes before it touches the engine, factored out so
-    /// <see cref="AcceptAlteration"/> makes exactly the same ones. Returns the message, or <c>null</c> when the grid
-    /// is fit to post.
+    /// The up-front, plain-grid refusals made before the engine is touched — <b>the single copy</b> that both
+    /// <see cref="Accept"/> and <see cref="AcceptAlteration"/> call. Returns the message, or <c>null</c> when the
+    /// grid is fit to post.
+    ///
+    /// <para>🔴 <b>It says "the single copy" because it was not one</b> (finding L3-06). This method's previous
+    /// summary said the checks had been "factored out so <c>AcceptAlteration</c> makes exactly the same ones";
+    /// <c>Accept</c> in fact still carried its own inline re-implementation of all eight, in the same order with
+    /// character-identical messages, and never called this at all. Identical-by-coincidence is exactly the state
+    /// from which two lists drift silently, so <c>Accept</c> now calls this.</para>
     /// </summary>
     private string? PlainGridRefusal()
     {
+        // W0-13 S2a — an amount the INTEGER-paisa store cannot carry is refused HERE, naming the field, before any
+        // of the gates below. It has to come first: a sub-paisa line amount also reads as "half-filled" (the
+        // storability test is folded into IsComplete), and a sub-paisa ALLOCATION reads as a bad split even though
+        // the split foots exactly — so without this, the operator would be told to fix the one thing that is
+        // already right. Left unguarded the figure reached Paisa.FromMoney and came back as a raw persistence
+        // exception; see UnstorableGridAmountError.
         if (UnstorableGridAmountError() is { } unstorable) return unstorable;
 
+        // Reject half-filled rows up front with a clear message (before touching the engine).
         if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
             return "Every entered line needs a ledger and a positive amount.";
 
+        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
+        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and dropping it
+        // would post a voucher whose dates disagree with what the operator typed.
         if (Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate) is { } badLineDate)
             return ApexDate.ErrorFor(badLineDate.InstrumentDateText);
 
         if (Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate) is { } badDueDate)
             return ApexDate.ErrorFor(badDueDate.DueDateText);
 
+        // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
         if (Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk) is { } badBill)
             return $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount "
                  + $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
 
+        // Reject an Agst-Ref that no longer names an open bill of the party, or that over-settles one, on a
+        // PRE-LOADED settlement (register row IV-5 + D5). The bill name is a free TextBox, so the operator can edit
+        // the pre-loaded reference into something that is not a bill; nothing else in the app would catch it.
+        // Deliberately AFTER the bill-split check, so the commoner "allocations must sum to the line amount"
+        // message still wins when both are wrong.
         if (SettlementAllocationError() is { } settlementError) return settlementError;
 
+        // 🔴 THE MESSAGE NAMES THE SHORT AXIS (finding L3-03). The old sentence stated the SUPERSEDED partition
+        // rule — "must sum to the line amount (5,000.00)" — and a legacy cross-category voucher, the exact
+        // population CostAllocationStrictness.Legacy admits through Load and import, arrives here with allocations
+        // that sum to exactly 5,000.00 and still cannot be accepted, because Replace validates with Strict. The
+        // operator was told to satisfy a rule the voucher already satisfied. This wording mirrors
+        // VoucherValidator's own C-27 text, so the screen and the engine now say the same thing.
         if (Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk) is { } badCost)
-            return $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount "
-                 + $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
+            return badCost.ShortCostAxis is { } shortAxis
+                ? $"Cost allocations for '{badCost.SelectedLedger!.Name}' total "
+                + $"{IndianFormat.AmountAlways(shortAxis.Allocated)} under cost category "
+                + $"'{shortAxis.Category.Name}' but the line amount is "
+                + $"{IndianFormat.AmountAlways(badCost.ParsedAmount)}; each cost category must be allocated in "
+                + "full (categories are parallel axes, not a split of the line)."
+                : $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount "
+                + $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
 
         if (Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk) is { } badForex)
             return $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in "
@@ -3241,77 +3340,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
         if (IsAccountingInvoice) return AcceptAccountingInvoice();
 
-        // W0-13 S2a — an amount the INTEGER-paisa store cannot carry is refused HERE, naming the field, before any
-        // of the gates below. It has to come first: a sub-paisa line amount also reads as "half-filled" (the
-        // storability test is folded into IsComplete), and a sub-paisa ALLOCATION reads as a bad split even though
-        // the split foots exactly — so without this, the operator would be told to fix the one thing that is
-        // already right. Left unguarded the figure reached Paisa.FromMoney and came back as a raw persistence
-        // exception; see UnstorableGridAmountError.
-        if (UnstorableGridAmountError() is { } unstorable)
+        // 🔴 ONE COPY, NOT TWO (finding L3-06). This block used to be re-implemented inline here, eight checks
+        // deep, character-identical to PlainGridRefusal — which AcceptAlteration calls and whose own doc comment
+        // claimed the checks had been "factored out so AcceptAlteration makes exactly the same ones". They had not
+        // been; they had been DUPLICATED, and the two lists agreed only by coincidence. That is not academic: the
+        // cost message in one of them stated the superseded partition rule, and fixing it in one copy would have
+        // left the other quoting the abolished rule at the operator.
+        if (PlainGridRefusal() is { } gridRefusal)
         {
-            Message = unstorable;
-            return false;
-        }
-
-        // Reject half-filled rows up front with a clear message (before touching the engine).
-        if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
-        {
-            Message = "Every entered line needs a ledger and a positive amount.";
-            return false;
-        }
-
-        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
-        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and
-        // dropping it would post a voucher whose dates disagree with what the operator typed.
-        var badLineDate = Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate);
-        if (badLineDate is not null)
-        {
-            Message = ApexDate.ErrorFor(badLineDate.InstrumentDateText);
-            return false;
-        }
-
-        var badDueDate = Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate);
-        if (badDueDate is not null)
-        {
-            Message = ApexDate.ErrorFor(badDueDate.DueDateText);
-            return false;
-        }
-
-        // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
-        var badBill = Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk);
-        if (badBill is not null)
-        {
-            Message = $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount " +
-                      $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
-            return false;
-        }
-
-        // Reject an Agst-Ref that no longer names an open bill of the party, or that over-settles one, on a
-        // PRE-LOADED settlement (register row IV-5 + D5). The bill name is a free TextBox, so the operator can
-        // edit the pre-loaded reference into something that is not a bill; nothing else in the app would catch it.
-        // Deliberately AFTER the bill-split check, so the commoner "allocations must sum to the line amount"
-        // message still wins when both are wrong.
-        if (SettlementAllocationError() is { } settlementError)
-        {
-            Message = settlementError;
-            return false;
-        }
-
-        // Reject an invalid cost split up front (once touched, allocations must sum to the line amount).
-        var badCost = Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk);
-        if (badCost is not null)
-        {
-            Message = $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount " +
-                      $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
-            return false;
-        }
-
-        // Reject a half-filled forex pair up front (a forex line needs both a forex amount and a rate).
-        var badForex = Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk);
-        if (badForex is not null)
-        {
-            Message = $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in " +
-                      $"{badForex.ForexCurrencyCode} and a rate of exchange.";
+            Message = gridRefusal;
             return false;
         }
 

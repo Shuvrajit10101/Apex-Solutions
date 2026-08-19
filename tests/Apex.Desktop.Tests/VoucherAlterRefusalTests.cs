@@ -63,12 +63,14 @@ public sealed class VoucherAlterRefusalTests
     private static VoucherType AddType(
         AlterationBook book, string name, VoucherBaseType baseType,
         bool useForPos = false, bool isStatPayment = false, bool isRcmPaymentVoucher = false,
-        bool isGstStatAdjustment = false, bool useAsManufacturingJournal = false)
+        bool isGstStatAdjustment = false, bool useAsManufacturingJournal = false,
+        bool allowConsumption = false)
     {
         var type = new VoucherType(
             Guid.NewGuid(), name, baseType,
             useAsManufacturingJournal: useAsManufacturingJournal,
             useForPos: useForPos,
+            allowConsumption: allowConsumption,
             isStatPayment: isStatPayment,
             isRcmPaymentVoucher: isRcmPaymentVoucher,
             isGstStatAdjustment: isGstStatAdjustment);
@@ -96,9 +98,16 @@ public sealed class VoucherAlterRefusalTests
     /// <see cref="Company"/>, which <c>LedgerService.Replace</c> cannot see. The refusal is ARCHITECTURAL: their
     /// posted lines mostly DO equal their keyed lines, so a future slice could serve them cheaply once an
     /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists.
+    ///
+    /// <para>🔴 <b>The assertions moved with the message</b> (finding L3-07). They used to require the words
+    /// "inventory aggregate", which is the mechanism — and the sentence around them also handed an accountant a
+    /// class name (<c>LedgerService.Replace</c>), the design record's own phrase "the refusal is architectural, not
+    /// a judgement about its shape", and a promise about an unbuilt verb. The mechanism now lives in the code
+    /// comment; what an operator reads names the family, the reason and the screen to go to, and THAT is what is
+    /// asserted here.</para>
     /// </summary>
     [Fact]
-    public void An_inventory_aggregate_voucher_is_refused_architecturally_and_the_message_says_so()
+    public void An_inventory_aggregate_voucher_is_refused_and_the_message_names_the_screen_to_use()
     {
         var company = PopulatedCompanyFixture.BuildRegular();
         var inventoryVoucher = company.InventoryVouchers.First();
@@ -108,8 +117,12 @@ public sealed class VoucherAlterRefusalTests
             company, inventoryVoucher.Id, scratch.Storage, () => { }, () => { });
 
         Assert.True(open.IsRefused);
-        Assert.Contains("pure-stock inventory voucher", open.Refusal!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("inventory aggregate", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("inventory voucher", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("inventory voucher screen", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        // No internals in a sentence an accountant reads.
+        Assert.DoesNotContain("Replace", open.Refusal!, StringComparison.Ordinal);
+        Assert.DoesNotContain("aggregate", open.Refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("architectural", open.Refusal!, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Every one of the twelve inventory base kinds the fixture posts is refused — not just the first.</summary>
@@ -320,30 +333,158 @@ public sealed class VoucherAlterRefusalTests
     }
 
     /// <summary>
-    /// Row 13 — 🔴 <b>an advance ADJUSTMENT on a Journal: the third hole.</b> The same untagged reversal pair, plus
-    /// a record the engine refuses to adjust twice — so a rehydration that DID restore the panel would refuse with
-    /// a message about the wrong thing.
+    /// Row 13 — 🔴 <b>an advance ADJUSTMENT on a Journal: the third hole — POSTED THROUGH THE REAL SCREENS.</b>
+    ///
+    /// <para>🔴 <b>THIS TEST REPLACES A DOCTORED ONE</b> (finding L1-01, a measured BLOCKER). The version that
+    /// shipped hand-built <c>new GstAdvanceReceipt(…, adjustedAgainstInvoiceVoucherId: adjustment.Id)</c> — the
+    /// JOURNAL's id in a field <c>AdvanceReceiptService.AdjustAgainstInvoice</c> only ever fills with the SALES
+    /// INVOICE's id — and then asserted the refusal fired. It is a shape the screen cannot produce, so it proved a
+    /// refusal that never fired on anything real: the actual adjusting Journal opened, and deleting its
+    /// engine-built release pair declared the advance's output tax a SECOND time and stranded the suspense while
+    /// the record still read adjusted. This file's own charter forbids exactly that fixture
+    /// (<see cref="AlterationBook"/>: "a hand-built Voucher would let a test construct a shape the screen cannot
+    /// produce and then 'prove' the inverse works on it"), so the whole family now goes out through Accept.</para>
     /// </summary>
     [Fact]
-    public void An_advance_adjustment_Journal_is_refused_although_it_carries_no_tagged_line()
+    public void An_advance_adjustment_Journal_is_refused_by_the_suspense_release_it_carries()
     {
         using var book = AlterationBook.New("advadjust");
-        var cash = book.Company.FindLedgerByName("Cash")!;
-        var debtor = book.Ledger("Adjusting Client", "Sundry Debtors");
-        var receipt = book.Post(VoucherBaseType.Receipt, book.On(),
-            new[] { (cash, DrCr.Debit, "11800.10"), (debtor, DrCr.Credit, "11800.10") });
+        var (_, invoice, adjustment) = PostServiceAdvanceAndAdjustIt(book);
 
-        var (dr, cr) = OrdinaryPair(book, "advadjust");
-        var adjustment = book.Post(VoucherBaseType.Journal, book.On(6),
-            new[] { (dr, DrCr.Debit, "1800.02"), (cr, DrCr.Credit, "1800.02") });
-
-        book.Company.AddAdvanceReceipt(new GstAdvanceReceipt(
-            Guid.NewGuid(), receipt.Id, isService: true, new Money(10000.10m), rateBasisPoints: 1800,
-            interState: false, placeOfSupplyStateCode: "27", advanceTax: new Money(1800.02m),
-            adjustedAgainstInvoiceVoucherId: adjustment.Id));
-
+        // The whole point of the row: not one tagged line anywhere on the adjusting journal…
         Assert.All(adjustment.Lines, l => Assert.False(l.HasGst || l.HasTds || l.HasTcs));
-        AssertRefused(book, adjustment.Id, "releases a GST advance", "still outstanding");
+        // …but the engine's untagged release pair IS there, and that is what selects it.
+        var suspense = book.Company.FindLedgerByName(GstService.AdvanceTaxSuspenseLedgerName)!;
+        Assert.Contains(adjustment.Lines, l => l.LedgerId == suspense.Id && l.Side == DrCr.Credit);
+
+        AssertRefused(book, adjustment.Id, "advance-tax suspense", "Output Tax on Advances", "stand twice");
+
+        // And the invoice is refused by ITS OWN sentence, not by the journal's — the mis-worded arm this replaces
+        // aimed the "This journal releases a GST advance…" message at exactly this voucher.
+        var invoiceRefusal = AssertRefused(book, invoice.Id, "released against this invoice", "11B");
+        Assert.DoesNotContain("This journal", invoiceRefusal, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Row 16b — 🔴 <b>the SALES INVOICE a GST advance was released against</b> (finding L3-05). A plain-grid Sales
+    /// voucher is otherwise SIMPLE (row 16a), and its own §6.6a evidence audits only what <c>Accept</c> APPENDS —
+    /// which misses the three roles it plays in records OTHER vouchers created. This is the one that matters:
+    /// <c>AdjustAgainstInvoice</c> re-read this invoice's posted taxable value to prove the advance was fully
+    /// consumed, and froze the GSTR-1 11B figures against it.
+    /// </summary>
+    [Fact]
+    public void The_sales_invoice_an_advance_was_released_against_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("advanchor");
+        var (advance, invoice, _) = PostServiceAdvanceAndAdjustIt(book);
+
+        Assert.Equal(invoice.Id, book.Company.FindAdvanceReceipt(advance.Id)!.AdjustedAgainstInvoiceVoucherId);
+        AssertRefused(book, invoice.Id, "advance was released against this invoice", "11B", "taxable value");
+    }
+
+    /// <summary>
+    /// 🔴 <b>The declared LIMIT of the shape proxy, measured rather than asserted</b> (finding L3-04). A GOODS
+    /// advance is de-taxed (Notn 66/2017), so <c>BuildAdvanceReversalPair</c> returns <c>Array.Empty</c> and its
+    /// adjusting Journal carries NO engine line at all — the suspense ledger is never even created. The row-13 arm
+    /// therefore cannot see it, and it does not need to: with nothing appended and no record mutation on the
+    /// alteration path (<c>AcceptAlteration</c> never calls <c>AdjustAgainstInvoice</c>), the posted lines ARE the
+    /// keyed lines. This test measures that, so the gap is a recorded fact and not a hope.
+    /// </summary>
+    [Fact]
+    public void A_goods_advance_adjustment_Journal_opens_and_the_record_survives_the_alteration()
+    {
+        using var book = AlterationBook.New("advgoodsadj");
+        book.EnableGst();
+        var cash = book.Company.FindLedgerByName("Cash")!;
+        var advLedger = book.Ledger("Advance from customer", "Current Liabilities");
+        var customer = book.Ledger("Goods Customer", "Sundry Debtors");
+        var sales = book.Ledger("Sales A/c", "Sales Accounts");
+
+        book.Post(VoucherBaseType.Receipt, book.On(),
+            new[] { (cash, DrCr.Debit, "50000.50"), (advLedger, DrCr.Credit, "50000.50") },
+            configure: e =>
+            {
+                e.IsAdvanceReceipt = true;
+                e.AdvanceIsService = false;          // GOODS — de-taxed, so no tax pair and no suspense ledger
+                e.AdvanceAmountText = "50000.50";
+            });
+        Assert.Null(book.Company.FindLedgerByName(GstService.AdvanceTaxSuspenseLedgerName));
+
+        var invoice = book.Post(VoucherBaseType.Sales, book.On(3),
+            new[] { (customer, DrCr.Debit, "50000.50"), (sales, DrCr.Credit, "50000.50") });
+
+        var advance = book.Company.AdvanceReceipts.Single();
+        var journal = book.Post(VoucherBaseType.Journal, book.On(6),
+            new[] { (advLedger, DrCr.Debit, "50000.50"), (customer, DrCr.Credit, "50000.50") },
+            configure: e =>
+            {
+                e.SelectedOutstandingAdvance = e.OutstandingAdvances.Single(o => o.Receipt?.Id == advance.Id);
+                e.SelectedAdvanceInvoice = e.AdvanceInvoices.Single(o => o.Invoice?.Id == invoice.Id);
+            });
+
+        Assert.Equal(2, journal.Lines.Count);          // NOTHING was appended
+        var settled = book.Company.AdvanceReceipts.Single();
+        Assert.Equal(invoice.Id, settled.AdjustedAgainstInvoiceVoucherId);
+
+        var open = book.ForAlter(journal.Id);
+        Assert.Null(open.Refusal);
+        Assert.True(open.Entry!.AcceptAlteration(), open.Entry.Message);
+        // The record is untouched by Replace, which is the whole reason this shape needs no refusal.
+        Assert.Equal(invoice.Id, book.Company.AdvanceReceipts.Single().AdjustedAgainstInvoiceVoucherId);
+    }
+
+    /// <summary>
+    /// Books a ₹10,000 net inter-state SERVICE advance through the Receipt screen, posts the tax invoice that fully
+    /// consumes it, and adjusts the advance against that invoice through the Journal screen — every step through
+    /// the door the product uses. Returns (the advance record, the invoice, the adjusting journal).
+    /// </summary>
+    private static (GstAdvanceReceipt Advance, Voucher Invoice, Voucher Adjustment)
+        PostServiceAdvanceAndAdjustIt(AlterationBook book)
+    {
+        book.EnableGst();
+        var cash = book.Company.FindLedgerByName("Cash")!;
+        var advLedger = book.Ledger("Advance from customer", "Current Liabilities");
+        var customer = book.Ledger("Acme Ltd", "Sundry Debtors");
+        var sales = book.Ledger("Sales A/c", "Sales Accounts");
+
+        book.Post(VoucherBaseType.Receipt, book.On(),
+            new[] { (cash, DrCr.Debit, "11800.59"), (advLedger, DrCr.Credit, "11800.59") },
+            configure: e =>
+            {
+                e.IsAdvanceReceipt = true;
+                e.AdvanceIsService = true;
+                e.AdvanceAmountText = "10000.50";   // 18% of 10,000.50 = 1,800.09 exactly (the house odd-value rule)
+                e.AdvanceInterState = true;
+            });
+        var advance = book.Company.AdvanceReceipts.Single();
+
+        // The tax invoice that fully consumes the advance. Posted through the engine with its GST stamps, exactly
+        // as the shipped advance-engine tests do: the adjustment's full-consumption guard reads
+        // GstReportSupport.InvoiceTaxableValue off the STAMPED lines, so an untagged invoice cannot serve here.
+        var outputIgst = new GstService(book.Company)
+            .FindTaxLedger(GstTaxHead.Integrated, GstTaxDirection.Output)!;
+        var invoice = new LedgerService(book.Company).Post(new Voucher(
+            Guid.NewGuid(), book.Type(VoucherBaseType.Sales).Id, book.On(3),
+            new[]
+            {
+                new EntryLine(customer.Id, new Money(11800.59m), DrCr.Debit),
+                new EntryLine(sales.Id, new Money(10000.50m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Integrated, 1800, new Money(10000.50m))),
+                new EntryLine(outputIgst.Id, new Money(1800.09m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Integrated, 1800, new Money(10000.50m))),
+            },
+            partyId: customer.Id));
+        book.Storage.Save(book.Company);
+
+        var adjustment = book.Post(VoucherBaseType.Journal, book.On(6),
+            new[] { (advLedger, DrCr.Debit, "11800.59"), (customer, DrCr.Credit, "11800.59") },
+            configure: e =>
+            {
+                e.SelectedOutstandingAdvance = e.OutstandingAdvances.Single(o => o.Receipt?.Id == advance.Id);
+                e.SelectedAdvanceInvoice = e.AdvanceInvoices.Single(o => o.Invoice?.Id == invoice.Id);
+            });
+
+        return (advance, invoice, adjustment);
     }
 
     /// <summary>
@@ -380,6 +521,56 @@ public sealed class VoucherAlterRefusalTests
         using var book = AlterationBook.New("challan");
         var posted = book.PostPlainPair(VoucherBaseType.Payment, 3300.33m);
         book.Company.LinkChallanToVoucher(Guid.NewGuid(), posted.Id);
+
+        AssertRefused(book, posted.Id, "challan", "reconciliation");
+    }
+
+    /// <summary>
+    /// 🔴 <b>The TCS half of the same defence</b> (finding L2-07). Only the TDS collection was ever exercised:
+    /// deleting the <c>TcsChallanVoucherLinks</c> clause survived the whole S5b suite, so half a defence shipped
+    /// unlocked. Nothing structural confines a TCS challan link to a stat-payment TYPE either.
+    /// </summary>
+    [Fact]
+    public void A_voucher_linked_to_a_TCS_challan_is_refused_even_off_a_stat_payment_type()
+    {
+        using var book = AlterationBook.New("tcschallan");
+        var posted = book.PostPlainPair(VoucherBaseType.Payment, 4400.44m);
+        book.Company.LinkTcsChallanToVoucher(Guid.NewGuid(), posted.Id);
+
+        AssertRefused(book, posted.Id, "challan", "reconciliation");
+    }
+
+    /// <summary>
+    /// 🔴 <b>And the two GST challan collections, which had no arm at all</b> (finding L1-05). The shipped comment
+    /// justified the defensive twin on the ground that "the link is keyed on (ChallanId, VoucherId) and nothing
+    /// structurally confines it to a stat-payment TYPE" — an argument that covers <c>GstChallan.VoucherId</c> and
+    /// <c>GstDrc03.VoucherId</c> word for word. <c>GstDepositService</c> creates both against the stat-payment type
+    /// today, but <c>ImportPlan</c> builds both straight from canonical XML with an arbitrary voucher id, which is
+    /// the same reachability argument that justified the TDS/TCS twin in the first place.
+    /// </summary>
+    [Fact]
+    public void A_voucher_named_by_a_GST_challan_is_refused_even_off_a_stat_payment_type()
+    {
+        using var book = AlterationBook.New("gstchallan");
+        var posted = book.PostPlainPair(VoucherBaseType.Payment, 5500.55m);
+        book.Company.AddGstChallan(new GstChallan(
+            Guid.NewGuid(), cpin: "12345678901234", cin: null, brn: null, depositDate: book.On(),
+            majorHead: GstTaxHead.Integrated, minorHead: GstMinorHead.Tax, amount: new Money(5500.55m),
+            voucherId: posted.Id));
+
+        AssertRefused(book, posted.Id, "challan", "reconciliation");
+    }
+
+    /// <summary>The DRC-03 twin — a nullable voucher id, and the same import reachability (finding L1-05).</summary>
+    [Fact]
+    public void A_voucher_named_by_a_GST_DRC03_is_refused_even_off_a_stat_payment_type()
+    {
+        using var book = AlterationBook.New("drc03");
+        var posted = book.PostPlainPair(VoucherBaseType.Payment, 6600.66m);
+        book.Company.AddGstDrc03(new GstDrc03(
+            Guid.NewGuid(), drc03Ref: "AD2701240000001", cause: "voluntary", period: "2024-06",
+            cgstPaisa: 0, sgstPaisa: 0, igstPaisa: 660066, cessPaisa: 0, interestPaisa: 0,
+            drc03aDemandRef: null, voucherId: posted.Id, createdAt: DateTimeOffset.UnixEpoch));
 
         AssertRefused(book, posted.Id, "challan", "reconciliation");
     }
@@ -450,13 +641,17 @@ public sealed class VoucherAlterRefusalTests
     }
 
     /// <summary>
-    /// 🔴 Row 18 — <b>the UNDETERMINED row, refused BY NAME rather than shipped as SIMPLE.</b> Its inverse looks
-    /// mechanically available (the party leg is the line whose <c>LedgerId == Voucher.PartyId</c>) but was never
-    /// measured, and the zero-rated / LUT / wholly-exempt branch posts NO tax leg at all — so it passes every tag
-    /// filter while still carrying a DERIVED party leg. The refusal says "not measured", not "not supported".
+    /// 🔴 Row 18 — <b>refused BY NAME, and the name changed</b> (finding L1-04, a PREMISE CORRECTION). The row
+    /// shipped as UNDETERMINED with a refusal that said the round trip "has not been measured". It has been
+    /// measured since — lift this arm, point <c>SeedAlterationMode</c> at the plain grid, and a wholly exempt Sales
+    /// accounting invoice round-trips BYTE-IDENTICALLY in memory and on disk, with the flag, the party id and
+    /// GSTR-1's exempt value all intact. The refusal survives on a different ground, which is the one this test now
+    /// asserts: the party leg's DERIVED STATUS is what cannot be recovered. On the plain grid it becomes an
+    /// ordinary editable row, nothing re-derives it, and the party total can therefore be moved off the sum of the
+    /// service rows and still balance — an EDIT hazard, not a round-trip one.
     /// </summary>
     [Fact]
-    public void A_Sales_accounting_invoice_with_no_tax_line_is_refused_as_UNDETERMINED()
+    public void A_Sales_accounting_invoice_with_no_tax_line_is_refused_for_its_derived_party_leg()
     {
         using var book = AlterationBook.New("acctinv-sales");
         var debtor = book.Ledger("Service Customer", "Sundry Debtors");
@@ -469,7 +664,9 @@ public sealed class VoucherAlterRefusalTests
         Assert.All(posted.Lines, l => Assert.False(l.HasGst));
 
         var refusal = AssertRefused(book, posted.Id, "ACCOUNTING (service) INVOICE", "DERIVED total");
-        Assert.Contains("has not been measured", refusal, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nothing re-derives", refusal, StringComparison.OrdinalIgnoreCase);
+        // The old sentence claimed a measurement had not been taken. It has, so the claim must not come back.
+        Assert.DoesNotContain("has not been measured", refusal, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Row 23 — the purchase arm of the accounting invoice, refused with its own (DEFER) sentence.</summary>
@@ -776,6 +973,152 @@ public sealed class VoucherAlterRefusalTests
         AssertRefused(book, posted.Id, "Applicable Upto", "Reversing Journal");
     }
 
+    /// <summary>
+    /// 🔴 <b>The MIRROR of the arm above, and §6.6a row 29's premise is what it refutes</b> (findings L1-03 and
+    /// L3-02). Row 29 states that "every Reversing Journal carries a non-null <c>ApplicableUpto</c>", citing the
+    /// ENTRY SCREEN's mandatory-field rule. That rule is not an invariant of the model: <c>VoucherValidator</c> has
+    /// no ReversingJournal clause, so <c>LedgerService.Post</c> takes one straight through — and so does the
+    /// product's own canonical import, with zero parse errors, on a file with the attribute stripped.
+    ///
+    /// <para>What such a voucher did before this arm: <c>ForAlter</c> OPENED it, seeded <c>ApplicableUptoText</c>
+    /// from the CONSTRUCTOR's financial-year-end default, and <c>AcceptAlteration</c> could then never succeed —
+    /// <c>Replace</c> refused a provisional-state change "from (none) to 31-Mar-…", an engine message about a field
+    /// the operator never touched. A screen that can only ever be a dead end is refused at the door instead.</para>
+    /// </summary>
+    [Fact]
+    public void A_reversing_journal_with_no_applicable_upto_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("rj-noupto");
+        var (dr, cr) = OrdinaryPair(book, "rjnoupto");
+
+        // The door a service and the canonical import both use — and neither demands the date.
+        var posted = PostRaw(book, book.Type(VoucherBaseType.ReversingJournal), PlainLegs(dr, cr, 909.09m));
+        Assert.Null(posted.ApplicableUpto);
+
+        AssertRefused(book, posted.Id, "Reversing Journal", "Applicable Upto", "financial year end");
+    }
+
+    /// <summary>
+    /// 🔴 <b>The missing-CATEGORY half of the cost-drift gate</b> (finding L2-08). Of the three cost-side refusals
+    /// two were locked and this one was not: neutering <c>if (category is null)</c> survived the whole S5b suite,
+    /// so a posted allocation naming a category that had since left the company would have been silently
+    /// mis-rehydrated onto whatever the row's default picker offered.
+    /// </summary>
+    [Fact]
+    public void A_cost_allocation_whose_category_left_the_company_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("costcatgone");
+        var (category, centre) = book.CostAxis("Branch", "Kolkata");
+        var travel = book.Ledger("Travel", "Indirect Expenses", costApplicable: true);
+        var cash = book.Company.FindLedgerByName("Cash")!;
+
+        var posted = book.Post(VoucherBaseType.Payment, book.On(),
+            new[] { (travel, DrCr.Debit, "5000.55"), (cash, DrCr.Credit, "5000.55") },
+            configure: e =>
+            {
+                var row = e.Lines[0].CostAllocations[0];
+                row.SelectedCategory = category;
+                row.SelectedCentre = centre;
+                row.AmountText = "5000.55";
+            });
+        Assert.True(posted.Lines[0].HasCostAllocations);
+
+        // The category leaves the company (the canonical import and a master screen can both do this).
+        Assert.True(book.Company.RemoveCostCategory(category));
+
+        AssertRefused(book, posted.Id, "cost category that is no longer in this company");
+    }
+
+    /// <summary>
+    /// 🔴 <b>The seventh direction of master drift — the one that was NOT refused</b> (finding L3-01, measured).
+    /// The inverse asked only WHETHER the line still holds a foreign currency, never WHICH: <c>ToForexInfo</c>
+    /// rebuilds the <c>ForexInfo</c> from the LIVE ledger's <c>CurrencyId</c>, so a ledger repointed from USD to EUR
+    /// after posting opened silently, accepted with a plain "altered.", and the posted line came out denominated in
+    /// EUR — with the canonical export no longer identical and no message anywhere.
+    /// <c>VoucherValidator.EnsureForexValid</c> cannot catch it: it checks only that the currency EXISTS and that
+    /// base ≈ forex × rate, both of which survive the swap.
+    /// </summary>
+    [Fact]
+    public void A_ledger_repointed_to_a_different_currency_after_posting_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("fxdrift");
+        var usd = book.ForeignCurrency("$", "USD");
+        var eur = book.ForeignCurrency("€", "EUR");
+        var creditor = book.Ledger("US Supplier", "Sundry Creditors", currencyId: usd.Id);
+        var purchases = book.Ledger("Imports", "Purchase Accounts");
+
+        const decimal forexAmount = 1000.25m;
+        const decimal rate = 83.251111m;
+        var baseAmount = Money.ForexBase(new Money(forexAmount), rate).Amount;
+
+        var posted = book.Post(VoucherBaseType.Purchase, book.On(),
+            new[]
+            {
+                (purchases, DrCr.Debit, baseAmount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                (creditor, DrCr.Credit, "0"),
+            },
+            configure: e =>
+            {
+                e.Lines[1].ForexAmountText = forexAmount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                e.Lines[1].ForexRateText = rate.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            });
+        Assert.Equal(usd.Id, posted.Lines.Single(l => l.LedgerId == creditor.Id).Forex!.CurrencyId);
+
+        // Exactly what LedgerMasterViewModel's write block does — unconditionally, with no transacted-ledger guard.
+        creditor.CurrencyId = eur.Id;
+
+        AssertRefused(book, posted.Id, "US Supplier", "USD", "EUR", "never denominated in");
+    }
+
+    /// <summary>
+    /// 🔴 <b>The amount-equality guard the rehydration ends on, made falsifiable</b> (finding L2-09, whose stated
+    /// premise this corrects). The lens reported that this guard "never fires and cannot be made to fire", and
+    /// concluded the only shape that would reach it is a sub-paisa forex magnitude. It is not:
+    /// <c>VoucherValidator.EnsureForexValid</c> deliberately tolerates a base amount up to ONE PAISA away from the
+    /// paisa-snapped forex × rate (its own comment says so — a base carrying the unrounded tail must load), while
+    /// <c>RecomputeForexBase</c> always DRIVES the rebuilt base to the snapped figure. A posted line one paisa off —
+    /// reachable through <c>LedgerService.Post</c>, the canonical import and the SQLite read path alike — therefore
+    /// cannot be re-keyed exactly, and this is the guard that says so instead of silently moving the line.
+    /// </summary>
+    [Fact]
+    public void A_forex_base_the_screen_cannot_re_key_exactly_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("fxonepaisa");
+        var usd = book.ForeignCurrency();
+        var creditor = book.Ledger("US Supplier", "Sundry Creditors", currencyId: usd.Id);
+        var purchases = book.Ledger("Imports", "Purchase Accounts");
+
+        const decimal forexAmount = 1000.25m;
+        const decimal rate = 83.251111m;
+        var snapped = Money.ForexBase(new Money(forexAmount), rate).Amount;
+        var oneOff = snapped + 0.01m;   // inside EnsureForexValid's tolerance, outside what the screen can rebuild
+
+        var posted = PostRaw(book, book.Type(VoucherBaseType.Purchase), new[]
+        {
+            new EntryLine(purchases.Id, new Money(oneOff), DrCr.Debit),
+            new EntryLine(creditor.Id, new Money(oneOff), DrCr.Credit,
+                forex: new ForexInfo(usd.Id, new Money(forexAmount), rate)),
+        });
+        Assert.Equal(oneOff, posted.Lines.Single(l => l.LedgerId == creditor.Id).Amount.Amount);
+
+        AssertRefused(book, posted.Id, "cannot be re-keyed exactly", "US Supplier");
+    }
+
+    /// <summary>
+    /// The voucher's TYPE has left the company (finding L2-11 item A03): the id-overload's second guard, which
+    /// survived being replaced by a nonsense string because no test named it.
+    /// </summary>
+    [Fact]
+    public void A_voucher_whose_type_left_the_company_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("typegone");
+        var posted = book.PostPlainPair(VoucherBaseType.Journal, 777.77m);
+        var type = book.Company.FindVoucherType(posted.TypeId)!;
+        Assert.True(book.Company.RemoveVoucherType(type));
+
+        AssertRefused(book, posted.Id, "voucher's type is missing", "Restore the voucher type");
+    }
+
     // ================================================================ (I) 🔴 §6.6a.7 — THE COVERAGE LOCK
 
     /// <summary>
@@ -821,10 +1164,15 @@ public sealed class VoucherAlterRefusalTests
 
             if (open.IsRefused)
             {
-                if (string.IsNullOrWhiteSpace(open.Refusal))
-                    undecided.Add($"{baseType}: refused with an EMPTY message (a silent no-op)");
-                else
-                    decided.Add($"{baseType}: refused");
+                // 🔴 There is deliberately NO "refused with an empty message" branch here (finding L2-06). One used
+                // to sit at this spot and could never execute: VoucherAlterationOpen.Refused THROWS on a blank
+                // refusal ("A refusal must name the family and the reason"), so an empty refusal fails this test
+                // with an unhandled ArgumentException from inside ForAlter rather than with the named diagnosis the
+                // branch advertised — decoration on top of a throw that already covers it. The reachable version of
+                // that check lives in Every_specialised_type_flag_has_its_own_named_refusal_from_the_predicate,
+                // which calls VoucherAlterationEligibility.RefusalFor directly (that CAN return "") and asserts the
+                // sentence is real.
+                decided.Add($"{baseType}: refused");
                 continue;
             }
 
@@ -845,8 +1193,154 @@ public sealed class VoucherAlterRefusalTests
 
         // …and only if BOTH outcomes actually occur. A dispatcher that refused everything would satisfy every
         // assertion above while shipping nothing, and one that opened everything would have no refusals at all.
+        //
+        // 🔴 AND THAT IS ALL THIS TEST PROVES — stated here because it read as far more (finding L2-01, measured).
+        // Replacing the ENTIRE body of VoucherAlterationEligibility.RefusalFor with `return null` left this test
+        // GREEN while 23 other S5b tests died, and deleting a whole L5 type-flag arm left it green too. The reason
+        // is the denominator: base kinds, decided by OTHER code. In this fixture seven of the ten SIMPLE families
+        // are refused by MASTER DRIFT (a refusal VoucherLineViewModel.RehydrateFrom owns, in a different file), the
+        // twelve inventory kinds by the architectural aggregate check upstream of the predicate, and Sales /
+        // Purchase by the item-invoice arm — so the "refused" clause below is carried entirely by checks the
+        // predicate does not own, and the "opened" clause by ONE base kind, Memorandum.
+        //
+        // The two tests that DO reach the predicate are below:
+        //   Every_specialised_type_flag_has_its_own_named_refusal_from_the_predicate — the L5 layer, asserted
+        //     against RefusalFor directly, with a reflection guard so a NEW derived type flag fails on the day it
+        //     is added; and
+        //   Every_SIMPLE_base_kind_opens_on_a_drift_free_book — all ten SIMPLE families on masters that have not
+        //     moved, so the opened side is not carried by Memorandum alone.
         Assert.Contains(decided, d => d.EndsWith("opened", StringComparison.Ordinal));
         Assert.Contains(decided, d => d.EndsWith("refused", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE LOCK AT THE LAYER THE DISPATCHER ACTUALLY SWITCHES ON</b> (finding L2-01). §6.6a.2 is explicit that
+    /// the discriminator is <b>not</b> the base kind — a POS bill, a GST challan, an RCM payment voucher, a stat
+    /// adjustment and a Manufacturing Journal each SHARE a base kind with an ordinary type and mean a different
+    /// screen. The seeded-base-kind lock above cannot see that layer at all. This one iterates it.
+    ///
+    /// <para><b>Three things make it bite where the other does not.</b> (1) The subject is
+    /// <see cref="VoucherAlterationEligibility.RefusalFor(Company, Voucher, VoucherType)"/> ITSELF, not
+    /// <c>ForAlter</c>'s whole chain, so a neutered predicate cannot be covered for by master drift, by the
+    /// aggregate check or by the entry-mode arm. (2) Every flag must produce a DISTINCT sentence, so one arm cannot
+    /// answer for another. (3) The denominator is read by REFLECTION off <see cref="VoucherType"/>'s own derived
+    /// (get-only) <c>Is…</c> predicates — the exact shape of an L5 flag, a conjunction of a base kind and a
+    /// user-settable flag — so adding a new one without a decision here fails on the day it is added, which is what
+    /// the plan's blocking item asks for.</para>
+    /// </summary>
+    [Fact]
+    public void Every_specialised_type_flag_has_its_own_named_refusal_from_the_predicate()
+    {
+        using var book = AlterationBook.New("l5flags");
+        var (dr, cr) = OrdinaryPair(book, "l5");
+
+        // The (flag × base kind) cross-product §6.6a.2 says the dispatcher must switch on, keyed by the DERIVED
+        // predicate each arm reads. Every row names the property the predicate consults.
+        var rows = new (string Property, VoucherType Type)[]
+        {
+            (nameof(VoucherType.IsManufacturingJournal),
+                AddType(book, "MFG", VoucherBaseType.StockJournal, useAsManufacturingJournal: true)),
+            (nameof(VoucherType.IsPosSales),
+                AddType(book, "POS Till (lock)", VoucherBaseType.Sales, useForPos: true)),
+            (nameof(VoucherType.IsStatPaymentType),
+                AddType(book, "Stat Pay (lock)", VoucherBaseType.Payment, isStatPayment: true)),
+            (nameof(VoucherType.IsRcmPaymentVoucherType),
+                AddType(book, "RCM Pay (lock)", VoucherBaseType.Payment, isRcmPaymentVoucher: true)),
+            (nameof(VoucherType.IsGstStatAdjustmentType),
+                AddType(book, "Stat Adj (lock)", VoucherBaseType.Journal, isGstStatAdjustment: true)),
+            (nameof(VoucherType.IsConsumingMaterialIn),
+                AddType(book, "Material In (lock)", VoucherBaseType.MaterialIn, allowConsumption: true)),
+        };
+
+        // 🔴 THE COMPLETENESS HALF. VoucherType's get-only bool properties ARE the L5 layer (each is a conjunction
+        // of a base kind and a settable flag); IsPredefined is the one get-only bool that is not such a predicate.
+        var derivedFlags = typeof(VoucherType).GetProperties()
+            .Where(p => p.PropertyType == typeof(bool) && p.CanRead && !p.CanWrite)
+            .Select(p => p.Name)
+            .Where(n => n != nameof(VoucherType.IsPredefined))
+            .ToList();
+        Assert.Equal(
+            derivedFlags.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+            rows.Select(r => r.Property).OrderBy(n => n, StringComparer.Ordinal).ToList());
+
+        var messages = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (property, type) in rows)
+        {
+            // A voucher of that type, hand-built ONLY because no entry screen keys these families at all — which is
+            // the very reason they are refused. The predicate is then asked directly.
+            var voucher = new Voucher(Guid.NewGuid(), type.Id, book.On(), PlainLegs(dr, cr, 4242.42m));
+            var refusal = VoucherAlterationEligibility.RefusalFor(book.Company, voucher, type);
+
+            Assert.False(
+                string.IsNullOrWhiteSpace(refusal),
+                $"{property}: the predicate returned no refusal — a silent no-op is what RULING 1 forbids.");
+            messages[property] = refusal!;
+        }
+
+        // Distinct sentences: one arm must not be answering for another (which is how a deleted arm hides).
+        Assert.Equal(rows.Length, messages.Values.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    /// <summary>
+    /// The Attendance arm (finding L2-11, item A11). Attendance is the 24th <see cref="VoucherBaseType"/> member,
+    /// posts <c>AttendanceEntry</c> rows rather than vouchers, and is un-seeded — so the seeded-base-kind lock
+    /// skips it by name and the arm survived its own deletion. It is still the sentence that must appear on the
+    /// day something posts one, so it is asserted against the predicate directly rather than left to a fixture
+    /// that will never contain the shape.
+    /// </summary>
+    [Fact]
+    public void An_attendance_type_is_refused_by_name_although_the_fixture_never_seeds_one()
+    {
+        using var book = AlterationBook.New("attendance");
+        var (dr, cr) = OrdinaryPair(book, "attend");
+        var type = AddType(book, "Attendance (lock)", VoucherBaseType.Attendance);
+
+        var voucher = new Voucher(Guid.NewGuid(), type.Id, book.On(), PlainLegs(dr, cr, 321.21m));
+        var refusal = VoucherAlterationEligibility.RefusalFor(book.Company, voucher, type);
+
+        Assert.False(string.IsNullOrWhiteSpace(refusal));
+        Assert.Contains("attendance", refusal!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not as a Dr/Cr voucher", refusal!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The OPENED side, carried by all ten SIMPLE families rather than by Memorandum alone</b> (findings
+    /// L2-01 and L1-06). In <see cref="PopulatedCompanyFixture"/> seven of the ten are refused for MASTER DRIFT, so
+    /// the lock above would stay green if the rehydration broke for every family but Memorandum. This book is
+    /// drift-free by construction — every ledger is created here and never moved — so the ten SIMPLE base kinds
+    /// §6.6a.8 enumerates must all open, and a rehydration regression on any one of them reddens it.
+    /// </summary>
+    [Fact]
+    public void Every_SIMPLE_base_kind_opens_on_a_drift_free_book()
+    {
+        using var book = AlterationBook.New("simpleten");
+        var simple = new[]
+        {
+            VoucherBaseType.Contra, VoucherBaseType.Payment, VoucherBaseType.Receipt, VoucherBaseType.Journal,
+            VoucherBaseType.Sales, VoucherBaseType.Purchase, VoucherBaseType.CreditNote,
+            VoucherBaseType.DebitNote, VoucherBaseType.Memorandum, VoucherBaseType.ReversingJournal,
+        };
+
+        var opened = new List<VoucherBaseType>();
+        foreach (var baseType in simple)
+        {
+            // A Reversing Journal is the one family with a mandatory extra field; everything else is a plain pair.
+            var posted = baseType == VoucherBaseType.ReversingJournal
+                ? book.Post(baseType, book.On(),
+                    new[]
+                    {
+                        (book.Ledger("RJ Dr", "Indirect Expenses"), DrCr.Debit, "3000.33"),
+                        (book.Ledger("RJ Cr", "Current Liabilities"), DrCr.Credit, "3000.33"),
+                    },
+                    configure: e => e.ApplicableUptoText = ApexDate.Format(book.On(45)))
+                : book.PostPlainPair(baseType, 1010.10m);
+
+            var open = book.ForAlter(posted.Id);
+            Assert.True(open.Entry is not null, $"{baseType}: expected the screen to open — {open.Refusal}");
+            opened.Add(baseType);
+        }
+
+        Assert.Equal(simple.Length, opened.Count);
     }
 
     /// <summary>Any posted voucher of <paramref name="baseType"/>, from EITHER aggregate.</summary>
