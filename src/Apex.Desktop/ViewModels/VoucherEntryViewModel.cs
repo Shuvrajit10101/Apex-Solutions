@@ -1884,7 +1884,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // RehydrateFrom ends in Recalculate().
                 carve = _tds.BuildCarveOut(
                     ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
-                    postedRateBasisPoints: AlterationPostedTdsRateBasisPoints);
+                    postedRateBasisPoints: AlterationPostedTdsRateBasisPoints,
+                    postedAssessableValue: AlterationPostedTds?.AssessableValue,
+                    postedTdsAmount: AlterationPostedTds?.TdsAmount);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -1933,10 +1935,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// voucher and validated on the way in. Both are the same number by construction; the pin is the stronger
     /// source, so the path that moves money uses it.</para>
     /// </summary>
-    private int? AlterationPostedTdsRateBasisPoints =>
-        IsAltering && _company.FindVoucher(_alteringVoucherId) is { } posted
-            ? posted.Lines.Select(l => l.Tds).FirstOrDefault(t => t is not null)?.RateBasisPoints
-            : null;
+    private int? AlterationPostedTdsRateBasisPoints => AlterationPostedTds?.RateBasisPoints;
+
+    /// <summary>
+    /// 🔴 <b>The withholding detail the voucher being altered was POSTED with</b> — its stamped
+    /// <see cref="TdsLineTax"/>, or <c>null</c> on a fresh entry screen. It carries three facts about the voucher
+    /// that the engine needs and cannot recover for itself: the rate it was posted at (the <b>§194C</b>
+    /// grandfathering carrier) and the assessable base and TDS amount it was posted with (together the
+    /// <b>§194-I</b> one — see <c>TdsService.GrandfatheredLiability</c>). Every
+    /// <see cref="TdsService.BuildCarveOut"/> call on this screen feeds all three, so the advisory panel, the
+    /// bill-wise net preview and the accept path cannot disagree (ER-4: one engine, one set of arguments).
+    /// </summary>
+    private TdsLineTax? AlterationPostedTds =>
+        IsAltering ? PostedTdsDetail(_company.FindVoucher(_alteringVoucherId)) : null;
+
+    /// <summary>The one <see cref="TdsLineTax"/> a posted voucher carries (on the TDS-Payable leg when it
+    /// withheld, on the party leg when it was assessed below threshold); <c>null</c> when it carries none.</summary>
+    private static TdsLineTax? PostedTdsDetail(Voucher? posted) =>
+        posted?.Lines.Select(l => l.Tds).FirstOrDefault(t => t is not null);
 
     /// <summary>
     /// The deductee's grid row as an <see cref="EntryLine"/> — ledger, amount, side and every keyed child. Handed to
@@ -3448,7 +3464,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // never a date comparison. TdsService.GrandfatheredRate absorbs exactly one disagreement (posted on
                 // the section's Ind/HUF arm, now resolving its other-than-individual arm) and refuses the rest, so
                 // a moved rate master and a PAN added or removed since posting still reach the pin below.
-                postedRateBasisPoints: pin.RateBasisPoints);
+                postedRateBasisPoints: pin.RateBasisPoints,
+                // 🔴 THE SECOND GRANDFATHERING, AND IT IS NOT A RATE. §194-I's threshold is a PER-MONTH limb
+                // (first proviso: rent "for a month or part of a month" against ₹50,000, and no annual limb at
+                // all); the engine used to test an annualised ₹6,00,000 FY aggregate instead. So on §194-I the
+                // drift a re-carve can meet is not "the percentage moved" but "the threshold was crossed at all":
+                // a ₹60,000 rent bill posted under the old rule withheld NOTHING where the statute takes
+                // ₹6,000.00, and twelve ₹40,000 months withheld ₹4,000 in the eleventh where the statute takes
+                // nothing. Either way the refusal below would fire on a voucher nobody touched — a narration fix
+                // or a cost-centre correction on any §194-I voucher in any existing book would be REFUSED. The
+                // posted ASSESSABLE and the posted TDS travel together and pin the posted OUTCOME, so the
+                // re-carve reproduces the posted figure and the voucher stays alterable. Facts about this
+                // voucher, read off its own stamped TdsLineTax; never a date comparison. The pin releases the
+                // moment the operator amends the base, which is the one case where the statutory answer for the
+                // AMENDED figure is the right one — see TdsService.GrandfatheredLiability.
+                postedAssessableValue: PostedTdsDetail(existing)?.AssessableValue,
+                postedTdsAmount: PostedTdsDetail(existing)?.TdsAmount);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
@@ -4853,7 +4884,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // post.
             return _tds.BuildCarveOut(
                            ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
-                           postedRateBasisPoints: AlterationPostedTdsRateBasisPoints)
+                           postedRateBasisPoints: AlterationPostedTdsRateBasisPoints,
+                           postedAssessableValue: AlterationPostedTds?.AssessableValue,
+                           postedTdsAmount: AlterationPostedTds?.TdsAmount)
                        .NetPartyAmount.Amount;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

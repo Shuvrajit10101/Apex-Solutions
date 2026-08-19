@@ -14,7 +14,9 @@ namespace Apex.Ledger.Seed;
 /// right.</b> Every rate and threshold below is now cited to a <b>primary</b> source: the bare text of the
 /// Income-tax Act 1961 as published by the Income-tax Department, and the Department's own rate charts. The
 /// re-sourcing was done section by section against the version of each section that governs <b>FY 2025-26</b>,
-/// and it found one figure that <b>DIFFERS</b> from the statute — see the §194I rows.</para>
+/// and it found one figure that <b>DIFFERED</b> from the statute — the §194I threshold, whose WINDOW was wrong
+/// and not merely its value; see the §194I rows for the statute, the money and what became of the annualised
+/// figure that used to stand there.</para>
 ///
 /// <para><b>The primary sources, once, so the rows below can cite them short:</b>
 /// <list type="bullet">
@@ -107,37 +109,43 @@ public static class SeedTdsTcsRates
             //   brokerage 2". No-PAN 20% [206AA(1)(iii)].
             N("194H", "Commission or brokerage", 200, 2000, "94H",
                 cumulative: R(20_000m)),
-            // §194I(a) Rent — plant/machinery/equipment. RATE AGREES; 🔴 THRESHOLD DIFFERS — SEE THE BLOCK BELOW.
+            // §194I(a) Rent — plant/machinery/equipment. RATE AGREES; the THRESHOLD IS A PER-MONTH LIMB — SEE BELOW.
             //   §194-I(a) [194I]: "TWO per cent for the use of any machinery or plant or equipment".
             //   [CHART-TDS]: "Section 194-I: Rent a) Plant & Machinery 2". No-PAN 20% [206AA(1)(iii)].
-            N("194I(a)", "Rent — plant/machinery/equipment", 200, 2000, "4IA",
-                cumulative: R(6_00_000m)),
-            // §194I(b) Rent — land/building/furniture/fittings. RATE AGREES; 🔴 THRESHOLD DIFFERS — SEE BELOW.
+            N("194I(a)", "Rent — plant/machinery/equipment", 200, 2000, "4IA"),
+            // §194I(b) Rent — land/building/furniture/fittings. RATE AGREES; PER-MONTH THRESHOLD — SEE BELOW.
             //   §194-I(b) [194I]: "TEN per cent for the use of any land or building (including factory building) or
             //   land appurtenant to a building (including factory building) or furniture or fittings".
             //   [CHART-TDS]: "b) Land or building or furniture or fitting 10". No-PAN 20% [206AA(1)(iii)].
             //
-            //   🔴🔴 THE §194I THRESHOLD SHIPPED BELOW IS WRONG, IT IS RECORDED HERE RATHER THAN FIXED, AND THE
-            //   REASON IS STATED SO NOBODY HAS TO GUESS.
+            //   🔴🔴 NEITHER §194I ROW ABOVE CARRIES A THRESHOLD ARGUMENT, AND THAT IS DELIBERATE. READ THIS BEFORE
+            //   ADDING ONE BACK.
             //   THE STATUTE. §194-I, first proviso, as substituted for FY 2025-26 [194I]: "no deduction shall be made
             //   under this section, where the income by way of rent credited or paid FOR A MONTH OR PART OF A MONTH by
             //   such person to the account of, or to, the payee, DOES NOT EXCEED FIFTY THOUSAND RUPEES". That is a
-            //   PER-MONTH limb. §194-I carries no annual-aggregate limb at all.
-            //   WHAT IS SHIPPED. A CumulativeThreshold of ₹6,00,000 per FINANCIAL YEAR on both rows — the monthly
-            //   figure annualised (50,000 x 12). The two are not the same test.
-            //   THE MONEY. One month's rent of ₹60,000 with nothing else in the year: the statute deducts, because
-            //   ₹60,000 exceeds the monthly ₹50,000 — at §194-I(b) that is ₹6,000.00. The shipped rule deducts
-            //   NOTHING, because ₹60,000 is nowhere near ₹6,00,000. ₹6,000.00 of under-deduction on one ordinary
-            //   rent bill, and the deductor answers for it under §201.
-            //   WHY IT IS NOT FIXED IN THIS WORKTREE, PLAINLY. It is not a wrong NUMBER, it is a wrong SHAPE: the
-            //   engine's only threshold windows are per-transaction and per-financial-year, and a per-month window is
-            //   neither. Changing the seeded value alone would make it WORSE (a ₹50,000 FY aggregate over-deducts);
-            //   changing the window's meaning re-reads the ₹6,00,000 ALREADY PERSISTED in every existing book as a
-            //   monthly figure, which is a data migration on data this track was told not to migrate. It also puts
-            //   every already-posted §194I voucher into exactly the grandfathering situation the user has just ruled
-            //   on for §194C — a ruling that names §194C and not §194I. So it is REPORTED, not settled here.
-            N("194I(b)", "Rent — land/building/furniture/fittings", 1000, 2000, "4IB",
-                cumulative: R(6_00_000m)),
+            //   PER-MONTH limb, and §194-I carries NO ANNUAL-AGGREGATE LIMB AT ALL. The threshold therefore does not
+            //   belong in either of this master's two stored threshold fields, both of which the engine reads as
+            //   per-transaction and per-FINANCIAL-YEAR tests. It lives on NatureOfPayment.MonthlyThreshold, derived
+            //   from this SectionCode exactly as RateWithPanOtherThanIndividualBp and
+            //   ChargesOnlyExcessOverCumulativeThreshold are, and for the same reason: a third stored threshold needs
+            //   a natures_of_payment column and therefore a schema migration, and the versions after 51 are
+            //   allocated to other tracks. Deriving it round-trips exactly, because the section code is persisted.
+            //   WHAT USED TO STAND HERE, AND THE MONEY IT COST. A CumulativeThreshold of ₹6,00,000 per FINANCIAL YEAR
+            //   on both rows — the monthly figure annualised (50,000 x 12). The two are not the same test. One
+            //   month's rent of ₹60,000 with nothing else in the year: the statute deducts, because ₹60,000 exceeds
+            //   the monthly ₹50,000, and at §194-I(b) that is ₹6,000.00. The annualised rule deducted ₹0.00, because
+            //   ₹60,000 is nowhere near ₹6,00,000 — ₹6,000.00 of UNDER-deduction on one ordinary rent bill, with the
+            //   deductor answering for it under §201 and interest under §201(1A).
+            //   🔴 AND THE ₹6,00,000 ALREADY PERSISTED IN EVERY EXISTING BOOK IS NOT MIGRATED, NOT RE-READ AND NOT
+            //   DELETED — IT IS INERT. NatureOfPayment.AggregateThreshold never consults CumulativeThreshold on a
+            //   per-month nature, so a book that persisted ₹6,00,000 and a book seeded from this file today compute
+            //   the identical withholding on every input. That is what lets this ship with Schema.CurrentVersion
+            //   unchanged; Tds194IMonthlyThresholdTests pins it against a nature carrying the legacy figure.
+            //   🔴 GRANDFATHERING travels with the window, on the user's ruling. §194C's grandfathering absorbs a
+            //   RATE disagreement; here the drift is in whether the threshold was CROSSED AT ALL, so what is pinned
+            //   is the posted OUTCOME — TdsService.GrandfatheredLiability, fed the posted voucher's own stamped
+            //   AssessableValue and TdsAmount, and never a date check.
+            N("194I(b)", "Rent — land/building/furniture/fittings", 1000, 2000, "4IB"),
             // §194J(a) Technical services / call-centre / certain royalty — AGREES with the statute.
             //   §194J(1) [194J]: "TWO per cent of such sum in case of fees for technical services (not being a
             //   professional services), or royalty where such royalty is in the nature of consideration for sale,

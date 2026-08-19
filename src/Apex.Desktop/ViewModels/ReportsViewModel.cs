@@ -2266,7 +2266,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     // --------------------------------------------------------------- R2 TDS Not Deducted
-    //   Date | Party | Section / Nature | Assessable | Cumulative in FY | Threshold | Shortfall
+    //   Date | Party | Section / Nature | Assessable | Aggregate in window | Threshold | Shortfall
+    //   The aggregate column is FY-to-date on every section but §194-I, whose threshold window is the CALENDAR
+    //   MONTH (first proviso: rent "for a month or part of a month" against ₹50,000, and no annual limb at all),
+    //   which is why the shared header reads "Cumulative" rather than "Cumul. (FY)".
     private void BuildTdsNotDeducted()
     {
         var report = Report.BuildTdsNotDeducted(_company, _asOf);
@@ -2280,7 +2283,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col2 = r.Party,
                 Col3 = StatSectionNature(r.Section, r.Nature),
                 Col4 = IndianFormat.Rupees(r.Assessable),
-                Col5 = IndianFormat.Rupees(r.CumulativeInFy),
+                Col5 = IndianFormat.Rupees(r.AggregateInWindow),
                 Col6 = IndianFormat.Rupees(r.Threshold),
                 Col7 = IndianFormat.Rupees(r.Shortfall),
             });

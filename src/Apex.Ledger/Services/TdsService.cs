@@ -77,9 +77,22 @@ public sealed class TdsService
     /// date comparison: see <see cref="GrandfatheredRate"/> for exactly the one disagreement it absorbs and the
     /// four it refuses to.
     /// </param>
+    /// <param name="postedAssessableValue">
+    /// 🔴 <b>The assessable base the voucher being ALTERED was POSTED on</b>, read off its own stamped
+    /// <see cref="TdsLineTax.AssessableValue"/>. With <paramref name="postedTdsAmount"/> it forms the <b>§194-I
+    /// grandfathering carrier</b> — a pair of facts about the voucher, never a date comparison. <c>null</c> for a
+    /// fresh posting, and every caller that omits it is byte-identical. See
+    /// <see cref="GrandfatheredLiability"/> for the rule and for why the base has to travel with the outcome.
+    /// </param>
+    /// <param name="postedTdsAmount">
+    /// 🔴 <b>The TDS the voucher being ALTERED actually WITHHELD when it was posted</b>, read off its own stamped
+    /// <see cref="TdsLineTax.TdsAmount"/> (0 on a below-threshold assessment, whose detail rides the party leg).
+    /// The §194-I grandfathering carrier's second half. <c>null</c> for a fresh posting.
+    /// </param>
     public Withholding ComputeWithholding(
         Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
-        Guid? asPostedBefore = null, int? postedRateBasisPoints = null)
+        Guid? asPostedBefore = null, int? postedRateBasisPoints = null,
+        Money? postedAssessableValue = null, Money? postedTdsAmount = null)
     {
         ArgumentNullException.ThrowIfNull(nature);
         ArgumentNullException.ThrowIfNull(deductee);
@@ -94,8 +107,16 @@ public sealed class TdsService
             panApplied ? ResolveWithPanRate(nature, deductee) : nature.RateWithoutPanBp,
             panApplied, postedRateBasisPoints);
 
+        // The FY aggregate is projected for every section: it is what Withholding reports, and it is the base
+        // §194Q's excess-only carve is measured against. The THRESHOLD test, however, uses the section's own
+        // window — the calendar month on §194-I, the financial year everywhere else.
         var prior = ProjectPriorCumulative(deductee.Id, nature.Id, date, asPostedBefore);
-        if (!ThresholdCrossed(nature, assessableValue, prior))
+        var priorInWindow = nature.ThresholdWindowIsPerMonth
+            ? ProjectPriorInMonth(deductee.Id, nature.Id, date, asPostedBefore)
+            : prior;
+        var applies = GrandfatheredLiability(nature, assessableValue, postedAssessableValue, postedTdsAmount)
+                      ?? ThresholdCrossed(nature, assessableValue, priorInWindow);
+        if (!applies)
             return new Withholding(false, assessableValue, rateBp, Money.Zero, panApplied, prior);
 
         // 🔴 T0-1. The base the TDS is actually CHARGED on. §194Q charges only the value EXCEEDING its ₹50-lakh
@@ -192,6 +213,60 @@ public sealed class TdsService
     }
 
     /// <summary>
+    /// 🔴 <b>GRANDFATHERING FOR §194-I — the user's ruling, and it pins the posted OUTCOME, not a rate. Nothing
+    /// here reads a clock either.</b> Returns <c>true</c>/<c>false</c> to FORCE the liability decision the voucher
+    /// was posted with, or <c>null</c> to let <see cref="ThresholdCrossed"/> decide as it does for a fresh entry.
+    ///
+    /// <para>🔴 <b>WHY THIS IS NOT <see cref="GrandfatheredRate"/>, STATED PLAINLY BECAUSE IT IS THE WHOLE
+    /// DIFFICULTY.</b> §194C's grandfathering absorbs a <b>rate</b> disagreement: the voucher withheld, it still
+    /// withholds, only the percentage moved. §194-I's window did not move a percentage — it moved <b>whether the
+    /// threshold was crossed at all</b>. A ₹60,000 rent bill posted under the superseded ₹6,00,000-a-year rule
+    /// withheld <b>₹0.00</b>; under the statutory ₹50,000-a-month rule the same bill owes <b>₹6,000.00</b>. And it
+    /// runs the other way too: twelve ₹40,000 months crossed ₹6,00,000 in the eleventh and withheld ₹4,000 there,
+    /// where no single month exceeds ₹50,000 and the statute withholds nothing. So the fact that has to be pinned
+    /// is the posted <b>outcome</b> — did this voucher withhold — and a rate alone cannot carry it.</para>
+    ///
+    /// <para>🔴 <b>AND WHY IT MUST BE PINNED AT ALL: WITHOUT IT EVERY SUCH VOUCHER BECOMES UNALTERABLE.</b>
+    /// <c>VoucherEntryViewModel.ApplyReCarve</c> refuses an alteration whose re-carve produces a different TDS
+    /// while the party's gross has not moved — deliberately, because a re-computed figure would restate a
+    /// deduction that has already been deposited and reported in a return. Flipping the window without this pin
+    /// would trip that refusal on every §194-I voucher in every existing book: a narration fix, a cost-centre
+    /// correction, a date typo, all refused. The ruling exists so those vouchers <b>keep their posted figure and
+    /// stay editable</b>, and the pin is what delivers both at once — the re-carve reproduces the posted amount, so
+    /// the refusal never fires.</para>
+    ///
+    /// <para>🔴 <b>THE RULE, AND ITS ONE GATE: THE BASE MUST BE UNCHANGED.</b> The pin applies only while
+    /// <paramref name="postedAssessableValue"/> still equals <paramref name="assessableValue"/> — i.e. while the
+    /// alteration has not touched the sum the tax is assessed on. An operator who genuinely amends the rent from
+    /// ₹60,000 to ₹40,000 is restating the transaction, and the correct answer for the amended figure is the
+    /// <b>statutory</b> one, not the superseded one; without this gate the amended bill would keep withholding
+    /// because a different bill once did. This is the same line <c>ApplyReCarve</c> already draws with its own
+    /// "the gross has not moved" test, so the two agree: base unchanged ⇒ the posted outcome stands; base moved ⇒
+    /// an ordinary re-carve, and if some master moved underneath it the existing refusal still catches it.</para>
+    ///
+    /// <para><b>Scope, and what stays byte-identical.</b> Only a section whose window is per-month
+    /// (<see cref="NatureOfPayment.ThresholdWindowIsPerMonth"/> — §194-I alone) is grandfathered, because the
+    /// window redefinition is the only drift being absorbed. §194A / §194C / §194H / §194J / §194Q reach the
+    /// ordinary threshold test with these arguments supplied or not, so their behaviour is unchanged, and so is
+    /// every fresh posting on §194-I (a fresh entry has no posted outcome to hand in).</para>
+    ///
+    /// <para><b>What it cannot distinguish, stated plainly.</b> "Withheld" is read as
+    /// <c>postedTdsAmount &gt; 0</c>. A voucher that was liable but whose tax rounded to zero — reachable only on
+    /// an assessable under ₹25, i.e. a residual bill inside a month already over ₹50,000 — reads as
+    /// "did not withhold". The two answers are the same figure (₹0.00) in that case, so no money moves either
+    /// way; recording it because a stored applies-flag would remove the ambiguity and that needs a schema
+    /// column.</para>
+    /// </summary>
+    internal static bool? GrandfatheredLiability(
+        NatureOfPayment nature, Money assessableValue, Money? postedAssessableValue, Money? postedTdsAmount)
+    {
+        if (!nature.ThresholdWindowIsPerMonth) return null;
+        if (postedAssessableValue is not { } postedBase || postedTdsAmount is not { } postedTds) return null;
+        if (postedBase != assessableValue) return null;
+        return postedTds.Amount > 0m;
+    }
+
+    /// <summary>
     /// 🔴 <b>T0-1 — the portion of <paramref name="current"/> the TDS is actually charged on.</b> For a section
     /// flagged <see cref="NatureOfPayment.ChargesOnlyExcessOverCumulativeThreshold"/> (§194Q — Income-tax Act 1961
     /// §194Q(1), "0.1 per cent. of such sum exceeding fifty lakh rupees") only the value above the cumulative-FY
@@ -228,18 +303,30 @@ public sealed class TdsService
     /// <summary>
     /// Whether the section threshold is crossed so TDS must be withheld: a nature with <b>no</b> threshold always
     /// applies; otherwise TDS applies iff the current transaction <b>exceeds</b> the single-transaction threshold
-    /// (§194C ₹30,000) OR the FY aggregate (<paramref name="prior"/> + current) <b>exceeds</b> the cumulative
-    /// threshold (§194J ₹50,000). "Exceeds" is strict (at exactly the threshold ⇒ no TDS, per the bare Act wording).
+    /// (§194C ₹30,000) OR the aggregate over the section's own <b>threshold window</b>
+    /// (<paramref name="priorInWindow"/> + current) <b>exceeds</b> that window's limb. "Exceeds" is strict (at
+    /// exactly the threshold ⇒ no TDS, per the bare Act wording).
+    ///
+    /// <para>🔴 <b>THE WINDOW IS THE NATURE'S, NOT THIS METHOD'S — and reading
+    /// <see cref="NatureOfPayment.CumulativeThreshold"/> here again is the one edit that silently reopens the
+    /// §194-I under-deduction.</b> Both the limb (<see cref="NatureOfPayment.AggregateThreshold"/>) and the
+    /// aggregate handed in must come from the same window: the financial year for §194A/§194C/§194H/§194J/§194Q,
+    /// the <b>calendar month</b> for §194-I, whose first proviso tests the rent "for a month or part of a month"
+    /// against ₹50,000 and which has no annual limb at all. <see cref="ComputeWithholding"/> is the only caller
+    /// and pairs them; the "no threshold at all ⇒ always applies" early return tests
+    /// <see cref="NatureOfPayment.AggregateThreshold"/> for the same reason — against a §194-I nature whose
+    /// superseded <see cref="NatureOfPayment.CumulativeThreshold"/> is now unset, testing that field instead would
+    /// read "no threshold" and withhold on <b>every</b> rent bill, ₹100 included.</para>
     /// </summary>
-    private static bool ThresholdCrossed(NatureOfPayment nature, Money current, Money prior)
+    private static bool ThresholdCrossed(NatureOfPayment nature, Money current, Money priorInWindow)
     {
-        if (nature.SingleTransactionThreshold is null && nature.CumulativeThreshold is null) return true;
+        if (nature.SingleTransactionThreshold is null && nature.AggregateThreshold is null) return true;
         var single = nature.SingleTransactionThreshold is { } st && current > st;
-        var cumulative = nature.CumulativeThreshold is { } ct && (prior + current) > ct;
-        return single || cumulative;
+        var aggregate = nature.AggregateThreshold is { } at && (priorInWindow + current) > at;
+        return single || aggregate;
     }
 
-    // ---- cumulative-FY threshold projection (pure, like Gstr1 YTD) ----
+    // ---- threshold-window projection (pure, like Gstr1 YTD): per-FY, or per-MONTH for §194-I ----
 
     /// <summary>
     /// Σ of the assessable value already posted for (<paramref name="deducteeLedgerId"/>,
@@ -267,9 +354,54 @@ public sealed class TdsService
     /// exactly, with no schema change.</para>
     /// </param>
     public Money ProjectPriorCumulative(
-        Guid deducteeLedgerId, Guid natureId, DateOnly date, Guid? asPostedBefore = null)
+        Guid deducteeLedgerId, Guid natureId, DateOnly date, Guid? asPostedBefore = null) =>
+        ProjectPriorBetween(deducteeLedgerId, natureId, FinancialYearOf(date).Start, date, asPostedBefore);
+
+    /// <summary>
+    /// 🔴 <b>§194-I's window: Σ of the assessable value already posted for
+    /// (<paramref name="deducteeLedgerId"/>, <paramref name="natureId"/>) in the CALENDAR MONTH of
+    /// <paramref name="date"/>, up to and including that date.</b> Income-tax Act 1961 §194-I, first proviso
+    /// (FY 2025-26): the comparable set is the rent "credited or paid <b>for a month or part of a month</b>" to
+    /// that payee. The month is derived from the <b>voucher date</b> — the model carries no rent-period field, and
+    /// the date on which the rent is credited or paid is exactly the trigger the proviso names.
+    ///
+    /// <para><b>A part-month is not pro-rated.</b> The window is the whole calendar month containing the date and
+    /// the limb stays the whole ₹50,000, so a tenancy running half of April and half of May is two windows with a
+    /// full allowance each, not one allowance split between them.</para>
+    ///
+    /// <para><b>The financial year never enters, and it never has to.</b> An Indian FY runs 1 April – 31 March, so
+    /// a calendar month is always wholly inside one FY and this window can neither straddle a year boundary nor
+    /// leak across one: 31-Mar and 1-Apr are a different month AND a different year, and either test alone
+    /// separates them.</para>
+    ///
+    /// <para>🔴 <b><paramref name="asPostedBefore"/> means here exactly what it means on
+    /// <see cref="ProjectPriorCumulative"/></b> — the same list-index resolution, in the same shared loop, because
+    /// a monthly window that took the projection over the WHOLE book would reintroduce the defect S5c closed one
+    /// section over: a §194-I voucher altered after a later sibling was posted would count that sibling as
+    /// "prior", and a narration edit would acquire a withholding the posting never made.</para>
+    /// </summary>
+    public Money ProjectPriorInMonth(
+        Guid deducteeLedgerId, Guid natureId, DateOnly date, Guid? asPostedBefore = null) =>
+        ProjectPriorBetween(deducteeLedgerId, natureId, new DateOnly(date.Year, date.Month, 1), date, asPostedBefore);
+
+    /// <summary>
+    /// The prior aggregate over <b>the section's own threshold window</b> — the calendar month for a per-month
+    /// nature (§194-I), the financial year for every other. The one entry point a caller that does not already
+    /// know which window applies should use, so a report and the engine can never disagree about the window.
+    /// </summary>
+    public Money ProjectPriorInThresholdWindow(
+        NatureOfPayment nature, Guid deducteeLedgerId, DateOnly date, Guid? asPostedBefore = null)
     {
-        var (fyStart, _) = FinancialYearOf(date);
+        ArgumentNullException.ThrowIfNull(nature);
+        return nature.ThresholdWindowIsPerMonth
+            ? ProjectPriorInMonth(deducteeLedgerId, nature.Id, date, asPostedBefore)
+            : ProjectPriorCumulative(deducteeLedgerId, nature.Id, date, asPostedBefore);
+    }
+
+    /// <summary>The shared projection loop — identical for both windows but for <paramref name="from"/>.</summary>
+    private Money ProjectPriorBetween(
+        Guid deducteeLedgerId, Guid natureId, DateOnly from, DateOnly to, Guid? asPostedBefore)
+    {
         var vouchers = _company.Vouchers;
 
         // The posting moment: everything before this voucher in list order. Not found (or null) ⇒ the whole book,
@@ -284,7 +416,7 @@ public sealed class TdsService
         {
             var v = vouchers[i];
             if (v.Cancelled) continue;
-            if (v.Date < fyStart || v.Date > date) continue;
+            if (v.Date < from || v.Date > to) continue;
             foreach (var line in v.Lines)
             {
                 if (line.Tds is not { } t) continue;
@@ -355,18 +487,32 @@ public sealed class TdsService
     /// straight through to <see cref="ComputeWithholding"/>. <c>null</c> for a fresh posting. See
     /// <see cref="GrandfatheredRate"/>.
     /// </param>
+    /// <param name="postedAssessableValue">
+    /// 🔴 <b>The assessable base the voucher being ALTERED was POSTED on</b> — with
+    /// <paramref name="postedTdsAmount"/>, the §194-I grandfathering carrier, passed straight through to
+    /// <see cref="ComputeWithholding"/>. <c>null</c> for a fresh posting. See
+    /// <see cref="GrandfatheredLiability"/>.
+    /// </param>
+    /// <param name="postedTdsAmount">
+    /// 🔴 <b>The TDS that voucher actually withheld at posting</b> (0 below threshold) — the other half of the
+    /// §194-I grandfathering carrier. <c>null</c> for a fresh posting.
+    /// </param>
     public CarveOut BuildCarveOut(
         Money partyGrossObligation, Money assessableValue, NatureOfPayment nature, Domain.Ledger deductee, DateOnly date,
         Guid? asPostedBefore = null,
         EntryLine? keyedPartyLine = null,
-        int? postedRateBasisPoints = null)
+        int? postedRateBasisPoints = null,
+        Money? postedAssessableValue = null,
+        Money? postedTdsAmount = null)
     {
         if (partyGrossObligation.Amount <= 0m)
             throw new ArgumentException("Party gross obligation must be > 0.", nameof(partyGrossObligation));
         if (!partyGrossObligation.IsPaisaExact)
             throw new InvalidOperationException($"Party gross obligation {partyGrossObligation} must be paisa-exact.");
 
-        var w = ComputeWithholding(assessableValue, nature, deductee, date, asPostedBefore, postedRateBasisPoints);
+        var w = ComputeWithholding(
+            assessableValue, nature, deductee, date, asPostedBefore, postedRateBasisPoints,
+            postedAssessableValue, postedTdsAmount);
         var detail = new TdsLineTax(
             nature.Id, nature.SectionCode, assessableValue, w.RateBasisPoints, w.TdsAmount, deductee.Id, w.PanApplied);
 

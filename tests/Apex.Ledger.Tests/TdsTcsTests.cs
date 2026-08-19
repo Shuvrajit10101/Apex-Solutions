@@ -158,7 +158,11 @@ public class TdsTcsTests
     {
         var byCode = SeedTdsTcsRates.BuildTdsDefaults().ToDictionary(n => n.SectionCode);
 
-        void Check(string section, int withPan, int withoutPan, string fvu, decimal? single, decimal? cumulative)
+        // 🔴 `monthly` is the §194-I window and it is asserted for EVERY row, not just the two that have one:
+        // the seed's other six must keep answering null, or a per-month test would leak onto a section the
+        // statute gives a financial-year one.
+        void Check(string section, int withPan, int withoutPan, string fvu, decimal? single, decimal? cumulative,
+            decimal? monthly = null)
         {
             var n = byCode[section];
             Assert.Equal(withPan, n.RateWithPanBp);
@@ -166,6 +170,11 @@ public class TdsTcsTests
             Assert.Equal(fvu, n.FvuSectionCode);
             Assert.Equal(single is { } s ? Money.FromRupees(s) : (Money?)null, n.SingleTransactionThreshold);
             Assert.Equal(cumulative is { } cu ? Money.FromRupees(cu) : (Money?)null, n.CumulativeThreshold);
+            Assert.Equal(monthly is { } mo ? Money.FromRupees(mo) : (Money?)null, n.MonthlyThreshold);
+            Assert.Equal(monthly is not null, n.ThresholdWindowIsPerMonth);
+            // The limb the engine tests: the monthly one where there is one, the stored FY one otherwise.
+            Assert.Equal(
+                (monthly ?? cumulative) is { } ag ? Money.FromRupees(ag) : (Money?)null, n.AggregateThreshold);
             Assert.True(n.IsPredefined);
         }
 
@@ -173,8 +182,13 @@ public class TdsTcsTests
         Check("194A", 1000, 2000, "94A", null, 10_000m); // generic (non-bank) SMB default (A14); bank ₹50k is a later refinement
         Check("194C", 100, 2000, "94C", 30_000m, 1_00_000m);
         Check("194H", 200, 2000, "94H", null, 20_000m);
-        Check("194I(a)", 200, 2000, "4IA", null, 6_00_000m);
-        Check("194I(b)", 1000, 2000, "4IB", null, 6_00_000m);
+        // 🔴 §194-I stores NEITHER threshold: its first proviso is a PER-MONTH limb ("rent credited or paid for a
+        // month or part of a month … does not exceed fifty thousand rupees") and it carries no annual-aggregate
+        // limb at all, so the ₹50,000 lives on the derived MonthlyThreshold. The seed used to ship ₹6,00,000 —
+        // that monthly figure annualised — in the CumulativeThreshold field, which under-deducted ₹6,000.00 on a
+        // single ₹60,000 month.
+        Check("194I(a)", 200, 2000, "4IA", null, null, 50_000m);
+        Check("194I(b)", 1000, 2000, "4IB", null, null, 50_000m);
         Check("194J(a)", 200, 2000, "94J-A", null, 50_000m);
         Check("194J(b)", 1000, 2000, "94J-B", null, 50_000m);
         Check("194Q", 10, 500, "94Q", null, 50_00_000m); // no-PAN = 5% special §206AA cap, NOT 20%

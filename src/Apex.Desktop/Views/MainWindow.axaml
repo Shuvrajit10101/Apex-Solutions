@@ -1490,7 +1490,7 @@
                                 <TextBlock Grid.Column="1" Text="Party" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Sec./Nature" Classes="colHdr"/>
                                 <TextBlock Grid.Column="3" Text="Assessable" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="4" Text="Cumul. (FY)" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Cumulative" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="5" Text="Threshold" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="6" Text="Shortfall" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
