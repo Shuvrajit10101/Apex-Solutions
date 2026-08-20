@@ -1587,6 +1587,39 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.Contains("'Applicable Upto' date", open.Refusal!, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 🔴 <b><c>Accept()</c> on an ALTERING POS screen is hard-refused</b> (review finding
+    /// L1-pos-accept-missing-altering-guard), mirroring <c>VoucherEntryViewModel.Accept</c>. Without the guard this
+    /// method mints a fresh <see cref="Guid"/> and Posts a SECOND bill beside the original — doubling the day's
+    /// turnover, the output GST and the units issued — which is the half of the two-verb contract this screen
+    /// asserted in one direction (<c>AcceptAlterationCore</c> refuses a NON-altering screen) and omitted in the
+    /// other.
+    ///
+    /// <para>No route reaches it today (the shell branches on <c>IsAltering</c>), so this pins a LATENT hole: the
+    /// guard is in-method precisely so a later caller cannot re-open it.</para>
+    /// </summary>
+    [Fact]
+    public void Accept_on_an_altering_pos_screen_is_refused_and_posts_no_second_bill()
+    {
+        using var book = AlterationBook.New("posacceptguard");
+        var kit = SeedPosKit(book);
+        PostFatPosBill(kit);
+        var posted = book.Company.Vouchers.Single(v => v.TypeId == kit.PosType.Id);
+        var before = book.Export();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        var vm = open.Entry!;
+        Assert.True(vm.IsAltering);
+
+        Assert.False(vm.Accept());
+        Assert.Contains("altering a posted bill", vm.Message!, StringComparison.Ordinal);
+
+        Assert.Single(book.Company.Vouchers, v => v.TypeId == kit.PosType.Id);
+        Assert.Equal(before, book.Export());
+    }
+
     // ================================================================ (D) ER-13
 
     /// <summary>

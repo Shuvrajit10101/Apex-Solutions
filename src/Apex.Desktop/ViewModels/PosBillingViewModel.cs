@@ -780,9 +780,25 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// <see cref="LedgerService.Post"/> (which enforces the tender grouping + reconciliation; nothing persists on
     /// failure) and saves. When the POS config's print-after-save is set it raises
     /// <see cref="PrintReceiptRequested"/> with the retail receipt.
+    ///
+    /// <para>🔴 <b>Hard-refuses on an ALTERING screen</b>, mirroring <c>VoucherEntryViewModel.Accept</c>. This
+    /// method is build + <c>Post</c>: it mints a fresh <see cref="Guid"/> and posts a SECOND bill under the next
+    /// number in the series, leaving the original standing — so the day's turnover, its output GST and the units
+    /// issued all double. <see cref="AcceptAlteration"/> is the alteration verb, and
+    /// <c>AcceptAlterationCore</c> already refuses the mirror case (a NON-altering screen); this is the half that
+    /// duplicates a document, and it is asserted in-method rather than left to the shell's branch so a later
+    /// caller cannot re-open it.</para>
     /// </summary>
     public bool Accept()
     {
+        if (IsAltering)
+        {
+            Message = "This screen is altering a posted bill — accepting it as a new bill would post a second one "
+                    + "beside it under the next number, doubling the sale, its output GST and the stock issued. "
+                    + "Use the alteration accept instead.";
+            return false;
+        }
+
         if (BuildPosBill() is not { } built) return false;
         var (entryLines, inventoryLines, tenders, partyId, taxable, invoiceTax, interState, change) = built;
 
