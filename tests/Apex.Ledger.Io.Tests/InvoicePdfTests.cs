@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using Apex.Ledger;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Io.Tests;
@@ -392,6 +393,221 @@ public sealed class InvoicePdfTests
         Assert.Contains("TAX INVOICE", s);
         Assert.Contains("Invoice No", s);
         Assert.DoesNotContain("BILL OF SUPPLY", s);
+    }
+
+    // ================================ T0-11 slice S2 (RQ-11a): RECIPIENT-SIDE RECORD — the renderer's safety property
+    //
+    // 🔴 WHY THESE LIVE HERE, in Apex.Ledger.Io.Tests, and not only in Apex.Desktop.Tests.
+    // The refusal in `InvoicePdf.Render`'s `IsRecipientRecord` branch is THE safety property of the whole T0-11
+    // change: it is what stops this renderer ever printing a document CGST §31(1) / Rule 49 do not entitle us to
+    // issue. It shipped with its ONLY coverage in a DIFFERENT project — deleting the entire four-line guard left
+    // Apex.Ledger.Io.Tests at a full green, and `IsRecipientRecord` did not appear in this file even once. A safety
+    // net the owning project cannot feel is one refactor away from being deleted by someone who runs this suite,
+    // sees green, and concludes the guard is dead code. Everything below drives `InvoicePdf` DIRECTLY, from
+    // hand-built DTOs, with no projector and no view model in the path — which is also the only way to prove the
+    // renderer is safe against a caller that fills the DTO wrongly rather than merely safe when the projector fills
+    // it rightly (the same standard FIX-W1h/FIX-W2b set for the bill-of-supply branch above).
+
+    /// <summary>
+    /// A recipient-side record of an inward supply, built as a HOSTILE caller would: the flag set, the tax rows
+    /// populated, and <paramref name="documentTitle"/> whatever the caller pleases — including the two outward titles
+    /// the renderer must refuse. Taxable ₹4,321.00 @ 18% intra-State ⇒ CGST 388.89 + SGST 388.89, grand 5,098.78.
+    /// </summary>
+    private static InvoicePrintData RecipientRecord(string documentTitle)
+    {
+        var taxable = new Money(4_321m);
+        var tax = GstService.ComputeLineTax(taxable, 1800, interState: false);
+        return new InvoicePrintData
+        {
+            IsRecipientRecord = true,
+            DocumentTitle = documentTitle,
+            // On a record the LEFT block is the real supplier and the RIGHT block is us (Rule 46(a)).
+            Seller = new InvoicePartyBlock
+            {
+                Name = "Gujarat Supplier", AddressLines = new[] { "9 Dockyard Road", "Surat" },
+                Gstin = ValidGstin("24EEEEE0000E1Z"), StateText = "Gujarat (24)",
+            },
+            Buyer = new InvoicePartyBlock
+            {
+                Name = "Bright Traders", AddressLines = new[] { "12 Market Street", "Kolkata" },
+                Gstin = ValidGstin("19AAAAA0000A1Z"), StateText = "West Bengal (19)",
+            },
+            InvoiceNumber = "PUR-0007",
+            InvoiceDateText = "10-04-2025",
+            PlaceOfSupply = "West Bengal (19)",
+            IsInterState = false,
+            Items = new[]
+            {
+                new InvoiceItemRow
+                {
+                    Description = "Raw Cotton", HsnSac = "520100",
+                    QuantityText = "8.000", RateText = "540.125", TaxableValue = taxable,
+                },
+            },
+            TaxRows = new[]
+            {
+                new InvoiceTaxRow
+                {
+                    RateLabel = "18%", TaxableValue = taxable, Cgst = tax.Cgst, Sgst = tax.Sgst, Igst = Money.Zero,
+                },
+            },
+            TotalTaxable = taxable,
+            TotalCgst = tax.Cgst,
+            TotalSgst = tax.Sgst,
+            TotalIgst = Money.Zero,
+        };
+    }
+
+    /// <summary>
+    /// <b>(a)/(b) — the refusal itself, in the project that owns the renderer.</b> CGST Act §31(1)/(2) put the tax
+    /// invoice on "a registered person <b>supplying</b>" and CGST Rule 49 opens the bill of supply with the same
+    /// words, so on a document recording a supply made TO us <b>neither</b> outward title may appear. The guard
+    /// SUBSTITUTES rather than throws — it rewrites the title to <see cref="GstReportSupport.PurchaseRecordTitle"/> —
+    /// so that substitution is what is asserted, on the body text and on the <c>/Title</c> metadata alike (both live
+    /// in these bytes, which is how "Tax Invoice" reached the metadata undetected once already: FIX-W2b).
+    /// <para>The casing and padding variants are not decoration: the guard claims to be case-insensitive and to trim,
+    /// and the ordinal spelling of exactly this guard on the bill-of-supply branch let "Tax Invoice" — the spelling
+    /// this app's own drill badge uses — through to paper once already.</para>
+    /// <para><b>Bite:</b> delete the four-line <c>if (string.IsNullOrWhiteSpace(title) || … ) title =
+    /// GstReportSupport.PurchaseRecordTitle;</c> block from <c>InvoicePdf.Render</c> and every row here goes red in
+    /// THIS project.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("TAX INVOICE")]
+    [InlineData("Tax Invoice")]
+    [InlineData("tax invoice")]
+    [InlineData("  Tax Invoice  ")]
+    [InlineData("\tTAX INVOICE\r\n")]
+    [InlineData("BILL OF SUPPLY")]
+    [InlineData("Bill of Supply")]
+    [InlineData("  bill of supply  ")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_recipient_record_refuses_both_outward_titles_and_a_blank_one(string documentTitle)
+    {
+        string s = AsLatin1(InvoicePdf.Render(RecipientRecord(documentTitle), new PrintConfig(), new PageConfig()));
+
+        Assert.StartsWith("%PDF-", s);
+        Assert.Contains(GstReportSupport.PurchaseRecordTitle, s);   // "PURCHASE RECORD" — body band AND /Title
+        Assert.DoesNotContain("TAX INVOICE", s);
+        Assert.DoesNotContain("Tax Invoice", s);
+        Assert.DoesNotContain("tax invoice", s);
+        Assert.DoesNotContain("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("Bill of Supply", s);
+        Assert.DoesNotContain("bill of supply", s);
+
+        // The substitution is not cosmetic — it lands on a page that is a record throughout: our number is captioned
+        // as ours, no place of supply is stated (Rule 46(n) is a supplier particular), the tax IS stated but as the
+        // supplier's charge, and OUR declaration and signature block are gone (Rule 46(q) puts those on the issuer).
+        Assert.Contains(GstReportSupport.RecordNumberCaption, s);
+        Assert.DoesNotContain("Invoice No", s);
+        Assert.DoesNotContain("Place of Supply", s);
+        Assert.Contains(GstReportSupport.SupplierTaxCaption, s);
+        Assert.DoesNotContain("GST Breakup", s);
+        Assert.DoesNotContain("Authorised Signatory", s);
+        Assert.DoesNotContain("For Gujarat Supplier", s);
+        Assert.DoesNotContain("tally", s.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// <b>(a) again, through the OTHER door — the F12 title override.</b> The override is a print preference; the
+    /// document kind follows the transaction. A knob able to re-title a record into a tax invoice would issue,
+    /// through the print dialog, precisely the document §31(1) denies us — so the override must not reach this
+    /// branch at all, exactly as it does not reach a bill of supply.
+    /// </summary>
+    [Theory]
+    [InlineData("TAX INVOICE")]
+    [InlineData("Tax Invoice")]
+    [InlineData("BILL OF SUPPLY")]
+    public void The_title_override_cannot_promote_a_recipient_record_into_a_document_we_issue(string overrideTitle)
+    {
+        string s = AsLatin1(InvoicePdf.Render(
+            RecipientRecord(GstReportSupport.PurchaseRecordTitle),
+            new PrintConfig { TitleOverride = overrideTitle },
+            new PageConfig()));
+
+        Assert.Contains(GstReportSupport.PurchaseRecordTitle, s);
+        Assert.DoesNotContain("TAX INVOICE", s);
+        Assert.DoesNotContain("Tax Invoice", s);
+        Assert.DoesNotContain("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("Bill of Supply", s);
+    }
+
+    /// <summary>
+    /// <b>(c) — the guard is a refusal of two titles, not a hard-coding of one.</b> A record title that is neither
+    /// outward title passes through UNCHANGED and reaches the page: the branch reads <c>title = data.DocumentTitle</c>
+    /// first and only rewrites it when the title is blank or one of the two forbidden spellings. Without this, a
+    /// "fix" that replaced the guard with an unconditional <c>title = PurchaseRecordTitle</c> would still pass every
+    /// refusal probe above while silently discarding whatever the projector chose to call the document.
+    /// </summary>
+    [Theory]
+    [InlineData("PURCHASE RECORD")]
+    [InlineData("INWARD SUPPLY RECORD")]
+    [InlineData("Goods Received Note")]
+    public void A_recipient_record_keeps_a_title_that_is_not_an_outward_one(string documentTitle)
+    {
+        string s = AsLatin1(InvoicePdf.Render(RecipientRecord(documentTitle), new PrintConfig(), new PageConfig()));
+
+        Assert.Contains(documentTitle, s);
+        Assert.DoesNotContain("TAX INVOICE", s);
+        Assert.DoesNotContain("BILL OF SUPPLY", s);
+
+        // …and the record's own particulars are on the page with it: our reference, the supplier-captioned tax at the
+        // engine's paisa-exact figures, and the legend that says whose document this is.
+        Assert.Contains("PUR-0007", s);
+        Assert.Contains(GstReportSupport.SupplierTaxCaption, s);
+        Assert.Contains("388.89", s);        // CGST = SGST = 9% of 4,321.00
+        Assert.Contains("4,321.00", s);
+        Assert.Contains("5,098.78", s);      // grand total = taxable + 777.78 tax
+        // The legend is WRAPPED across several lines by the renderer, so only its opening survives contiguously.
+        Assert.Contains("This is the recipient", s);
+    }
+
+    /// <summary>
+    /// <b>(d) — THE NEGATIVE CONTROL, and the reason it is not optional.</b> Every probe above asserts that something
+    /// does NOT appear, and a blanket refusal — a guard widened by one mistaken edit to fire whatever the flag says —
+    /// satisfies all of them while breaking every outward invoice this app prints. So: the same DTO shape, the same
+    /// "TAX INVOICE" title, <c>IsRecipientRecord = <b>false</b></c>, and the ordinary Rule-46 document must come out
+    /// whole — title, "Invoice No.", place of supply, the GST breakup caption, our declaration and our signature.
+    /// </summary>
+    [Fact]
+    public void The_guard_is_gated_on_the_flag_a_tax_invoice_with_the_same_title_still_renders_whole()
+    {
+        var record = RecipientRecord(GstReportSupport.TaxInvoiceTitle);
+        var outward = new InvoicePrintData
+        {
+            IsRecipientRecord = false,                       // the ONLY difference from the fixture above
+            DocumentTitle = GstReportSupport.TaxInvoiceTitle,
+            Seller = record.Seller,
+            Buyer = record.Buyer,
+            InvoiceNumber = record.InvoiceNumber,
+            InvoiceDateText = record.InvoiceDateText,
+            PlaceOfSupply = record.PlaceOfSupply,
+            IsInterState = false,
+            Items = record.Items,
+            TaxRows = record.TaxRows,
+            TotalTaxable = record.TotalTaxable,
+            TotalCgst = record.TotalCgst,
+            TotalSgst = record.TotalSgst,
+            TotalIgst = record.TotalIgst,
+        };
+
+        string s = AsLatin1(InvoicePdf.Render(outward, new PrintConfig(), new PageConfig()));
+
+        Assert.Contains("TAX INVOICE", s);
+        Assert.Contains("Invoice No", s);
+        Assert.Contains(@"Place of Supply: West Bengal \(19\)", s);   // PDF literal-string escaping of ( )
+        Assert.Contains("GST Breakup", s);
+        Assert.Contains("Declaration", s);
+        Assert.Contains("Authorised Signatory", s);
+        Assert.Contains("For Gujarat Supplier", s);
+        Assert.Contains("388.89", s);
+
+        // …and none of the record-only wording leaks onto a document we DID issue.
+        Assert.DoesNotContain(GstReportSupport.PurchaseRecordTitle, s);
+        Assert.DoesNotContain(GstReportSupport.RecordNumberCaption, s);
+        Assert.DoesNotContain(GstReportSupport.SupplierTaxCaption, s);
+        Assert.DoesNotContain("This is the recipient's record", s);
     }
 
     /// <summary>The y-coordinate of the text-positioning operator that precedes the first occurrence of

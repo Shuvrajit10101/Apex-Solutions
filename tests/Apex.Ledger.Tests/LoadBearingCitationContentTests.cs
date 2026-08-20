@@ -33,6 +33,15 @@ namespace Apex.Ledger.Tests;
 /// HAD been reviewed. The other half, WF-1, got none, and it was WF-1's register row that had silently gone
 /// false. <b>A tool built because a check has a blind spot must be pointed at the code nobody has read yet, not
 /// at the code that was just reviewed.</b> Four WF-1 anchors were added on that basis.</para>
+///
+/// <para>🔴 <b>The same lesson, a third time — T0-11 / Phase 10.13, 2026-08-20.</b> That chain ADDED LINES to
+/// <c>VoucherPrintProjector.cs</c> and <c>GstReportSupport.cs</c>, and its own slice-S2 pass reported that roughly
+/// <b>sixteen of the twenty citations it remapped had already gone silently false</b> — every one of them green
+/// under the reach check, because a file long enough makes a wrong line a valid line. Fourteen T0-11 anchors were
+/// added on that basis, spanning the census gap-register row, ADR-0002 and RQ-11/11a/11b. <b>This does not fix the
+/// mechanism</b>, which is a design item: adding a line to either of those files still falsifies roughly thirty
+/// citations with no signal at all. It content-checks the claims <i>this</i> chain made load-bearing, and leaves
+/// the rest reach-only — which is the honest description of the guard, not an apology for it.</para>
 /// </summary>
 public sealed class LoadBearingCitationContentTests
 {
@@ -135,6 +144,93 @@ public sealed class LoadBearingCitationContentTests
             "not a stamp - `GstConfigViewModel.cs:583`",
             "GstConfigViewModel.cs",
             "HomeState ??="),
+
+        // ---- T0-11 / Phase 10.13 (the printed-document three-axis split): the claims this chain made load-bearing ----
+        // Added 2026-08-20, following this file's own lesson a third time: point the tool at the code nobody has
+        // read yet. This chain ADDED LINES to `VoucherPrintProjector.cs` and `GstReportSupport.cs`, and slice S2
+        // reported that roughly SIXTEEN OF TWENTY citations it remapped had gone silently false first — every one of
+        // them green under the reach check, because a long file makes a wrong line a valid line. The rows below are
+        // the T0-11 citations that are the sole evidence for a design ruling: the diagnosis that overturned the
+        // census row's stated cause, the three-consumer hazard that makes the naive fix DANGEROUS rather than merely
+        // wrong (it moves a docType we file with a government portal), and the two facts that decouple the Rule-53
+        // note from T0-10. Each was read at the cited line before being entered here.
+
+        // ---- census gap-register row T0-11 (the re-caused row itself) ----
+        // One document line carries all three of these citations; the regex takes the FIRST occurrence per file
+        // name, which is why `VoucherPrintProjector.cs` is deliberately NOT anchored on this row: its first
+        // occurrence there is the STALE `:48` the row exists to disown.
+        new("docs/full-clone-census.md",
+            "Three consumers move together",
+            "GstReportSupport.cs",
+            "if (type?.BaseType != VoucherBaseType.Sales) return false;"),
+        new("docs/full-clone-census.md",
+            "Three consumers move together",
+            "EWayBillService.cs",
+            "IsBillOfSupplyForFiling"),
+        new("docs/full-clone-census.md",
+            "Three consumers move together",
+            "VoucherDetailViewModel.cs",
+            "BuildPrintPreview"),
+
+        // ---- ADR-0002: the diagnosis, the hazard and the two decoupling facts ----
+        // The rule is Sales-only and it lives HERE, not at the wrapper — the correction that re-caused the row.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "returns false for anything whose base type is not Sales",
+            "GstReportSupport.cs",
+            "if (type?.BaseType != VoucherBaseType.Sales) return false;"),
+        // The defect is the CALL SITE. If this citation ever stops landing on `BuildPrintPreview`, the ADR's whole
+        // "predicate is right, call site is wrong" argument loses the only line it rests on.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "takes the else branch",
+            "VoucherDetailViewModel.cs",
+            "BuildPrintPreview"),
+        // Consumer 2 of the three-consumer hazard — the ADR quotes this line VERBATIM, so the quote is the token.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "(`if (!IsTaxInvoice(company, voucher)) return false;`);",
+            "GstReportSupport.cs",
+            "if (!IsTaxInvoice(company, voucher)) return false;"),
+        // Consumer 3 — the NIC e-Way `docType`. This is the citation that turns "wrong" into "dangerous": it is the
+        // evidence that widening the predicate would move a code filed with a government portal.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "feeds `EWayBillService.PartACodesFor` at",
+            "GstReportSupport.cs",
+            "IsBillOfSupplyForFiling"),
+        // The ruling that our voucher number may not be captioned "Invoice No." rests on the supplier's number
+        // already having somewhere to go. Delete that branch and the ruling silently loses its premise.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            @"**already returns *""Supplier Invoice",
+            "VoucherPrintProjector.cs",
+            @"""Supplier Invoice No."""),
+        // The two facts that decouple the Rule-53 note from census T0-10 — i.e. that let a legally complete note
+        // ship without the stock wall moving. Both were re-measured first-hand before the re-attribution.
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "throws on every post (reached from",
+            "VoucherValidator.cs",
+            "only valid on a Purchase or Sales voucher"),
+        new("docs/adr/0002-printed-document-three-axis-split.md",
+            "makes the item-invoice chord inert. Because",
+            "VoucherEntryViewModel.cs",
+            "VoucherBaseType.Purchase or VoucherBaseType.Sales"),
+
+        // ---- RQ-11 / RQ-11a / RQ-11b (the requirement this chain amended IN PLACE) ----
+        // RQ-11a's caption ruling, and the amendment record that says the CODE was right and the REQUIREMENT wrong.
+        new("docs/phase5-reports-io-requirements.md",
+            "**our** voucher number SHALL carry a caption",
+            "VoucherPrintProjector.cs",
+            @"""Supplier Invoice No."""),
+        new("docs/phase5-reports-io-requirements.md",
+            "returns false unless the base type is Sales, and",
+            "GstReportSupport.cs",
+            "if (type?.BaseType != VoucherBaseType.Sales) return false;"),
+        new("docs/phase5-reports-io-requirements.md",
+            "A purchase item-invoice",
+            "VoucherDetailViewModel.cs",
+            "BuildPrintPreview"),
+        // RQ-11b's no-dependency-on-T0-10 clause quotes the throw verbatim; the quote is the token.
+        new("docs/phase5-reports-io-requirements.md",
+            @"throws *""Item-invoice stock lines are only valid on a",
+            "VoucherValidator.cs",
+            "only valid on a Purchase or Sales voucher"),
     };
 
     private static string RepoRoot()
@@ -248,7 +344,7 @@ public sealed class LoadBearingCitationContentTests
     [Fact]
     public void The_anchor_table_is_non_empty_and_every_row_resolves()
     {
-        Assert.True(Anchors.Length >= 11, $"anchor table has shrunk to {Anchors.Length} rows");
+        Assert.True(Anchors.Length >= 27, $"anchor table has shrunk to {Anchors.Length} rows");
 
         foreach (var a in Anchors)
         {
