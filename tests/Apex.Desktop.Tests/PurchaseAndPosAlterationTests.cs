@@ -1401,4 +1401,294 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.Equal(before, book.Export());
         Assert.Equal(beforeOnDisk, book.ExportReloaded());
     }
+
+    // ================================================================ (E) the OPTIONAL PAYLOAD on the derived legs
+
+    // ---- the child-bearing nonce set (review finding L1-item-inverse-drops-line-children) ------------------
+    //
+    // 🔴 WHY THIS FIXTURE EXISTS. The three DERIVED legs of an item invoice — the value leg, the party leg and the
+    // additional-cost legs — are rebuilt from scratch by BuildItemInvoice on every accept, and the item grid has
+    // no cost-centre panel and no forex pair to key them from. An imported (or later-annotated) invoice CAN carry
+    // both, so every child collection on those legs has to survive a re-accept or the alteration destroys posted
+    // data under the message "altered.". No fixture in this file carried one, which is exactly why nothing failed.
+    //
+    // 🔴 THE FIGURES ARE DERIVED BY HAND HERE AND NOWHERE ELSE, and unlike the rest of this file's nonces two of
+    // them are deliberately round: a cost allocation must foot its own leg EXACTLY (per category), and a forex
+    // line's base must be forex × rate to the paisa, so a fixture whose derived totals could not be hit exactly
+    // could not carry the children it exists to carry. Every figure below is a fixture nonce; none is a rate, a
+    // threshold or any statutory constant.
+    //
+    //   value leg   = round(3 × 1111.11)                        = 3,333.33
+    //   GST 18%, ONE rate group: round(3333.33 × 1800/10000) = round(599.9994) = 600.00
+    //                            ⇒ CGST round(600.00/2) = 300.00, SGST 600.00 − 300.00 = 300.00
+    //   freight (an additional cost — outside the taxable base) =   466.67
+    //   party leg   = 3333.33 + 466.67 + 600.00                 = 4,400.00
+    //   forex on the party leg: 50.00 @ 88.00 = 4,400.00 exactly, so EnsureForexValid holds to the paisa
+    //
+    //   cost allocations — one category, two centres, each AXIS footing its own leg in full:
+    //     value leg   3,333.33 = Project A 2,000.00 + Project B 1,333.33
+    //     freight leg   466.67 = Project A   466.67
+    //     party leg   4,400.00 = Project B 4,400.00
+    //
+    //   and the amendment the pin below makes, derived the same way:
+    //     qty 3 ⇒ 4 gives a value leg of round(4 × 1111.11) = 4,444.44 (party 4444.44 + 466.67 + 800.00 = 5,711.11)
+    private const string ChildQty = "3";
+    private const string ChildRate = "1111.11";
+    private const string ChildFreight = "466.67";
+    private const decimal ChildValueLeg = 3333.33m;
+    private const decimal ChildPartyLeg = 4400.00m;
+    private const decimal ChildValueA = 2000.00m;
+    private const decimal ChildValueB = 1333.33m;
+    private const decimal ChildFreightA = 466.67m;
+    private const decimal ChildPartyB = 4400.00m;
+    private const decimal ChildForexAmount = 50.00m;
+    private const decimal ChildForexRate = 88.00m;
+    private const string ChildAmendedQty = "4";
+    private const decimal ChildAmendedValueLeg = 4444.44m;
+
+    private sealed record ChildBearingInvoice(
+        Voucher Posted, CostCategory Category, CostCentre ProjectA, CostCentre ProjectB, Currency Usd);
+
+    /// <summary>
+    /// Posts a purchase item invoice through the REAL screen, then stamps onto its DERIVED legs the child
+    /// collections the screen has no field for — cost-centre allocations on the value leg, on the additional-cost
+    /// leg and on the party leg, plus a forex pair on the party leg. The stamp goes through
+    /// <c>LedgerService.Replace</c>, i.e. the same door a canonical-XML import comes through, because that is the
+    /// only way this shape can arise; the engine validates it exactly as it validates an import.
+    /// </summary>
+    private static ChildBearingInvoice PostChildBearingPurchaseInvoice(PurchaseKit kit)
+    {
+        var book = kit.Book;
+        var (category, projectA) = book.CostAxis("Projects", "Project A");
+        var projectB = new CostCentre(Guid.NewGuid(), "Project B", category.Id);
+        book.Company.AddCostCentre(projectB);
+        var usd = book.ForeignCurrency();
+
+        // The party is the one derived leg whose ledger is not a P&L ledger, so cost centres are not applicable to
+        // it BY NATURE; the explicit flag is what an operator sets on a creditor they cost-attribute.
+        kit.Supplier.CostCentresApplicable = true;
+
+        var entry = NewPurchaseEntry(kit);
+        entry.SelectedParty = entry.Parties.Single(p => p.Ledger?.Id == kit.Supplier.Id);
+        entry.SelectedStockLedger = entry.StockLedgers.Single(l => l.Id == kit.Purchases.Id);
+        entry.Narration = "Child nonce ONE";
+
+        var row = entry.InventoryLines[0];
+        row.SelectedItem = entry.StockItems.Single(i => i.Id == kit.Widget.Id);
+        row.SelectedGodown = entry.Godowns.Single(g => g.Id == kit.Main.Id);
+        row.QuantityText = ChildQty;
+        row.RateText = ChildRate;
+
+        entry.AdditionalCosts[0].SelectedLedger = kit.Freight;
+        entry.AdditionalCosts[0].AmountText = ChildFreight;
+
+        Assert.True(entry.Accept(), entry.Message);
+        var posted = book.Company.Vouchers.Last(v => v.TypeId == kit.PurchaseType.Id);
+
+        // The hand-derived totals, asserted BEFORE anything is stamped on — so the allocations below really do
+        // foot their legs, and an engine change that moved either figure fails here rather than silently leaving
+        // the fixture unable to carry the children it exists to carry.
+        Assert.Equal(ChildValueLeg, posted.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(ChildPartyLeg, posted.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+
+        var stampedLines = posted.Lines.Select(l =>
+        {
+            if (l.LedgerId == kit.Purchases.Id)
+                return new EntryLine(l.LedgerId, l.Amount, l.Side, costAllocations: new[]
+                {
+                    new CostAllocation(category.Id, projectA.Id, new Money(ChildValueA)),
+                    new CostAllocation(category.Id, projectB.Id, new Money(ChildValueB)),
+                });
+            if (l.LedgerId == kit.Freight.Id)
+                return new EntryLine(l.LedgerId, l.Amount, l.Side, costAllocations: new[]
+                {
+                    new CostAllocation(category.Id, projectA.Id, new Money(ChildFreightA)),
+                });
+            if (l.LedgerId == kit.Supplier.Id)
+                return new EntryLine(
+                    l.LedgerId, l.Amount, l.Side,
+                    billAllocations: l.BillAllocations,
+                    costAllocations: new[] { new CostAllocation(category.Id, projectB.Id, new Money(ChildPartyB)) },
+                    forex: new ForexInfo(usd.Id, new Money(ChildForexAmount), ChildForexRate));
+            return l;   // the engine's own tax legs, carried verbatim
+        }).ToList();
+
+        var stamped = new Voucher(
+            posted.Id, posted.TypeId, posted.Date, stampedLines,
+            number: posted.Number, narration: posted.Narration, partyId: posted.PartyId,
+            inventoryLines: posted.InventoryLines,
+            referenceNo: posted.ReferenceNo, referenceDate: posted.ReferenceDate);
+        new LedgerService(book.Company).Replace(posted.Id, stamped);
+        book.Storage.Save(book.Company);
+
+        return new ChildBearingInvoice(
+            book.Company.FindVoucher(posted.Id)!, category, projectA, projectB, usd);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The measured data loss.</b> Re-accepting the invoice with NOTHING changed used to rebuild all three
+    /// derived legs bare: ₹3,333.33 + ₹466.67 + ₹4,400.00 of cost-centre attribution and a 50.00 @ 88.00 forex
+    /// stamp all vanished, under the message "Purchase No. 1 altered." Every figure here is asserted to the paisa
+    /// against the hand derivation above AND against the centre it belongs to, so a fix that carried the totals
+    /// but cross-wired the centres would still fail.
+    /// </summary>
+    [Fact]
+    public void A_purchase_item_invoice_keeps_the_cost_and_forex_children_on_its_derived_legs()
+    {
+        using var book = AlterationBook.New("itemchildren");
+        var kit = SeedPurchaseKit(book);
+        var fixture = PostChildBearingPurchaseInvoice(kit);
+
+        var open = book.ForAlter(fixture.Posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        Assert.True(open.Entry!.AcceptAlteration(), open.Entry!.Message);
+
+        var altered = book.Company.FindVoucher(fixture.Posted.Id)!;
+
+        var value = altered.Lines.Single(l => l.LedgerId == kit.Purchases.Id);
+        Assert.Equal(ChildValueLeg, value.Amount.Amount);
+        Assert.Equal(2, value.CostAllocations.Count);
+        Assert.Equal(ChildValueA, value.CostAllocations.Single(a => a.CentreId == fixture.ProjectA.Id).Amount.Amount);
+        Assert.Equal(ChildValueB, value.CostAllocations.Single(a => a.CentreId == fixture.ProjectB.Id).Amount.Amount);
+
+        var freight = altered.Lines.Single(l => l.LedgerId == kit.Freight.Id);
+        var freightAllocation = Assert.Single(freight.CostAllocations);
+        Assert.Equal(fixture.ProjectA.Id, freightAllocation.CentreId);
+        Assert.Equal(ChildFreightA, freightAllocation.Amount.Amount);
+
+        var party = altered.Lines.Single(l => l.LedgerId == kit.Supplier.Id);
+        var partyAllocation = Assert.Single(party.CostAllocations);
+        Assert.Equal(fixture.ProjectB.Id, partyAllocation.CentreId);
+        Assert.Equal(ChildPartyB, partyAllocation.Amount.Amount);
+        Assert.Equal(fixture.Usd.Id, party.Forex!.CurrencyId);
+        Assert.Equal(ChildForexAmount, party.Forex!.ForexAmount.Amount);
+        Assert.Equal(ChildForexRate, party.Forex!.Rate);
+
+        // …and the bill-wise split the screen DOES key is still there beside them, so the carry did not displace it.
+        Assert.Equal(ChildPartyLeg, Assert.Single(party.BillAllocations).Amount.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE COMPLEMENT CHECK — the instrument that stops the NEXT optional field being dropped silently.</b>
+    ///
+    /// <para>The item-invoice inverse is written against what the SCREEN can express, not against what the
+    /// VOUCHER carries, and until this test existed nothing compared the two: the byte-identical round trip was
+    /// pointed only at a fixture that happens to carry none of the droppable structures. This one carries the
+    /// full optional payload those derived legs can hold, so a child collection a future field adds — or an
+    /// existing one a refactor stops carrying — reddens here instead of vanishing under "altered."</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_item_invoice_carrying_the_full_optional_payload_round_trips_byte_identically()
+    {
+        using var book = AlterationBook.New("itemchildbytes");
+        var kit = SeedPurchaseKit(book);
+        var fixture = PostChildBearingPurchaseInvoice(kit);
+
+        var before = book.Export();
+        var beforeOnDisk = book.ExportReloaded();
+
+        var open = book.ForAlter(fixture.Posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        Assert.True(open.Entry!.AcceptAlteration(), open.Entry!.Message);
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeOnDisk, book.ExportReloaded());
+    }
+
+    /// <summary>
+    /// 🔴 <b>The other half of the fix, and the reason it is not simply "copy the children forward".</b> A cost
+    /// allocation must foot the leg it hangs on, and a forex pair must reproduce that leg's base to the paisa —
+    /// so a carried child is sound only while the leg it was stamped against has not moved. Amend the quantity
+    /// and the value leg moves ₹3,333.33 ⇒ ₹4,444.44: there is no cost-centre panel on this screen to re-cut the
+    /// split on, so the amendment is REFUSED BY NAME rather than dropping ₹3,333.33 of attribution, and the book
+    /// is left byte-identical.
+    /// </summary>
+    [Fact]
+    public void An_amendment_that_moves_a_child_bearing_derived_leg_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("itemchildpin");
+        var kit = SeedPurchaseKit(book);
+        var fixture = PostChildBearingPurchaseInvoice(kit);
+
+        var before = book.Export();
+
+        var open = book.ForAlter(fixture.Posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        open.Entry!.InventoryLines[0].QuantityText = ChildAmendedQty;
+
+        Assert.False(open.Entry!.AcceptAlteration());
+        var message = open.Entry!.Message!;
+        Assert.Contains("Purchases", message, StringComparison.Ordinal);
+        Assert.Contains("cost-centre allocation", message, StringComparison.Ordinal);
+        Assert.Contains(
+            ChildValueLeg.ToString("0.00", CultureInfo.InvariantCulture), message, StringComparison.Ordinal);
+        Assert.Contains(
+            ChildAmendedValueLeg.ToString("0.00", CultureInfo.InvariantCulture), message, StringComparison.Ordinal);
+
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>The guard's SECOND axis, which the amendment test above does not reach.</b> The carry rule is "same
+    /// ledger at the same amount"; the test above moves the amount, and this one moves the LEDGER with the amount
+    /// held still. Without it the ledger arm would be a clause no test can fail — the dead-guard class this
+    /// review's own root-cause B names — and re-pointing the invoice to a second supplier would carry Project B's
+    /// ₹4,400.00 and the 50.00 @ 88.00 forex stamp onto a party that was never denominated in it.
+    /// </summary>
+    [Fact]
+    public void Re_pointing_a_child_bearing_party_leg_to_another_ledger_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("itemchildledger");
+        var kit = SeedPurchaseKit(book);
+        var fixture = PostChildBearingPurchaseInvoice(kit);
+
+        // A second creditor with the SAME bill-wise flag, so the only thing this alteration moves is the identity
+        // of the ledger the children were stamped against.
+        var other = book.Ledger("Other Nonce Suppliers", "Sundry Creditors", billWise: true);
+        var before = book.Export();
+
+        var open = book.ForAlter(fixture.Posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        open.Entry!.SelectedParty = open.Entry!.Parties.Single(p => p.Ledger?.Id == other.Id);
+
+        Assert.False(open.Entry!.AcceptAlteration());
+        var message = open.Entry!.Message!;
+        Assert.Contains("Nonce Suppliers", message, StringComparison.Ordinal);
+        Assert.Contains("Other Nonce Suppliers", message, StringComparison.Ordinal);
+        Assert.Contains("cost-centre allocation", message, StringComparison.Ordinal);
+        Assert.Contains("foreign-currency amount and rate", message, StringComparison.Ordinal);
+
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>The guard's THIRD site, and it is a different mechanism from the two above.</b> The additional-cost
+    /// legs are a LIST, matched off one at a time by ledger and amount, so what it detects is not a moved leg but
+    /// a posted leg whose children found nothing to land on. Re-key the freight and the leg carrying Project A's
+    /// ₹466.67 no longer matches: refused by name, rather than the additional-cost leg being re-posted bare.
+    /// </summary>
+    [Fact]
+    public void Re_keying_a_child_bearing_additional_cost_leg_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("itemchildcost");
+        var kit = SeedPurchaseKit(book);
+        var fixture = PostChildBearingPurchaseInvoice(kit);
+
+        var before = book.Export();
+
+        var open = book.ForAlter(fixture.Posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var costRow = open.Entry!.AdditionalCosts.Single(r => !r.IsBlank);
+        Assert.Equal(ChildFreightA, costRow.ParsedAmount);
+        costRow.AmountText = "512.89";
+
+        Assert.False(open.Entry!.AcceptAlteration());
+        var message = open.Entry!.Message!;
+        Assert.Contains("Inward Freight", message, StringComparison.Ordinal);
+        Assert.Contains("cost-centre allocation", message, StringComparison.Ordinal);
+        Assert.Contains(
+            ChildFreightA.ToString("0.00", CultureInfo.InvariantCulture), message, StringComparison.Ordinal);
+
+        Assert.Equal(before, book.Export());
+    }
 }
