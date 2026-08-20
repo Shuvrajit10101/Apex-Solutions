@@ -75,10 +75,22 @@ public static class VoucherAlterationEligibility
     /// <summary>
     /// 🔴 <b>The refusals that are about the BOOK, not about which grid re-keys the voucher</b> — the off-line
     /// side effects (an advance record, a §34 link, a challan link), the live IRN, and the provisional-state
-    /// vector's shape. Every alteration door must ask these, whatever screen it opens, so they are named once here
-    /// and consumed by <see cref="RefusalFor(Company, Voucher, VoucherType)"/> and by
-    /// <see cref="PosAlterationEligibility"/> alike. Splitting them out is what stops the POS door from quietly
-    /// growing a second, weaker copy of the same list.
+    /// vector's shape. Every alteration door must ask these, whatever screen it opens.
+    ///
+    /// <para>🔴 <b>WHAT IS SINGLE-SOURCED HERE IS THE ARMS, NOT THE COMPOSITION — and the doc comment that used to
+    /// claim otherwise was false</b> (review finding L3-booklevel-refusal-has-one-consumer-not-two). This method has
+    /// exactly ONE caller in the tree, <see cref="PosAlterationEligibility"/>;
+    /// <see cref="RefusalFor(Company, Voucher, VoucherType)"/> chains the same three private methods ITSELF rather
+    /// than calling this, because its book-level arms are INTERLEAVED with screen-level ones (§6.6a.2 puts the type
+    /// flags and the base kind first, and the entry-mode and derived-leg arms sit between them) — substituting this
+    /// call there would reorder which sentence the operator reads. Both doors therefore reach the same three
+    /// methods and demonstrably return the same answers; what is duplicated is only the ENUMERATION of which three
+    /// count as book-level.</para>
+    ///
+    /// <para>🔴 <b>So the property to keep true when a fourth book-level refusal is added</b> is that it goes
+    /// INSIDE one of the three methods below, where both doors already reach it. Adding a fourth private method and
+    /// wiring it only into <c>RefusalFor</c>'s chain is the one divergence this split cannot prevent, and the POS
+    /// door would never ask it.</para>
     /// </summary>
     public static string? BookLevelRefusalFor(Company company, Voucher voucher, VoucherType type)
     {

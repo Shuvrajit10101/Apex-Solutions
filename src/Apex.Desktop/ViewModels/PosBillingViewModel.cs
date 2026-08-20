@@ -1048,6 +1048,15 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// not written: it is DERIVED (the residual in multi mode, the whole bill in single) and
     /// <see cref="Recalculate"/> stamps it — writing it here would be a second source for one figure. What is
     /// written is the cash TENDERED, which is keyed and from which the change follows.
+    ///
+    /// <para>🔴 <b>ONE ROW PER KIND — and a bill carrying TWO tenders of one kind never reaches here</b>, because
+    /// <see cref="PosAlterationEligibility"/> refuses it by name at the door. This loop would write both into the
+    /// one row their TYPE selects and the second would silently overwrite the first's amount, ledger and
+    /// reference, after which <see cref="Recalculate"/> re-cuts the cash residual over the survivor and the bill
+    /// foots again — Rs 600.00 measured out of a bank and into the drawer on a bill nobody touched. Do NOT "fix"
+    /// that here by matching rows positionally or by growing the list: the four rows are the screen's shape in the
+    /// AXAML and in <c>TryBuildTenders</c> as much as in this loop, so representing N tenders of one kind is a
+    /// payment-panel design (an R6 row), not a rehydration change.</para>
     /// </summary>
     private string? RehydrateTenders(Voucher voucher)
     {

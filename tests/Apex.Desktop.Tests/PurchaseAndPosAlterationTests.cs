@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
@@ -1369,6 +1370,221 @@ public sealed class PurchaseAndPosAlterationTests
 
         Assert.Equal(before, book.Export());
         Assert.Equal(beforeOnDisk, book.ExportReloaded());
+    }
+
+    // ---- the HAND-CUT POS shapes (review findings L1-pos-duplicate-tender-collapse and C12) ----------------
+    //
+    // Every bill below is hand-cut because no screen in the app can key one, which is exactly the point: these
+    // shapes arrive by IMPORT. Neither the POS validator (EnsurePosTendersValid → EnsureBalanced + EnsureGrouping,
+    // which check Σ tenders == total debit and each tender's ledger group, and nothing else) nor the store
+    // (pos_tender_allocations keys on an AUTOINCREMENT surrogate, with no unique index on (voucher_id,
+    // tender_type)) forbids two tenders of one kind, so a book really can hold one — proved on disk below.
+
+    /// <summary>The hand-cut bill's one size: 2 Nos @ Rs 590.00 = Rs 1,180.00, credited to Retail Sales.</summary>
+    private const decimal HandCutRate = 590m;
+    private const decimal HandCutBillTotal = 1180m;      // 2 × 590.00
+
+    /// <summary>
+    /// Posts a HAND-CUT POS bill of the fixed size above and SAVES, so the shape is on disk as well as in memory.
+    /// What varies per caller is the tender split and the debits that settle it — the two are handed in separately
+    /// on purpose, so a caller can post the shape the screen would never build (two debits on one ledger, two
+    /// tenders of one kind) without this helper deriving either from the other and hiding the thing under test.
+    /// </summary>
+    private static Voucher PostHandCutPosBill(
+        PosKit kit,
+        IEnumerable<(DomainLedger Ledger, decimal Amount)> tenderDebits,
+        IEnumerable<PosTender> tenders,
+        DateOnly? applicableUpto = null)
+    {
+        var lines = tenderDebits
+            .Select(d => new EntryLine(d.Ledger.Id, new Money(d.Amount), DrCr.Debit))
+            .Append(new EntryLine(kit.Sales.Id, new Money(HandCutBillTotal), DrCr.Credit))
+            .ToList();
+
+        var voucher = new Voucher(
+            Guid.NewGuid(), kit.PosType.Id, kit.Book.On(4), lines,
+            partyId: kit.Customer.Id,
+            applicableUpto: applicableUpto,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(kit.Widget.Id, kit.Main.Id, 2m, new Money(HandCutRate),
+                    direction: StockDirection.Outward),
+            },
+            posTenders: tenders.ToArray());
+
+        var posted = new LedgerService(kit.Book.Company).Post(voucher);
+        kit.Book.Storage.Save(kit.Book.Company);
+        return posted;
+    }
+
+    /// <summary>
+    /// 🔴 <b>TWO TENDERS OF ONE KIND ARE REFUSED BY NAME — they used to be COLLAPSED, and the difference walked
+    /// out of the bank and into the cash drawer.</b> The payment panel has four fixed rows, one per tender kind,
+    /// and <c>RehydrateTenders</c> writes each posted tender into the row its TYPE selects, so the second of two
+    /// Card tenders overwrote the first — amount, ledger and card reference alike.
+    ///
+    /// <para><b>The arithmetic of the defect, derived from the split below and not read off the screen.</b> Bill
+    /// Rs 1,180.00, settled Card 600.00 + Card 400.00 + Cash 180.00. The one Card row is written 600.00 and then
+    /// 400.00, so it holds 400.00; <c>Recalculate</c> re-cuts the cash residual as 1,180.00 − 400.00 = 780.00 and
+    /// Σ tenders is 400.00 + 780.00 = 1,180.00 again, so the bill still foots and the screen still reports
+    /// Balanced. Re-accepting posts Dr Card 400.00 + Dr Cash 780.00: the bank is Rs 600.00 short of the
+    /// Rs 1,000.00 it was posted with and the drawer is Rs 600.00 over the Rs 180.00 it was posted with, on a
+    /// bill the operator did not touch.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_bill_settled_with_two_tenders_of_one_kind_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("posdupetender");
+        var kit = SeedPosKit(book);
+
+        var posted = PostHandCutPosBill(
+            kit,
+            new[] { (kit.Card, 600m), (kit.Card, 400m), (kit.Cash, 180m) },
+            new[]
+            {
+                new PosTender(PosTenderType.Card, kit.Card.Id, new Money(600m), CardNo: "XXXX-1111"),
+                new PosTender(PosTenderType.Card, kit.Card.Id, new Money(400m), CardNo: "XXXX-2222"),
+                new PosTender(PosTenderType.Cash, kit.Cash.Id, new Money(180m),
+                    Tendered: new Money(1000m), Change: new Money(820m)),
+            });
+
+        // It really is a persisted, reloadable shape — not one only this process can hold.
+        Assert.Equal(3, posted.PosTenders.Count);
+        var entry = book.Storage.ListCompanies().Single(e => e.Name == book.Company.Name);
+        Assert.Equal(2, book.Storage.Load(entry).Vouchers.Single(v => v.Id == posted.Id)
+                            .PosTenders.Count(t => t.Type == PosTenderType.Card));
+
+        var before = book.Export();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+
+        Assert.True(open.IsRefused);
+        Assert.Contains("2 Card tenders", open.Refusal!, StringComparison.Ordinal);
+        Assert.Contains("one row per tender kind", open.Refusal!, StringComparison.Ordinal);
+
+        // The Rs 600.00 the collapse moved is still where it was posted: bank Dr 1,000.00, drawer Dr 180.00.
+        Assert.Equal(1000m, LedgerBalances.SignedClosing(book.Company, kit.Card, book.On(30)));
+        Assert.Equal(180m, LedgerBalances.SignedClosing(book.Company, kit.Cash, book.On(30)));
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>The same refusal on the CASH limb — the guard is keyed on the tender KIND, not on Card.</b> Two Cash
+    /// tenders drawn on two different drawers collapse the same way, and worse: only the cash TENDERED is
+    /// rehydrated (the amount is derived), so the survivor takes the whole bill on the SECOND drawer's ledger.
+    ///
+    /// <para><b>Derived from the split below.</b> Bill Rs 1,180.00, settled Till Cash 700.00 + Second Till 480.00.
+    /// The one Cash row is written (Till Cash, tendered 700.00) and then (Second Till, tendered 1,200.00), so it
+    /// holds the SECOND drawer and 1,200.00 tendered; single mode gives that row the whole bill, and re-accepting
+    /// posts Dr Second Till 1,180.00 — Till Cash loses its Rs 700.00 outright and Second Till gains it. A guard
+    /// written against the Card panel alone would leave this open, which is why this test stands beside the other
+    /// one rather than as a variant of it.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_bill_settled_with_two_cash_tenders_on_two_drawers_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("posdupecash");
+        var kit = SeedPosKit(book);
+        var secondTill = book.Ledger("Second Till", "Cash-in-Hand");
+
+        var posted = PostHandCutPosBill(
+            kit,
+            new[] { (kit.Cash, 700m), (secondTill, 480m) },
+            new[]
+            {
+                new PosTender(PosTenderType.Cash, kit.Cash.Id, new Money(700m),
+                    Tendered: new Money(700m), Change: Money.Zero),
+                new PosTender(PosTenderType.Cash, secondTill.Id, new Money(480m),
+                    Tendered: new Money(1200m), Change: new Money(720m)),
+            });
+
+        var before = book.Export();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+
+        Assert.True(open.IsRefused);
+        Assert.Contains("2 Cash tenders", open.Refusal!, StringComparison.Ordinal);
+
+        Assert.Equal(700m, LedgerBalances.SignedClosing(book.Company, kit.Cash, book.On(30)));
+        Assert.Equal(480m, LedgerBalances.SignedClosing(book.Company, secondTill, book.On(30)));
+        Assert.Equal(before, book.Export());
+    }
+
+    // ---- the BOOK-LEVEL arms, asked through the POS door (review finding C12) -----------------------------
+    //
+    // 🔴 These three pin PosAlterationEligibility's single call to VoucherAlterationEligibility.BookLevelRefusalFor.
+    // Before they existed that call was UNPINNED: on the one POS shape every other test builds it returns null, so
+    // deleting the call reddened nothing — while a live-IRN, §34-linked or ApplicableUpto-bearing bill would then
+    // have OPENED, and LedgerService.Replace only WARNS on a divergent statutory record, so nothing downstream
+    // would have caught it. Each test names one arm; delete the call and all three redden.
+
+    /// <summary>A POS bill whose IRN is live at the portal is refused at the POS door, in the accounting door's
+    /// own words — the IRN was signed over the document as it stands and cannot be re-derived.</summary>
+    [Fact]
+    public void A_pos_bill_carrying_a_live_IRN_is_refused_at_the_pos_door_by_name()
+    {
+        using var book = AlterationBook.New("posirn");
+        var kit = SeedPosKit(book);
+        var posted = PostFatPosBill(kit);
+
+        book.Company.AddEInvoiceRecord(EInvoiceRecord.Rehydrate(
+            Guid.NewGuid(), posted.Id, "POS/1", EInvoiceStatus.Generated,
+            irn: new string('b', 64), ackNo: "445566", ackDate: book.On(5),
+            signedQr: null, signedJson: null, cancelledOn: null, cancelReasonCode: null));
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+
+        Assert.True(open.IsRefused);
+        Assert.Contains("live IRN", open.Refusal!, StringComparison.Ordinal);
+        Assert.Contains("Cancel the IRN", open.Refusal!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A POS bill carrying a §34 credit/debit-note link is refused at the POS door: the entry path mints
+    /// a fresh link on every accept, so re-accepting would leave the note carrying two.</summary>
+    [Fact]
+    public void A_pos_bill_carrying_a_section_34_link_is_refused_at_the_pos_door_by_name()
+    {
+        using var book = AlterationBook.New("poscdn");
+        var kit = SeedPosKit(book);
+        var posted = PostFatPosBill(kit);
+
+        book.Company.AddCreditDebitNoteLink(new GstCreditDebitNoteLink(
+            Guid.NewGuid(), posted.Id, CdnType.Credit, originalInvoiceVoucherId: null,
+            originalInvoiceNumber: "POS-INV-9", originalInvoiceDate: book.On(1), reasonCode: "01"));
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+
+        Assert.True(open.IsRefused);
+        Assert.Contains("§34 credit/debit-note link", open.Refusal!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A POS bill carrying an 'Applicable Upto' date is refused at the POS door — the POS screen has no
+    /// field that can state one, so re-accepting would drop it and change when the entry lapses.</summary>
+    [Fact]
+    public void A_pos_bill_carrying_an_applicable_upto_is_refused_at_the_pos_door_by_name()
+    {
+        using var book = AlterationBook.New("posupto");
+        var kit = SeedPosKit(book);
+
+        var posted = PostHandCutPosBill(
+            kit,
+            new[] { (kit.Cash, HandCutBillTotal) },
+            new[]
+            {
+                new PosTender(PosTenderType.Cash, kit.Cash.Id, new Money(HandCutBillTotal),
+                    Tendered: new Money(HandCutBillTotal), Change: Money.Zero),
+            },
+            applicableUpto: book.On(40));
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+
+        Assert.True(open.IsRefused);
+        Assert.Contains("'Applicable Upto' date", open.Refusal!, StringComparison.Ordinal);
     }
 
     // ================================================================ (D) ER-13
