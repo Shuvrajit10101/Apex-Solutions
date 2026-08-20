@@ -3600,6 +3600,21 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         if (BuildItemInvoice() is not { } built) return false;
 
+        // 🔴 THE COMPENSATION-CESS MAGNITUDE IS PINNED SEPARATELY, AND FIRST — because the shape signature below
+        // structurally cannot see it. A Cess leg's stamped rate is a SENTINEL 0 for a Specific (per-unit) cess, an
+        // RSP-factor cess and any mixed ad-valorem group, so a cess master moved from one per-unit figure to
+        // another leaves the signature identical while the re-derived cess, and the party's balance with it, moves
+        // by the difference. FIRST, so the operator is told it was the CESS: on this drift the tax heads and their
+        // rates are exactly what did NOT move, and the shape sentence below would say otherwise.
+        if (ReDerivedCessOnPostedRows(existing) is { } reDerivedCess
+            && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
+                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), reDerivedCess, "invoice")
+               is { } cessRefusal)
+        {
+            Message = cessRefusal;
+            return false;
+        }
+
         // 🔴 THE SHAPE OF THE ENGINE'S TAX LEGS IS PINNED — the amounts are not. An alteration is ALLOWED to move
         // a tax figure (that is what amending a quantity does); what it must never do is silently restate the tax
         // because a MASTER moved under a voucher nobody touched. A rate master edited, an item repointed to another
@@ -4844,6 +4859,49 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
         return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
+    }
+
+    /// <summary>
+    /// 🔴 The Compensation Cess today's masters put on the <b>POSTED</b> item rows — the figure the alteration
+    /// compares the STAMPED cess against (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>).
+    ///
+    /// <para><b>The posted rows, deliberately, and that is the whole design.</b> Re-deriving over the AMENDED rows
+    /// would refuse every real amendment, because moving a quantity moves the cess — which alter is allowed to do.
+    /// Holding the rows at what was posted removes them as a variable, so the only thing that can make the two
+    /// figures disagree is a master that moved underneath: the item's own cess block, a dated HSN cess row, or the
+    /// voucher date the two are resolved as of. That is the same rule <see cref="ComputeItemInvoiceGst"/> follows —
+    /// SAME resolver, SAME engine, SAME rounding — so an unchanged book compares equal to the paisa rather than
+    /// approximately.</para>
+    ///
+    /// <para>Returns <c>null</c> — "do not compare" — when the posted rows cannot be re-priced at all: an item that
+    /// is no longer a master, or a taxable item with no resolvable rate. Both are refused by name in their own
+    /// words elsewhere on this path (the rehydration for the missing item, <c>BuildItemInvoice</c>'s unresolved-rate
+    /// message for the rate), and a cess sentence about a book that cannot be priced at all would be the wrong
+    /// sentence.</para>
+    /// </summary>
+    private Money? ReDerivedCessOnPostedRows(Voucher existing)
+    {
+        if (!IsGstInvoice) return Money.Zero;
+
+        var valueLedger = SelectedStockLedger;
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>(existing.InventoryLines.Count);
+        foreach (var posted in existing.InventoryLines)
+        {
+            if (posted.Rate.Amount <= 0m) continue;   // a zero-valued free line bears no tax and no cess
+            if (StockItems.FirstOrDefault(i => i.Id == posted.StockItemId) is not { } item) return null;
+
+            var res = _gst.ResolveRate(item, valueLedger, Date);
+            if (GstService.IsUnresolved(res)) return null;
+            if (!res.IsTaxable) continue;            // Exempt/Nil/Non-GST ⇒ no cess either (ResolveCess agrees)
+
+            var cess = _gst.ResolveCess(item, valueLedger, Date, posted.BilledQuantity);
+            taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
+        }
+
+        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection).TotalCess;
     }
 
     // =============================================================== batch allocation → posted lines (G-5)

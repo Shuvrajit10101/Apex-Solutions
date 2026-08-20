@@ -669,6 +669,83 @@ public sealed class PurchaseAndPosAlterationTests
     }
 
     /// <summary>
+    /// 🔴 <b>A MOVED COMPENSATION-CESS MASTER IS REFUSED AT ACCEPT, BY NAME</b> — the axis the tax-shape signature
+    /// is structurally blind to.
+    ///
+    /// <para>A Cess tax leg's stamped <c>RateBasisPoints</c> is a REPRESENTATIVE ad-valorem figure and the constant
+    /// sentinel <b>0</b> for a Specific (per-unit) cess, an RSP-factor cess and any mixed ad-valorem group. So
+    /// moving the cess master leaves <c>TaxHeadSignature</c> byte-identical — <c>[Central@250, Cess@0, State@250]</c>
+    /// before and after — while the re-derived cess, and the supplier's credit with it, move by the difference. The
+    /// alteration below touches NOTHING but the narration.</para>
+    ///
+    /// <para><b>The money that would move, derived by hand:</b> per-unit 40.05 → 90.05 re-values the same five
+    /// units at round(5 × 90.05) = 450.25, so Input Cess would go 200.25 → 450.25 and the supplier's credit
+    /// 725.57 → 975.57 — ₹250.00 on each side of a narration edit.</para>
+    /// </summary>
+    [Fact]
+    public void A_moved_compensation_cess_master_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("cessdrift");
+        var kit = SeedPurchaseKit(book);
+        var posted = PostCessPurchaseInvoice(kit);
+        Assert.Equal(200.25m, CessOn(posted));
+        var before = book.Export();
+
+        var open = book.ForAlter(posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var entry = open.Entry!;
+        entry.Narration = "Cess nonce TWO";          // the ONLY thing the operator changes
+
+        kit.Coal.Gst!.CessPerUnit = new Money(CoalCessMovedPerUnit);   // ₹40.05/unit → ₹90.05/unit
+
+        // The signature the old guard compares is IDENTICAL across the move — that is the defect, pinned.
+        Assert.Equal(
+            VoucherAlterationDerivedLegs.TaxHeadSignature(posted.Lines),
+            VoucherAlterationDerivedLegs.TaxHeadSignature(book.Company.FindVoucher(posted.Id)!.Lines));
+
+        Assert.False(entry.AcceptAlteration());
+        Assert.Contains("Compensation Cess", entry.Message!, StringComparison.Ordinal);
+        Assert.Contains("450.25", entry.Message!, StringComparison.Ordinal);
+        Assert.Contains("200.25", entry.Message!, StringComparison.Ordinal);
+
+        // …and the refused alteration left the book exactly as it found it — including the narration.
+        kit.Coal.Gst!.CessPerUnit = new Money(CoalCessPerUnit);
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE OTHER HALF OF THE PIN — the guard must not refuse an ORDINARY amendment.</b> Comparing the cess by
+    /// AMOUNT is only safe because the comparison re-prices the <b>POSTED</b> rows, never the amended ones; a guard
+    /// that compared the amended cess against the stamped one would refuse every real quantity change. This drives
+    /// exactly that: the master is left alone, one lot's quantity moves 1.5 → 2.5, and the cess IS allowed to move.
+    ///
+    /// <para><b>Derived by hand:</b> the two lots become 2.5 and 3.5, so the group's value is
+    /// round(2.5 × 100.06) + round(3.5 × 100.06) = 250.15 + 350.21 = 600.36 and the cess is
+    /// round(2.5 × 40.05 + 3.5 × 40.05) = round(100.125 + 140.175) = round(240.30) = 240.30. GST:
+    /// round(600.36 × 500/10000) = round(30.018) = 30.02 ⇒ CGST 15.01, SGST 15.01. Party credit =
+    /// 600.36 + 15.01 + 15.01 + 240.30 = 870.68.</para>
+    /// </summary>
+    [Fact]
+    public void An_ordinary_amendment_of_a_cess_bearing_invoice_still_moves_the_cess()
+    {
+        using var book = AlterationBook.New("cessamend");
+        var kit = SeedPurchaseKit(book);
+        var posted = PostCessPurchaseInvoice(kit);
+
+        var entry = book.ForAlter(posted.Id).Entry!;
+        var rows = entry.InventoryLines.Where(l => !l.IsBlank).ToList();
+        Assert.Equal(CoalBatchA, rows[0].ParsedQuantity);
+        rows[0].QuantityText = "2.5";
+
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        var after = book.Company.FindVoucher(posted.Id)!;
+        Assert.Equal(600.36m, after.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(240.30m, CessOn(after));
+        Assert.Equal(870.68m, after.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+    }
+
+    /// <summary>
     /// 🔴 Ctrl+H on an altering item invoice must not become a back door to the plain grid, which does not hold
     /// the stock lines at all — accepting there would replace the invoice with a stock-free pair of rows.
     /// </summary>
@@ -1167,6 +1244,131 @@ public sealed class PurchaseAndPosAlterationTests
         var refusal = PosAlterationEligibility.RefusalFor(book.Company, voucher.Id);
         Assert.False(string.IsNullOrWhiteSpace(refusal));
         Assert.Contains("no tender records", refusal!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SAME CESS PIN ON THE POS DOOR.</b> Both accept paths consume the tax-shape signature, and both
+    /// are equally blind to a cess magnitude; a fix on one alone rebuilds the asymmetry between these two screens
+    /// that this pair has already been criticised for. This is the POS half, driven on a bill this screen CANNOT
+    /// re-derive: <c>PosBillingViewModel.ComputeGst</c> resolves no Compensation Cess at all, so a posted bill
+    /// carrying a cess leg would be re-accepted with that leg silently dropped and the tender split re-derived
+    /// against a smaller bill.
+    ///
+    /// <para>The bill is hand-built because no screen in the app can key one — which is precisely the point: this
+    /// shape arrives by import, and <c>pos_tender_allocations</c> / the POS validator impose nothing that would
+    /// stop it. Figures: taxable 1,000.00 at 18% ⇒ CGST 90.00 + SGST 90.00, plus a stamped cess of 120.00, settled
+    /// by a single cash tender of 1,300.00.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_bill_carrying_a_cess_leg_this_screen_cannot_re_derive_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("poscess");
+        var kit = SeedPosKit(book);
+        PostFatPosBill(kit);                       // through the real screen, so the Output tax ledgers exist
+
+        var gst = new GstService(book.Company);
+        gst.EnsureCessLedgers();
+        var cessLedger = gst.FindTaxLedger(GstTaxHead.Cess, GstTaxDirection.Output)!;
+        var cgstLedger = gst.FindTaxLedger(GstTaxHead.Central, GstTaxDirection.Output)!;
+        var sgstLedger = gst.FindTaxLedger(GstTaxHead.State, GstTaxDirection.Output)!;
+
+        var taxable = new Money(1000m);
+        var withCess = new Voucher(
+            Guid.NewGuid(), kit.PosType.Id, book.On(4),
+            new[]
+            {
+                new EntryLine(kit.Cash.Id, new Money(1300m), DrCr.Debit),
+                new EntryLine(kit.Sales.Id, taxable, DrCr.Credit),
+                new EntryLine(cgstLedger.Id, new Money(90m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Central, 900, taxable)),
+                new EntryLine(sgstLedger.Id, new Money(90m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.State, 900, taxable)),
+                new EntryLine(cessLedger.Id, new Money(120m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Cess, 0, taxable)),
+            },
+            partyId: kit.Customer.Id,
+            inventoryLines: new[] { new VoucherInventoryLine(kit.Widget.Id, kit.Main.Id, 1m, taxable) },
+            posTenders: new[]
+            {
+                new PosTender(PosTenderType.Cash, kit.Cash.Id, new Money(1300m),
+                    Tendered: new Money(1300m), Change: Money.Zero),
+            });
+        new LedgerService(book.Company).Post(withCess);
+
+        var before = book.Export();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, withCess.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+
+        Assert.False(open.Entry!.AcceptAlteration());
+        Assert.Contains("Compensation Cess", open.Entry!.Message!, StringComparison.Ordinal);
+        Assert.Contains("120.00", open.Entry!.Message!, StringComparison.Ordinal);
+
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE POS ITEM-LINE HALF OF THE REHYDRATION, which nobody had exercised.</b> The POS rehydration
+    /// rebuilds the item grid FLAT — one row per posted line — exactly as the accounting item grid does, and that
+    /// is the partition the accounting side's Compensation-Cess drift came out of. This bill posts TWO lots of one
+    /// item, each carrying its own batch label, and re-accepts with nothing changed.
+    ///
+    /// <para><b>Why flat is a true inverse HERE, stated so the claim can be checked rather than trusted.</b> The
+    /// GST heads are computed on the rate-GROUP subtotal, so 0.75 + 1.25 lots of the same 18% item foot to the same
+    /// Rs 1,180.00 group whether they arrive as one row or two — and the cess boundary that used to differ is now
+    /// rounded per group too. On this screen the cess axis cannot arise at all: <c>ComputeGst</c> resolves no
+    /// Compensation Cess, and a posted bill that carries a cess leg is refused at accept by name (see
+    /// <see cref="A_pos_bill_carrying_a_cess_leg_this_screen_cannot_re_derive_is_refused_at_accept_by_name"/>).
+    /// What is left for the flat rehydration to lose is the per-line detail — quantity, rate, godown, unit and the
+    /// BATCH LABEL — and the export comparison below is what proves it does not.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_bill_whose_item_lines_carry_batch_labels_is_byte_identical_after_a_no_op_alteration()
+    {
+        using var book = AlterationBook.New("posbatchrows");
+        var kit = SeedPosKit(book);
+
+        var vm = NewPos(kit);
+        vm.Date = book.On(4);
+        vm.Narration = "POS batch nonce";
+        vm.SelectedParty = vm.Parties.Single(p => p.Ledger?.Id == kit.Customer.Id);
+        vm.SelectedSalesLedger = vm.SalesLedgers.Single(l => l.Id == kit.Sales.Id);
+        vm.SelectedGodown = vm.Godowns.Single(g => g.Id == kit.Main.Id);
+
+        var first = vm.Items[0];
+        first.SelectedItem = vm.StockItems.Single(i => i.Id == kit.Widget.Id);
+        first.QuantityText = "0.75";
+        first.RateText = "590.00";
+        first.BatchLabel = "BN-77";
+
+        var second = vm.AddItemLine();
+        second.SelectedItem = vm.StockItems.Single(i => i.Id == kit.Widget.Id);
+        second.SelectedGodown = vm.Godowns.Single(g => g.Id == kit.Main.Id);
+        second.QuantityText = "1.25";
+        second.RateText = "590.00";
+        second.BatchLabel = "BN-88";
+
+        vm.Tenders[3].SelectedLedger = kit.Cash;      // single mode: the cash row takes the whole bill
+        Assert.True(vm.Accept(), vm.Message);
+
+        var posted = book.Company.Vouchers.Last(v => v.TypeId == kit.PosType.Id);
+        Assert.Equal(2, posted.InventoryLines.Count);
+        Assert.Equal(new[] { "BN-77", "BN-88" }, posted.InventoryLines.Select(l => l.BatchLabel).ToArray());
+
+        var before = book.Export();
+        var beforeOnDisk = book.ExportReloaded();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+
+        // FLAT: one grid row per POSTED lot, which is the partition the re-derivation sees.
+        Assert.Equal(2, open.Entry!.Items.Count(l => !l.IsBlank));
+        Assert.True(open.Entry!.AcceptAlteration(), open.Entry!.Message);
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeOnDisk, book.ExportReloaded());
     }
 
     // ================================================================ (D) ER-13

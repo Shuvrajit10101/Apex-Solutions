@@ -434,6 +434,43 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         return new PosGst(_gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output), interState, null);
     }
 
+    /// <summary>
+    /// 🔴 The Compensation Cess <b>this screen's own derivation</b> puts on the POSTED item rows — the figure the
+    /// alteration compares the STAMPED cess against (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>).
+    /// The POSTED rows, not the amended ones, so an ordinary amendment (which moves the cess freely) is not seen
+    /// here and only a master that moved underneath can make the two figures disagree.
+    ///
+    /// <para>🔴 <b>IT MIRRORS <see cref="ComputeGst"/> LINE FOR LINE, INCLUDING THE MISSING CESS ARGUMENT</b> — and
+    /// that is the point, not an oversight to be tidied away. <see cref="ComputeGst"/> builds
+    /// <c>TaxableLine(value, rate)</c> with no resolved cess, so this screen DERIVES no cess; the comparison
+    /// therefore refuses, by name, a posted bill that carries a cess leg this screen would silently drop on
+    /// re-accept — a shape only an import or a hand-built voucher can produce today. The day <see cref="ComputeGst"/>
+    /// resolves a cess (which it should — a cess-bearing item sold over the counter attracts the same cess as one
+    /// sold on an invoice), this mirror is the second half of that change and the guard becomes the same
+    /// master-drift pin the accounting screen's is.</para>
+    /// </summary>
+    private Money? ReDerivedCessOnPostedRows(Voucher existing)
+    {
+        if (!_company.GstEnabled) return Money.Zero;
+
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>(existing.InventoryLines.Count);
+        foreach (var posted in existing.InventoryLines)
+        {
+            if (posted.Rate.Amount <= 0m) continue;
+            if (StockItems.FirstOrDefault(i => i.Id == posted.StockItemId) is not { } item) return null;
+
+            var res = _gst.ResolveRate(item, SelectedSalesLedger);
+            if (GstService.IsUnresolved(res)) return null;
+            if (!res.IsTaxable) continue;
+            taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints));
+        }
+
+        return _gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output).TotalCess;
+    }
+
     private static GstService.InvoiceTax EmptyTax() => new()
     {
         TaxLines = Array.Empty<EntryLine>(),
@@ -1099,6 +1136,20 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         }
 
         if (BuildPosBill() is not { } built) return false;
+
+        // 🔴 THE COMPENSATION-CESS MAGNITUDE IS PINNED SEPARATELY, AND FIRST — the shape signature below cannot see
+        // it. A Cess leg's stamped rate is a SENTINEL 0 for a per-unit, an RSP-factor and any mixed ad-valorem
+        // cess, so the whole cess axis is invisible to a ledger|side|head|rate comparison. Carried on this screen
+        // in the SAME words and the SAME order as the accounting item invoice's accept path, deliberately: the
+        // two doors consuming one guard, differently, is how the earlier asymmetries on this pair were built.
+        if (ReDerivedCessOnPostedRows(existing) is { } reDerivedCess
+            && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
+                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), reDerivedCess, "bill")
+               is { } cessRefusal)
+        {
+            Message = cessRefusal;
+            return false;
+        }
 
         // 🔴 THE SHAPE OF THE ENGINE'S TAX LEGS IS PINNED — the amounts are not. An alteration is ALLOWED to move a
         // tax figure (that is what amending a quantity does); what it must never do is silently restate the tax
