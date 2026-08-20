@@ -37,6 +37,10 @@ public sealed class PurchaseAndPosAlterationTests
         public required AlterationBook Book { get; init; }
         public required StockItem Widget { get; init; }
         public required StockItem Gadget { get; init; }
+
+        /// <summary>The COMPENSATION-CESS specimen — see <see cref="CoalCessPerUnit"/> for why it exists.</summary>
+        public required StockItem Coal { get; init; }
+
         public required Godown Main { get; init; }
         public required Unit Nos { get; init; }
         public required Unit BoxOfNos { get; init; }
@@ -55,6 +59,32 @@ public sealed class PurchaseAndPosAlterationTests
     private const decimal GadgetBatchA = 1m;
     private const decimal GadgetBatchB = 3m;
     private const string FreightAmount = "555.53";
+
+    // ---- the COMPENSATION-CESS nonce set (Phase 10.11 review, must-fix 8b) ---------------------------------
+    //
+    // 🔴 WHY THIS EXISTS AT ALL. The 1,067-line S5e fixture set carried no Compensation Cess anywhere, and that
+    // single absence hid TWO wrong-money defects at once: a moved cess master restating the cess on a
+    // narration-only alteration (the tax-shape signature cannot see it), and a no-op alteration of a batch-split
+    // line drifting the cess by a paisa (the cess was rounded per grid row where the GST heads are rounded on the
+    // rate-group subtotal). One specimen covers both, and it has to be shaped deliberately to do so:
+    //
+    //   · a SPECIFIC (per-unit) cess, because that is the mode whose stamped rate on the posted Cess tax leg is
+    //     the constant sentinel 0 — the mode the signature is blind to;
+    //   · keyed as ONE grid row and ALLOCATED ACROSS TWO BATCH LOTS, because that is what makes the posted line
+    //     set (two rows) differ from the keyed line set (one row) and so exposes the rounding boundary;
+    //   · with lots (1.5 / 3.5) that do NOT divide the per-unit tail evenly, because equal or whole lots round
+    //     identically either way and would prove nothing.
+    //
+    // 🔴 EVERY FIGURE BELOW IS A FIXTURE NONCE. None is a statutory rate, threshold or per-unit cess amount, and
+    // none is read from any rate table — so no R7 rate claim arises from this fixture and none should be inferred
+    // from it. The item name is likewise a nonce; the cess is declared as a PER-ITEM override, which is one of the
+    // two routes GstService.ResolveCess takes (the other being a dated HSN cess row) and the cheaper one to move.
+    private const string CoalRate = "100.06";
+    private const string CoalQty = "5";
+    private const decimal CoalBatchA = 1.5m;
+    private const decimal CoalBatchB = 3.5m;
+    private const decimal CoalCessPerUnit = 40.05m;
+    private const decimal CoalCessMovedPerUnit = 90.05m;
 
     private static PurchaseKit SeedPurchaseKit(AlterationBook book)
     {
@@ -75,6 +105,19 @@ public sealed class PurchaseAndPosAlterationTests
         gadget.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1200 };
         gadget.MaintainInBatches = true;
 
+        // The Compensation-Cess specimen. Its GST rate is a THIRD distinct slab so its cess sits in its own rate
+        // group, where the group's rounding boundary is the only thing that can move it.
+        var coal = masters.CreateStockItem("Coal", group.Id, nos.Id);
+        coal.Gst = new StockItemGstDetails
+        {
+            Taxability = GstTaxability.Taxable,
+            RateBasisPoints = 500,
+            CessApplicable = true,
+            CessValuationMode = CessValuationMode.Specific,
+            CessPerUnit = new Money(CoalCessPerUnit),
+        };
+        coal.MaintainInBatches = true;
+
         var supplier = book.Ledger("Nonce Suppliers", "Sundry Creditors", billWise: true);
         var purchases = book.Ledger("Purchases", "Purchase Accounts");
 
@@ -90,7 +133,7 @@ public sealed class PurchaseAndPosAlterationTests
 
         return new PurchaseKit
         {
-            Book = book, Widget = widget, Gadget = gadget, Main = c.MainLocation!,
+            Book = book, Widget = widget, Gadget = gadget, Coal = coal, Main = c.MainLocation!,
             Nos = nos, BoxOfNos = boxOfNos, Supplier = supplier, Purchases = purchases,
             Freight = freight, PurchaseType = type,
         };
@@ -140,6 +183,46 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.True(entry.Accept(), entry.Message);
         return kit.Book.Company.Vouchers.Last(v => v.TypeId == kit.PurchaseType.Id);
     }
+
+    /// <summary>
+    /// Posts the COMPENSATION-CESS purchase item invoice through the REAL screen: ONE keyed grid row of
+    /// <see cref="CoalQty"/> units, allocated across two batch lots, bearing a per-unit cess. It posts TWO
+    /// inventory lines out of one keyed row, which is the whole point.
+    ///
+    /// <para><b>The figures, derived by hand from the fixture constants — never read off the engine.</b>
+    /// Line value = round(5 × 100.06) = 500.30, and the two lots foot to it exactly
+    /// (round(1.5 × 100.06) = 150.09, round(3.5 × 100.06) = 350.21, Σ = 500.30). GST at 5% on the group subtotal:
+    /// round(500.30 × 500/10000) = round(25.015) = 25.02, split CGST = round(25.02/2) = 12.51 and
+    /// SGST = 25.02 − 12.51 = 12.51. Cess = round(5 × 40.05) = round(200.25) = 200.25. Party credit =
+    /// 500.30 + 12.51 + 12.51 + 200.25 = 725.57.</para>
+    /// </summary>
+    private static Voucher PostCessPurchaseInvoice(PurchaseKit kit, string narration = "Cess nonce ONE")
+    {
+        var entry = NewPurchaseEntry(kit);
+
+        entry.SelectedParty = entry.Parties.Single(p => p.Ledger?.Id == kit.Supplier.Id);
+        entry.SelectedStockLedger = entry.StockLedgers.Single(l => l.Id == kit.Purchases.Id);
+        entry.Narration = narration;
+
+        var row = entry.InventoryLines[0];
+        row.SelectedItem = entry.StockItems.Single(i => i.Id == kit.Coal.Id);
+        row.SelectedGodown = entry.Godowns.Single(g => g.Id == kit.Main.Id);
+        row.QuantityText = CoalQty;
+        row.RateText = CoalRate;
+        row.SetBatchAllocations(new[]
+        {
+            new BatchAllocation("BN-91", CoalBatchA, null, IsNewBatch: true),
+            new BatchAllocation("BN-92", CoalBatchB, null, IsNewBatch: true),
+        });
+        Assert.True(row.HasBatchSplit);
+
+        Assert.True(entry.Accept(), entry.Message);
+        return kit.Book.Company.Vouchers.Last(v => v.TypeId == kit.PurchaseType.Id);
+    }
+
+    /// <summary>Σ of the engine-stamped Compensation-Cess legs on <paramref name="v"/>, to the paisa.</summary>
+    private static decimal CessOn(Voucher v) =>
+        v.Lines.Where(l => l.Gst is { TaxHead: GstTaxHead.Cess }).Sum(l => l.Amount.Amount);
 
     private static VoucherEntryViewModel NewPurchaseEntry(PurchaseKit kit)
     {
@@ -531,6 +614,58 @@ public sealed class PurchaseAndPosAlterationTests
         // …and the refused alteration left the book exactly as it found it.
         kit.Widget.Gst!.RateBasisPoints = 1800;
         Assert.Equal(before, book.Export());
+    }
+
+    // ================================================================ (B2) COMPENSATION CESS
+
+    /// <summary>
+    /// 🔴 <b>A CESS-BEARING BATCH-SPLIT INVOICE, RE-ACCEPTED WITH NOTHING CHANGED, IS BYTE-IDENTICAL.</b>
+    ///
+    /// <para>Cess used to be rounded ONCE PER GRID ROW while the GST heads are rounded on the rate-GROUP subtotal.
+    /// A batch-split line posts N inventory lines out of ONE keyed row and the alteration screen rebuilds the grid
+    /// FLAT — one row per POSTED line — so the re-derivation replaced round(Σ line) with Σ round(line) and the
+    /// cess, and the supplier's credit with it, moved on an alteration where the operator touched nothing.</para>
+    ///
+    /// <para><b>The arithmetic, derived from the defect and not from the code.</b> Posted from one row of 5 units:
+    /// cess = round(5 × 40.05) = round(200.25) = <b>200.25</b>. Rehydrated flat into lots of 1.5 and 3.5 and
+    /// rounded per row: round(1.5 × 40.05) + round(3.5 × 40.05) = round(60.075) + round(140.175) = 60.08 + 140.18 =
+    /// <b>200.26</b> — one paisa of Input Cess and one paisa of supplier credit conjured out of a no-op. The GST
+    /// heads do NOT move (both sides compute on the same 500.30 group subtotal), which is exactly why nothing
+    /// downstream reports it: the voucher still balances.</para>
+    /// </summary>
+    [Fact]
+    public void A_cess_bearing_batch_split_invoice_re_accepted_unchanged_is_byte_identical()
+    {
+        using var book = AlterationBook.New("cessroundtrip");
+        var kit = SeedPurchaseKit(book);
+        var posted = PostCessPurchaseInvoice(kit);
+
+        // The posted shape really is the one that exposes the boundary: TWO inventory lines from ONE keyed row.
+        Assert.Equal(2, posted.InventoryLines.Count);
+
+        // The posted figures, to the paisa, every one derived by hand above.
+        Assert.Equal(500.30m, posted.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(200.25m, CessOn(posted));
+        Assert.Equal(725.57m, posted.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+
+        var before = book.Export();
+        var beforeOnDisk = book.ExportReloaded();
+
+        var open = book.ForAlter(posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var entry = open.Entry!;
+
+        // FLAT: one grid row per posted lot, which is the partition the re-derivation now sees.
+        Assert.Equal(2, entry.InventoryLines.Count(l => !l.IsBlank));
+
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        var after = book.Company.FindVoucher(posted.Id)!;
+        Assert.Equal(200.25m, CessOn(after));                                                     // NOT 200.26
+        Assert.Equal(725.57m, after.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount); // NOT 725.58
+
+        Assert.Equal(before, book.Export());
+        Assert.Equal(beforeOnDisk, book.ExportReloaded());
     }
 
     /// <summary>
