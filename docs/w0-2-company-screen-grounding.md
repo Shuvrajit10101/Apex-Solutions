@@ -393,18 +393,18 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:734-740` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:778-784` `SellerBlock`:
 
 - `Name` = `CompanyDisplayName` (`:676-677` — MailingName falling back to Name, **matching Tally's convention
   exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:740`) — **changed by W0-2a.**
+  (`VoucherPrintProjector.cs:781`) — **changed by W0-2a.**
   `SupplierPostalAddressText` (`:744-747`) returns `null` unless `company.Address` is non-blank, and otherwise
   defers to the shared `PostalAddressText` (`:822-829`), which appends Country then `"PIN: " + Pin`, each
   skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:742`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:783`) — **unchanged; still never `company.State`.**
 
 Called from `:399` (item pass) and `:520` (service pass). `SplitAddress` (`:855`) returns `Array.Empty` on
 null/whitespace.
@@ -630,7 +630,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:742`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:783`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
@@ -895,6 +895,23 @@ cost is now eleven fields, and that is recorded rather than inherited silently.
 Recorded rather than silently fixed, because a claim that **was** true and is now stale is itself information.
 
 ### Line numbers corrected (drift; the claim itself stands)
+
+> 🔴 **NEITHER number column below is a live pointer, and a re-anchoring pass falsified one of them once.**
+> Both are **frozen**: column 2 records *what the A14 pass said* (a historical claim, wrong by drift — that
+> wrongness is the whole content of the row), and column 3 records what was correct **at commit `fa651ae`**, which
+> its own header names. Re-anchoring either against a later working tree does not repair the row, it destroys it.
+>
+> **What happened.** The T0-11 S1/S2 slices added lines to `VoucherPrintProjector.cs`, and the citation-repair pass
+> that followed correctly re-anchored the *live* pointers in §7.2/§7.3 (`:734-740` → `:778-784`, `:740` → `:781`,
+> `:742` → `:783`) — and then swept this row up with them, rewriting column 2 from the original
+> **`VoucherPrintProjector.cs:751-759`** to `:772-780`. **Restored above.** The rewritten value was false in every
+> frame at once: at `fa651ae` `:751-759` is `PlaceOfSupply`, which is precisely the wrong place the A14 pass pointed
+> at and what this row exists to record, while `:772-780` at `fa651ae` is something else again and in the current
+> tree is mid-way through `SellerBlock`'s doc comment — `BuyerAddressText` having moved on to `:853`.
+>
+> Column 3 was **not** touched and is **correct as it stands**: at `fa651ae` the `BuyerAddressText` declaration is on
+> line 739 and its body runs 740-748, exactly as written. Verified by reading
+> `git show fa651ae:src/Apex.Desktop/Services/VoucherPrintProjector.cs`, not inferred from the table.
 
 | Claim | A14 pass said | Correct at `fa651ae` |
 |---|---|---|

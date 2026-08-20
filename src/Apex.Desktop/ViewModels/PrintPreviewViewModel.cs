@@ -131,7 +131,13 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Kind = PrintKind.Invoice;
         // The heading names the document the operator is actually looking at; a bill of supply must not be announced
         // as a tax invoice anywhere in the app, on screen or on paper.
-        var kindName = invoice.IsBillOfSupply ? "Bill of Supply" : "Tax Invoice";
+        // T0-11 slice S2 — and a recipient-side record must not be announced as a tax invoice either. This heading is
+        // also surfaced as PrintConfigViewModel.DocumentTitle and used as the DEFAULT SAVED FILE NAME, so leaving it
+        // on the two-way literal would have filed a purchase record as "Tax Invoice No. 42.pdf" — the same defect
+        // W0-1's own follow-up found on the POS receipt path.
+        var kindName = invoice.IsRecipientRecord
+            ? GstReportSupport.PurchaseRecordScreenLabel
+            : invoice.IsBillOfSupply ? "Bill of Supply" : "Tax Invoice";
         ReportTitle = string.IsNullOrEmpty(invoice.InvoiceNumber)
             ? kindName
             : $"{kindName} No. {invoice.InvoiceNumber}";
@@ -347,10 +353,20 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         // showed a declaration the bytes suppress, the operator would approve one document and issue another.
         if (inv.IsBillOfSupply && !string.IsNullOrWhiteSpace(inv.TopDeclaration))
             rows.Add(PrintRow.Header(inv.TopDeclaration, string.Empty, string.Empty));
+        // T0-11 slice S2: the mirror re-derives the record's three suppressions from the SAME structural flag
+        // InvoicePdf reads — the number caption (RQ-11a forbids "Invoice No." over OUR number on HIS document), the
+        // counterparty the operator is being shown, and the place of supply (CGST Rule 46(n), a supplier particular).
+        // If the mirror and the bytes disagreed the operator would approve one document and issue another.
         rows.Add(PrintRow.Header(
-            (inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber, "Date", inv.InvoiceDateText));
-        rows.Add(PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
-        rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
+            (inv.IsRecipientRecord ? GstReportSupport.RecordNumberCaption + " "
+                : inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber,
+            "Date", inv.InvoiceDateText));
+        // On a record the counterparty is the SUPPLIER, and he is the party in the block that HEADS the document.
+        rows.Add(inv.IsRecipientRecord
+            ? PrintRow.Header("Supplier: " + inv.Seller.Name, string.Empty, string.Empty)
+            : PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
+        if (!inv.IsRecipientRecord)
+            rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
 
         int sr = 0;
         foreach (var it in inv.Items)
@@ -375,6 +391,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             // routing nonetheless carries tax (only reachable from a hand-built DTO — the projector's null routing
             // means no forward leg was posted), both surfaces state the AMOUNT under the head-free label "Tax", so
             // neither shows a Grand Total exceeding the visible rows by an unexplained figure.
+            // T0-11 slice S2 — WHOSE tax the head rows below state. The mirror has no per-rate breakup table, so
+            // it cannot carry the caption where InvoicePdf carries it; without this the operator would approve a
+            // screen showing "IGST 17,473.31" with nothing on it saying the charge is the supplier's, which is the
+            // one thing RQ-11a makes binding about a record's tax.
+            if (inv.IsRecipientRecord)
+                rows.Add(PrintRow.Header(GstReportSupport.SupplierTaxCaption, string.Empty, string.Empty));
             if (inv.IsInterState is true)
                 rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
             else if (inv.IsInterState is false)
@@ -407,7 +429,18 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         // both branches need the same structural derivation InvoicePdf.Render applies — otherwise the operator's
         // screen would show a blank heading over bytes that are correctly titled.
         string title;
-        if (inv.IsBillOfSupply)
+        if (inv.IsRecipientRecord)
+        {
+            // T0-11 slice S2 — the same three-branch derivation InvoicePdf.Render applies, record first and both
+            // outward titles refused, so the pane the operator approves and the bytes that leave the building cannot
+            // name two different documents.
+            title = inv.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title)
+                || title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase)
+                || title.Trim().Equals(GstReportSupport.BillOfSupplyTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.PurchaseRecordTitle;
+        }
+        else if (inv.IsBillOfSupply)
         {
             // FIX-W2b: case-insensitive (and trimmed), mirroring InvoicePdf.Render — an ordinal compare let the
             // spelling "Tax Invoice" through and headed the operator's own approval screen with it.

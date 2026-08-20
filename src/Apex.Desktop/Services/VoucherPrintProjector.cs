@@ -393,28 +393,63 @@ public static class VoucherPrintProjector
         // cess (`GstReportSupport.CarriesForwardTax`), so a bill of supply's posted groups are empty and its posted
         // cess is zero, and every branch below can only ever zero a figure that is already zero. Do not delete them —
         // they are what makes that reasoning a local, checkable property of this method.</para>
-        bool billOfSupply = IsBillOfSupply(company, voucher);
+        // T0-11 slice S1 — ONE classification, read once, instead of a bare boolean re-answered per consumer.
+        // `IsBillOfSupply` is still the rule; it is now consulted THROUGH GstReportSupport.ClassifyPrintedDocument,
+        // which is also what the drill badge reads, so the title on paper and the badge on screen come out of the
+        // same object rather than out of two independent re-derivations (the FIX-W1e failure class). Byte-identical:
+        // `StatesTax` is `None` exactly where `IsBillOfSupply` is true, so `billOfSupply` below holds precisely the
+        // value it held before, and every suppression it drives is unmoved. (S1 carried a two-valued boolean here;
+        // S2 widened it to the three-valued `TaxParticulars` because a recipient-side record STATES tax that is not
+        // ours — see the enum's own note. Every outward document maps onto the same two values it always had.)
+        var document = GstReportSupport.ClassifyPrintedDocument(company, voucher);
+        bool billOfSupply = document.StatesTax == TaxParticulars.None;
+        // T0-11 slice S2 — a document we did NOT issue. Everything below that branches on it is a truth condition,
+        // not a presentation preference: whose identity heads the page (CGST Rule 46(a)), whether we may state a
+        // place of supply for a supply made TO us (Rule 46(n) is a supplier particular), and whether OUR declaration
+        // and signature belong on it (Rule 46(q) puts the signature on the ISSUER). Read from the ONE classification,
+        // never re-derived, so the badge, the preview mirror and the bytes cannot disagree.
+        bool record = document.Role == DocumentRole.Recorded;
+        // Rule 46(a). On a record the counterparty is the SUPPLIER and heads the document; we are the recipient.
+        // Both blocks are built by the same two builders as ever — only which one lands in which field moves, and it
+        // moves off `document.Heads` rather than off a base-type test spelled here for a second time.
+        var counterpartyBlock = BuyerBlock(company, partyLedger, buyerState);
+        var ourBlock = SellerBlock(company);
+        bool weAreRecipient = document.Heads == PartyOrientation.WeAreRecipient;
         return new InvoicePrintData
         {
-            DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
+            // The NoStatutoryDocument arm is NOT dead and NOT a new behaviour: this method is reachable directly
+            // (only tests do so today — the app calls it behind the same routing question) on a voucher for which
+            // no statutory document may be issued at all, and it has always stamped TAX INVOICE there. Naming that
+            // arm keeps the pre-existing value byte-for-byte while making the latent claim visible instead of
+            // implicit; whether it should keep making it is a question for the slice that gives a record document
+            // its own title, not for a refactor that may move nothing.
+            DocumentTitle = document.Role == DocumentRole.NoStatutoryDocument
+                ? GstReportSupport.TaxInvoiceTitle
+                : document.Title,
             IsBillOfSupply = billOfSupply,
+            IsRecipientRecord = record,
             // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
             // replacing it — cancelling a document does not change what it was issued as, and a renderer that
             // read one flag for two questions would eventually print the wrong document name.
             IsCancelled = voucher.Cancelled,
             TopDeclaration = billOfSupply ? TopDeclarationFor(company, voucher) : string.Empty,
-            Seller = SellerBlock(company),
-            Buyer = BuyerBlock(company, partyLedger, buyerState),
+            Seller = weAreRecipient ? counterpartyBlock : ourBlock,
+            Buyer = weAreRecipient ? ourBlock : counterpartyBlock,
             InvoiceNumber = company.FormatVoucherNumber(voucher),
             InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
-            // Counterparty captured field (numbering §8): on a Sales tax invoice this is the buyer's "Reference No.".
-            // Blank when none was captured ⇒ nothing prints ⇒ byte-identical (ER-13).
+            // Counterparty captured field (numbering §8): on a Sales tax invoice this is the buyer's "Reference No.";
+            // on a Purchase the helper already returns "Supplier Invoice No.", which is exactly where RQ-11a puts the
+            // SUPPLIER's own document number — so the record needs no new field for it, only a caption of its own for
+            // OURS (that one is the renderer's, see InvoicePdf). Blank when none was captured ⇒ nothing prints ⇒
+            // byte-identical (ER-13).
             ReferenceNo = ReportPrintProjector.Ascii(voucher.ReferenceNo ?? string.Empty),
             ReferenceCaption = ReferenceCaption(company.FindVoucherType(voucher.TypeId)),
             ReferenceDateText = voucher.ReferenceDate is { } rd
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
-            PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
+            // CGST Rule 46(n) is a SUPPLIER particular: we do not determine the place of supply of a supply made TO
+            // us, so a record states none. Stating one would put our determination on his document.
+            PlaceOfSupply = record ? string.Empty : StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
             IsInterState = money.InterState,
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,
@@ -518,10 +553,16 @@ public static class VoucherPrintProjector
         // tax-free already (`IsBillOfSupply` refuses the classification when forward tax or cess was posted, and every
         // figure here is read from the POSTED legs), so the suppressions below can only ever drop empty rows and zero
         // figures — a taxed service invoice is byte-identical (ER-13).
-        bool billOfSupply = IsBillOfSupply(company, voucher);
+        // T0-11 slice S1 — the SAME single classification the item pass reads, for the same reason: two passes
+        // each re-answering "which document is this?" from the raw predicate is how one document class came to be
+        // titled two different ways once already. Byte-identical (see the item pass for why).
+        var document = GstReportSupport.ClassifyPrintedDocument(company, voucher);
+        bool billOfSupply = document.StatesTax == TaxParticulars.None;
         return new InvoicePrintData
         {
-            DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
+            DocumentTitle = document.Role == DocumentRole.NoStatutoryDocument
+                ? GstReportSupport.TaxInvoiceTitle
+                : document.Title,
             IsBillOfSupply = billOfSupply,
             // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
             // replacing it — cancelling a document does not change what it was issued as, and a renderer that

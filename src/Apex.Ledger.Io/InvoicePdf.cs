@@ -46,7 +46,24 @@ public static class InvoicePdf
         // the consts' own doc claim to be "the single source both the print projector and the renderer read" was
         // false as written and the literals could drift. Apex.Ledger.Io already project-references Apex.Ledger.
         string title;
-        if (data.IsBillOfSupply)
+        if (data.IsRecipientRecord)
+        {
+            // T0-11 slice S2 — a document we did NOT issue. It is tested FIRST, ahead of the bill-of-supply branch,
+            // because both outward titles are refused here and letting that branch win would title an inward supply
+            // BILL OF SUPPLY — the document CGST Rule 49 opens by putting on "the SUPPLIER". Structural, exactly as
+            // FIX-W1h/FIX-W2b made the bill-of-supply title structural: derived from the flag, never trusted from the
+            // DTO, and the refusal is case-insensitive and trims, because "Tax Invoice" is the spelling this app's
+            // own badge and prose use and an ordinal compare let it straight through once already.
+            title = data.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title)
+                || title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase)
+                || title.Trim().Equals(GstReportSupport.BillOfSupplyTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.PurchaseRecordTitle;
+            // The F12 title override does not reach here, for the same reason it does not reach a bill of supply:
+            // the document kind follows the transaction, not a print preference, and a knob that could re-title a
+            // record into a tax invoice would issue through the print dialog the document §31(1) denies us.
+        }
+        else if (data.IsBillOfSupply)
         {
             // FIX-W1h: derive STRUCTURALLY, never by trusting the DTO. `InvoicePrintData.DocumentTitle` defaulted to
             // the non-blank string "TAX INVOICE", so this branch's blank-only guard could not catch a caller that set
@@ -235,7 +252,13 @@ public static class InvoicePdf
             : new List<string>();
 
         // The document must not describe itself as something it is not: a bill of supply is not an invoice.
-        string declaration = data.IsBillOfSupply
+        // T0-11 slice S2 — and a RECORD is not a declaration of ours at all. "We declare that this invoice shows the
+        // actual price…" is OUR attestation about a document WE issued; on a page headed by the supplier it would be
+        // an attestation about someone else's. The record says what it is instead, and the signature block below is
+        // dropped with it (Rule 46(q) puts the signature on the ISSUER).
+        string declaration = data.IsRecipientRecord
+            ? GstReportSupport.RecipientRecordLegend
+            : data.IsBillOfSupply
             ? "Declaration: We declare that this bill of supply shows the actual price of the goods described and " +
               "that all particulars are true and correct."
             : "Declaration: We declare that this invoice shows the actual price of the goods described and that " +
@@ -315,8 +338,12 @@ public static class InvoicePdf
         }
 
         double blockTop = y;
+        // The captions name the ROLES, and the projector decides which party fills which. On a recipient-side record
+        // the left block is the real supplier and the right is us — so "Bill to" would be wrong there (nobody is
+        // billing us on a page we produced) and the plain "Recipient:" is what is true.
         double sellerY = DrawPartyBlock(writer, page, "Supplier:", data.Seller, left, blockTop);
-        double buyerY = DrawPartyBlock(writer, page, "Recipient (Bill to):", data.Buyer, geo.MidX + 6, blockTop);
+        double buyerY = DrawPartyBlock(writer, page,
+            data.IsRecipientRecord ? "Recipient:" : "Recipient (Bill to):", data.Buyer, geo.MidX + 6, blockTop);
         y = Math.Min(sellerY, buyerY) - 4;
 
         writer.Line(left, y, right, y, 0.5);
@@ -327,7 +354,12 @@ public static class InvoicePdf
         // declaration (already fixed by W0-1) says "this bill of supply shows the actual price" — the same
         // self-description error, one screenful apart. It also disagreed with the on-screen preview mirror, which W0-1
         // DID change to "Bill of Supply No.", so the operator approved one caption and issued another.
-        writer.Text(left, y, (data.IsBillOfSupply ? "Bill of Supply No: " : "Invoice No: ") + data.InvoiceNumber,
+        // T0-11 slice S2 (RQ-11a) — on a recipient-side record the number under the caption is OURS, printed under
+        // the SUPPLIER's identity. "Invoice No:" there would call our internal reference the serial of a document we
+        // did not issue: a false statement of the same class FIX-W1f caught, not a cosmetic label.
+        writer.Text(left, y,
+            (data.IsRecipientRecord ? GstReportSupport.RecordNumberCaption + ": "
+                : data.IsBillOfSupply ? "Bill of Supply No: " : "Invoice No: ") + data.InvoiceNumber,
             page.BodyFontSize, bold: false);
         writer.Text(geo.MidX + 6, y, "Date: " + data.InvoiceDateText, page.BodyFontSize, bold: false);
         y -= page.BodyFontSize + 2;
@@ -340,7 +372,11 @@ public static class InvoicePdf
             writer.Text(left, y, refLine, page.BodyFontSize, bold: false);
             y -= page.BodyFontSize + 2;
         }
-        writer.Text(left, y, "Place of Supply: " + data.PlaceOfSupply, page.BodyFontSize, bold: false);
+        // CGST Rule 46(n) is a SUPPLIER particular, so a recipient-side record states no place of supply — and states
+        // no empty caption for one either. The ROW is still consumed, because FirstHeaderHeight reserves it and a
+        // renderer whose measured height and drawn height disagree pushes the last item row off the page.
+        if (!data.IsRecipientRecord)
+            writer.Text(left, y, "Place of Supply: " + data.PlaceOfSupply, page.BodyFontSize, bold: false);
         // The intra/inter caption names a TAX HEAD ("CGST + SGST" / "IGST"). CGST Rule 49 prescribes no rate and no
         // tax-amount particular, and a composition supplier may collect none (§10(4), §32(2)), so a bill of supply
         // states no head at all. Occupies the same line as Place of Supply ⇒ dropping it changes no height.
@@ -491,7 +527,12 @@ public static class InvoicePdf
         {
             writer.Line(left, y, right, y, 0.5);
             y -= page.BodyFontSize + 2;
-            writer.Text(left, y, "GST Breakup", page.BodyFontSize, bold: true);
+            // T0-11 slice S2 — WHOSE tax this is, said out loud. The record must state the tax (it is what
+            // substantiates the input tax credit we claim), and the figures come off the posted Input legs, so the
+            // caption is the only thing keeping the page from asserting that WE charged it.
+            writer.Text(left, y,
+                data.IsRecipientRecord ? GstReportSupport.SupplierTaxCaption : "GST Breakup",
+                page.BodyFontSize, bold: true);
             y -= page.RowHeight;
 
             double rTaxableR = left + page.ContentWidth * 0.30;
@@ -573,6 +614,15 @@ public static class InvoicePdf
         }
 
         // Signature (right column), aligned to the top of the declaration.
+        //
+        // 🔴 T0-11 slice S2 — DROPPED ENTIRELY on a recipient-side record, and this is the sharpest of the slice's
+        // suppressions. `data.Seller` is the party who HEADS the document, and on a record that is the SUPPLIER: the
+        // block below, drawn unchanged, would print "For {the supplier}" over "Authorised Signatory" on a page WE
+        // produced — not a mislabelled caption but an attestation in someone else's name. CGST Rule 46(q) puts the
+        // signature on the ISSUER, and on this document that is not us. Costs no measured height: the block draws in
+        // the right column beside the declaration BuildClosing already sized.
+        if (data.IsRecipientRecord) return;
+
         double sigY = declTop + (page.FooterFontSize + 2);
         string forCompany = "For " + data.Seller.Name;
         writer.Text(right - PdfWriter.MeasureHelvetica(forCompany, page.BodyFontSize), sigY, forCompany, page.BodyFontSize, bold: true);

@@ -35,8 +35,12 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// <summary>The voucher's stable id — the identity the header/tests key on.</summary>
     public Guid VoucherId { get; }
 
-    /// <summary>True iff Print (P/Ctrl+P) on this drill should produce the GST <b>tax invoice</b> (a Sales
-    /// item-invoice) rather than the plain Dr/Cr voucher (RQ-10/RQ-11 routing).</summary>
+    /// <summary>True iff this voucher is one we are ENTITLED to issue as a GST <b>tax invoice</b> — a Sales
+    /// item invoice or Sales accounting invoice (RQ-11; CGST Act §31(1)/(2), which bind "a registered person
+    /// supplying").
+    /// <para><b>🔴 T0-11 — this is NOT the print-routing question and must not be used as one.</b> It used to
+    /// be, which is why a Purchase item invoice printed with no item table: rendering is
+    /// <see cref="Document"/>'s <c>RendersItemDetail</c>, and the two now differ on exactly that shape.</para></summary>
     public bool IsTaxInvoice => VoucherPrintProjector.IsTaxInvoice(_company, _voucher);
 
     /// <summary>True iff this voucher must be issued as a <b>Bill of Supply</b> rather than a tax invoice — CGST Act
@@ -46,9 +50,21 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// on screen and the title on paper can never disagree. A Regular company's taxable supply is unchanged (ER-13).</summary>
     public bool IsBillOfSupply => VoucherPrintProjector.IsBillOfSupply(_company, _voucher);
 
+    /// <summary>The ONE classification this pane and the paper it prints both read (T0-11 slice S1;
+    /// ADR-0002). Recomputed per access, like every other projection here, so <see cref="Refresh"/> needs no extra
+    /// invalidation.
+    /// <para>It exists so the badge and the printed title cannot be derived independently. They were, and they
+    /// drifted: FIX-W1e is a drill badged "Tax Invoice" sitting directly above a composition declaration, on a
+    /// document that had demonstrably collected tax.</para></summary>
+    private PrintedDocumentClass Document => GstReportSupport.ClassifyPrintedDocument(_company, _voucher);
+
     /// <summary>The document label the header shows: "Bill of Supply" for a composition or wholly-exempt supply,
-    /// "Tax Invoice" for a Regular Sales item/service invoice, else empty (a plain voucher shows only its type name).</summary>
-    public string DocumentLabel => IsBillOfSupply ? "Bill of Supply" : IsTaxInvoice ? "Tax Invoice" : string.Empty;
+    /// "Tax Invoice" for a Regular Sales item/service invoice, else empty (a plain voucher shows only its type name).
+    /// <para>T0-11 slice S1: read off <see cref="Document"/> rather than re-derived from the two predicates here.
+    /// The value is unchanged for every shape (ER-13) — <c>ScreenLabel</c> is defined as exactly the expression this
+    /// property used to carry — but it is no longer a SECOND derivation that a later slice could move on its
+    /// own.</para></summary>
+    public string DocumentLabel => Document.ScreenLabel;
 
     /// <summary>The declaration CGST Rule 5(1)(f) requires at the top of a <b>composition</b> taxable person's Bill of
     /// Supply (de-branded, ER-11); empty otherwise — including on a <b>regular</b> dealer's exempt Bill of Supply, which
@@ -70,10 +86,23 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
             ? GstReportSupport.BillOfSupplyDeclaration
             : string.Empty;
 
-    /// <summary>Builds the print-preview VM for this voucher: a tax-invoice preview when it is a Sales
-    /// item-invoice, else the plain voucher preview. The Io renderer is chosen by the projection kind.</summary>
+    /// <summary>Builds the print-preview VM for this voucher: an invoice-shaped preview when the document renders
+    /// with item detail, else the plain voucher preview. The Io renderer is chosen by the projection kind.
+    /// <para><b>🔴 T0-11 — this is the RENDERING question, and it used to be answered with the ENTITLEMENT
+    /// predicate.</b> <c>IsTaxInvoice</c> answers "may we issue a Rule-46 tax invoice?", to which Sales-only is the
+    /// correct answer (CGST §31(1) binds "a registered person supplying"). Asking it "should this render with item
+    /// detail?" is what makes a Purchase item invoice print as a Dr/Cr voucher with no item table at all. The two
+    /// questions are now separate fields of one record, and this call site reads the rendering one.</para>
+    /// <para>Slice S1 re-pointed this line while <c>RendersItemDetail</c> was still defined as exactly
+    /// <c>GstReportSupport.IsTaxInvoice</c>, so it moved no bytes; <b>slice S2 then made the two differ</b> — a
+    /// Purchase item invoice renders with item detail while remaining a document we are entitled to issue
+    /// none of. Splitting the work that way was deliberate: the behaviour slice edited the CLASSIFIER only, so a
+    /// reviewer reading S2's diff sees the rule change with no call-site noise beside it, and the byte golden in
+    /// <c>PrintedDocumentClassificationTests</c> proves S1 moved nothing and S2 moved exactly one document.</para>
+    /// <para><b>Do not "simplify" this back to <c>IsTaxInvoice</c>.</b> They agree on every Sales shape and
+    /// disagree on the one this whole census item exists for.</para></summary>
     public PrintPreviewViewModel BuildPrintPreview() =>
-        IsTaxInvoice
+        Document.RendersItemDetail
             ? new PrintPreviewViewModel(VoucherPrintProjector.ProjectInvoice(_company, _voucher))
             : new PrintPreviewViewModel(VoucherPrintProjector.ProjectVoucher(_company, _voucher));
 

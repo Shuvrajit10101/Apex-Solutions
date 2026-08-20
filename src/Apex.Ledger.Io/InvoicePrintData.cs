@@ -103,6 +103,28 @@ public sealed class InvoicePrintData
     public bool IsBillOfSupply { get; init; }
 
     /// <summary>
+    /// True iff this document is a <b>recipient-side RECORD of a supply made TO us</b> — what a Purchase prints as
+    /// (RQ-11a; census T0-11 slice S2). It is the structural counterpart of <see cref="IsBillOfSupply"/>: a flag the
+    /// renderer gates on, so the renderer is safe against a caller that fills the DTO wrongly rather than merely
+    /// safe when the projector fills it rightly.
+    ///
+    /// <para><b>What it changes, and why each is a truth condition rather than a style choice.</b> The document is
+    /// headed by the SUPPLIER (<see cref="Seller"/> carries HIS block and <see cref="Buyer"/> carries ours — CGST
+    /// Rule 46(a)), so: the title may be neither outward title (§31(1) and Rule 49 both put those on the supplier);
+    /// <see cref="InvoiceNumber"/> is captioned as OUR record reference and never "Invoice No.", which under his
+    /// identity would call our number the serial of a document we did not issue; <see cref="PlaceOfSupply"/> is not
+    /// stated at all (Rule 46(n) is a supplier particular — we do not determine the place of supply of a supply made
+    /// to us); the tax IS stated, because the record is what substantiates the input tax credit we claim, but
+    /// captioned as the supplier's charge; and OUR declaration and OUR signature block are suppressed, the signature
+    /// most sharply of all — drawn unchanged it would print "For {supplier}" over a signature line on a page we
+    /// produced.</para>
+    ///
+    /// <para><b>Default false, so every already-shipped document is byte-identical (ER-13).</b> Presentational and
+    /// structural only: it adds no money field, and no figure on any page moves because of it.</para>
+    /// </summary>
+    public bool IsRecipientRecord { get; init; }
+
+    /// <summary>
     /// The declaration CGST Rule 5(1)(f) requires "at the <b>top</b> of the bill of supply" issued by a composition
     /// taxable person — "composition taxable person, not eligible to collect tax on supplies". Blank on every other
     /// document, including a <b>regular</b> dealer's exempt bill of supply: he is not a composition taxable person and

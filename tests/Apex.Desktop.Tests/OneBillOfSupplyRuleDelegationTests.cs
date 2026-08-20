@@ -488,27 +488,72 @@ public sealed class OneBillOfSupplyRuleDelegationTests
 
         foreach (var registration in new[] { GstRegistrationType.Regular, GstRegistrationType.Composition })
         {
+            bool composition = registration == GstRegistrationType.Composition;
             var f = Build(registration);
-            var shapes = new List<(string Name, Voucher V)>
+            // 🔴 T0-11 slice S1 — EVERY ROW NOW CARRIES ITS EXPECTED ANSWER, AND THAT IS THE POINT OF THIS EDIT.
+            // The matrix used to assert wrapper-vs-engine AGREEMENT and nothing else, which is a strictly weaker
+            // claim than it reads as: two layers that agree can agree on the WRONG answer, and the purchase row
+            // below is exactly where that mattered. The census proposed "fixing" T0-11 by flipping IsTaxInvoice's
+            // Sales gate so a Purchase would print with item detail; under that change the wrapper would have gone
+            // on forwarding faithfully to the engine, both layers would have moved together, and this test — the
+            // one test in the repository that drives a real purchase item-invoice through the document-kind rule —
+            // WOULD HAVE STAYED GREEN while the app began titling a supplier's document as our own tax invoice.
+            // The expectations are derived from the statute, never from the predicates: CGST Act §31(1)/(2) put the
+            // duty on "a registered person SUPPLYING", §31(3)(c) + §2(47) give the bill of supply, §10(4) bars a
+            // composition dealer from collecting tax.
+            var shapes = new List<(string Name, Voucher V, bool Bos, bool Tax, bool Svc)>
             {
-                ("item/taxable",         Sale(f, (f.TaxableItemId, 94_271.63m))),
-                ("item/exempt",          Sale(f, (f.ExemptItemId, 2_17_483.91m))),
-                ("item/nil-rated",       Sale(f, (f.NilRatedItemId, 1_63_059.37m))),
-                ("item/unresolved",      Sale(f, (f.UnclassifiedItemId, 2_17_483.91m))),
-                ("item/mixed",           Sale(f, (f.ExemptItemId, 2_17_483.91m), (f.TaxableItemId, 41.09m))),
+                // A taxable outward supply is a Rule-46 tax invoice — unless the supplier is a §10 dealer, for whom
+                // §31(3)(c) is unconditional ("shall issue, INSTEAD OF a tax invoice, a bill of supply").
+                ("item/taxable",         Sale(f, (f.TaxableItemId, 94_271.63m)),
+                    Bos: composition, Tax: true, Svc: false),
+                // Wholly exempt / nil-rated: §31(3)(c)'s first limb for a Regular dealer, §10 for a composition one.
+                // §2(47) folds nil-rated and non-taxable into "exempt supply", so both taxabilities take one limb.
+                ("item/exempt",          Sale(f, (f.ExemptItemId, 2_17_483.91m)),
+                    Bos: true, Tax: true, Svc: false),
+                ("item/nil-rated",       Sale(f, (f.NilRatedItemId, 1_63_059.37m)),
+                    Bos: true, Tax: true, Svc: false),
+                // Silence is not an exemption: a line with no GST master anywhere is not read as exempt, so a
+                // Regular dealer's document stays a tax invoice. A §10 dealer's is a bill of supply regardless.
+                ("item/unresolved",      Sale(f, (f.UnclassifiedItemId, 2_17_483.91m)),
+                    Bos: composition, Tax: true, Svc: false),
+                // One taxable line decides the whole document (Rule 46A's combined form is permissive and confined
+                // to an unregistered recipient), so ₹41.09 of taxable against ₹2,17,483.91 exempt is a tax invoice.
+                ("item/mixed",           Sale(f, (f.ExemptItemId, 2_17_483.91m), (f.TaxableItemId, 41.09m)),
+                    Bos: composition, Tax: true, Svc: false),
+                // An As-Voucher sale is not an invoice-mode entry, so no invoice document is projected for it. Note
+                // the §10 row: a composition dealer's As-Voucher sale IS a bill of supply (limb 1 tests the base
+                // type alone) that is nonetheless NOT rendered as an invoice document — the one shipped shape that
+                // proves entitlement and rendering were always two questions, which is census T0-11's whole thesis.
                 ("ledger-only/plain-sale",
-                    LedgerOnlySale(f, f.SalesLedgerId, 1_63_059.37m, accountingInvoice: false)),
+                    LedgerOnlySale(f, f.SalesLedgerId, 1_63_059.37m, accountingInvoice: false),
+                    Bos: composition, Tax: false, Svc: false),
+                // A declared-exempt SAC service takes §31(3)(c) exactly as exempt goods do.
                 ("ledger-only/service-exempt",
-                    LedgerOnlySale(f, f.ExemptServiceLedgerId, 2_17_483.91m, accountingInvoice: true)),
+                    LedgerOnlySale(f, f.ExemptServiceLedgerId, 2_17_483.91m, accountingInvoice: true),
+                    Bos: true, Tax: true, Svc: true),
+                // A TAXABLE service at a 0% (LUT/export) rate is not an exempt supply — it attracts tax at a nil
+                // RATE under a taxable classification — so §31(2)'s tax invoice stands for a Regular dealer.
                 ("ledger-only/service-zero-rated",
-                    LedgerOnlySale(f, f.ZeroRatedServiceLedgerId, 94_271.63m, accountingInvoice: true)),
-                ("purchase/item",        PurchaseItem(f, f.TaxableItemId, 2_17_483.91m)),
+                    LedgerOnlySale(f, f.ZeroRatedServiceLedgerId, 94_271.63m, accountingInvoice: true),
+                    Bos: composition, Tax: true, Svc: true),
+                // 🔴 THE ROW THE NAIVE FIX WOULD HAVE MOVED. §31(1) binds "a registered person SUPPLYING": on an
+                // inward supply we supply nothing and are entitled to issue NO document — not a tax invoice, and
+                // not a bill of supply either, because Rule 49 says that one too is "issued by the supplier". These
+                // three FALSEs are a permanent statutory claim and must survive every later T0-11 slice: slice S2
+                // makes a purchase RENDER with item detail as a recipient-side record, which is a different axis and
+                // changes none of them. Any change that turns one of these true has re-titled someone else's
+                // document as ours and has silently moved the NIC e-Way docType with it.
+                ("purchase/item",        PurchaseItem(f, f.TaxableItemId, 2_17_483.91m),
+                    Bos: false, Tax: false, Svc: false),
             };
             // Regular only: a Composition company has none of the six Output tax ledgers to hand-key against.
+            // Output CGST/SGST posted with no GstLineTax: the money is in the GL but invisible to the item pass, so
+            // the document would print a Grand Total short of the posted party leg. It is neither document.
             if (UntaggedOutputTaxSale(f, 2_17_483.91m, 19_573.55m, 19_573.56m) is { } untagged)
-                shapes.Add(("item/untagged-output-tax", untagged));
+                shapes.Add(("item/untagged-output-tax", untagged, Bos: false, Tax: false, Svc: false));
 
-            foreach (var (name, v) in shapes)
+            foreach (var (name, v, expectBos, expectTax, expectSvc) in shapes)
             {
                 var why = $"{registration}/{name}";
 
@@ -519,12 +564,41 @@ public sealed class OneBillOfSupplyRuleDelegationTests
                 sawTaxInvoice.Add(engineTax);
                 sawServiceInvoice.Add(engineSvc);
 
+                // The ANSWER, from the statute — asserted BEFORE the agreement, because an agreement between two
+                // layers that are both wrong is the failure this row set exists to catch.
+                Assert.True(expectBos == engineBos, $"IsBillOfSupply answered wrongly for {why}");
+                Assert.True(expectTax == engineTax, $"IsTaxInvoice answered wrongly for {why}");
+                Assert.True(expectSvc == engineSvc, $"IsServiceAccountingInvoice answered wrongly for {why}");
+
+                // …and then the delegation: each wrapper must be a pure forward, carrying no logic of its own.
                 Assert.True(engineBos == VoucherPrintProjector.IsBillOfSupply(f.Company, v),
                     $"IsBillOfSupply diverged for {why}");
                 Assert.True(engineTax == VoucherPrintProjector.IsTaxInvoice(f.Company, v),
                     $"IsTaxInvoice diverged for {why}");
                 Assert.True(engineSvc == VoucherPrintProjector.IsServiceAccountingInvoice(f.Company, v),
                     $"IsServiceAccountingInvoice diverged for {why}");
+
+                // T0-11 slice S1: the classification seam is required to agree with the answer too, so a later slice
+                // cannot move the printed document without either moving the statutory expectation above or being
+                // caught here. The badge is the same decision, so it is driven from the same row.
+                var doc = GstReportSupport.ClassifyPrintedDocument(f.Company, v);
+                // 🔴 T0-11 slice S2 — THE ROW WHERE THE CLASSIFICATION AND THE ENTITLEMENT PREDICATES PART COMPANY,
+                // which is the whole thesis of the census item. The three engine answers above stay FALSE for a
+                // purchase forever (§31(1): the duty is the supplier's), and yet the purchase now RENDERS with item
+                // detail as a recipient-side record under its own badge — because rendering and orientation are
+                // different axes from entitlement. Derived from RQ-11a, not from the classifier; the full derivation
+                // is in PrintedDocumentClassificationTests.StatutoryExpectation.
+                bool inwardRecord = name == "purchase/item";
+                var expectedRenders = inwardRecord || expectTax;
+                var expectedTax = inwardRecord ? TaxParticulars.AsChargedByTheSupplier
+                    : expectBos ? TaxParticulars.None : TaxParticulars.AsChargedByUs;
+                Assert.True(expectedRenders == doc.RendersItemDetail, $"RendersItemDetail answered wrongly for {why}");
+                Assert.True(expectedTax == doc.StatesTax, $"StatesTax answered wrongly for {why}");
+                var expectedLabel = inwardRecord ? GstReportSupport.PurchaseRecordScreenLabel
+                    : expectBos ? "Bill of Supply" : expectTax ? "Tax Invoice" : string.Empty;
+                Assert.True(expectedLabel == doc.ScreenLabel, $"ScreenLabel answered wrongly for {why}");
+                Assert.True(expectedLabel == new VoucherDetailViewModel(f.Company, v).DocumentLabel,
+                    $"DocumentLabel diverged from the classification for {why}");
             }
         }
 

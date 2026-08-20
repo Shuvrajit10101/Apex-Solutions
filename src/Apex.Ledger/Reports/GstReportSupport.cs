@@ -345,6 +345,175 @@ public static class GstReportSupport
     /// </summary>
     public const string BillOfSupplyTitle = "BILL OF SUPPLY";
 
+    /// <summary>The drill badge's spelling of <see cref="TaxInvoiceTitle"/> — the same document kind, spelled for a
+    /// screen rather than for a title band. Held beside the printed titles so the two spellings of one decision
+    /// cannot drift, which is how the badge and the paper came to disagree once already (FIX-W1e).</summary>
+    public const string TaxInvoiceScreenLabel = "Tax Invoice";
+
+    /// <summary>The drill badge's spelling of <see cref="BillOfSupplyTitle"/>. Note it is NOT a mechanical
+    /// title-case of the printed title ("Bill Of Supply" is wrong), which is exactly why it is a constant and not a
+    /// transformation.</summary>
+    public const string BillOfSupplyScreenLabel = "Bill of Supply";
+
+    /// <summary>
+    /// The printed title of a <b>recipient-side record</b> of an inward supply (RQ-11a; census T0-11 slice S2) — the
+    /// document a Purchase item invoice prints as. It is deliberately NEITHER outward title: CGST Act §31(1)/(2) put
+    /// the tax invoice on "a registered person <b>supplying</b>", and CGST Rule 49 opens the bill of supply with the
+    /// same words, so titling an inward supply with either would swap one false statement for another.
+    ///
+    /// <para><b>🔴 UNVERIFIED-BY-DESIGN — OURS, ruling 9, and it can never join the corpus-verified set.</b> The
+    /// source corpus names no title for a purchase print, shows no specimen, and evidences no law-driven title
+    /// derivation at all; the only title mechanism it attests is a free-text per-voucher-type default. The wording is
+    /// our decision (R7). The word "Tally" appears in it nowhere (ER-11 / RQ-13).</para>
+    /// </summary>
+    public const string PurchaseRecordTitle = "PURCHASE RECORD";
+
+    /// <summary>The drill badge's spelling of <see cref="PurchaseRecordTitle"/> — the same decision, spelled for a
+    /// screen, held beside it for the same reason the two outward pairs are. <b>OURS (ruling 9)</b>, like the
+    /// title.</summary>
+    public const string PurchaseRecordScreenLabel = "Purchase Record";
+
+    /// <summary>
+    /// The caption <b>our own</b> voucher number bears on a recipient-side record (RQ-11a). Under the supplier's
+    /// identity a caption reading "Invoice No." is a <b>false statement</b>, not a cosmetic label — it would call our
+    /// internal reference the serial of a document we did not issue. The SUPPLIER's own number rides the existing
+    /// reference pair, whose caption helper already returns "Supplier Invoice No." for a Purchase, so this adds a
+    /// caption and no money field anywhere.
+    /// <para><b>OURS (ruling 9)</b> as wording; the prohibition it satisfies is RQ-11a's and is statutory.</para>
+    /// </summary>
+    public const string RecordNumberCaption = "Our Record Ref.";
+
+    /// <summary>
+    /// The caption over the tax particulars of a recipient-side record. The record must STATE the tax — it is what
+    /// substantiates the input tax credit we claim, so one with no tax on it cannot do its job — but that tax is the
+    /// supplier's charge to us, and a document headed by his identity presenting it as tax <i>we</i> charged makes a
+    /// false statutory statement. The outward document captions the same table "GST Breakup".
+    /// <para><b>OURS (ruling 9).</b></para>
+    /// </summary>
+    public const string SupplierTaxCaption = "Tax Charged by the Supplier";
+
+    /// <summary>
+    /// What a recipient-side record says about itself, in place of the outward document's "We declare that this
+    /// invoice shows the actual price…" declaration and its signature block. Both of those are OUR attestations, and
+    /// CGST Rule 46(q) puts the signature on the ISSUER — so on a document headed by the supplier they would be, in
+    /// the signature's case literally, an attestation in someone else's name.
+    /// <para><b>OURS (ruling 9): the corpus attests no such legend.</b> Kept ASCII-safe (it reaches a PDF and a
+    /// preview pane); the word "Tally" appears in it nowhere (ER-11 / RQ-13).</para>
+    /// </summary>
+    public const string RecipientRecordLegend =
+        "This is the recipient's record of a document issued by the supplier named above. It is not a document " +
+        "issued by this company, and the tax stated on it is the tax charged by the supplier.";
+
+    /// <summary>
+    /// <b>THE classification every printed document is derived from</b> (census T0-11 slices S1/S2; ADR-0002). One
+    /// call answers all three questions the printer needs and they are held APART: what document (if any) is issued
+    /// and by whom (<see cref="DocumentRole"/>), whether it renders with item detail, and whose identity heads it
+    /// (<see cref="PartyOrientation"/>).
+    ///
+    /// <para><b>It CONSULTS <see cref="IsTaxInvoice"/> and <see cref="IsBillOfSupply"/>; it does not replace or widen
+    /// them.</b> Both are correct as they stand and both have consumers far outside printing — <see cref="IsTaxInvoice"/>
+    /// gates <see cref="IsBillOfSupply"/>'s exempt limb, which feeds <see cref="IsBillOfSupplyForFiling"/> and through
+    /// it the NIC e-Way Part-A <c>docType</c> we file with a government portal. Editing either to change what the
+    /// PRINTER does would move that filing. The seam is here instead, one level up, where nothing else reads it.</para>
+    ///
+    /// <para><b>Why the two questions are read in this order.</b> <see cref="IsBillOfSupply"/> is not a narrowing of
+    /// <see cref="IsTaxInvoice"/>: its §10 limb tests the base type alone, so a composition dealer's ledger-only
+    /// As-Voucher sale is a bill of supply (<c>IsBillOfSupply</c> true) that is nonetheless not rendered as an
+    /// invoice document (<c>IsTaxInvoice</c> false). That shape is shipped, it is why
+    /// <see cref="PrintedDocumentClass.RendersItemDetail"/> cannot be inferred from the title, and it is the clearest
+    /// evidence in the codebase that entitlement and rendering were always two questions.</para>
+    ///
+    /// <para><b>Slice S2 is what made a document we do NOT issue reachable from here.</b> Slice S1 shipped this
+    /// method able to express outward documents only, with <see cref="DocumentRole.Recorded"/> and
+    /// <see cref="PartyOrientation.WeAreRecipient"/> declared and provably unreachable; the purchase branch below is
+    /// what flips that, and it is deliberately the ONLY thing S2 changed in the routing layer — no call site was
+    /// touched to make a purchase print.</para>
+    ///
+    /// <para>Sources (R7): CGST Act §31(1)/(2) (tax invoice — "a registered person supplying"), §31(3)(c) (bill of
+    /// supply), §10(4); CGST Rules 46, 49 — <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>.</para>
+    /// </summary>
+    public static PrintedDocumentClass ClassifyPrintedDocument(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+
+        // ORIENTATION — read FIRST, because on a supply made TO us the entitlement question below is already answered
+        // ("nothing"), and the two outward predicates could only ever say so twice. RQ-11a.
+        if (IsRecipientRecordDocument(company, voucher))
+            return new PrintedDocumentClass(
+                // §31(1)/(2) attach the duty to "a registered person SUPPLYING". We supply nothing here, so we issue
+                // nothing; the supplier issued his document and this one merely records it.
+                Role: DocumentRole.Recorded,
+                // 🔴 OURS (ruling 9) — see the constant. Deliberately NEITHER outward title: Rule 49 puts the bill of
+                // supply on the supplier just as §31(1) puts the tax invoice there, so widening either to an inward
+                // supply swaps one false statement for another. The WHOLLY-EXEMPT purchase is the shape that makes
+                // that concrete, and it is the shape the census's implied fix would have mis-titled.
+                Title: PurchaseRecordTitle,
+                ScreenLabel: PurchaseRecordScreenLabel,
+                // The defect itself: the goods bought ARE the substance of the document, and the plain Dr/Cr
+                // projection never reads `voucher.InventoryLines` at all.
+                RendersItemDetail: true,
+                // It states the tax — the record is what substantiates the input tax credit we claim — but the tax is
+                // the SUPPLIER's charge to us and is captioned as his (SupplierTaxCaption).
+                StatesTax: TaxParticulars.AsChargedByTheSupplier,
+                // Rule 46(a): "name, address and GSTIN of the supplier" heads the document. That is not us.
+                Heads: PartyOrientation.WeAreRecipient,
+                // Rule 46(q) puts the signature on the ISSUER. Drawn unchanged, the shipped signature block would
+                // print "For {the supplier}" over a signature line on a page WE produced.
+                StatesOurDeclarationAndSignature: false);
+
+        // ENTITLEMENT — may we issue a statutory document for this voucher, and which one?
+        bool billOfSupply = IsBillOfSupply(company, voucher);
+        // RENDERING — does it render as an invoice-shaped page? A separate question, deliberately read separately.
+        bool rendersItemDetail = IsTaxInvoice(company, voucher);
+
+        bool issued = billOfSupply || rendersItemDetail;
+        return new PrintedDocumentClass(
+            Role: issued ? DocumentRole.Issued : DocumentRole.NoStatutoryDocument,
+            Title: !issued ? string.Empty : billOfSupply ? BillOfSupplyTitle : TaxInvoiceTitle,
+            ScreenLabel: !issued ? string.Empty : billOfSupply ? BillOfSupplyScreenLabel : TaxInvoiceScreenLabel,
+            RendersItemDetail: rendersItemDetail,
+            // A bill of supply states no tax at all (Rule 49 prescribes no rate and no tax amount; §10(4) forbids a
+            // §10 dealer to collect any). Everything else states it as OUR charge — including the plain voucher,
+            // which states every posted leg exactly as recorded.
+            StatesTax: billOfSupply ? TaxParticulars.None : TaxParticulars.AsChargedByUs,
+            // Every OUTWARD document is headed by us; the inward branch above is the only other value.
+            Heads: PartyOrientation.WeAreSupplier,
+            StatesOurDeclarationAndSignature: issued);
+    }
+
+    /// <summary>
+    /// <b>Is this voucher a recipient-side RECORD of an inward supply that renders with item detail?</b> (RQ-11a;
+    /// census T0-11 slice S2.) The structural mirror of <see cref="IsTaxInvoice"/>'s item limb on the other side of
+    /// the transaction — an inward supply entered in <b>item-invoice</b> mode whose posted Input tax is fully visible
+    /// to the printer.
+    ///
+    /// <para><b>Deliberately NOT public, and deliberately not named like a document predicate.</b> It answers only
+    /// the question <see cref="ClassifyPrintedDocument"/> asks it; nothing outside the classifier may branch on it,
+    /// because "which document is this?" is exactly the question the three-axis split exists to stop being answered
+    /// in five places — W0-9, W0-1b, W0-8 and FIX-W1e are the four times it already was.</para>
+    ///
+    /// <para><b>Why it does NOT consult <see cref="IsInwardBillOfSupply"/>.</b> The T0-11 design has the classifier
+    /// read it so an exempt or composition-counterparty inward supply can be told apart. It cannot change any answer
+    /// here: the title, the orientation and the suppression set of a recipient-side record are the same whether the
+    /// inward supply was taxed, exempt or from a §10 counterparty — Rule 49's bill of supply is the SUPPLIER's
+    /// document in every one of those cases, so it is <see cref="PurchaseRecordTitle"/> either way. Reading it would
+    /// ship a branch no test could distinguish. It stays where its only consumers are, the e-Way engine.</para>
+    ///
+    /// <para><b>Ledger-only purchases are OUT of scope here, and that is slice S3's boundary rather than an
+    /// oversight.</b> A purchase accounting (service) invoice needs the other projection pass, so it still prints the
+    /// plain voucher; widening this predicate without widening that pass would emit an item table with no rows.</para>
+    /// </summary>
+    private static bool IsRecipientRecordDocument(Company company, Voucher voucher)
+    {
+        if (company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Purchase) return false;
+        if (!voucher.HasInventoryLines) return false;
+        // ER-4: every figure on the record ties to the posted voucher to the paisa, so tax the metadata cannot see
+        // would make it understate what we owe the supplier. Same rule, same conservative direction, as the outward
+        // side's PostedOutputTaxIsFullyTagged.
+        return PostedInputTaxIsFullyTagged(company, voucher);
+    }
+
     /// <summary>
     /// <b>The §10 (COMPOSITION) limb of CGST Act §31(3)(c), and ONLY that limb</b> (Phase 9 slice 3; RQ-10): an
     /// outward supply (<see cref="VoucherBaseType.Sales"/>) of a company whose GST is <b>enabled</b> as Composition
@@ -700,7 +869,33 @@ public static class GstReportSupport
     /// <see cref="ServiceInvoiceFoots"/> (F2) takes: the voucher is not an invoice document at all and prints as the
     /// plain Dr/Cr voucher, which states every posted leg exactly.</para>
     /// </summary>
-    public static bool PostedOutputTaxIsFullyTagged(Company company, Voucher voucher)
+    public static bool PostedOutputTaxIsFullyTagged(Company company, Voucher voucher) =>
+        PostedTaxIsFullyTagged(company, voucher, GstTaxDirection.Output);
+
+    /// <summary>
+    /// <b>The INWARD mirror of <see cref="PostedOutputTaxIsFullyTagged"/></b> (T0-11 slice S2), for the recipient-side
+    /// record a Purchase item invoice prints as. True iff the forward tax posted to the company's own ordinary
+    /// <b>Input</b> GST ledgers is fully accounted for by tagged <see cref="GstLineTax"/> legs.
+    ///
+    /// <para><b>Why the record needs it, in the same words the outward one does.</b> The record derives 100% of its
+    /// tax from <see cref="EntryLine.Gst"/> metadata — that is what makes a reprint immune to a later master edit —
+    /// so a Purchase whose Input CGST/SGST/IGST legs carry none would print a Grand Total short of the posted
+    /// SUPPLIER leg by the whole tax, and RQ-11a requires every figure to tie to the posted voucher to the paisa
+    /// (ER-4). The conservative direction on a false is the one the outward side already takes: it is not a record
+    /// document at all and prints as the plain Dr/Cr voucher, which states every posted leg exactly.</para>
+    ///
+    /// <para>Every genuine purchase item invoice satisfies it by construction — <c>GstService.ComputeInvoiceTax</c>
+    /// stamps a <see cref="GstLineTax"/> on every head it posts, in BOTH directions — so this refuses only the shape
+    /// the outward guard refuses, for the same reason: legs built with no <c>gst:</c> argument, which import and the
+    /// As-Voucher screens can produce.</para>
+    /// </summary>
+    public static bool PostedInputTaxIsFullyTagged(Company company, Voucher voucher) =>
+        PostedTaxIsFullyTagged(company, voucher, GstTaxDirection.Input);
+
+    /// <summary>The one body both directions share. Split out by T0-11 slice S2 rather than copied: "one rule, many
+    /// copies" is the defect class that produced two disagreeing <c>IsBillOfSupply</c> predicates (W0-9), and the
+    /// metadata side is direction-blind, so a second body would have differed from this one only in a filter.</summary>
+    private static bool PostedTaxIsFullyTagged(Company company, Voucher voucher, GstTaxDirection direction)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
@@ -709,8 +904,7 @@ public static class GstReportSupport
         var onLedgers = 0m;
         foreach (var ledger in company.Ledgers)
         {
-            if (ledger.GstClassification is not
-                { IsReverseCharge: false, Direction: GstTaxDirection.Output } cls) continue;
+            if (ledger.GstClassification is not { IsReverseCharge: false } cls || cls.Direction != direction) continue;
             if (cls.TaxHead is not (GstTaxHead.Central or GstTaxHead.State
                                     or GstTaxHead.Integrated or GstTaxHead.Cess)) continue;
             foreach (var line in voucher.Lines)
@@ -718,7 +912,8 @@ public static class GstReportSupport
         }
 
         // The metadata side, from the SAME two reads the projector's money comes from — so "visible to the printer"
-        // means literally that, and the two can never drift apart.
+        // means literally that, and the two can never drift apart. Both reads filter on the tax metadata and the
+        // reverse-charge flag and NEVER on direction, so one expression serves both sides.
         var tagged = PostedForwardTaxTotal(voucher).Amount + PostedCessTotal(voucher).Amount;
         return onLedgers == tagged;
     }
@@ -1100,11 +1295,21 @@ public static class GstReportSupport
     // ================================================================ W0-9: the document-kind predicates it needs
 
     /// <summary>
-    /// True iff <paramref name="voucher"/> should be issued as a GST <b>invoice document</b> (tax invoice or, per
-    /// <see cref="IsBillOfSupply"/>, bill of supply) rather than a plain Dr/Cr voucher: a Sales voucher carrying
-    /// item-invoice stock lines, <b>or</b> a Sales <b>accounting (service) invoice</b>
-    /// (<see cref="IsServiceAccountingInvoice"/>). Purchase item-invoices and every other voucher print as the plain
-    /// voucher (RQ-10).
+    /// <b>ENTITLEMENT ONLY — this answers "may we ISSUE a Rule-46 tax invoice for this voucher?", and it must never
+    /// be used to choose a RENDERER</b> (census T0-11; ADR-0002). True iff <paramref name="voucher"/> should be
+    /// <i>issued</i> by this company as a GST invoice document (tax invoice or, per <see cref="IsBillOfSupply"/>,
+    /// bill of supply): a Sales voucher carrying item-invoice stock lines, <b>or</b> a Sales <b>accounting (service)
+    /// invoice</b> (<see cref="IsServiceAccountingInvoice"/>).
+    ///
+    /// <para><b>🔴 Sales-only is the CORRECT answer here, and the defect T0-11 records was at the CALL SITE.</b>
+    /// CGST Act §31(1)/(2) attach the duty to "a registered person <b>supplying</b>", so on an inward supply we are
+    /// entitled to issue nothing — this predicate says so and is right. What was wrong was asking it a second,
+    /// unrelated question, "should this render with item detail?": a Purchase item invoice therefore fell to the
+    /// plain Dr/Cr projection and printed with <b>zero item detail</b>. The rendering question is now
+    /// <see cref="PrintedDocumentClass.RendersItemDetail"/> and the orientation question is
+    /// <see cref="PrintedDocumentClass.Heads"/>; ask <see cref="ClassifyPrintedDocument"/>, never this. Widening this
+    /// predicate to "fix" printing would title a supplier's document as ours AND move the NIC e-Way Part-A
+    /// <c>docType</c>, because <see cref="IsBillOfSupply"/>'s exempt limb gates on it.</para>
     ///
     /// <para><b>W0-9 — moved down from <c>VoucherPrintProjector</c> unchanged</b>, because
     /// <see cref="IsBillOfSupply"/>'s exempt limb gates on it and that rule now serves the engine as well as the
