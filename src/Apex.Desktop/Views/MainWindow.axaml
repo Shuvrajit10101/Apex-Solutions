@@ -17248,10 +17248,23 @@
              below is a question awaiting Y/N, this is a statement. Declared BEFORE the confirmation so that if
              both were ever set the question paints on top; in practice raising the prompt clears the notice, and
              any change of screen clears it too. -->
-        <Border Grid.Row="3" Background="#3A4A5A" Height="26"
+        <!-- 🔴 IT WRAPS, AND THAT IS A MEASURED FIX, NOT A PREFERENCE (S5d/S5e review — UI truncation).
+             This bar shipped as Height="26" with a single trimmed line, and Phase 10.11's lifecycle refusals are
+             SENTENCES: the longest that reaches it is 481 characters (the SALES ITEM INVOICE refusal), and the
+             alteration doors put a dozen more like it here. Rendered headless through Skia at 1280x720 DIP — which
+             is 1920x1080 @150%, i.e. an ordinary full-HD laptop — the 372-character GST shape refusal was cut at
+             "…Alter re-computes the A", and even at 1920x1080 DIP it was cut at "…read the stamped figures. C".
+             Every one of those sentences ENDS with the operator's instructions ("Correct the master, or raise a
+             credit note and a fresh bill"), so the half that was thrown away was the actionable half — on the one
+             channel that exists because these refusals were otherwise invisible.
+             MinHeight keeps the one-line case pixel-identical (the row is Auto); MaxLines caps the growth at four
+             lines so a notice can never swallow the cascade, and TextTrimming stays as the backstop for the
+             pathological case below ~1024 DIP. The status bar behind it is unchanged. -->
+        <Border Grid.Row="3" Background="#3A4A5A" MinHeight="26" Padding="0,4"
                 IsVisible="{Binding Notice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <TextBlock VerticalAlignment="Center" Margin="12,0" FontSize="11"
                        Foreground="White" FontWeight="SemiBold"
+                       TextWrapping="Wrap" MaxLines="4"
                        TextTrimming="CharacterEllipsis"
                        Text="{Binding Notice}"/>
         </Border>

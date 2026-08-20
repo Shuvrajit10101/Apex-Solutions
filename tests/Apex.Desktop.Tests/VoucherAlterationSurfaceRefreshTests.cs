@@ -628,4 +628,56 @@ public sealed class VoucherAlterationSurfaceRefreshTests
         finally { Close(window, dir); }
     }
 
+    // ==================================================================================================
+    // (e) UI TRUNCATION — the class this review did not hunt, on the channel these slices stream into
+    // ==================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>THE WINDOW-LEVEL NOTICE BAR MUST WRAP.</b> It shipped as <c>Height="26"</c> with a single
+    /// <c>TextTrimming="CharacterEllipsis"</c> line, and Phase 10.11's lifecycle refusals are SENTENCES that end
+    /// with the operator's instructions — so the half thrown away was the actionable half, on the one channel that
+    /// exists because these refusals are otherwise invisible (the report page's <c>DataTemplate</c> is typed to
+    /// <c>ReportsViewModel</c> and has no <c>Message</c> property).
+    ///
+    /// <para><b>MEASURED, headless through Skia (<c>UseSkia()</c> + <c>UseHeadlessDrawing = false</c>,
+    /// <c>CaptureRenderedFrame</c> to PNG, PNGs read), then reverted.</b> At <b>1280×720 DIP — which is
+    /// 1920×1080 @150%, an ordinary full-HD laptop</b> — the 372-character GST shape refusal was cut at
+    /// <i>"…Alter re-computes the A"</i>; at <b>1920×1080 DIP</b> the same sentence was still cut, at
+    /// <i>"…read the stamped figures. C"</i>. After the fix the LONGEST refusal that can reach this bar (the
+    /// 481-character SALES ITEM INVOICE sentence) renders complete in three wrapped lines at both 1280 and 1024
+    /// DIP.</para>
+    ///
+    /// <para>Pinned STATICALLY — parsed as plain XML, no Avalonia, no Skia, no headless platform — for the reason
+    /// <see cref="XamlLayoutInvariantTests"/> gives: a render harness depends on discipline that has already
+    /// lapsed once on this project, and a pin that cannot be defeated by <c>TestAppBuilder</c> drifting is worth
+    /// more here than a prettier one that can.</para>
+    /// </summary>
+    [Fact]
+    public void The_window_level_notice_bar_wraps_its_refusal_sentences_instead_of_trimming_them()
+    {
+        var thisFile = ThisFilePath();
+        var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
+        var axaml = Path.Combine(repoRoot, "src", "Apex.Desktop", "Views", "MainWindow.axaml");
+        Assert.True(File.Exists(axaml), $"MainWindow.axaml not found at '{axaml}'.");
+
+        var doc = System.Xml.Linq.XDocument.Load(axaml);
+        System.Xml.Linq.XNamespace av = "https://github.com/avaloniaui";
+
+        // The bar is identified by its own slate background, the same way the AXAML comment beside it does — the
+        // amber Border on the identical Grid.Row is the WI-11 question channel and is deliberately untouched.
+        var bar = Assert.Single(doc.Root!.DescendantsAndSelf(),
+            e => e.Name == av + "Border"
+              && e.Attribute("Background")?.Value == "#3A4A5A"
+              && (e.Attribute("IsVisible")?.Value ?? string.Empty).Contains("Binding Notice"));
+
+        Assert.Null(bar.Attribute("Height"));                  // a fixed height is what clipped it
+        Assert.Equal("26", bar.Attribute("MinHeight")?.Value);  // …and the one-line case stays pixel-identical
+
+        var text = Assert.Single(bar.Descendants(av + "TextBlock"),
+            t => (t.Attribute("Text")?.Value ?? string.Empty).Contains("Binding Notice"));
+        Assert.Equal("Wrap", text.Attribute("TextWrapping")?.Value);
+        Assert.Equal("4", text.Attribute("MaxLines")?.Value);   // capped so a notice cannot swallow the cascade
+    }
+
+    private static string ThisFilePath([System.Runtime.CompilerServices.CallerFilePath] string p = "") => p;
 }
