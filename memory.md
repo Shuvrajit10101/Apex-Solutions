@@ -2489,6 +2489,7 @@ S5c's own blocker was that a re-carve reads the voucher's **own** posted assessa
 - **§6.6a row 8 — the service GST advance receipt.** Lifting its refusal means an alteration **registering or replacing** a `GstAdvanceReceipt` — the frozen record GSTR-1's 11A row is declared from — which §6.6a.6 forbids. **The user has to rule on which gives way**; it is not a next-slice item.
 - **🔴 NEW, AND IT HAD NO HOME UNTIL THIS SESSION: the §194C DEDUCTEE-TYPE BRANCH.** Under §194C the with-PAN rate turns on the deductee's legal status — **1% for an individual or HUF, 2% for anyone else** — and **the branch is not built**: `TdsService.ComputeWithholding` resolves `panApplied ? RateWithPanBp : RateWithoutPanBp` and reads `Ledger.DeducteeType` nowhere (`grep -rn "DeducteeType" src/Apex.Ledger/Services` returns nothing). Measured on the seeded §194C with the same party, PAN and ₹50,000.30 assessable, **Individual, Firm, Company and HinduUndividedFamily all resolve 100bp and all withhold ₹500.00**, so **no test could have failed.** It was surfaced by the S5c review (finding L3-07) and **recorded as "routed to `plan.md`" when it was not** — its only record in the repository was a comment in `src/Apex.Ledger/Seed/SeedTdsTcsRates.cs`. **Now filed as a user decision in Phase 10.11's plan items**, with its three inseparable parts: the rate needs A14 + official-source grounding (it belongs with **T0-6**'s cleartax/disytax citations), turning it on makes the shipped `ApplyReCarve` rate pin **refuse every already-posted non-Ind/HUF §194C voucher** (correct, and a migration story), and **T1-21** means the seeded masters are immutable so there is no in-app remedy either. ⚠️ **A stale doc comment on the `DeducteeType` enum in `src/Apex.Ledger/Domain/TdsTcsEnums.cs` still claims the branch exists — reported, not fixed.**
 - **🔴 THE `voucher_inventory_lines` DISCOUNT COLUMN.** §6.6a rows 17 and 22 (item invoice on Sales and Purchase) are **schema-blocked**: the posted rate is the **effective** rate (list rate less the Price-Level discount) and that table has **no discount column**, so the list rate is unrecoverable; a batch-split line also posts **one item line per batch**, so one keyed row becomes N posted rows. **No inversion can be written against the current schema** — this one is a migration, and the user holds full schema authority.
+  - **†† CORRECTED IN PART 2026-08-20 (S5e, `b89213e`) — THE PROSE ABOVE IS LEFT VERBATIM AND IS NOT EDITED.** Two of its three reasons were re-measured rather than inherited and did not survive. **(a)** The batch split is an **ambiguity, not an irrecoverability** — the guard above the split-append refuses any split whose per-batch values do not foot to the line value and forces Billed == Actual, so every split that actually posts is value-identical to the N-separate-rows keying and rehydrating flat is a true inverse. **(b)** The discount **only bites SALES** — the price-level selector's predicate excludes purchase invoices and is the sole writer of the line's discount flag, so on a Purchase item invoice and on a POS bill the posted rate IS the keyed rate. ⇒ **Row 22 (Purchase) is NOT schema-blocked and is now alterable; the refusal was narrowed to the SALES arm alone, and a POS bill was given its own door.** What still stands: **row 17 (Sales) remains refused**, and its refusal is deliberately NOT narrowed further to "the multiple-price-levels flag is on", because that flag is live and reading it to judge a voucher posted months ago is the master-drift trap the predicate exists to avoid. See the session-close entry at the end of this file, §(1a). **The general lesson: a refusal written as ONE SENTENCE OVER A WHOLE FAMILY is a HYPOTHESIS about that family.**
 - **Row 23 (the Purchase accounting invoice) is NOT a user decision** — it is blocked by the invoice grid's own writers (derived party leg, bill-wise panel targeted at the withholding net), so the plain-grid inversion S5c built does not apply. Recorded so it is not mistaken for one of the above.
 - **Still owed from earlier sessions and still not started: the R9 real-app run for this whole campaign** — and see (6) for the part of it that is now known to be impossible until the wiring lands.
 
@@ -2530,3 +2531,209 @@ S5c's own blocker was that a re-carve reads the voucher's **own** posted assessa
 3. **🔴 THE REAL APPLICATION HAS NOT BEEN RUN FOR THIS SLICE. R9 asks for that evidence and it does not exist.** What changed is that the phase gate's *"alter a posted invoice and see the same number at the same Day-Book position"* is now **producible** — before this slice it was **impossible**. **Producible is not produced. The phase gate is OPEN.**
 
 **▶ (7) THE GATE FOR THIS DOCUMENTATION PASS, AND WHAT WAS DELIBERATELY NOT RE-RUN.** `Apex.Ledger.Tests` **reads every `*.md` in the tree at runtime**, so it is the one project that can observe a change to `plan.md` or to this file; it was re-run after these entries were written. Command form, always with the absolute SDK path and **never piped through `tail` or `head`**: `& "C:\Users\dkpho\.dotnet\dotnet.exe" test "tests\Apex.Ledger.Tests\Apex.Ledger.Tests.csproj" -v q`. **No `.cs` file was touched by this documentation pass**, so `Apex.Ledger.Io.Tests`, `Apex.Persistence.Sqlite.Tests` and `Apex.Desktop.Tests` were **NOT re-run, and no figure is claimed for them here** — they are **inherited from the S5d slice's own run, not measured by this pass**, and saying so is the point.
+
+## SESSION CLOSE — **PHASE 10.11 IS CLOSED (S5e SHIPS THE ITEM-INVOICE AND POS INVERSES), FIVE WRONG-MONEY DEFECTS ARE CLOSED ON A SECOND TRACK, T0-5/T0-6 ARE VERIFIED AGREE ON A THIRD — AND THE WORK NOW LIVES ON FOUR PUSHED, UNMERGED BRANCHES** (worktree `recursing-swirles-3138c6`, branch `claude/apex-wrong-figures-bc45f4`, HEAD `b89213e`, 2026-08-19/20) — **documentation pass only: this entry and the rewrite of `docs/NEXT_SESSION_KICKOFF.md`. NO `.cs`, `.axaml`, `.csproj` OR `.slnx` FILE WAS TOUCHED BY THE PASS THAT WROTE THEM.**
+
+**▶ (0) 🔴 THE BRANCH PICTURE — FIVE BRANCHES, ALL PUSHED, NONE MERGED, AND `origin/main` HAS NOT MOVED ALL CAMPAIGN.** This is the single most important thing to know before touching anything, because **nothing is local-only any more** — the previous close had three tracks committed and unpushed, and that sentence is now false.
+
+| branch | tip as of this entry | what it carries |
+|---|---|---|
+| `claude/apex-wrong-figures-bc45f4` | **`b89213e`** | **PR #34's branch.** Wave 0 + the whole voucher lifecycle. Gate **1857 · 414 · 242 · 2469** |
+| `claude/apex-tier0` | **`b1f20f9`** | the wrong-money rows of §(2) below, schema **51**. Gate **1976 · 414 · 242 · 2467** |
+| `claude/apex-edit-log` | **`ce6ef0f`** | the voucher edit log — **SCHEMA v52**. Gate **1875 · 414 · 250 · 2442** |
+| `claude/apex-print-engine` | **`7328a42`** | T0-9 closed (IRN + signed QR on the printed document). Gate **1857 · 469 · 242 · 2443** |
+| `backup/stream-a-pre-resplit` | `ffa8db5` | archive. **Deliberately has NO UPSTREAM — no upstream means it can never advance.** Do not "fix" that |
+
+- **`origin/main` is `c655dc2` and has not moved for this entire campaign.** It is at `Schema.CurrentVersion` **46**.
+- **All three parallel tracks were cut from `a34d989`, NOT from main.** 🔴 **The tooling default (`isolation: 'worktree'`) cuts from MAIN**, which is ~a hundred commits behind at schema 46 — a track cut that way builds a v46 database and every migration fixture in it is a lie. **A worktree that comes up below the branch's `Schema.CurrentVersion` was cut from main. Re-cut it; do not debug the difference.**
+- **A `.md` file cannot name its own commit count, so none is stated here.** Derive it with `git rev-list --count origin/main..HEAD`. 🔴 **And do NOT read it off the PR: `gh pr view 34 --json commits` CAPS AT 100 and silently under-reports** — it returned 100 against a true 101 on 2026-08-19, which is this project's own counting defect recurring inside the instruction written to prevent it. Use `gh api --paginate` on the commits endpoint if the PR is the source you want.
+- 🔴 **THE FOUR GATE FIGURES ABOVE ARE PER-BRANCH AND MUST NOT BE MIXED.** Each row is that branch's own last measured run, in that branch's own worktree. There is no such thing as "the" gate while four tracks are open.
+
+**▶ (1) PHASE 10.11 — CLOSED. THE SLICES AND THE SHAS THAT CARRY THEM.**
+
+| slice | verb / contract | commits |
+|---|---|---|
+| **S3** | Cancel on Alt+X | `099e7bc` |
+| **S4** | Delete on Alt+D | `17e8525` + `6fb5fe5` |
+| **S5a** | engine `Replace` | `6eab601` + `95a0e9c` |
+| **S5b** | `ForAlter` rehydration, the simple families | `e0a9fa2` + `0d79104` |
+| **S5c** | carve inversions + the CARRY table | `f73ff35` + `0f56606` |
+| **S5d** | `Ctrl+Enter` — alteration becomes reachable from three surfaces | `a34d989` |
+| **S5e** | the ITEM-INVOICE inverse and the POS bill's own door | `b89213e` |
+
+🔴 **EVERY ONE OF THOSE SLICES SHIPPED GREEN ON ALL FOUR PROJECTS AND THEN YIELDED 15 / 32 / 33 / 26 / 21 REVIEW FINDINGS — 13 of them BLOCKERS, four of which left a company that could never be saved again.** Those five numbers are the historical record of five review passes; **they are not re-derivable from the tree and must not be "checked" against anything.** The sentence that generalises: **a green suite on this project is evidence that the tests ran, and nothing else.** The instruments that found these were adversarial review lenses and targeted mutation, in that order — never the suite.
+
+**▶ (1a) WHAT S5e ACTUALLY DID, BECAUSE IT OVERTURNED A PREMISE THIS LOG HAD RECORDED AS SETTLED.** The previous close recorded §6.6a rows 17 and 22 (item invoice on Sales and Purchase) as **schema-blocked** — no discount column, batch splits posting N rows for one keyed row, *"no inversion can be written against the current schema."* **S5e re-measured both reasons instead of inheriting them, and both turned out to be narrower than the blanket sentence:**
+- **The batch split is an AMBIGUITY, not an irrecoverability.** The guard above the split-append **refuses any split whose per-batch values do not foot to the line value** and forces Billed == Actual on it, so every split that actually posts is **value-identical** to the N-separate-rows keying. Rehydrating flat is a true inverse of the posted shape; what is lost is the operator's knowledge that the sub-screen was used, and no figure depends on it.
+- **The discount only bites SALES.** The price-level selector's own predicate excludes purchase invoices, and it is the sole writer of the line's discount flag — POS builds its item rows without touching it — so the parsed discount is zero and **the posted rate IS the keyed rate, exactly, on every Purchase item invoice and every POS bill.**
+⇒ **The refusal was narrowed from the whole item-invoice family to SALES alone**, and Purchase item invoices and POS bills became alterable. 🔴 **And the Sales arm was deliberately NOT narrowed further to "the multiple-price-levels flag is on", although only those invoices can carry an unrecoverable list rate: that flag is LIVE, so reading it to decide what a voucher posted months ago can carry is the master-drift trap the whole predicate exists to avoid** — switch it off after posting a discounted invoice and the same voucher would suddenly look recoverable, with the list rate silently lost.
+- **A POS bill got its OWN door** (`PosAlterationEligibility` / `PosBillingViewModel.ForAlter`) rather than a lifted refusal, because the single customer debit is replaced by a **split of tender debits** whose per-tender metadata — kind, cash tendered, change, card number, drawee bank, cheque number — is fully persisted but **not expressible on either grid of the accounting entry screen**. The plain grid would rebuild the split as ordinary debits; the item grid derives exactly one party debit, which is precisely the leg a POS bill does not have. **The book-level refusals (advance record, §34 link, challan link, live IRN, provisional-state shape) are NOT re-implemented in the POS door — both doors consume one list**, so the second door cannot quietly grow a weaker copy.
+⇒ **THE TRANSFERABLE PART: a refusal written as one sentence over a whole family is a HYPOTHESIS about that family. Re-measure each limb before inheriting it. Two of the three limbs here were false.**
+
+**▶ (2) FIVE WRONG-MONEY DEFECTS CLOSED ON `claude/apex-tier0` — each CONSTRUCTED first, PROVED with literals, then MUTATION-PINNED.**
+- **§194Q withheld on the WHOLE value** instead of the excess over the threshold — **₹6,000 where the Act says ₹1,000.**
+- **§194C had NO DEDUCTEE-TYPE BRANCH AT ALL.** The Act sets 1% for an individual or HUF and 2% for anyone else; the service resolved one rate for every deductee, so **companies were charged 1% instead of 2%** and **no test could have failed** — every legal status resolved the same basis points.
+- 🔴 **§194-I's PER-MONTH limb shipped ANNUALISED.** One month's rent of ₹60,000 withheld **₹0.00** against a correct **₹6,000.00**.
+- **`StandardCost` was UNCAPTURABLE** — the method is selectable on the stock-item master and the dropdown renders, but there was **no bound input for the value**, so valuation silently fell back to last purchase rate.
+- **Duplicate attendance DOUBLED A MONTH'S PAY** — recording an attendance period twice.
+- **plus the partial-batch window that one of those fixes opened**, closed in the same track.
+
+🔴 **NONE OF THESE FIXES IS IN `claude/apex-wrong-figures-bc45f4`.** Verified in this worktree at `b89213e`: `grep -rn "DeducteeType" src/Apex.Ledger/Services` returns nothing here. **The fixes live on `claude/apex-tier0` and nowhere else until that track is merged.** Do not read a closed row as a shipped product.
+
+**▶ (3) T0-5 AND T0-6 — CLOSED, AND THE VERDICT WAS *AGREE*.** The unverified **4% Health & Education Cess** and **every TDS/TCS rate** were checked against the **bare Act and CBDT**, not against a chart: **they agree with what the product applies.** The blog citations were removed. 🔴 **TWO R7 GAPS SURVIVE AND ARE STILL OPEN:**
+1. **§194A's 10% rests on the TDS chart ALONE.** §194A(1) says only *"at the rates in force"*, which routes through §2(37A) to Part II of the First Schedule to the Finance Act — **and that Schedule was not retrievable.** The rate is not contradicted; it is **unreached**.
+2. **EVERY with-PAN TCS rate rests on an entirely UNDATED chart alone.** No §206C page is cited anywhere for them.
+⇒ **"Verified AGREE" and "sourced to the primary instrument" are two different claims. These two rows have the first and not the second, and the distinction must not be rounded away in a status line.**
+🔴 **AND THE REMOVAL IS NOT IN THIS BRANCH EITHER.** In this worktree at `b89213e`, `grep -rn "cleartax\|disytax" src --include=*.cs` still returns hits in the TDS/TCS seed. **The citation work is on the tier0 track.**
+
+**▶ (4) 🔴 THE LESSONS WORTH THE ENTRY — EVERY ONE OF THESE HAS NOW REPEATED, AND EACH COST REAL TIME.**
+
+1. **A FIX FOR A DEFECT IS NOT A FIX FOR ITS CLASS.** S5c's own blocker fix **shipped incomplete**: it excluded the voucher's own **id** while the projection still selected by **DATE**, so a sibling posted later and dated on or before still counted as prior. **Two shipped tests sat beside it. One built the exact fixture and stopped a step short; the other asserted the defective window AS THE CONTRACT.** A test that codifies the defect is worse than no test — it converts the next reviewer's correct instinct into an apparent regression.
+2. **SIBLING TESTS WITH ASYMMETRIC ASSERTIONS ARE WHERE THE DEFECTS LIVE.** Two refusal tests stood side by side: one asserted the **book was unchanged**, its twin asserted **only that the message came back**. The defect lived in the twin — a *refused* alteration added two RCM tax heads to the chart of accounts and the next unrelated save persisted them to disk. **When two tests cover the same shape and assert different amounts, the weaker one is not redundant — it is the hole. Read sibling tests for the assertion they DON'T share.**
+3. **AN ORACLE YOU WROTE YOURSELF PROVES CONSISTENCY, NOT CORRECTNESS.** A QR encoder passed 189 of 189 against a decoder **that read the same wrong error-correction table.** Both halves agreed; both were wrong. An oracle must come from outside the thing it judges, or it is a mirror.
+4. **A TEST ASSERTING CONTENT CANNOT SEE A LAYOUT GUARD DIE.** Rows "present" stays true when they are drawn **off the sheet**. Content assertions and geometry assertions are different instruments and neither substitutes for the other.
+5. **CODE SHIPS UNREACHABLE HERE — THREE TIMES NOW — AND THE INVARIANT BUILT TO STOP IT MISSED THE THIRD**, because it covered `*ViewModel` factories and not services. 🔴 **The tell was identical every time: a doc comment describing a caller that does not exist.** A `<see cref=…/>` proves the symbol resolves, never that anyone calls it.
+6. **A SCHEMA VERSION CANNOT BE RESERVED BY A BRANCH — IT IS A PROPERTY OF MERGE ORDER.** The ladder is dense. `claude/apex-edit-log` holds **v52** only for as long as it is the next thing merged; **whichever track merges second must RENUMBER.** See §(5).
+7. 🔴 **PLAIN `/w/section-…` SLUGS ON `incometaxindia.gov.in` ROLL FORWARD SILENTLY.** Two citations that verified correctly **stopped verifying between sessions** — the page under the slug moved to a later assessment year and the old text simply was not there any more. A citation that verified once is not a citation that verifies.
+
+**▶ (5) 🔴 TWO THINGS MUST HAPPEN BEFORE ANY MERGE. NEITHER IS OPTIONAL AND NEITHER IS OBVIOUS FROM THE REPOSITORY.**
+
+1. **COMMIT A `.gitattributes` CARRYING `* text=auto eol=lf`.** There is **no `.gitattributes` in this tree** — verify with `ls -la .gitattributes` at the repo root — so the LF blob state rests **entirely on a LOCAL `core.autocrlf=true`, which is invisible in the repo and travels with nobody.** Meanwhile `.editorconfig` declares `end_of_line = crlf` for `[*]`. 🔴 **One `.editorconfig`-honouring save on `MainWindowViewModel.cs` — the file all three tracks append to — rewrites every line ending and turns a three-way merge into a TOTAL conflict on a file whose size you should derive rather than quote (`wc -l src/Apex.Desktop/ViewModels/MainWindowViewModel.cs`).**
+   - 🔴 **AND A MEASUREMENT THAT CORRECTS THE BRIEF THIS ENTRY WAS WRITTEN FROM: THE WORKING TREE IS *MIXED*, NOT UNIFORMLY CRLF.** Measured in this worktree at `b89213e`, and **derive it, never quote it** — `python -c "import sys;d=open(sys.argv[1],'rb').read();print(d.count(b'\r\n'), d.count(b'\n')-d.count(b'\r\n'))" <file>` prints CRLF count then bare-LF count. **`memory.md`, `plan.md`, `docs/NEXT_SESSION_KICKOFF.md`, `docs/full-clone-census.md` and `src/Apex.Desktop/ViewModels/MainWindowViewModel.cs` are pure LF in the working tree**, while `CLAUDE.md`, `agents.md`, `.editorconfig`, `Apex.slnx` and `src/Apex.Persistence.Sqlite/Schema.cs` are pure CRLF. **The single most conflict-prone file in the merge is on the side that `.editorconfig` would convert.** ⚠️ **A `grep -c` for a carriage return is NOT a safe way to check this** — if the `$'\r'` quoting does not survive to the shell, the pattern degrades to the EMPTY pattern, which matches every line and reports the whole file as CRLF. That false reading was taken during this very session and corrected only by a byte count. **Count bytes, not lines.**
+   - **The practical rule until `.gitattributes` lands: match the file you are editing, byte for byte. Never let an editor normalise one.**
+2. **WHICHEVER TRACK MERGES SECOND RENUMBERS ITS SCHEMA VERSION.** `claude/apex-edit-log` is at v52 on top of v51. If anything else takes v52 first, the edit log's migration is a v51→v52 that runs against a database already at v52. **Read the number, do not assume it:** `grep -n "CurrentVersion" src/Apex.Persistence.Sqlite/Schema.cs` inside each worktree.
+
+**Also expect real conflicts in `MainWindowViewModel.cs` (one flat screen enum that all three tracks append to) and in `plan.md` / `memory.md` (both append-only, both appended to by every track).** The merge route settled last session was **(A): each track back into `claude/apex-wrong-figures-bc45f4`** — but **nothing has been merged, because it interacts with PR #34, which is the user's call.**
+
+**▶ (6) 🔴 STILL BLOCKED ON THE USER — NOBODY CAN SUBSTITUTE FOR ANY OF THESE.**
+- **PR #34's review.** <https://github.com/Shuvrajit10101/Apex-Solutions/pull/34>. Nothing merges until the user acts on it, and the merge route in §(5) waits on the same answer.
+- **§6.6a ROW 8 — may an alteration mutate a frozen `GstAdvanceReceipt` that GSTR-1 Table 11A declares from?** Lifting the refusal means amending the record a filed return was built on. **The user has to rule on which gives way.** It is not a next-slice item.
+- **The TallyPrime T3 and T8 measurements** in `docs/tallyprime-valuation-test-books.md`. T3 falsifies or confirms the whole Average Cost design; T8 unfreezes the interest divisors. **Ask; do not guess, and do not work around them.**
+
+**▶ (7) WHAT IS OWED, CARRIED FORWARD.** Three-lens reviews on **S5d**, **S5e** and **all three parallel tracks** — none has had one. **T0-4**, the inverted GST rate hierarchy: the masters persist and nothing reads them, and **closing it needs no migration** because the v51 storage already exists. **T0-11**, the purchase-document projection — and read its correction in the kickoff before acting on the row's title. **Real printer output has not been started**, on any track. **The R9 real-app run for this whole campaign is still outstanding.**
+
+**▶ (8) THE GATE FOR THIS DOCUMENTATION PASS, AND WHAT WAS DELIBERATELY NOT RE-RUN.** `Apex.Ledger.Tests` **reads every `*.md` in the tree at runtime**, so it is the one project that can observe a change to this file or to the kickoff; it was re-run in **this** worktree after these edits were written, against a baseline of **1857**. Command form, always with the absolute SDK path and 🔴 **never piped through `tail` or `head`** — three agents have self-reported that breach and one read back `tail`'s exit code as the result:
+
+```
+& "C:\Users\dkpho\.dotnet\dotnet.exe" test "tests\Apex.Ledger.Tests\Apex.Ledger.Tests.csproj" -v q
+```
+
+**No `.cs` file was touched by this pass**, so `Apex.Ledger.Io.Tests`, `Apex.Persistence.Sqlite.Tests` and `Apex.Desktop.Tests` were **NOT re-run here** — their figures in §(0) are **inherited from each branch's own last run, not measured by this pass**, and saying so is the point.
+
+---
+
+## 2026-08-20 — A14: THE S5d+S5e STEP-5a FIDELITY RECORD, THE CENSUS CORRECTION, AND SEVEN DEFECTS FOUND WHILE FIXING
+
+**APPENDED, not edited.** Nothing above this line was changed by this pass, including the 89 uncommitted lines
+the prior session left. Worktree `recursing-swirles-3138c6`, branch `claude/apex-wrong-figures-bc45f4`, HEAD
+`b89213e`, with four fix agents' uncommitted `src`/`tests` edits already in the tree.
+
+**▶ (1) WHY THIS PASS EXISTED — THE GATE, NOT THE CODE.** The S5d+S5e three-lens review returned `NOT_DONE`
+**independently of any code defect**, on item 7 of its must-fix list: **S5e (`b89213e`) touched no doc of any
+kind.** `git diff --stat a34d989 b89213e -- plan.md` is empty, `grep -c "S5e" plan.md` was **0**, and the
+slice's 2,926-line `src`/`tests` diff carries **zero** corpus citations. Under **ruling 5** and **R11**, a
+slice with no fidelity record is not done.
+
+**▶ (2) THE MECHANISM, WHICH IS THE PART WORTH REMEMBERING.** `plan.md` §2.2 step 5a says the fidelity count
+*"is maintained"* in `docs/full-clone-census.md` §1.3 and **"do not copy the digits into this file"**. **S5d
+DID write a full, correctly-categorised R7 record — into `plan.md`.** So a compliant author discharged the
+gate **in substance** and left every maintained figure stale; S5e then wrote nothing and **no artefact
+failed, because no artefact exists that could.** **The fidelity gate is prose-checked, not
+derivation-checked.** Filed as a census Tier-3 row. This is the fourth time a restated digit in `plan.md` has
+gone stale, and ruling 9's own paragraph — written 2026-08-19 — restated one and went stale within a day.
+
+**▶ (3) WHAT WAS WRITTEN.** All of it in `docs/full-clone-census.md` and `plan.md`; superseded text is marked
+in place with a dated note and the original **quoted**, never overwritten.
+- **§1.3 item 12 is now the step-5a record for the WHOLE alteration verb (S5a…S5e)**, in the two R7 categories
+  ruling 9 requires plus an `ATTESTED AND FOLLOWED` block and an `OURS, CORPUS SILENT` block. Header re-graded
+  from *"GROUNDED, NOT YET BUILT"*.
+- **§1.2a row 5.1 flipped `ABSENT` → `PARTIAL`**, with its four-limb evidence cell quoted and **three of the
+  four limbs shown false at HEAD**: `ForAlter` is in **five** view models (not *"three master view models and
+  no voucher one"*); the entry view model has **70** `Alter`/`Duplicate`/`Insert` occurrences at `b89213e`
+  (53 at `a34d989`), not zero; `Ctrl+Enter` binds voucher alteration on three surfaces. Only *"the detail view
+  model exposes no alter or save member"* survives, and it is true **by design**.
+- **The integers were RE-SUMMED by re-running §1.2a's own counting command, never edited.** Area 5's heading
+  and §1.2's table row and TOTAL all follow: **`TOTAL rows=216 C=47 P=97 A=72 U=0 sum=216`**, actually run.
+- **The anchor block is `12 · 12 · 204 · 204`.** Figures (3) and (4) **coincide for the first time** — item 12
+  was the only header grounded-but-not-compared, so closing it collapses them; they separate again the next
+  time a capability is grounded ahead of being built. Said out loud so nobody reads it as a slip.
+- **`plan.md`:** a new **S5e** slice item (the second R6 retrospective in this phase, and worse than S5d's);
+  **source (b)** added to S5d's R7 record; a **carry-forward block of R6 work items**; and a **three-part OPEN
+  USER DECISION banner** in §5.
+
+**▶ (4) 🔴 THE ONE FAMILY STILL REFUSED AFTER S5e, NAMED FOR THE FIRST TIME ANYWHERE — THE *SALES ITEM
+INVOICE*.** Refused on the accounting door and again on the POS door, so **alterable by no key on any
+screen**, while the corpus attests the route on two pages I re-extracted myself with `-raw`: STUDY GUIDE
+printed **p.281** — *"Gateway of Tally Day Book select any Sale Invoice and press Enter"* / *"Sales Invoice
+alteration screen will appear"* — and the Book's section-terminal *"How to Show/Edit Sale Voucher Entry …
+Sale Register > Select Month & Show/Edit Entry"*, closing a Sale (F8) section that explicitly covers **Item
+Invoice**, Accounting Invoice and As Voucher modes. **That makes it a ruling-9 category (b) divergence, not a
+neutral technical limit.** ⚠️ **AND THE OBVIOUS NARROWING IS THE TRAP, RECORDED AS ONE:** the arm was **not**
+narrowed to *"the multiple-price-levels flag is on"*, because that flag is **live** and reading today's flag
+to judge a voucher posted months ago is the **master-drift** defect this phase has already shipped twice.
+
+**▶ (5) 🔴 SEVEN NEW DEFECTS THE FOUR FIX AGENTS FOUND *WHILE FIXING* — FIVE WRONG-MONEY OR DATA-LOSS, EACH
+REPRODUCED WITH LITERALS. EVERY ONE NOW HAS A HOME IN BOTH `plan.md` AND THE CENSUS.** They are written down
+because the last defect of this shape — the §194C deductee-type branch — was *"recorded as routed to
+`plan.md` when it was not"* and shipped wrong money for weeks.
+1. **T0-14** — the tax-head pin is blind to an intra-state GST rate moved between an EVEN basis-point figure
+   and the ODD one above it: `integratedBp / 2` is **integer** division, so 500 and 501 both stamp 250. ITC
+   185.19 → 185.56, supplier credit 3,888.90 → 3,889.27. Rs 0.37 measured, unbounded in principle. Inter-state
+   is safe. **OPEN.**
+2. **T0-15** — the same pin is blind to a taxability flip masked by a same-rate sibling. Base 7,654.15 →
+   3,950.44, supplier credit 9,031.90 → 8,365.23. **Rs 666.67 on an alteration that touched nothing. OPEN.**
+3. **T0-16** — `PosBillingViewModel.ComputeGst` resolves **no Compensation Cess at all**, so a cess-bearing
+   item sold over the counter collects zero cess while the same item on an item invoice collects it. Feature
+   gap; needs its own slice; **its rate side must be web-verified against CBIC at build time (A6/R7). OPEN.**
+4. **T1-22** — a `BankAllocation` on an item-invoice PARTY leg is destroyed on re-accept, **reconciliation
+   date included**, and the warning rides on the SUCCESS message. 🔴 **THIS CONTRADICTS THE S5d/S5e VERIFIER,
+   who told the fixer to drop the limb and asserted the reconciliation date was not at risk. The fixer probed
+   instead of assuming and the verifier was wrong — recorded explicitly, because a verifier being wrong is
+   exactly the kind of thing this project loses.** **OPEN.**
+5. **T1-23** — `BillAllocations` on a bill-wise VALUE leg destroyed with **no warning at all**. Nobody had
+   enumerated this: finding, verifier and critic all discuss bill-wise only on the party leg. **OPEN.**
+6. **T1-24** — the type F-keys destroy an in-progress POS bill and an unsaved POS **alteration**; the shipped
+   fix is scoped to `Screen.VoucherEntry` per its brief. **OPEN.**
+7. **Tier 3 (FIXED, but recorded)** — the window-level notice bar clipped **every** Phase 10.11 lifecycle
+   refusal at one line at 1280×720 **and** 1920×1080 DIP, and **the discarded half was always the operator's
+   instructions**. First defect of the UI-truncation class ever found on this surface; **no lens hunted it.**
+
+**▶ (6) 🔴 THREE MEASURED CORRECTIONS TO CLAIMS THIS PROJECT'S OWN NOTES CARRY. VERIFY, DO NOT QUOTE.**
+- **`core.autocrlf=true` is SYSTEM scope**, not local and not global: `git config --show-origin --get-all
+  core.autocrlf` returns one line, `file:C:/Program Files/Git/etc/gitconfig  true` — the Git-for-Windows
+  **installer default**. Every note saying *"a LOCAL `core.autocrlf=true`"* is wrong, and **the real failure
+  mode is worse than recorded**: it is any agent, container or CI runner **without** that installer default —
+  i.e. every Linux runner — that breaks it, not one developer's drifting config. ✅ And committing
+  `.gitattributes` is **provably zero-diff**: `git ls-files --eol` gives **1015 `i/lf` text blobs + 1 binary**,
+  and there is no `.gitattributes` in the tree. ⚠️ **But `eol=lf` CONTRADICTS the root `.editorconfig`, whose
+  `[*]` section mandates `end_of_line = crlf`.** Recorded as an **OPEN USER DECISION** in `plan.md` §5,
+  deliberately **not resolved**.
+- **`MainWindowViewModel.cs` is 8,012 lines at `b89213e`**, not 7,958 (and 8,118 in this worktree with the fix
+  agents' uncommitted edits).
+- 🔴 **THE "8 UNWRAPPED `{Binding Message}` TextBlocks" CLAIM IS FALSE AND IS WITHDRAWN.** Re-measured by
+  parsing every `<TextBlock …>` **opening tag** in `MainWindow.axaml` — attribute level, not line level, and
+  that difference is the whole error: **59 such TextBlocks, 59 carry `TextWrapping`, ZERO carry neither**, at
+  `b89213e` and in the working tree alike, and **all eight named lines carry `TextWrapping="Wrap"` verbatim.**
+  **Do not open UI-campaign work off it.** The truncation defect that agent *fixed* was real and stands.
+
+**▶ (7) ✅ TWO POSITIVE RESULTS THAT CLOSE CRITIC ITEMS — A FIXER TOLD TO "CLOSE THEM" WOULD HAVE WRITTEN DEAD
+GUARDS.** (i) **Three of the five limbs the critic said *"nobody enumerated"* are already refused at the door
+with a shipped test** — `ItemGridDerivedLegRefusal` refuses TDS, TCS (predicate is *"has a TCS"*, so the
+**below-threshold** detail is covered too), a reverse-charge pair and a GST statutory adjustment; payroll is
+refused separately in the same file. **The complete census of `EntryLine`'s eight optional fields lives in the
+census's 2026-08-20 gap-register banner** — `BillAllocations` re-keyed on the party leg and dropped elsewhere ·
+`CostAllocations` carried · `BankAllocation` dropped · `Forex` carried · `Gst` re-derived and shape-pinned ·
+`Tds`/`Tcs`/`Payroll` refused at the door — **so T1-22 and T1-23 are the entire residue.** (ii) **The POS
+screen has no discount field and no round-off field at all**, proven by a zero-hit grep, so two critic worries
+about POS rehydration are **void**.
+
+**▶ (8) TWO FURTHER OPEN USER DECISIONS OPENED BY THIS PASS**, both in `plan.md` §5: **standing ruling X5**
+excludes a whole corpus PDF on evidence a `-raw` re-extraction shows is a `-layout` artefact (items 17, 18, 27,
+28, 30, 33, 40 all agree with the Book and the shipped contract) — reinstating an excluded source is R12, not
+an agent call; and the **two design questions** riding with T1-22 and T1-23 (does `CarryBankDatesForward`'s
+warning stay? carry-or-refuse for bill-wise on the value leg?).
+
+**▶ (9) THE GATE FOR THIS PASS.** `Apex.Ledger.Tests` reads every `*.md` in the tree at runtime, so doc edits
+can redden it; it was run in full, redirected to a file and never piped. **No `.cs` and no `.axaml` file was
+touched by this pass** — the `src`/`tests` edits in this worktree belong to the four fix agents that ran
+before me — so the other three projects were not re-run here.
