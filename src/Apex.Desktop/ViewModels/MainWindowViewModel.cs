@@ -5646,6 +5646,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// column from inside a confirmation handler would move the cascade underneath the operator, which is the
     /// work-loss class the Alt+Y hole was closed for.</para>
     ///
+    /// <para>🔴 <b>THAT EXCEPTION IS ABOUT DELETION AND DOES NOT CARRY TO ALTERATION — it was read across, and a
+    /// document went out wrong.</b> The paragraph above rests on "the voucher is gone": there is nothing left to
+    /// re-project, so leaving the pane standing is the least-surprising outcome and the pane cannot mislead
+    /// anyone about a live document. After an ALTERATION the voucher still exists, still carries the same number,
+    /// and is still PRINTABLE and E-MAILABLE from that very pane — so a pane left alone there is not inert, it
+    /// re-issues the superseded document. The alteration doors therefore call
+    /// <see cref="VoucherDetailViewModel.Refresh"/> (S5d/S5e review, C2), which is a re-projection and never a
+    /// pop, so the cascade still does not move underneath the operator. Deletion and alteration disagree here on
+    /// purpose; do not unify them.</para>
+    ///
     /// <para>🔴 <b>THE REGISTER DRILL WAS MISSING AND THE COMMENT ABOVE CLAIMED IT WAS NOT.</b> A voucher deleted
     /// from <see cref="Screen.LedgerVouchers"/> re-ran the REPORT (which is not the active column) and left the
     /// deleted row on the drill with its amount still in the running balance, <c>SelectedRow</c> still pointing at
@@ -5821,6 +5831,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // see a different report. Same trap ShowLedgerAlter records for the Chart of Accounts tree.
         var report = Reports;
         var register = LedgerVouchers;
+        // 🔴 THE THIRD SURFACE, AND THE ONE THE REVIEW CAUGHT MISSING. Ctrl+Enter is admitted FROM
+        // Screen.VoucherDetail (IsVoucherAlterTargetPage's third arm), so the read-only column can be the pane
+        // the alteration was raised from — and it is the pane that ISSUES DOCUMENTS: OpenPrintPreview's
+        // Screen.VoucherDetail branch prints it, and EmailComposeViewModel attaches the same bytes. Left
+        // unrefreshed it re-issued the SUPERSEDED document under the live voucher number. See
+        // VoucherDetailViewModel.Refresh.
+        var detail = VoucherDetail;
 
         // 🔴 S5e — A POS BILL GOES TO THE POS SCREEN, and the branch is here rather than inside ForAlter because
         // WHICH SCREEN opens is a shell decision. Every field of a POS bill's tender split is persisted, so it is
@@ -5840,6 +5857,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 BackFromPage();
                 report?.Show(report.Kind);
                 register?.Refresh();
+                detail?.Refresh();
             },
             onCancelled: BackFromPage);
 
@@ -5881,6 +5899,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private VoucherAlterationRequest ShowPosBillAlteration(
         Voucher voucher, ReportsViewModel? report, LedgerVouchersViewModel? register)
     {
+        // The same third surface, for the same reason — this door is reached from Screen.VoucherDetail too.
+        var detail = VoucherDetail;
+
         var open = PosBillingViewModel.ForAlter(
             Company!, voucher.Id, _storage,
             onSaved: () =>
@@ -5888,6 +5909,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 BackFromPage();
                 report?.Show(report.Kind);
                 register?.Refresh();
+                detail?.Refresh();
             },
             onCancelled: BackFromPage);
 

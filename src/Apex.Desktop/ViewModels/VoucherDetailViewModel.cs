@@ -18,7 +18,16 @@ namespace Apex.Desktop.ViewModels;
 public sealed partial class VoucherDetailViewModel : ViewModelBase
 {
     private readonly Company _company;
-    private readonly Voucher _voucher;
+
+    /// <summary>
+    /// The voucher this pane projects. 🔴 <b>NOT <c>readonly</c>, and that is the whole of the S5d/S5e review's
+    /// stale-pane fix.</b> <c>LedgerService.Replace</c> puts a <b>new</b> <see cref="Voucher"/> object at the same
+    /// index (<c>Company.ReplaceVoucherInternal</c>), so after an alteration this field held a DISCARDED object —
+    /// not an aliased one that would have self-updated. Re-pointed by <see cref="Refresh"/> alone; every read
+    /// below (the rows, the header, both print projections, the e-mail attachment) goes through it, which is why
+    /// re-pointing it once is enough.
+    /// </summary>
+    private Voucher _voucher;
 
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private string _subtitle = string.Empty;
@@ -79,6 +88,57 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
         _company = company;
         _voucher = voucher;
         VoucherId = voucher.Id;
+
+        Project();
+    }
+
+    /// <summary>
+    /// 🔴 <b>Re-projects this pane from the voucher the books hold NOW.</b> Called by the alteration doors'
+    /// <c>onSaved</c> (<c>MainWindowViewModel.ShowVoucherAlteration</c> and <c>ShowPosBillAlteration</c>) once the
+    /// replacement is committed.
+    ///
+    /// <para><b>The defect this closes (S5d/S5e review, C2 — MAJOR / fidelity).</b> Everything this pane shows was
+    /// built ONCE in the constructor, and <c>onSaved</c> refreshed the report and the register only. So after an
+    /// alteration raised FROM this column the operator was left standing on a pane that still showed the
+    /// SUPERSEDED figures — and it is not a cosmetic pane: <c>MainWindowViewModel.OpenPrintPreview</c> takes the
+    /// <see cref="Screen.VoucherDetail"/> branch and calls <see cref="BuildPrintPreview"/>, and
+    /// <c>EmailComposeViewModel.RenderVoucherPdf</c> attaches the identical bytes. A tax invoice contradicting the
+    /// book, under the same live document number, went out to the counterparty with nothing on screen saying so.
+    /// Reproduced on a plain Journal, so it is not an item-invoice defect: the staleness is the snapshot, and it
+    /// hits every voucher family and BOTH print projections.</para>
+    ///
+    /// <para><b>Not only the money.</b> <see cref="Title"/>, <see cref="Subtitle"/> (date + party) and the
+    /// (Cancelled)/(Optional)/(Post-dated) flags were built in the same constructor pass, so an alteration that
+    /// moved the DATE — which <c>Replace</c> permits with a <c>DateChanged</c> warning rather than a refusal —
+    /// left the pane and the printed header showing the old date. <see cref="Project"/> rebuilds all of it.</para>
+    ///
+    /// <para><b>A voucher that is GONE is deliberately left alone.</b> A DELETION does not come through here — the
+    /// pane is deliberately not popped on delete (<c>RefreshDeletionSurface</c>: the operator is left looking at
+    /// the detail for a voucher that is gone, and Esc/Left returns to the register) — and re-projecting nothing
+    /// would empty the pane underneath them, which is the work-loss class that exception exists to avoid. So the
+    /// no-longer-present case is a NO-OP, not a clear.</para>
+    /// </summary>
+    public void Refresh()
+    {
+        if (_company.FindVoucher(VoucherId) is not { } current) return;
+        _voucher = current;
+        Rows.Clear();
+        Project();
+        // The four computed header properties read _voucher through a getter, so they are not raised by the
+        // [ObservableProperty] setters above and must be announced by hand — the badge, the declaration and the
+        // print routing all turn on masters the alteration may have moved.
+        OnPropertyChanged(nameof(IsTaxInvoice));
+        OnPropertyChanged(nameof(IsBillOfSupply));
+        OnPropertyChanged(nameof(DocumentLabel));
+        OnPropertyChanged(nameof(BillOfSupplyDeclaration));
+    }
+
+    /// <summary>Builds the header and the Dr/Cr rows from <see cref="_voucher"/>. The constructor's body, split out
+    /// so <see cref="Refresh"/> cannot drift from it — one projection, two callers.</summary>
+    private void Project()
+    {
+        var company = _company;
+        var voucher = _voucher;
 
         var type = company.FindVoucherType(voucher.TypeId);
         var typeName = type?.Name ?? "(unknown)";

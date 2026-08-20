@@ -1,0 +1,389 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Threading;
+using Apex.Ledger;
+using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
+using Apex.Ledger.Services;
+using Apex.Desktop.Services;
+using Apex.Desktop.ViewModels;
+using Apex.Desktop.Views;
+using Xunit;
+using DomainLedger = Apex.Ledger.Domain.Ledger;
+
+namespace Apex.Desktop.Tests;
+
+/// <summary>
+/// 🔴 <b>S5d/S5e review — the surfaces an alteration leaves BEHIND it, and the F-keys that discard it.</b>
+/// Companion to <see cref="VoucherAlterReachabilityTests"/>, which proves the door OPENS; this file proves what
+/// happens to the rest of the window when the door closes again.
+///
+/// <para><b>ROOT C, named by the review's completeness critic.</b> S5d/S5e created a "this voucher just changed
+/// underneath you" event and wired its consumers BY HAND — <c>onSaved</c> is a closure listing the surfaces its
+/// author remembered (report + register), so three were missed: the read-only voucher-detail column the
+/// alteration was raised FROM (and the Print / e-mail documents that column issues), and the POS
+/// print-after-save receipt. All three are pinned below. The rule the next author needs: <b>every surface an
+/// alteration can be raised from must be refreshed by the same <c>onSaved</c>, and a screen with no refresh
+/// entry point is a screen that cannot be a surface.</b></para>
+///
+/// <para><b>The second half of the file is the WORK-LOSS half of the F-key finding.</b> It is deliberately NOT
+/// scoped to <c>IsAltering</c>: plain F4–F9 destroyed a half-keyed NEW entry exactly as silently as they
+/// destroyed an alteration, so the guard is scoped to the voucher-entry SCREEN and both halves are pinned.
+/// The memorandum→payment CONVERSION the corpus attests on an alteration screen (Book 664311548: <i>"Click on
+/// Payment (F5) button provided at memorandum alteration screen … The voucher will converted as payment voucher
+/// with same entry."</i>) is a SEPARATE, corpus-scoped item and is deliberately not built here.</para>
+/// </summary>
+public sealed class VoucherAlterationSurfaceRefreshTests
+{
+    private static readonly DateOnly FyStart = new(2024, 4, 1);
+
+    // ============================================================ harness (mirrors VoucherAlterReachabilityTests)
+
+    private static (MainWindow Window, MainWindowViewModel Vm, string TempDir) NewWindow()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "ApexAlterSurface_" + Guid.NewGuid().ToString("N"));
+        var vm = new MainWindowViewModel(new CompanyStorage(tempDir));
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+        return (window, vm, tempDir);
+    }
+
+    private static void Pump(MainWindow window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Key(MainWindow window, PhysicalKey key, RawInputModifiers mods = RawInputModifiers.None)
+    {
+        window.KeyPressQwerty(key, mods);
+        Pump(window);
+    }
+
+    private static void Close(MainWindow window, string dir)
+    {
+        window.Close();
+        try
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+        catch (IOException) { /* best effort */ }
+        catch (UnauthorizedAccessException) { /* best effort */ }
+    }
+
+    private static DomainLedger AddLedger(Company c, string name, string groupName)
+    {
+        var group = c.FindGroupByName(groupName) ?? throw new InvalidOperationException($"No group '{groupName}'.");
+        var ledger = new DomainLedger(Guid.NewGuid(), name, group.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(ledger);
+        return ledger;
+    }
+
+    private static decimal Closing(Company c, DomainLedger l) =>
+        LedgerBalances.SignedClosing(c, l, c.FinancialYearStart.AddYears(1));
+
+    private sealed record Book(
+        MainWindowViewModel Vm, string Name, DomainLedger Landlord, DomainLedger Rent, Voucher Journal);
+
+    /// <summary>
+    /// One posted Journal (Dr Rent 8,431.55 / Cr Landlord 8,431.55) keyed through the real entry screen — the same
+    /// fixture <see cref="VoucherAlterReachabilityTests"/> uses, and for the same reasons (a Journal never opens in
+    /// Single Entry, so both legs stay directly editable; odd paise are the house rule).
+    /// </summary>
+    private static Book SeedOneJournal(MainWindow window, MainWindowViewModel vm, string name)
+    {
+        vm.NewCompanyName = name;
+        vm.CreateCompany();
+        var c = vm.Company!;
+        c.FinancialYearStart = FyStart;
+        c.BooksBeginFrom = FyStart;
+
+        var rent = AddLedger(c, "Rent", "Indirect Expenses");
+        var landlord = AddLedger(c, "Landlord", "Sundry Creditors");
+
+        vm.OpenVoucher(VoucherBaseType.Journal);
+        var e = vm.VoucherEntry!;
+        e.Date = FyStart.AddDays(7);                       // 08-Apr-2024
+        e.Lines[0].SelectedLedger = rent;
+        e.Lines[0].Side = DrCr.Debit;
+        e.Lines[0].AmountText = "8431.55";
+        e.Lines[1].SelectedLedger = landlord;
+        e.Lines[1].Side = DrCr.Credit;
+        e.Lines[1].AmountText = "8431.55";
+        Key(window, PhysicalKey.A, RawInputModifiers.Control);
+        Assert.Single(c.Vouchers);
+        Assert.Equal(8431.55m, Closing(c, rent));
+
+        while (vm.CurrentScreen != Screen.Gateway && vm.Columns.Count > 1) vm.Back();
+        Pump(window);
+        return new Book(vm, name, landlord, rent, c.Vouchers[0]);
+    }
+
+    private static void OpenDayBookOn(MainWindow window, MainWindowViewModel vm, Guid voucherId)
+    {
+        vm.OpenReport(ReportKind.DayBook);
+        Pump(window);
+        vm.Reports!.SelectedRow = vm.Reports!.Rows.First(r => r.DrillVoucherId == voucherId);
+        Pump(window);
+    }
+
+    /// <summary>Day Book → highlight the row → PLAIN Enter, which lands on the read-only voucher-detail column
+    /// (USER DECISION 1 / VL-1) → REAL Ctrl+Enter, which opens the alteration OVER it.</summary>
+    private static void AlterFromTheVoucherDetailColumn(MainWindow window, MainWindowViewModel vm, Guid voucherId)
+    {
+        OpenDayBookOn(window, vm, voucherId);
+        Key(window, PhysicalKey.Enter);
+        Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+        Assert.NotNull(vm.VoucherDetail);
+        Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+    }
+
+    /// <summary>Every cell of every rendered preview line, so an assertion can ask what the PAPER says.</summary>
+    private static string PreviewText(PrintPreviewViewModel preview) =>
+        string.Join(" | ", preview.Pages
+            .SelectMany(p => new[] { p.Title, p.Subtitle }.Concat(p.Lines.SelectMany(l => l.Cells))));
+
+    /// <summary>Every cell of the voucher-detail pane, so an assertion can ask what the SCREEN says.</summary>
+    private static string PaneText(VoucherDetailViewModel detail) =>
+        string.Join(" | ", detail.Rows.Select(r => $"{r.Particulars}:{r.Debit}/{r.Credit}"));
+
+    // ==================================================================================================
+    // (a) ITEM 5 — THE VOUCHER-DETAIL COLUMN THE ALTERATION WAS RAISED FROM
+    // ==================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>The pane the operator altered FROM must not survive as a stale snapshot.</b>
+    ///
+    /// <para><b>Derivation of every figure.</b> The seed posts Dr Rent 8,431.55 / Cr Landlord 8,431.55. The
+    /// alteration retypes BOTH legs to 9,102.35, so after Ctrl+A the book — and therefore the pane rendered from
+    /// it — must read 9,102.35 on both sides and the Total row must read 9,102.35 / 9,102.35. Nothing here is read
+    /// off the code: 9,102.35 is the value this test types in.</para>
+    ///
+    /// <para><b>What it was before the fix.</b> <c>onSaved</c> ran <c>BackFromPage(); report?.Show(report.Kind);
+    /// register?.Refresh();</c> and never touched <c>VoucherDetail</c>, whose <c>_voucher</c> is captured once in
+    /// its constructor — and <c>LedgerService.Replace</c> puts a NEW <c>Voucher</c> object at the same index, so
+    /// the pane's field is a DISCARDED object, not an aliased one that would have self-updated.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Altering_from_the_voucher_detail_column_refreshes_the_pane_it_was_raised_from()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "Detail Refresh Co");
+            AlterFromTheVoucherDetailColumn(window, vm, b.Journal.Id);
+            Assert.True(vm.VoucherEntry!.IsAltering);
+
+            foreach (var line in vm.VoucherEntry!.Lines) line.AmountText = "9102.35";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            // The book really moved — without this the pane assertion below could pass on a no-op.
+            Assert.Equal(9102.35m, Closing(vm.Company!, b.Rent));
+            Assert.Equal(-9102.35m, Closing(vm.Company!, b.Landlord));
+
+            // …and the operator is standing on the voucher-detail column again, which must now agree with it.
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            var pane = PaneText(vm.VoucherDetail!);
+            Assert.Contains("9,102.35", pane, StringComparison.Ordinal);
+            Assert.DoesNotContain("8,431.55", pane, StringComparison.Ordinal);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The document Print issues under the live voucher number must be the AMENDED one.</b> This is the
+    /// half that leaves the building: <c>OpenPrintPreview</c> takes the <c>Screen.VoucherDetail</c> branch and
+    /// calls <c>vd.BuildPrintPreview()</c>, and <c>EmailComposeViewModel.RenderVoucherPdf</c> attaches the
+    /// identical bytes — so before the fix the counterparty received a document contradicting the book under the
+    /// same document number, with nothing on screen to say so.
+    ///
+    /// <para>Asserted on the PLAIN Dr/Cr projection (a Journal, so <c>ProjectVoucher</c>), because the verifier
+    /// established the staleness is in the constructor-time snapshot and therefore hits every family and BOTH
+    /// projections — fixing it at the invoice path would have fixed one branch of two.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_document_Print_issues_after_an_alteration_is_the_amended_one_not_the_superseded_snapshot()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "Detail Print Co");
+            AlterFromTheVoucherDetailColumn(window, vm, b.Journal.Id);
+
+            foreach (var line in vm.VoucherEntry!.Lines) line.AmountText = "9102.35";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+
+            vm.OpenPrintPreview();
+            Pump(window);
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            var paper = PreviewText(vm.PrintPreview!);
+            Assert.Contains("9,102.35", paper, StringComparison.Ordinal);
+            Assert.DoesNotContain("8,431.55", paper, StringComparison.Ordinal);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The E-MAIL door is the half that leaves the building, and it is a real, reachable door.</b>
+    /// <c>OpenEmailCompose</c> gates on <c>CurrentScreen == Screen.VoucherDetail &amp;&amp; VoucherDetail is { } vd</c>
+    /// and hands that same instance to <c>EmailComposeViewModel</c>, whose constructor renders the attachment from
+    /// <see cref="VoucherDetailViewModel.BuildPrintPreview"/> — so before the fix the counterparty received the
+    /// SUPERSEDED invoice as a PDF under the live document number.
+    ///
+    /// <para>Asserted on the BYTES rather than on extracted PDF text, and in both directions: the attachment must
+    /// no longer be what it was before the alteration, and it must be exactly what the refreshed pane now
+    /// projects. A one-directional assertion would pass on an attachment that had merely become garbage.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_e_mail_attachment_after_an_alteration_is_the_amended_document_too()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "Detail Email Co");
+            OpenDayBookOn(window, vm, b.Journal.Id);
+            Key(window, PhysicalKey.Enter);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            var supersededPdf = vm.VoucherDetail!.BuildPrintPreview().PdfBytes;
+            Assert.NotEmpty(supersededPdf);
+
+            Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+            foreach (var line in vm.VoucherEntry!.Lines) line.AmountText = "9102.35";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+
+            vm.OpenEmailCompose();
+            Pump(window);
+            var panel = vm.EmailCompose!;
+            Assert.True(panel.HasAttachment);
+            var attached = Assert.Single(panel.BuildMessage().Attachments).Content;
+
+            Assert.NotEqual(supersededPdf, attached);                                  // no longer the old document…
+            Assert.Equal(vm.VoucherDetail!.BuildPrintPreview().PdfBytes, attached);     // …and exactly the new one
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>It is not only the money.</b> <c>Title</c>, <c>Subtitle</c> (date + party) and the
+    /// (Cancelled)/(Optional)/(Post-dated) flags are all built once in the constructor too, so an alteration that
+    /// moved the DATE — which <c>Replace</c> permits with a <c>DateChanged</c> warning rather than a refusal —
+    /// left the pane AND the printed header showing the old date.
+    ///
+    /// <para><b>Derivation.</b> Posted on <c>FyStart.AddDays(7)</c> = 08-Apr-2024; the alteration moves it to
+    /// <c>FyStart.AddDays(11)</c> = 12-Apr-2024. <c>ApexDate.Format</c>'s one canonical form is
+    /// <c>dd-MMM-yyyy</c>, so the pane's subtitle must read "12-Apr-2024" and must no longer read "08-Apr-2024".
+    /// </para>
+    /// </summary>
+    [AvaloniaFact]
+    public void An_alteration_that_moves_the_date_moves_the_header_the_pane_shows()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "Detail Date Co");
+            AlterFromTheVoucherDetailColumn(window, vm, b.Journal.Id);
+            Assert.Contains("08-Apr-2024", vm.VoucherDetail!.Subtitle, StringComparison.Ordinal);
+
+            vm.VoucherEntry!.Date = FyStart.AddDays(11);          // 12-Apr-2024
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Equal(FyStart.AddDays(11), vm.Company!.FindVoucher(b.Journal.Id)!.Date);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            Assert.Contains("12-Apr-2024", vm.VoucherDetail!.Subtitle, StringComparison.Ordinal);
+            Assert.DoesNotContain("08-Apr-2024", vm.VoucherDetail!.Subtitle, StringComparison.Ordinal);
+        }
+        finally { Close(window, dir); }
+    }
+
+    // ==================================================================================================
+    // (b) ITEM 5, POS HALF — the same three lines, character-for-character, on the POS door
+    // ==================================================================================================
+
+    private sealed record PosBook(Company Company, StockItem Widget, Voucher Bill);
+
+    /// <summary>
+    /// A POS-flagged Sales bill posted through the REAL POS screen: 2 × Till Widget @ 649.37 = 1,298.74, one cash
+    /// tender. GST is deliberately NOT configured, so the bill is the taxable value alone and every figure below
+    /// is a two-term product the reader can check by hand.
+    /// </summary>
+    private static PosBook SeedOnePosBill(MainWindow window, MainWindowViewModel vm, string name,
+        bool printAfterSave)
+    {
+        vm.NewCompanyName = name;
+        vm.CreateCompany();
+        var c = vm.Company!;
+        c.FinancialYearStart = FyStart;
+        c.BooksBeginFrom = FyStart;
+
+        var masters = new InventoryService(c);
+        var group = masters.CreateStockGroup("Goods");
+        var nos = masters.CreateSimpleUnit("Nos", "Numbers");
+        var widget = masters.CreateStockItem("Till Widget", group.Id, nos.Id);
+        AddLedger(c, "Retail Sales", "Sales Accounts");
+        AddLedger(c, "Till Cash", "Cash-in-Hand");
+
+        vm.OpenPosBilling();
+        Pump(window);
+        var pos = vm.PosBilling!;
+        // The corpus's own instruction for a POS voucher type — "Print voucher after saving - Set to `Yes'."
+        // (Book 664311548). Set through the screen's own property so the type is persisted with it.
+        if (printAfterSave) pos.PrintAfterSave = true;
+        pos.Date = FyStart.AddDays(9);
+        pos.SelectedSalesLedger = pos.SalesLedgers.Single(l => l.Name == "Retail Sales");
+        pos.CashRow.SelectedLedger = c.Ledgers.Single(l => l.Name == "Till Cash");
+        var line = pos.Items[0];
+        line.SelectedItem = pos.StockItems.Single(i => i.Id == widget.Id);
+        line.SelectedGodown = pos.Godowns.Single(g => g.Id == c.MainLocation!.Id);
+        line.QuantityText = "2";
+        line.RateText = "649.37";
+        Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+        var bill = Assert.Single(c.Vouchers);
+        Assert.Equal(1298.74m, bill.TotalDebit.Amount);          // 2 × 649.37, derived by hand
+        while (vm.CurrentScreen != Screen.Gateway && vm.Columns.Count > 1) vm.Back();
+        Pump(window);
+        return new PosBook(c, widget, bill);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The POS door's <c>onSaved</c> is character-for-character the accounting one's, so it carries the same
+    /// stale pane.</b> The verifier proved this half by INSPECTION only — here it is driven.
+    ///
+    /// <para><b>Derivation.</b> Posted 2 × 649.37 = 1,298.74. The alteration retypes the rate to 700.11, so the
+    /// bill becomes 2 × 700.11 = 1,400.22 and the pane must read it.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Altering_a_POS_bill_from_the_voucher_detail_column_refreshes_that_pane_too()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var p = SeedOnePosBill(window, vm, "POS Detail Refresh Co", printAfterSave: false);
+            AlterFromTheVoucherDetailColumn(window, vm, p.Bill.Id);
+            Assert.Equal(Screen.PosBilling, vm.CurrentScreen);
+            Assert.True(vm.PosBilling!.IsAltering);
+
+            vm.PosBilling!.Items[0].RateText = "700.11";
+            vm.PosBilling!.CashRow.CashTenderedText = "1400.22";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Equal(1400.22m, p.Company.FindVoucher(p.Bill.Id)!.TotalDebit.Amount);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            var pane = PaneText(vm.VoucherDetail!);
+            Assert.Contains("1,400.22", pane, StringComparison.Ordinal);
+            Assert.DoesNotContain("1,298.74", pane, StringComparison.Ordinal);
+        }
+        finally { Close(window, dir); }
+    }
+
+}
