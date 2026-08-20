@@ -504,4 +504,128 @@ public sealed class VoucherAlterationSurfaceRefreshTests
         finally { Close(window, dir); }
     }
 
+    // ==================================================================================================
+    // (d) ITEM 6 — THE WORK-LOSS HALF OF THE F-KEY DEFECT (scoped to the SCREEN, not to IsAltering)
+    // ==================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>THE HALF A GUARD ON <c>IsAltering</c> WOULD HAVE LEFT OPEN.</b> Measured by the verifier on a
+    /// half-keyed NEW Journal: one plain F8 replaced it with a blank Sales entry — <c>Line0 amount now = ''</c>,
+    /// <c>Narration now = ''</c>, <c>Notice</c> and <c>Message</c> both empty. No prompt, no notice, no message.
+    ///
+    /// <para>The F-key rows are enabled on <c>hasCompany</c> alone and <c>OpenVoucher</c> → <c>OpenPageColumn</c>
+    /// → <c>ClearSubScreens</c> sets <c>VoucherEntry = null</c> unconditionally, so there is no unsaved-work
+    /// question anywhere on the path.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_plain_type_F_key_does_not_silently_discard_a_half_keyed_new_entry()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "FKey New Entry Co");
+
+            vm.OpenVoucher(VoucherBaseType.Journal);
+            Pump(window);
+            var entry = vm.VoucherEntry!;
+            entry.Lines[0].SelectedLedger = b.Rent;
+            entry.Lines[0].Side = DrCr.Debit;
+            entry.Lines[0].AmountText = "9000.00";
+            entry.Narration = "half keyed";
+
+            Key(window, PhysicalKey.F8);                       // plain F8 — "Sales"
+
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Same(entry, vm.VoucherEntry);               // the SAME screen, not a blank replacement
+            Assert.Equal("Journal", vm.VoucherEntry!.Type.BaseType.ToString());
+            Assert.Equal("9000.00", vm.VoucherEntry!.Lines[0].AmountText);
+            Assert.Equal("half keyed", vm.VoucherEntry!.Narration);
+            Assert.NotEqual(string.Empty, vm.Notice);          // …and the operator is TOLD, not left with a dead key
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 The alteration case — the worse half only because it ALSO tears down the report column beneath it
+    /// (measured: Columns 3 → 2, <c>Reports</c> null), which the new-entry case does not have.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_plain_type_F_key_does_not_discard_an_unsaved_alteration_or_the_report_beneath_it()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var b = SeedOneJournal(window, vm, "FKey Alteration Co");
+            OpenDayBookOn(window, vm, b.Journal.Id);
+            Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+            var alter = vm.VoucherEntry!;
+            Assert.True(alter.IsAltering);
+            var columnsBefore = vm.Columns.Count;
+
+            foreach (var line in alter.Lines) line.AmountText = "9000.00";
+
+            Key(window, PhysicalKey.F8);
+
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Same(alter, vm.VoucherEntry);
+            Assert.True(vm.VoucherEntry!.IsAltering);
+            Assert.Equal("9000.00", vm.VoucherEntry!.Lines[0].AmountText);
+            Assert.NotNull(vm.Reports);                        // the Day Book column is still beneath it
+            Assert.Equal(columnsBefore, vm.Columns.Count);
+            Assert.NotEqual(string.Empty, vm.Notice);
+
+            // Nothing was posted and nothing was lost: the book still holds the original figure.
+            Assert.Single(vm.Company!.Vouchers);
+            Assert.Equal(8431.55m, Closing(vm.Company!, b.Rent));
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// ER-13 — the guard is scoped to UNSAVED WORK on the voucher-entry screen, so an UNTOUCHED entry screen still
+    /// switches voucher type on a type F-key exactly as before. Without this the fix would be a behaviour
+    /// narrowing dressed as a defect fix.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_plain_type_F_key_still_switches_an_untouched_entry_screen()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            SeedOneJournal(window, vm, "FKey Untouched Co");
+
+            vm.OpenVoucher(VoucherBaseType.Journal);
+            Pump(window);
+            Assert.Equal(VoucherBaseType.Journal, vm.VoucherEntry!.Type.BaseType);
+
+            Key(window, PhysicalKey.F8);                       // nothing keyed — F8 may switch
+
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Equal(VoucherBaseType.Sales, vm.VoucherEntry!.Type.BaseType);
+            Assert.Equal(string.Empty, vm.Notice);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// ER-13 — off the voucher-entry screen the type F-keys are untouched: from the Gateway, F7 still opens a
+    /// Journal. The guard is a SCREEN gate, not a global one.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_plain_type_F_key_still_opens_its_voucher_from_a_menu_screen()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            SeedOneJournal(window, vm, "FKey Menu Co");
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+
+            Key(window, PhysicalKey.F7);                       // plain F7 — "Journal"
+
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Equal(VoucherBaseType.Journal, vm.VoucherEntry!.Type.BaseType);
+        }
+        finally { Close(window, dir); }
+    }
+
 }

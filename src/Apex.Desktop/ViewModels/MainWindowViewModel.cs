@@ -7980,6 +7980,54 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsVoucherNumberingConfigScreen =>
         CurrentScreen == Screen.VoucherNumberingConfig && VoucherNumberingConfig is not null;
 
+    /// <summary>
+    /// 🔴 <b>The type F-keys (F4–F9) as the OPERATOR presses them — the same six verbs, with the one thing
+    /// <see cref="OpenVoucher"/> must never do added in front: silently destroying unsaved keying.</b>
+    ///
+    /// <para><b>The defect (S5d/S5e review, C9 — MAJOR).</b> The six rows were enabled on <c>hasCompany</c> alone
+    /// and the window dispatches plain F4–F9 with no screen test at all, so ONE keystroke ran
+    /// <see cref="OpenVoucher"/> → <see cref="OpenPageColumn"/> → <c>ClearSubScreens</c>, which nulls
+    /// <see cref="VoucherEntry"/> and <see cref="Reports"/> unconditionally. Measured on a half-keyed alteration:
+    /// no prompt (<c>IsAcceptPromptOpen == false</c>), no <see cref="Notice"/>, no <c>Message</c>, the amendment
+    /// gone, and the Day Book column beneath it torn down (Columns 3 → 2). Measured on a half-keyed NEW entry:
+    /// the identical silent loss without the column teardown.</para>
+    ///
+    /// <para>🔴 <b>SCOPED TO THE SCREEN, NOT TO <c>IsAltering</c>.</b> See
+    /// <see cref="VoucherEntryViewModel.HasUnsavedWork"/> for why — an <c>IsAltering</c> guard closes the smaller
+    /// half of the defect and leaves a new entry destroyed by the same key.</para>
+    ///
+    /// <para><b>Why a REFUSAL and not a discard PROMPT.</b> The Y/N confirmation channel is
+    /// <see cref="IsAcceptPromptOpen"/>, and it is scoped to master screens (<see cref="IsMasterAcceptScreen"/>
+    /// excludes <see cref="Screen.VoucherEntry"/>); raising a question on a screen whose arms cannot answer it is
+    /// the Alt+Y hole S1 closed. The operator already has both exits and they are named in the sentence: Esc
+    /// abandons, Ctrl+A accepts. A discard prompt is a design question, not a defect fix.</para>
+    ///
+    /// <para><b>Why the row stays ENABLED and the guard sits in the action.</b> <c>Fire</c> skips a disabled row
+    /// entirely, so dimming these six would turn a silent discard into a silent DEAD KEY — the same failure in a
+    /// different costume. The action runs and puts the reason on the notice bar.</para>
+    ///
+    /// <para><b>Narrowness, deliberately.</b> Only the six type-key ROWS are wrapped. Direct
+    /// <see cref="OpenVoucher"/> callers — the Vouchers menu, <c>OpenAddVoucherFromReport</c>, the settlement
+    /// route, every test fixture — are untouched, because none of them is a keystroke aimed at a screen the
+    /// operator is standing on. <b>KNOWN AND NOT CLOSED HERE:</b> the same six keys on
+    /// <see cref="Screen.PosBilling"/> discard an in-progress or altering POS bill the same way; that needs a
+    /// <c>HasUnsavedWork</c> on <see cref="PosBillingViewModel"/> and is reported, not smuggled into this fix.</para>
+    /// </summary>
+    private void OpenVoucherFromTypeKey(VoucherBaseType baseType)
+    {
+        if (CurrentScreen == Screen.VoucherEntry && VoucherEntry is { HasUnsavedWork: true } entry)
+        {
+            RaiseLifecycleNotice(entry.IsAltering
+                ? "Opening another voucher type would discard this alteration and close the report beneath it. "
+                + "Press Esc to abandon the alteration, or Ctrl+A to save it, and then press the key again."
+                : "Opening another voucher type would discard the voucher you are keying. Press Esc to abandon "
+                + "it, or Ctrl+A to accept it, and then press the key again.");
+            return;
+        }
+
+        OpenVoucher(baseType);
+    }
+
     private void BuildButtonBar()
     {
         ButtonBar.Clear();
@@ -7992,13 +8040,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;
-        // F4–F9 now open the real accounting voucher-entry screens.
-        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucher(VoucherBaseType.Contra), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucher(VoucherBaseType.Payment), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucher(VoucherBaseType.Receipt), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucher(VoucherBaseType.Journal), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucher(VoucherBaseType.Sales), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucher(VoucherBaseType.Purchase), hasCompany));
+        // F4–F9 now open the real accounting voucher-entry screens. They go through OpenVoucherFromTypeKey, NOT
+        // straight to OpenVoucher, so a type key can never silently discard keying — see that method.
+        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucherFromTypeKey(VoucherBaseType.Payment), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucherFromTypeKey(VoucherBaseType.Sales), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucherFromTypeKey(VoucherBaseType.Purchase), hasCompany));
 
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;

@@ -2927,6 +2927,44 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     public Guid AlteringVoucherId => _alteringVoucherId;
 
     /// <summary>
+    /// 🔴 <b>True while this screen holds keying that discarding it would DESTROY</b> — the predicate the shell's
+    /// type F-keys (F4–F9) consult before they replace this screen with another voucher type.
+    ///
+    /// <para><b>The defect it closes (S5d/S5e review, C9 — MAJOR).</b> The F4–F9 button-bar rows were enabled on
+    /// <c>hasCompany</c> alone, and <c>OpenVoucher</c> → <c>OpenPageColumn</c> → <c>ClearSubScreens</c> sets
+    /// <c>VoucherEntry = null</c> unconditionally, so ONE plain F8 replaced a half-keyed entry with a blank Sales
+    /// one — measured: <c>Line0 amount now = ''</c>, <c>Narration now = ''</c>, <c>Notice</c> and <c>Message</c>
+    /// both empty. No prompt, no notice, nothing.</para>
+    ///
+    /// <para>🔴 <b>WHY IT IS NOT WRITTEN ON <see cref="IsAltering"/>, and this is the load-bearing decision.</b>
+    /// The review's completeness critic SPLIT this finding for exactly this reason: the silent discard is a
+    /// voucher-ENTRY-screen defect, not an alteration-screen one. A guard written on <c>IsAltering</c> would have
+    /// closed the alteration half and left a half-keyed NEW entry destroyed by the same keystroke — the more
+    /// common case of the two. The alteration case is the worse half only because it ADDITIONALLY tears down the
+    /// report column beneath it, which the new-entry case has none of. <c>IsAltering</c> appears below as one
+    /// DISJUNCT (a rehydrated screen always holds work, whether or not the operator has typed into it yet), never
+    /// as the gate.</para>
+    ///
+    /// <para><b>An UNTOUCHED fresh screen is deliberately not "work".</b> F4–F9 switching voucher type on a blank
+    /// entry is useful, shipped and unchanged (ER-13) — narrowing that would be a behaviour change dressed as a
+    /// defect fix. The four grids are asked with the SAME <c>IsBlank</c> predicate each row already exposes to its
+    /// own validation, so this cannot drift from what the screen calls empty.</para>
+    ///
+    /// <para><b>What this deliberately does NOT decide.</b> What the type F-key ought to do INSTEAD on an
+    /// alteration screen is a separate, corpus-scoped question: the corpus attests exactly one conversion —
+    /// memorandum → payment via F5 on the memorandum alteration screen (Book 664311548) — and
+    /// <c>MainWindowViewModel.ConvertMemorandum</c> exists with zero production callers and no key route. That
+    /// limb is NOT built here.</para>
+    /// </summary>
+    public bool HasUnsavedWork =>
+        IsAltering
+        || Lines.Any(l => !l.IsBlank)
+        || InventoryLines.Any(l => !l.IsBlank)
+        || AccountingInvoiceLines.Any(l => !l.IsBlank)
+        || AdditionalCosts.Any(r => !r.IsBlank)
+        || !string.IsNullOrWhiteSpace(Narration);
+
+    /// <summary>
     /// 🔴 <b>S5b's entry door — opens this screen on a POSTED voucher, pre-filled, or refuses BY NAME.</b>
     ///
     /// <para>The result is never a bare <c>null</c> and never a silent no-op: it holds either a rehydrated view
