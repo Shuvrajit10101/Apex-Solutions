@@ -386,4 +386,122 @@ public sealed class VoucherAlterationSurfaceRefreshTests
         finally { Close(window, dir); }
     }
 
+    // ==================================================================================================
+    // (c) L2 — PRINT-AFTER-SAVE ON THE POS ALTERATION DOOR (the same missing-consumer root)
+    // ==================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>LAYER ONE of the two-layered defect: the alteration accept path must RAISE the receipt.</b>
+    /// <c>AcceptAlterationCore</c> ended at <c>_onSaved()</c> with no <c>PrintReceiptRequested</c> invocation at
+    /// all, so the operator's own configured <i>print after save</i> was ignored and the customer's only paper
+    /// kept understating the bill.
+    ///
+    /// <para>Driven through <c>ForAlter</c> deliberately — this test owns the VIEW-MODEL half and must fail if the
+    /// invocation is removed even when the shell subscription is present. The shell half has its own test below.
+    /// </para>
+    ///
+    /// <para><b>Derivation.</b> 2 × 700.11 = 1,400.22 taxable; GST is not configured so there is no tax leg and
+    /// the receipt's taxable total IS the bill total. Cash tendered 1,500.00 ⇒ change 1,500.00 − 1,400.22 =
+    /// 99.78.</para>
+    ///
+    /// <para><b>FIDELITY (R7) — an INFERENCE, recorded as one.</b> The corpus attests the SETTING
+    /// (<i>"Print voucher after saving - Set to `Yes'."</i>, Book 664311548; and three other books repeat it), and
+    /// attests that Ctrl+A is the save chord for an alteration — but NO corpus page states print-after-save
+    /// behaviour under alteration. The bridge (the setting is a property of the voucher TYPE, so it applies to
+    /// every save of that type) is our inference, not an attestation.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void An_altered_POS_bill_raises_the_print_after_save_receipt_the_operator_configured()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var p = SeedOnePosBill(window, vm, "POS Receipt VM Co", printAfterSave: true);
+
+            var raised = 0;
+            PosReceiptData? receipt = null;
+            var open = PosBillingViewModel.ForAlter(
+                p.Company, p.Bill.Id, new CompanyStorage(dir), onSaved: () => { }, onCancelled: () => { });
+            Assert.Null(open.Refusal);
+            var screen = open.Entry!;
+            screen.PrintReceiptRequested += r => { raised++; receipt = r; };
+            Assert.True(screen.PrintAfterSave);
+
+            screen.Items[0].RateText = "700.11";
+            screen.CashRow.CashTenderedText = "1500";
+            Assert.True(screen.AcceptAlteration());
+
+            Assert.Equal(1400.22m, p.Company.FindVoucher(p.Bill.Id)!.TotalDebit.Amount);
+            Assert.Equal(1, raised);
+            Assert.Equal(1400.22m, receipt!.TotalTaxable.Amount);
+            Assert.Equal(99.78m, receipt!.Change.Amount);              // 1,500.00 − 1,400.22
+            // The receipt names the SAME document, not a new one: Replace preserves the number.
+            Assert.Equal(p.Company.FormatVoucherNumber(p.Company.FindVoucher(p.Bill.Id)!), receipt!.BillNumber);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>LAYER TWO: the alteration DOOR must subscribe.</b> Adding the invocation alone would still produce no
+    /// receipt in the running app — <c>OpenPosBilling</c> wires <c>PrintReceiptRequested</c> and
+    /// <c>ShowPosBillAlteration</c> did not, so the event had no consumer on this route. Driven end-to-end through
+    /// the real keyboard, and it also pins that the receipt arrives as a DRILL column: the Day Book the operator
+    /// came from is still beneath it, so Esc returns to their row rather than to the Gateway.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_POS_alteration_door_subscribes_so_the_receipt_actually_reaches_the_operator()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var p = SeedOnePosBill(window, vm, "POS Receipt Shell Co", printAfterSave: true);
+
+            OpenDayBookOn(window, vm, p.Bill.Id);
+            Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+            Assert.Equal(Screen.PosBilling, vm.CurrentScreen);
+
+            vm.PosBilling!.Items[0].RateText = "700.11";
+            vm.PosBilling!.CashRow.CashTenderedText = "1400.22";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Equal(1400.22m, p.Company.FindVoucher(p.Bill.Id)!.TotalDebit.Amount);
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+            Assert.Equal(PrintPreviewViewModel.PrintKind.Receipt, vm.PrintPreview!.Kind);
+            Assert.Contains("1,400.22", PreviewText(vm.PrintPreview!), StringComparison.Ordinal);
+
+            // The cascade beneath survived: Esc comes back to the Day Book, not to the Gateway.
+            vm.Back();
+            Pump(window);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// ER-13 — with print-after-save OFF, an altered bill raises NOTHING and the operator lands back where they
+    /// were. Without this the fix above could have been written as an unconditional print.
+    /// </summary>
+    [AvaloniaFact]
+    public void With_print_after_save_off_an_altered_POS_bill_raises_no_receipt()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var p = SeedOnePosBill(window, vm, "POS No Receipt Co", printAfterSave: false);
+
+            OpenDayBookOn(window, vm, p.Bill.Id);
+            Key(window, PhysicalKey.Enter, RawInputModifiers.Control);
+            vm.PosBilling!.Items[0].RateText = "700.11";
+            vm.PosBilling!.CashRow.CashTenderedText = "1400.22";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Equal(1400.22m, p.Company.FindVoucher(p.Bill.Id)!.TotalDebit.Amount);
+            Assert.Null(vm.PrintPreview);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+        }
+        finally { Close(window, dir); }
+    }
+
 }

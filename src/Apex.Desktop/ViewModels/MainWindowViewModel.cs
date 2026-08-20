@@ -5902,6 +5902,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // The same third surface, for the same reason — this door is reached from Screen.VoucherDetail too.
         var detail = VoucherDetail;
 
+        // 🔴 PRINT AFTER SAVE ON THE ALTERATION DOOR (review finding C8 — MAJOR / fidelity), and it is a
+        // TWO-LAYERED fix of which this is the second layer. AcceptAlterationCore now RAISES
+        // PrintReceiptRequested when the POS type's print-after-save is on; before this line nothing on this route
+        // SUBSCRIBED — OpenPosBilling wires the event and its onSaved is the only caller of the receipt preview —
+        // so raising it alone would still have produced no paper. The customer's only receipt kept understating
+        // an amended bill.
+        PosReceiptData? pendingReceipt = null;
         var open = PosBillingViewModel.ForAlter(
             Company!, voucher.Id, _storage,
             onSaved: () =>
@@ -5910,6 +5917,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 report?.Show(report.Kind);
                 register?.Refresh();
                 detail?.Refresh();
+                // The receipt column is pushed AFTER the surfaces beneath are re-rendered, so Esc from the receipt
+                // returns to a correct pane rather than to a stale one.
+                if (pendingReceipt is { } r) { pendingReceipt = null; OpenPosReceiptDrill(r); }
             },
             onCancelled: BackFromPage);
 
@@ -5922,10 +5932,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         var entry = open.Entry!;
+        entry.PrintReceiptRequested += r => pendingReceipt = r;
         var title = $"POS Bill Alteration — {entry.Type.Name}";
         OpenDrillColumn(new GatewayColumn(entry.Type.Name + " — POS Alteration", entry),
             Screen.PosBilling, title, () => PosBilling = entry);
         return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// Shows an ALTERED POS bill's retail receipt as a Print-Preview <b>drill</b> column, appended over whatever
+    /// the operator drilled from.
+    ///
+    /// <para><b>Why not <see cref="OpenPosReceiptPreview"/>, the fresh-entry sibling.</b> That one runs
+    /// <c>ClearSubScreens</c> and REMOVES the trailing column, because a fresh bill's entry screen is a PAGE
+    /// column that has served its purpose. An alteration is a drill column stacked over a live report, register or
+    /// voucher-detail pane — the same reason <see cref="ShowPosBillAlteration"/> uses
+    /// <see cref="OpenDrillColumn"/> rather than <see cref="OpenPageColumn"/> — so tearing the cascade down here
+    /// would send Esc back to the Gateway instead of to the row the operator was standing on. The body is
+    /// <see cref="OpenPrintPreview"/>'s tail verbatim, which is the shape that appends without trimming.</para>
+    /// </summary>
+    private void OpenPosReceiptDrill(PosReceiptData receipt)
+    {
+        var preview = new PrintPreviewViewModel(receipt);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
     }
 
     /// <summary>

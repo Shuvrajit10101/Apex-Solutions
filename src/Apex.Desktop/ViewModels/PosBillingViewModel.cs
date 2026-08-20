@@ -1255,6 +1255,22 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         SavedNumber = replacement.Number;
         Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered."
                 + (warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message)));
+
+        // 🔴 PRINT AFTER SAVE APPLIES TO THIS SAVE TOO (review finding C8 — MAJOR / fidelity). The one line
+        // Accept() carries at :840 was absent here, so an amended bill raised no receipt at all: the customer's
+        // only paper still named the ORIGINAL total while the book — and GSTR-1 — carried the amended one. Raised
+        // BEFORE _onSaved(), exactly as Accept() does, because the shell's onSaved closure is what consumes the
+        // pending receipt and opens its column.
+        //
+        // 🔴 FIDELITY (R7) — the SETTING is attested, the ALTERATION behaviour is an INFERENCE and is recorded as
+        // one. The corpus instructs "Print voucher after saving - Set to `Yes'." for the POS type (Book
+        // 664311548, and repeated in 696054070 / 703679456 / 719244897), and attests Ctrl+A as the save chord for
+        // an alteration — but NO corpus page states print-after-save under alteration. The bridge is that the flag
+        // is a property of the voucher TYPE, so it governs every save of that type. Ours, inferred, not attested.
+        if (PrintAfterSave)
+            PrintReceiptRequested?.Invoke(BuildReceipt(
+                replacement, built.Tenders, built.Taxable, built.InvoiceTax, built.InterState, built.Change));
+
         _onSaved();
         return true;
     }
