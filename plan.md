@@ -678,8 +678,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > **9 · DONE MEANS FULL PARITY *AND* CORPUS VERIFICATION — BOTH, FOR EVERY IN-SCOPE CAPABILITY.** A
 > capability counts as **done** only when it is (a) **present and working** — the whole of what the
 > reference product does under that name, not a reachable subset — **and** (b) its **shipped behaviour has
-> been compared to a source**. Either half alone is not done. **Today that figure is 11** — eleven
-> capabilities have ever had their shipped behaviour compared to anything, against a denominator ruling 10
+> been compared to a source**. Either half alone is not done. ~~**Today that figure is 11** — eleven
+> capabilities have ever had their shipped behaviour compared to anything~~ **▶ 🔴 THAT DIGIT IS A 2026-08-19
+> SNAPSHOT AND MOVED TO 12 ON 2026-08-20**, when A14 wrote the step-5a record for voucher alteration
+> (S5a–S5e) into census §1.3 item 12. **The ruling's own instruction is the thing to follow, not the digit it
+> quoted:** read the anchor block, do not re-quote a figure from here — restating it here is what went stale,
+> for the fourth time, within a day of the ruling being written. Against a denominator ruling 10
 > moves to **216**. `docs/full-clone-census.md` §1.3's anchor block is where that number is maintained and
 > **the only place it is derived**; this ruling does not restate the other three figures here, because a
 > restated digit in this file is what went stale the last three times.
@@ -806,6 +810,51 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > ruling 7's own block above, which is marked in place. **Ruling 12 settles WHAT to build, not WHEN.** The
 > engine still runs **after S5c**, and under ruling 11 it now runs **after the edit log** as well. Its
 > Wave-4 position and the worktree constraint recorded with ruling 7 are **both untouched**.
+
+> **▶ 🔴 THREE OPEN USER DECISIONS RAISED 2026-08-20 — NOT RESOLVED HERE, AND NO AGENT MAY RESOLVE THEM.**
+> Recorded in **§5** rather than in `memory.md` or a review artefact, for the reason every banner in this set
+> already gives: **a question recorded outside this file gates nothing.**
+>
+> **A · LINE ENDINGS — `.gitattributes` VS `.editorconfig`, AND THE PROJECT'S OWN NOTES GET THE FAILURE MODE
+> WRONG.** The standing advice is to commit a `.gitattributes` carrying `* text=auto eol=lf` before any merge,
+> because the correct blob state currently rests on a `core.autocrlf=true` that is invisible in the repo.
+> **Two corrections, both MEASURED on 2026-08-20:**
+> 1. 🔴 **`core.autocrlf=true` is SYSTEM scope, not local and not global** — `git config --show-origin
+>    --get-all core.autocrlf` returns exactly one line, `file:C:/Program Files/Git/etc/gitconfig  true`, which
+>    is the Git-for-Windows **installer default**. Every note in this project saying *"a LOCAL
+>    `core.autocrlf=true`"* is wrong, and **the real failure mode is therefore worse than recorded**: it is not
+>    one developer's config that could drift, it is **any agent, container or CI runner that does not carry
+>    that installer default** — i.e. every Linux runner — that breaks it.
+> 2. ✅ **Committing the file is provably ZERO-DIFF today.** `git ls-files --eol` over the index returns
+>    **1015 `i/lf` text blobs and 1 binary, and nothing else** — the index is already 100% LF, and there is no
+>    `.gitattributes` in the tree at all.
+>
+> 🔴 **THE DECISION, AND WHY IT IS THE USER'S: THE `eol=lf` HALF CONTRADICTS THE ROOT `.editorconfig`.** That
+> file's `[*]` section mandates `end_of_line = crlf` for **every file with no override**. So the two
+> configuration files would instruct editors and Git in opposite directions on the same content. The options
+> are (i) commit `* text=auto eol=lf` and change `.editorconfig`'s `[*]` to `lf`; (ii) commit `* text=auto`
+> **without** `eol=`, leaving checkout to each machine's `core.autocrlf` — which normalises the index but does
+> not fix the runner-without-the-default case; or (iii) change `.editorconfig` to `lf` first and commit the
+> attributes file afterwards. **This is a repository-wide convention change, so it is an R12 user decision, and
+> R4 makes the file itself the GitHub Expert's to write once the decision exists.** Recorded, not resolved.
+>
+> **B · STANDING RULING X5 EXCLUDES A WHOLE CORPUS PDF ON EVIDENCE THAT IS AN EXTRACTION ARTEFACT.** X5 rejects
+> `tally/659947760-Tally-Prime-Short-Key.pdf` as a corpus source, citing *"F6 = Contra"*, *"F8 = Stock
+> Journal"*, *"Ctrl+A = Zoom"* and *"shifted by two rows"*. **A `-raw` re-extraction shows the list is NOT
+> misaligned:** items **17** `Ctrl+A` Save, **18** `Alt+D` Delete, **27** `F4` Contra, **28** `F5` Payment,
+> **30** `F7` Journal, **33** `F8` Sales, **40** `F9` Purchase **all agree with the Book and with the shipped
+> contract** — which is exactly the `pdftotext -layout` scrambling this project has already documented for the
+> Book's own three-column shortcut tables. ⚠️ **The immediate consequence is small — the source does NOT change
+> S5d's `Ctrl+Enter` category either way** (see S5d's R7 record, source (b)). **The standing consequence is
+> not small: every keyboard claim in this project that could have been corroborated by that source has been
+> decided without it.** **Reinstating an excluded corpus source is an R12 user decision, not an agent call.**
+>
+> **C · TWO DESIGN QUESTIONS THAT TRAVEL WITH THE TWO OPEN DATA-LOSS DEFECTS** (Phase 10.11's
+> `▶ THE S5d+S5e REVIEW CARRY-FORWARD` items 4 and 5; census **T1-22** / **T1-23**). **(i)** Closing the
+> `BankAllocation` limb requires a ruling on whether `LedgerService.Replace`'s `CarryBankDatesForward` warning
+> stays, because today that warning is **appended to the success message** — the operator is told *"altered"*
+> and the loss rides on the same line. **(ii)** The bill-wise VALUE-leg limb is *carry the children, or refuse
+> at the door?* — a contract question about what an alteration is allowed to re-attribute, not a fixer's call.
 
 > **▶ 🔴 TEN PHASE-10.11 DESIGN DECISIONS (R12, 2026-08-17) — ALL ADOPTED EXACTLY AS THE DESIGN RECOMMENDS.
 > SETTLED; DO NOT RE-LITIGATE.** Source: `docs/design-records/phase-10-11-voucher-lifecycle-design.md` — a
@@ -2560,6 +2609,27 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
        **ATTESTED AND FOLLOWED (so it is neither of the above):** `Ctrl+A` saves the altered voucher, which is why
        the accept path **branches on `IsAltering`** instead of inventing a second accept chord.
        **OURS, CORPUS SILENT:** the three surfaces, and the notice bar the refusals are shown on.
+       **▶ 🔴 SOURCE (b), ADDED 2026-08-20 BY A14 — THE R7 RECORD ABOVE RESTED ON ONE OF TWO CORPUS SOURCES AND
+       DID NOT SAY SO. THE ADDITION STRENGTHENS S5d; IT DOES NOT RE-CATEGORISE IT.** `tally/659947760-Tally-Prime-Short-Key.pdf`
+       item **24** gives, verbatim, *"Ctrl+Enter View in Alter Mode"* — **with NO object named** — sitting inside
+       a run of ENTRY verbs (22 *"Shift+ENTER View in Details of Any Entry"*, 23 *"Alt+F1 View Detail at Once"*,
+       25 *"Space Select any Entry"*, 26 *"Ctrl+Space Select All"*). Against **that** source, binding the chord
+       to the highlighted posted **ENTRY** is at least as well attested as the master reading, so **(A)'s
+       "widening" is defensible and may be no widening at all.** ⚠️ **RELABELLING S5d A DIVERGENCE, OR
+       UNBINDING THE CHORD, WOULD BE THE WRONG CORRECTION** — recorded here explicitly because a review finding
+       proposed exactly that and was refuted. ⚠️ **BUT standing ruling X5 excludes this PDF as a corpus
+       source**, so the record cites it and flags its status rather than promoting it; see the new
+       `THE X5 EXCLUSION RESTS ON AN EXTRACTION ARTEFACT` decision block in §5.
+       **▶ 🔴 AND WHAT S5d DID NOT BUILD, WHICH THE (A) RECORD SHOULD HAVE SAID: THE MASTER LIMB IS IMPLEMENTED
+       ON NEITHER SURFACE THE CORPUS NAMES.** The Book's sentence is *"to alter a master during voucher entry
+       **or from drilldown of a report**"*. The only `Ctrl+Enter` master arm is gated on the **stock-item master
+       screen** — a master-creation list, not a report drilldown — and there is **no `Ctrl+Enter` arm on
+       `Screen.VoucherEntry` at all**, so **no inline master alteration from a voucher field exists anywhere in
+       the product**; that second limb is the substantive missing feature. ✅ **Master alteration itself is NOT
+       unreachable** (plain Enter on the Chart of Accounts opens Ledger/Group Alteration), and ✅ **S5d does not
+       SHADOW the missing arm** — it returns `NoVoucherHere` and does not consume the key on a non-voucher row,
+       pinned by its own shipped test — so the chord stays free on exactly the rows a master arm would claim.
+       **Filed as census T2-12.**
      - **▶ ⚠️ WHAT S5d DOES *NOT* CLOSE — stated so the phase is not re-declared done off this item.** The **R9
        real-app run has NOT been performed for this slice**; the gate's *"alter a posted invoice and see the same
        number at the same Day-Book position"* is now **possible** but **not yet evidenced**. Everything the row's
@@ -2576,6 +2646,45 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
           has no `Screen.Report` arm (the report's own `ListBox` owns its arrows, and nothing has focus in a
           headless window). **S3 and S4 take the identical step.** ⚠️ **Nobody has verified by running the app
           that the arrows move the report highlight there** — it is assumed from the binding, not measured.
+  7. **🔴 S5e — THE ITEM-INVOICE NARROWING (`b89213e`). WRITTEN INTO THIS PLAN ON 2026-08-20, *AFTER* IT WAS
+     BUILT — A SECOND R6 DEVIATION, RECORDED AS ONE, AND IT IS WORSE THAN S5d's BECAUSE S5e TOUCHED NO DOC OF
+     ANY KIND.** `git diff --stat a34d989 b89213e -- plan.md` is **EMPTY**; the slice's 2,926-line `src`/`tests`
+     diff carries **zero** corpus citations; and `grep -c "S5e" plan.md` was **0** until this item. Under
+     **ruling 5** and **R11**, a slice with no fidelity record is **not done** — which is why the S5d+S5e review
+     verdict is `NOT_DONE` **independently of any code defect**.
+     - **WHAT IT DOES.** The blanket item-invoice alteration refusal gave two reasons — a batch-split row posts
+       one line per batch, and the posted rate is the effective rate while `voucher_inventory_lines` has no
+       discount column — and **both were inherited and never re-measured**. Re-measuring them is the slice:
+       `ShowPriceLevelSelector` is **Sales-only** and is the sole writer of `ShowDiscount`, and
+       `PosBillingViewModel` never touches it, **so on every Purchase item invoice and every POS bill the
+       posted rate IS the keyed rate, unconditionally.** So **Purchase item invoices open on the accounting
+       screen**, and **POS bills get their OWN door (`PosAlterationEligibility`) and their OWN accept path**
+       (`PosBillingViewModel.ForAlter` / `AcceptAlterationCore`) rather than being denied the verb.
+       `BookLevelRefusalFor` names the book-level refusals once so both doors consume the same arms.
+       **Schema-clean: `Schema.CurrentVersion` untouched at 51, nothing under `src/Apex.Persistence.Sqlite`.**
+     - **▶ 🔴 STEP 5a (RULING 5 + RULING 9) — DISCHARGED 2026-08-20 BY A14, AND DELIBERATELY NOT WRITTEN HERE.**
+       The record for the WHOLE alteration verb (S5a…S5e) is **`docs/full-clone-census.md` §1.3 item 12**, in
+       the two R7 categories ruling 9 requires, plus an `ATTESTED AND FOLLOWED` block and an
+       `OURS, CORPUS SILENT` block. **§2.2 step 5a says the count is maintained there and forbids copying the
+       digits into this file, so this item carries a POINTER and no figures.** 🔴 **THAT IS THE WHOLE POINT:
+       S5d wrote its record HERE instead, which is precisely how §1.2a row 5.1 and §1.3 item 12 went stale for
+       a day while both slices were live in the product.** Filed as a Tier-3 row in the census.
+     - **▶ 🔴 THE ONE FAMILY S5e LEAVES REFUSED, NAMED — THE *SALES ITEM INVOICE*, AND IT IS A RULING-9
+       CATEGORY (b) DIVERGENCE, NOT A NEUTRAL TECHNICAL LIMIT.** It is refused on the accounting door and again
+       on the POS door, so it is **alterable by no key on any screen**, while the corpus attests the route on
+       two pages (STUDY GUIDE printed **p.281**, *"select any Sale Invoice and press Enter"* / *"Sales Invoice
+       alteration screen will appear"*; and the Book's section-terminal *"How to Show/Edit Sale Voucher Entry …
+       Sale Register > Select Month & Show/Edit Entry"*, closing a Sale (F8) section that covers Item Invoice,
+       Accounting Invoice and As Voucher modes). ⚠️ **AND THE NARROWING THAT LOOKS OBVIOUS IS THE TRAP:** the
+       arm was **NOT** narrowed to *"the multiple-price-levels flag is on"*, because that flag is **LIVE** and
+       reading today's flag to judge a voucher posted months ago is the **master-drift** defect this phase has
+       already shipped twice (see the two blind axes in the fix list below). **Lifting it needs a schema column
+       for the list rate and the discount — the user has FULL schema authority (§5 ruling).** Census **T2-11**.
+     - **▶ ⚠️ WHAT S5e DOES *NOT* CLOSE.** The R9 real-app run is still not performed for this slice either;
+       the four families the design record marks `DEFER-DEFERRED` are refused exactly as before; and the review
+       that followed it returned **15 confirmed findings across three lenses plus one blocker from the
+       completeness critic**, of which the fix pass closed six and **found seven NEW defects while fixing** —
+       all of which now have homes (below, and census T0-14…T0-16 / T1-22…T1-24 / T2-11…T2-13 / Tier 3).
   - **▶ 🔴 STANDING INVARIANT ADDED BY S5d — `ViewModelAlterEntryPointReachabilityTests`. DURABLE: IT OUTLIVES
     THIS SLICE AND THIS PHASE, AND IT IS A PLAN ITEM BECAUSE THE NEXT PERSON TO WEAKEN IT NEEDS TO KNOW WHAT IT
     WAS FOR.**
@@ -2601,6 +2710,82 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **▶ 🔴 AMENDED 2026-08-19: A GATE IS OWED AFTER S5d AND HAS NOT BEEN TAKEN.** The line above predates the
     slice. S5d is the diff that finally makes the row's own R9 real-app evidence **producible**, so its gate is
     the one that matters most, and it is **open**, not passed.
+- **▶ 🔴 THE S5d+S5e REVIEW CARRY-FORWARD — R6 WORK ITEMS, OPENED 2026-08-20. EVERY ITEM BELOW HAS A CENSUS ROW
+  AS WELL; NEITHER PLACE IS THE ONLY HOME.** The review returned **15 confirmed findings across three
+  adversarial lenses plus one blocker from the completeness critic**. Four fix agents closed six of them **and
+  found SEVEN NEW DEFECTS WHILE FIXING — five of them wrong-money or data-loss, each reproduced with literals
+  through the real screens.** 🔴 **They are written down here because the last defect of exactly this shape was
+  *"recorded as routed to `plan.md` when it was not"* — the §194C deductee-type branch — and it shipped wrong
+  money for weeks. Nothing below is closed by having been reported.**
+  1. **🔴 WRONG MONEY — the tax-head shape pin is blind to an intra-state GST rate moved between an EVEN
+     basis-point figure and the ODD one above it.** `integratedBp / 2` is an **integer** division, so 500 and
+     501 both stamp 250 and the signature cannot see the move. Reproduced through the real purchase
+     item-invoice screen: rate 5.00% → 5.01%, `AcceptAlteration` returned TRUE, **ITC 185.19 → 185.56, supplier
+     credit 3,888.90 → 3,889.27.** Rs 0.37 measured, **unbounded in principle**. Inter-state is safe. **OPEN.**
+     Census **T0-14**. The literals are in the guard's own doc comment.
+  2. **🔴 WRONG MONEY — the same pin is blind to a TAXABILITY FLIP masked by a same-rate sibling.** Two items at
+     one rate; flip ONE to Exempt with the screen open and it is ACCEPTED with an identical signature while the
+     **stamped taxable base falls 7,654.15 → 3,950.44, the ITC falls 1,377.75 → 711.08 and the supplier's
+     credit falls 9,031.90 → 8,365.23 — Rs 666.67 on an alteration that touched nothing.** **OPEN.** Census
+     **T0-15**.
+  3. **🔴 WRONG MONEY (feature gap) — `PosBillingViewModel.ComputeGst` resolves NO Compensation Cess**, so a
+     cess-bearing item sold over the counter collects **zero** cess while the identical item on a Sales item
+     invoice collects it. **Needs its own slice, not a fix slipped into a defect pass.** ⚠️ **R7/A6 mandate: its
+     RATE side must be WEB-VERIFIED against CBIC at build time — no per-unit or ad-valorem cess figure may be
+     asserted from memory.** The rate instrument is Notification 1/2017-Compensation Cess (Rate) dated
+     28-06-2017 under the GST (Compensation to States) Act, 2017. **OPEN.** Census **T0-16**.
+  4. **🔴 DATA LOSS — a `BankAllocation` on the PARTY leg of an item invoice is destroyed on re-accept, and the
+     RECONCILIATION DATE goes with it**, while the warning rides on the **success** message. 🔴 **THIS
+     CONTRADICTS THE S5d/S5e VERIFIER, WHO TOLD THE FIXER TO DROP THIS LIMB AND ASSERTED THE RECONCILIATION
+     DATE WAS NOT AT RISK. THE FIXER PROBED INSTEAD OF ASSUMING AND THE VERIFIER WAS WRONG — recorded
+     explicitly, because a verifier being wrong is exactly what this project loses.** **OPEN.** Census
+     **T1-22**. ⚠️ **Carries a user/design question: does `Replace`'s `CarryBankDatesForward` warning stay?**
+  5. **🔴 DATA LOSS, AND SILENT — `BillAllocations` on a bill-wise VALUE leg are destroyed on re-accept with no
+     warning at all.** **Nobody had enumerated this**: the finding, the verifier and the completeness critic
+     all discuss bill-wise only on the party leg. **OPEN.** Census **T1-23**. ⚠️ **Carries a design question —
+     carry the children, or refuse at the door? — which is not a fixer's to settle.**
+  6. **🔴 WORK LOSS — the type F-keys destroy an in-progress POS bill AND an unsaved POS ALTERATION.** Same root
+     as the accounting-screen defect fixed in this pass; the fix is scoped to `Screen.VoucherEntry` per its
+     brief and does not cover `Screen.PosBilling`. One plain **F8** replaced a keyed bill of 3 × Rs 849.37 with
+     a blank Sales entry, and the altering half also tore down the Day Book column. **Fix shape already named
+     in the shipped guard's doc comment:** a `HasUnsavedWork` on `PosBillingViewModel` + a second arm in
+     `OpenVoucherFromTypeKey`. **OPEN.** Census **T1-24**.
+  7. **✅ UI TRUNCATION — the window-level notice bar clipped EVERY Phase 10.11 lifecycle refusal at one line**,
+     at 1280×720 DIP **and** at 1920×1080 DIP, **and the discarded half was always the operator's
+     instructions**. **FIXED** in this pass. 🔴 **Recorded anyway, because it is the FIRST defect of that class
+     ever found on this surface and NO review lens hunted it** — the completeness critic named the class as
+     unhunted and was right. ⚠️ **Its attached residue claim — *"8 other unwrapped `{Binding Message}`
+     TextBlocks remain"* — was re-measured 2026-08-20 at ATTRIBUTE level and is FALSE: 59 such TextBlocks, 59
+     carry `TextWrapping`, ZERO carry neither, and all eight named lines carry `TextWrapping="Wrap"` verbatim.
+     Do not open campaign work off it.** Census Tier 3.
+  - **ALSO OWED, NOT CODE CHANGES — the "must be recorded rather than lost" list:**
+    (a) **rows for the two unbuilt `Ctrl+Enter` MASTER limbs** (from a report drilldown; and during voucher
+    entry — the second is the substantive missing feature) — **census T2-12**, and source (b) is now in S5d's
+    R7 record above; (b) **the SALES ITEM INVOICE divergence** — **census T2-11** and §1.3 item 12;
+    (c) **the F-key CONVERSION half**, deliberately left unbuilt (memorandum → payment by F5 on the memorandum
+    alteration screen is corpus-attested and `ConvertMemorandum` has zero production callers) — **census
+    T2-13**; (d) **four doc-comment / undisclosed-limit corrections and one doctored-test correction** — the
+    discount-backstop tautology, the reachability cross-check's namespace blind spot, `BookLevelRefusalFor`'s
+    false call graph (its two comments are now corrected in code; **its sole call site is still unpinned and
+    three constructed cases exist**), the census misrepresentation itself, and the shell-driven POS accept
+    assertion. ⚠️ **On that last one: the fix is `Assert.Null(vm.PosBilling)` or `SavedNumber`, NOT the
+    originally-suggested `Assert.Null(vm.PosBilling!.Message)`, which NREs on the passing path** because a
+    successful alteration unbinds the screen. All five are **census Tier 3**.
+  - **▶ ✅ TWO POSITIVE RESULTS THAT CLOSE CRITIC ITEMS. A FIXER TOLD TO "CLOSE THEM" WOULD HAVE WRITTEN DEAD
+    GUARDS, so they are recorded as closed rather than left open.** (i) **Three of the five limbs the critic
+    said *"nobody enumerated"* are ALREADY refused at the door with a shipped test** —
+    `ItemGridDerivedLegRefusal` refuses TDS, TCS (its predicate is *"has a TCS"*, so the **below-threshold**
+    detail is covered too), a reverse-charge pair and a GST statutory adjustment; payroll is refused separately
+    in the same file. **The complete census of `EntryLine`'s eight optional fields is in the census's
+    2026-08-20 gap-register banner** and should be maintained there, not re-derived. (ii) **The POS screen has
+    NO discount field and NO round-off field at all** (zero-hit grep; `PosConfig` carries neither; POS never
+    passes the round-off parameter), **so two critic worries about POS rehydration are void.**
+  - **▶ ⚠️ AND ONE NARROWING SHIPPED IN THE SAME PASS, STATED PLAINLY:** a POS bill carrying **two tenders of
+    one kind** is now refused at the POS door, and POS bills were already refused at the accounting door — **so
+    such a bill is alterable on NO screen.** Correct for a shape no screen can represent, but a real narrowing.
+    **Preserving N tenders of one kind is a new payment-panel design and needs its own R6 row before anyone
+    builds it** — the four tender rows are fixed indices in the view model and one bound panel per kind in the
+    AXAML, so it is not a defect fix.
 - **Schema: NONE — schema-clean end to end, and that is designed, not coincidental.** `SqliteCompanyStore.Save`
   re-inserts the whole aggregate in one transaction, so persistence is a pure function of the in-memory
   `Company` graph. **Io: none for the canonical model** — asserted, not assumed (a never-altered company must
@@ -4606,6 +4791,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   ONE PARTIAL** — census row **16.6** (Repair / Rewrite / Verify) has a real `PRAGMA integrity_check` called
   on both the backup and the restore path. So breadth is **73 absent rows** (58 + 15) **plus the completion
   of 16.6's two named gaps**. `47 + 96 + 73 = 216`, machine-checked.
+  **▶ 🔴 AMENDED 2026-08-20 — BREADTH IS NOW 72 ABSENT ROWS, NOT 73, AND THE ARITHMETIC ABOVE IS LEFT
+  STANDING BECAUSE IT IS WHAT RULING 10 DECIDED ON ITS OWN DAY.** Census row **5.1** (voucher alteration)
+  moved `ABSENT` → `PARTIAL` when Phase 10.11's **S5a–S5e** were finally recorded in the census, so the
+  column sums are now `47 + 97 + 72 = 216`, re-derived by re-running §1.2a's own counting command and
+  machine-checked. **Every "73 absent" in this file — here, in step 6 below, and in the wave table — reads 72
+  from 2026-08-20.** Nothing else in (b) changes: 16.6 is still the one PARTIAL among ruling 10's sixteen,
+  and its two named gaps still ride with breadth.
   **(c) WAVE 2 IS NOT NAMED IN THE NEW ORDER, AND IT IS NOT THEREBY DELETED.** The structural wave — Voucher
   Type master, the **shared report base**, the F11/F12 configuration layer — appears nowhere in steps 1–7.
   **Ruling 1 still binds everything the new order does not name**, so Wave 2 keeps its place **between step 5

@@ -4,6 +4,27 @@
 **Baseline:** worktree `…\.claude\worktrees\recursing-swirles-3138c6`, HEAD `468a96e`, schema v50. Read-only; nothing built, run, or edited.
 **Date:** 2026-08-10.
 
+> **▶ 🔴 2026-08-20 — THE DENOMINATOR DID *NOT* MOVE; ONE STATE DID, AND IT IS THE STATE THIS DOCUMENT WAS
+> MOST WRONG ABOUT. READ THIS BEFORE THE 2026-08-19 BANNER BELOW IT.** Phase 10.11's **S5d** (`a34d989`) and
+> **S5e** (`b89213e`) shipped **voucher alteration** into the product, and neither slice touched this file —
+> so §1.2a **row 5.1** still graded the capability `ABSENT` on four searches that are now three-quarters false,
+> and §1.3 **item 12** still read *"GROUNDED, NOT YET BUILT"*. **Both are corrected in place, with the original
+> text quoted, and §1.2's integers were RE-SUMMED by re-running §1.2a's own command rather than edited.**
+> 1. **§1.2's split is now `216 · 47 / 97 / 72 / 0`.** Exactly `+1 partial, −1 absent`, from row 5.1 alone.
+>    The 2026-08-19 `216 · 47 / 96 / 73 / 0` is kept in place below as the record of that day.
+> 2. **§1.3's anchor block is `12 · 12 · 204 · 204`**, and the two halves now COINCIDE for the first time —
+>    item 12 was the only header that was grounded and not yet compared, so closing it makes
+>    *"uncompared as shipped"* and *"no sourced verification of any kind"* the same number. Say it out loud
+>    rather than letting a reader think one of them was mis-derived.
+> 3. **Item 12 now carries the ruling-9 step-5a fidelity record for S5a–S5e**, in the two R7 categories
+>    ruling 9 requires, and it **names the one family still refused after S5e — the SALES ITEM INVOICE** —
+>    which no record at HEAD did.
+> 4. 🔴 **This correction is the FOURTH consequence of a mechanism, not a one-off tidy.** `plan.md` §2.2
+>    step 5a says the count *"is maintained"* in §1.3 and *"do not copy the digits into this file"*; **S5d
+>    wrote a full R7 record into `plan.md` anyway and S5e wrote none at all**, so a compliant author
+>    discharged the gate in substance and left every maintained figure here stale. The gate is prose-checked,
+>    not derivation-checked. That is recorded as **T3** below, not smoothed over.
+>
 > **▶ 🔴 2026-08-19 — THE DENOMINATOR MOVED AGAIN, AND THIS TIME IT IS A SCOPE DECISION, NOT A RE-COUNT.
 > READ THIS BEFORE THE 2026-08-18 BANNER BELOW IT.** **User ruling 10 (R12 — `plan.md` §5,
 > `FOUR FURTHER USER RULINGS (R12, 2026-08-19)`) brought BOTH held-out sets into scope**, so the two sections
@@ -74,7 +95,7 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 2 | Accounting masters | 13 | 0 | 8 | 5 | 0 |
 | 3 | Inventory masters | 15 | 2 | 11 | 2 | 0 |
 | 4 | Voucher types (7.2's classic eighteen) | 18 | 5 | 13 | 0 | 0 |
-| 5 | Voucher behaviours & edit verbs | 15 | 5 | 5 | 5 | 0 |
+| 5 | Voucher behaviours & edit verbs | 15 | 5 | 6 | 4 | 0 |
 | 6 | Statutory, current law (GST, TDS/TCS, salary IT) | 42 | 18 | 14 | 10 | 0 |
 | 7 | Payroll | 21 | 6 | 10 | 5 | 0 |
 | 8 | Banking | 10 | 1 | 4 | 5 | 0 |
@@ -86,11 +107,23 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 14 | TallyPrime-only capabilities | 10 | 1 | 2 | 7 | 0 |
 | 15 | Statutory, obsolete by law (pre-GST) — **was §3** | 9 | 0 | 0 | 9 | 0 |
 | 16 | Formerly excluded by decision (security, audit, data structure) — **was §4** | 7 | 0 | 1 | 6 | 0 |
-| | **TOTAL** | **216** | **47** | **96** | **73** | **0** |
+| | **TOTAL** | **216** | **47** | **97** | **72** | **0** |
 
-**A full clone requires 216 named capabilities. We have 47 complete, 96 partial, 73 absent, 0 undetermined.**
+**A full clone requires 216 named capabilities. We have 47 complete, 97 partial, 72 absent, 0 undetermined.**
 Every `COMPLETE` still means **present and reachable**, never *correct*; §1.3 holds the fidelity figures and is
 the only place they are maintained.
+
+> **▶ 🔴 RE-SUMMED 2026-08-20 — ONE ROW MOVED, AND THE INTEGERS WERE RE-DERIVED BY RE-RUNNING §1.2a's OWN
+> COMMAND, NOT EDITED.** The sentence above previously read ~~*"We have 47 complete, 96 partial, 73 absent, 0
+> undetermined"*~~ and area 5's row previously read ~~`| 5 | Voucher behaviours & edit verbs | 15 | 5 | 5 | 5 |
+> 0 |`~~. **Row 5.1 (voucher alteration) moved `ABSENT` → `PARTIAL`**, because Phase 10.11 slices **S5a–S5e**
+> shipped it and the row's four zero-hit searches are now three-quarters false at HEAD (the row itself carries
+> the measurement). The delta is exactly `+1 partial, −1 absent`; the denominator, every other area and every
+> other column are untouched. **Machine check re-run 2026-08-20 over this file:
+> `TOTAL rows=216 C=47 P=97 A=72 U=0 sum=216`**, and area 5's own heading matches. Anything still quoting
+> `47 / 96 / 73` is quoting the 2026-08-19 snapshot.
+> **▶ ⚠️ AND IT RIPPLES INTO `plan.md`'s BREADTH ARITHMETIC:** *"73 absent rows"* (the Wave-3 breadth figure,
+> stated four times there) **is now 72**. That is corrected in place there rather than left to be discovered.
 
 > **▶ 🔴 THE DENOMINATOR MOVED AGAIN ON 2026-08-19: 200 → 216, AND THIS ONE IS NOT A RE-COUNT OF THE SAME
 > PRODUCT. IT IS A SCOPE DECISION.** User ruling 10 (R12 — `plan.md` §5,
@@ -189,7 +222,15 @@ END{ printf "\nTOTAL rows=%d C=%d P=%d A=%d U=%d sum=%d\n",tn,tc,tp,ta,tu,tc+tp+
 this ever disagrees with §1.2, **the rows are right and §1.2 is the defect** — that is the whole point of
 deriving one from the other.
 
-**▶ 🔴 EXPECTED RUN FROM 2026-08-19 ONWARD: `TOTAL rows=216 C=47 P=96 A=73 U=0 sum=216`.** Areas **15** and
+**▶ 🔴 EXPECTED RUN FROM 2026-08-20 ONWARD: `TOTAL rows=216 C=47 P=97 A=72 U=0 sum=216`.** This supersedes the
+2026-08-19 expectation quoted in the next paragraph. **One row moved and nothing else did:** row **5.1**
+(voucher alteration) went `ABSENT` → `PARTIAL` when Phase 10.11 **S5a–S5e** shipped the capability. The command
+is unchanged and was not weakened to fit — the same two patterns parse the same rows; only one row's state
+token differs. Delta: `+0 rows, +0 complete, +1 partial, −1 absent`. **Run actually performed 2026-08-20
+against this file, and its output is the line above.**
+
+**▶ 🔴 EXPECTED RUN FROM 2026-08-19 ONWARD (SUPERSEDED 2026-08-20 — see the paragraph above):
+`TOTAL rows=216 C=47 P=96 A=73 U=0 sum=216`.** Areas **15** and
 **16** were added that day by user ruling 10, and they parse under the same two patterns this command already
 uses — the `^#### Area ` heading and the `^| N.N |` row — so **the command is unchanged and was not
 weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 absent`.
@@ -278,7 +319,12 @@ weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 
 | 4.17 | Memorandum — off-books entry, register, and conversion to a real voucher | PARTIAL | Type, menu row and register all present, and the engine's convert method exists. **Gap:** 🔴 the catalog's **conversion verb is unreachable** — the shell method and its own gate each have **zero production consumers**; the only callers are tests. A memo can be posted and never regularised. Filed as **T2-9**. |
 | 4.18 | Reversing Journal — off-books entry with Applicable-Upto, register, scenario inclusion | PARTIAL | Capture and parse verified. **Gap:** no seeded shortcut, so it is menu-only; and with no voucher alteration the Applicable-Upto date can never be corrected after posting. |
 
-#### Area 5 — Voucher behaviours & edit verbs · 15 rows · 5 complete / 5 partial / 5 absent
+#### Area 5 — Voucher behaviours & edit verbs · 15 rows · 5 complete / 6 partial / 4 absent
+
+> **▶ 🔴 HEADING RE-DERIVED 2026-08-20.** It previously read ~~*"15 rows · 5 complete / 5 partial / 5
+> absent"*~~. **Row 5.1 alone moved** (`ABSENT` → `PARTIAL`, Phase 10.11 S5a–S5e). The ABSENT set for this area
+> is now **5.4, 5.5, 5.10, 5.11** — four, not five. Re-derived by re-running §1.2a's counting command, not by
+> editing a digit; §1.2's area-5 row is the column sum of these fifteen rows and was re-summed with it.
 
 > **Uncounted cross-references** (counted in the area named): **Voucher Type master → 2.4**; **Voucher Class →
 > 2.6**; **the Day Book itself → 11.4**. The two-collection finding that governs eight of area 4's rows is
@@ -286,7 +332,7 @@ weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 
 
 | # | Capability | State | Evidence · gap |
 |---|---|---|---|
-| 5.1 | Voucher alteration — open a posted voucher, change it, re-save | ABSENT | Searched four ways, all zero: the detail view model exposes no alter or save member; `ForAlter` exists in exactly three master view models and no voucher one; the entry view model has zero `Alter`/`Duplicate`/`Insert` occurrences; Ctrl+Enter is bound to stock-item alteration and nothing else. No Screen member. **The master defect (T1-1); slices S5a/S5b/S5c.** |
+| 5.1 | Voucher alteration — open a posted voucher, change it, re-save | PARTIAL | 🔴 **BUILT — S5a…S5e, and this row graded it ABSENT for a day after it shipped.** Engine `Replace` (S5a), `ForAlter` rehydration (S5b), the carve inversions and CARRY table (S5c), the `Ctrl+Enter` wiring on three surfaces (S5d, `a34d989`), and the narrowing that opened purchase item invoices and gave POS its own door (S5e, `b89213e`). **Fidelity record: §1.3 item 12** — that is where the comparison and its two R7 categories live, and this cell deliberately does not duplicate them. **Gap, named:** the **SALES ITEM INVOICE is still refused by name on every key**, against a corpus route that attests altering one from the Day Book and the Sale Register (§1.3 item 12); several families stay `DEFER-DEFERRED` (service GST advance receipt — a user ruling, not a slice; purchase accounting invoice); and a re-accept still **silently destroys** a `BankAllocation` and a bill-wise `BillAllocations` on the legs named in **T1-22 / T1-23**. **▶ 🔴 THE SUPERSEDED CELL, QUOTED SO THE CORRECTION IS CHECKABLE:** ~~*"ABSENT — Searched four ways, all zero: the detail view model exposes no alter or save member; `ForAlter` exists in exactly three master view models and no voucher one; the entry view model has zero `Alter`/`Duplicate`/`Insert` occurrences; Ctrl+Enter is bound to stock-item alteration and nothing else. No Screen member."*~~ **Three of those four limbs are FALSE at HEAD** (measured 2026-08-20): `ForAlter` is declared in **five** view models — `AccountGroupMasterViewModel`, `LedgerMasterViewModel`, `StockItemMasterViewModel`, **`VoucherEntryViewModel`** and **`PosBillingViewModel`** — so *"three master view models and no voucher one"* is wrong twice over; the entry view model has **70** `Alter`/`Duplicate`/`Insert` occurrences at `b89213e` (53 at `a34d989`), not zero; and `Ctrl+Enter` is bound to voucher alteration on three surfaces through `MainWindowViewModel.RequestAlterHighlightedVoucher`, not to stock-item alteration alone. Only the first limb (the detail view model exposes no alter or save member) is still true, and it is true **by design** — `VoucherDetailViewModel` is the read-only column. **T1-1's alteration half is CLOSED by this row; its duplication and insertion halves stand (5.4, 5.5).** |
 | 5.2 | Voucher cancellation (Alt+X) on a posted voucher | PARTIAL | 🔴 **BUILT — S3.** Key arm, gate, confirmation, engine cancel, greyed Day Book row, CANCELLED over-print, live-IRN/e-Way refusal. **Gap:** armed on **one** surface (the live Day Book) where the corpus scopes it to "Vouchers & Reports"; resolves only through the accounting aggregate, so no stock/order voucher can be cancelled; no un-cancel and no Cancelled Voucher register. |
 | 5.3 | Voucher deletion (Alt+D) on a posted voucher | PARTIAL | 🔴 **BUILT — S4.** Key arm, five surfaces, `MasterDeletionRules` guards, engine delete. **Gap:** cannot delete a stock/order voucher (same aggregate boundary); deleting the highest-numbered **unfiled** voucher reuses its number — a known and accepted residual, not a silent one; no numbering floor. |
 | 5.4 | Voucher duplication (Alt+2) | ABSENT | Zero hits for a duplicate-voucher verb; the only matches are the numbering feature's prevent-duplicate. No key arm, no menu row, no button-bar item. Corpus-attested and not built. |
@@ -884,7 +930,21 @@ impossible to blur. The real one:
       is written here so a reader meets it as a decision, not as a surprise.
     - **Company deletion is out of scope** (split out by an earlier ruling).
 
-12. **Voucher alteration (Phase 10.11 slices S5a / S5b / S5c).** **GROUNDED, NOT YET BUILT.**
+12. **Voucher alteration (Phase 10.11 slices S5a / S5b / S5c / S5d / S5e).** 🔴 **SHIPPED AND COMPARED —
+    RE-GRADED 2026-08-20. THE HEADER PREVIOUSLY READ** ~~*"(Phase 10.11 slices S5a / S5b / S5c.) **GROUNDED,
+    NOT YET BUILT.**"*~~ **and it was false for a day: `a34d989` (S5d) wired `Ctrl+Enter` on three surfaces and
+    `b89213e` (S5e) opened purchase item invoices and gave POS its own door, and neither slice touched this
+    file.** This item is now the **ruling-9 step-5a fidelity record for the whole alteration verb**, written by
+    A14 on 2026-08-20 and covering S5a…S5e together, because the corpus does not slice the verb the way our
+    diffs do. **§1.2a row 5.1 is `PARTIAL` on the strength of this record and carries no digits of its own.**
+
+    **▶ 🔴 WHY THIS ROW IS THE ONE THAT WENT STALE — the mechanism, not the excuse.** `plan.md` §2.2 step 5a
+    says *"§1.3 is where that count is maintained; do not copy the digits into this file"*. **S5d wrote a full,
+    correctly-categorised R7 record — into `plan.md`.** So the gate was discharged in substance and every
+    maintained figure here stayed wrong, because nothing derives one from the other. **S5e wrote no record at
+    all**: `git diff --stat a34d989 b89213e -- plan.md` is empty, its 2,926-line `src`/`tests` diff carries
+    **zero** corpus citations, and no artefact failed. **The fidelity gate is prose-checked, not
+    derivation-checked** — filed as **T3** in §2 so it is fixed rather than re-discovered.
 
     **What IS sourced:**
     - **The register drill-down IS the alteration screen** — *"How to Show/Edit \<X> Voucher Entry in Tally
@@ -894,6 +954,26 @@ impossible to blur. The real one:
     - `Ctrl+Enter` = *"To alter a master during voucher entry or from drilldown of a report"* — BOOK PDF
       **p.436** [printed p.432].
     - `Ctrl+D` removes a **line** inside voucher entry (same page) — a different granularity from `Alt+D`.
+    - 🔴 **ADDED 2026-08-20, RE-EXTRACTED BY A14 WITH `-raw`, AND IT IS THE STRONGEST ATTESTATION IN THIS ITEM
+      BECAUSE IT NAMES AN *INVOICE* RATHER THAN A VOUCHER FAMILY:** STUDY GUIDE PDF **printed p.281**,
+      verbatim — *"Gateway of Tally Day Book select any Sale Invoice and press Enter"* / *"Sales Invoice
+      alteration screen will appear"*. **Its purpose on that page is a Company-Logo print walkthrough, not a
+      correction workflow** — recorded so nobody later reports it as a dedicated alteration section — but the
+      sentence is unambiguous about the route and about the object. This is the page the SALES-item-invoice
+      divergence below rests on, and it was NOT in this item before today.
+    - 🔴 **ADDED 2026-08-20 — THE SECOND `Ctrl+Enter` SOURCE, AND ITS STANDING IS ITSELF AN OPEN USER
+      DECISION.** SHORT-KEY PDF item **24**, verbatim: *"Ctrl+Enter View in Alter Mode"* — **with no object
+      named**, sitting inside a run of ENTRY verbs (22 *"Shift+ENTER View in Details of Any Entry"*, 23
+      *"Alt+F1 View Detail at Once"*, 25 *"Space Select any Entry"*, 26 *"Ctrl+Space Select All"*). Read
+      against that source, S5d binding the chord to the highlighted posted **entry** is at least as well
+      attested as the master reading, **so relabelling S5d a divergence, or unbinding the chord, would be the
+      WRONG correction.** ⚠️ **BUT standing ruling X5 rejects this whole PDF as a corpus source**, on stated
+      evidence (*"F6 = Contra"*, *"F8 = Stock Journal"*, *"Ctrl+A = Zoom"*, *"shifted by two rows"*) that a
+      `-raw` re-extraction shows is a `-layout` artefact — items 17 `Ctrl+A` Save, 18 `Alt+D` Delete, 27 `F4`
+      Contra, 28 `F5` Payment, 30 `F7` Journal, 33 `F8` Sales, 40 `F9` Purchase all agree with the Book and
+      with the shipped contract. **Reinstating an excluded corpus source is an R12 user decision, not an agent
+      call** (§6 and `plan.md` carry it as one). This item cites the source and flags its status rather than
+      quietly promoting it.
 
     **What is OURS, or unsettled:**
     - **Our key bindings are a deliberate divergence:** plain Enter keeps a read-only VoucherDetail column and
@@ -903,10 +983,88 @@ impossible to blur. The real one:
       amended.** The corpus makes `Ctrl+Enter` an **alteration** key for a **master**; our extension of it to
       **vouchers** is therefore a **smaller** divergence than the plan recorded, not a larger one. The claim
       appears to have been read off a `-layout` dump — see item 13.
-    - The **five refused families**, the **warn-and-proceed date change**, and the **e-invoice / e-Way
-      interlocks** are ours.
+    - ~~The **five refused families**, the~~ 🔴 **CORRECTED 2026-08-20 — "five refused families" IS STALE AND
+      WAS ALREADY STALE WHEN WRITTEN.** The eligibility predicate is not a five-item list and has not been one
+      for two slices: `VoucherAlterationEligibility` now composes roughly **fifteen** named refusal arms across
+      `OffLineSideEffectRefusal`, `StatutoryDocumentRefusal`, `ProvisionalShapeRefusal`, `BaseKindRefusal`,
+      `EntryModeRefusal`, `DerivedLegRefusal` / `ItemGridDerivedLegRefusal` and the payroll arm, with
+      `PosAlterationEligibility` adding four more on the POS door. **Do not quote a family COUNT from this
+      item** — the arms are the derivation and they are in the code. The **warn-and-proceed date change** and
+      the **e-invoice / e-Way interlocks** remain **ours**.
+    - 🔴 **THE ONE FAMILY STILL REFUSED AFTER S5e, NAMED HERE BECAUSE NO RECORD AT HEAD NAMED IT — THE
+      *SALES ITEM INVOICE*. THIS IS A RULING-9 CATEGORY (b) DIVERGENCE: THE CORPUS ATTESTS THE ROUTE AND WE
+      DELIBERATELY SHIP A NARROWER PRODUCT.** It is refused by name on the accounting door
+      (`VoucherAlterationEligibility.EntryModeRefusal`) and refused again on the POS door (a `Sales` type is
+      not a POS type), so **it is alterable by no key on any screen** — plain Enter reaches only the read-only
+      column and `Ctrl+Enter` puts a sentence on the notice bar and opens nothing. **Against it stand two
+      corpus pages**: the Study-Guide p.281 line above (*"select any Sale Invoice and press Enter … Sales
+      Invoice alteration screen will appear"*) and the Book's section-terminal *"How to Show/Edit Sale Voucher
+      Entry … Sale Register > Select Month & Show/Edit Entry"*, which closes a Sale (F8) section that
+      explicitly covers **Item Invoice**, Accounting Invoice and As Voucher modes. **THE REASON IT IS REFUSED,
+      STATED AS OURS RATHER THAN AS A NEUTRAL TECHNICAL LIMIT:** a Sales item-invoice line posts the
+      **effective** rate and `voucher_inventory_lines` carries no list-rate and no discount column, so the
+      keyed state is not recoverable from what was stored. ⚠️ **AND THE TEMPTING NARROWING IS THE TRAP:** the
+      arm was NOT narrowed to *"the multiple-price-levels flag is on"*, because that flag is **live** and
+      reading today's flag to judge a voucher posted months ago is the master-drift defect this phase has
+      already shipped twice. **Lifting this needs a schema column, which is the user's to authorise (§5, FULL
+      schema authority).** Recorded as **T2-11** in §2.
     - **`Duplicate` (`Alt+2`) and `Insert` (`Alt+I`/`Alt+A`) are corpus-attested (BOOK PDF p.435) and NOT
-      BUILT** — a named carry-forward, not a silent omission.
+      BUILT** — a named carry-forward, not a silent omission. **§1.2a rows 5.4 and 5.5 stay ABSENT**, which is
+      why row 5.1 moving to PARTIAL closes only T1-1's *alteration* half.
+    - 🔴 **AND TWO ATTESTED `Ctrl+Enter` MASTER LIMBS ARE BUILT ON NEITHER SURFACE THE CORPUS NAMES — ADDED
+      2026-08-20.** The Book's master reading is *"To alter a master during voucher entry **or from drilldown
+      of a report**"*. **Neither** exists: the only `Ctrl+Enter` master arm is gated on the stock-item master
+      screen (a master-creation list, not a report drilldown), and there is **no `Ctrl+Enter` arm on the
+      voucher-entry screen at all** — so **no inline master alteration from a voucher field exists anywhere in
+      the product.** That second limb is the substantive missing feature. ✅ **Master alteration itself is NOT
+      unreachable** — plain Enter on the Chart of Accounts opens Ledger or Group Alteration
+      (`MainWindowViewModel.AlterHighlightedChartRow`) — so this is a missing **route on an attested chord**,
+      not a missing verb. **S5d's binding is left alone** for the reason in the Short-Key bullet above; the
+      chord is still free on exactly the rows a master arm would claim, because the S5d arm returns
+      `NoVoucherHere` and does not consume the key on a non-voucher row. Recorded as **T2-12**.
+
+    **🔴 WHAT S5d AND S5e SHIP, IN THE TWO R7 CATEGORIES RULING 9 REQUIRES — THE STEP-5a RECORD PROPER.
+    A row that does not name a category is not a discharged step 5a, so every line below names one.**
+
+    **(A) ATTESTED AND FOLLOWED** — no divergence to defend.
+    - **The register/Day-Book drill-down leads to the alteration screen and `Ctrl+A` saves it.** Both doors end
+      in `Replace` and both bind `Ctrl+A`; the accept path branches on `IsAltering` rather than inventing a
+      second save chord. Sources: the Book's eight `Show/Edit` sections and its `Ctrl+A`-to-save pages, above.
+    - **The document keeps its number and its position.** `Replace` holds id, number, type and the provisional
+      vector identical, which is what *"Show/Edit"* means in a numbered register.
+
+    **(B) A DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR** — attested chord, wider object.
+    - **`Ctrl+Enter` opens the highlighted posted VOUCHER for alteration on three surfaces** (the live report
+      page, the register drill and the read-only voucher-detail column). Under the Book's master reading this
+      is a widening from **master** to **voucher**; under the Short-Key reading (*"View in Alter Mode"*, no
+      object) it is not a widening at all. **Both readings are recorded; neither is asserted as settled**,
+      because the second source's admissibility is the open X5 ruling.
+    - **S5e widens the ELIGIBLE SET, not the route:** the item-invoice refusal was written as a whole-family
+      refusal and was only ever true of **Sales**, so **Purchase item invoices** now open on the accounting
+      screen and **POS bills** open on their own screen with their own door and accept path. **Corpus status:
+      the corpus attests altering a purchase entry from the Purchase Register in the same section-terminal
+      form as the sales one, so the widening moves TOWARD the corpus, not away from it.**
+
+    **(C) A DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR** — attested and deliberately not followed.
+    - **Plain Enter keeps a read-only VoucherDetail column.** The corpus's own route is plain Enter to
+      Show/Edit and it names **one** action, not two. Ours is a settled user decision (VL-1) taken to preserve
+      the Miller-column cascade, **with a follow-up to reconsider**. This is the divergence, not the chord.
+    - **The SALES ITEM INVOICE is refused entirely** — the bullet above, and the one gap in this row.
+    - **The type F-keys do not CONVERT an altering voucher.** The corpus attests one conversion — memorandum →
+      payment by **F5** on the memorandum alteration screen (BOOK, verbatim: *"Click on Payment (F5) button
+      provided at memorandum alteration screen"* / *"The voucher will converted as payment voucher with same
+      entry"*). `ConvertMemorandum` exists in `MainWindowViewModel` with **zero production callers**, so the
+      attested verb is built and unreachable. **Only the work-loss half was fixed** (the keys no longer discard
+      an unsaved entry silently); **the conversion half is owed** and is recorded as **T2-13**.
+
+    **(D) OURS, CORPUS SILENT** — not verifiable from the sources this project admits, shipped as a documented
+    divergence labelled as ours, and **never counted toward parity**.
+    - The three alteration surfaces and the notice bar the refusals are shown on.
+    - Every refusal SENTENCE, and the choice to refuse by name rather than fail in the engine.
+    - The **tax-head shape pin** and the **cess magnitude pin** on both accept paths — the corpus says nothing
+      about what happens when a master moves between posting and amendment. ⚠️ **And the pin is known-blind on
+      two measured axes** (**T0-14**, **T0-15**): both are OURS, both are open, and neither is a fidelity gap.
+    - The POS alteration door as a distinct screen with its own eligibility list.
 
 13. **METHOD NOTE — not a capability row.** 🔴 **`pdftotext -layout` silently scrambles the Book's three-column
     shortcut tables on pp.436-437.** The Key / Function / "Where does it work" columns come out as three
@@ -919,11 +1077,27 @@ impossible to blur. The real one:
     re-derived with `-raw`, and a `-layout` key/function pairing is UNVERIFIED unless the key count and the
     function count match exactly.**
 
-**11 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed, and the tenth and eleventh became shipped-and-compared when S3 and S4 landed. Item 12 alone is still grounded ahead of the slices that build it, which keeps the GROUNDED count at 12, leaves 205 uncompared as shipped behaviour, and leaves 204 with no sourced verification of any kind.** Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **205**.
+**12 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed; the tenth and eleventh became shipped-and-compared when S3 and S4 landed; and the twelfth became shipped-and-compared on 2026-08-20, when S5a–S5e's step-5a record was written into item 12 above. NO ITEM HEADER WAS ADDED, so the GROUNDED count stays at 12 — what changed is that the last grounded-but-unbuilt header is now built and compared. That leaves 204 uncompared as shipped behaviour, and 204 with no sourced verification of any kind.** Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **204**.
+
+> **▶ 🔴 THE PREVIOUS SENTENCE, QUOTED SO THE MOVE IS CHECKABLE (2026-08-19 → 2026-08-20):** ~~*"11 of 216
+> capabilities have had their SHIPPED behaviour compared to a source … Item 12 alone is still grounded ahead of
+> the slices that build it, which keeps the GROUNDED count at 12, leaves 205 uncompared as shipped behaviour,
+> and leaves 204 with no sourced verification of any kind."*~~ **Only figure (1) moved, by one, and figure (3)
+> follows it.** ⚠️ **AND THE TWO HALVES NOW COINCIDE AT 204 — that is arithmetic, not a mistake.** Figure (3)
+> is `216 − shipped-and-compared` and figure (4) is `216 − grounded`; item 12 was the ONLY header that was
+> grounded and not compared, so closing it collapses the two. **If a later slice grounds a capability ahead of
+> building it, they separate again.** ⚠️ **Item 12 is compared in the sense item 9 is: PARTIAL, with its
+> unsourced half enumerated** — categories (A)–(D) there name what is attested, what diverges and what is ours,
+> and (D) is the half no source can settle.
 
 > **▶ 🔴 THESE FOUR FIGURES ARE MAINTAINED HERE AND NOWHERE ELSE. §1.3 IS THE SINGLE DERIVATION.**
-> **As of 2026-08-19, against §1.2's 216 denominator: 11 shipped-and-compared · 12 grounded · 205 uncompared as
+> **As of 2026-08-20, against §1.2's 216 denominator: 12 shipped-and-compared · 12 grounded · 204 uncompared as
 > shipped · 204 with no sourced verification of any kind.**
+> **▶ 🔴 MOVED 2026-08-20 BY ONE, AND ONLY BY ONE.** The 2026-08-19 block read ~~*"11 shipped-and-compared · 12
+> grounded · 205 uncompared as shipped · 204 with no sourced verification of any kind"*~~. Item **12**
+> (voucher alteration) became shipped-and-compared when S5a–S5e's step-5a record was written into it; **no item
+> header was added or removed**, so (2) is unchanged and (3) follows (1). **(3) and (4) now coincide** — see
+> the note under the derivation sentence above for why that is arithmetic rather than a slip.
 >
 > **▶ 🔴 RESTATED 2026-08-19 AGAINST 216 — AND NOTE WHICH TWO MOVED AND WHICH TWO DID NOT.** User ruling 10
 > brought both held-out sets into scope, so the denominator went **200 → 216** (§1.2). **(1) and (2) did NOT
@@ -1081,6 +1255,49 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 > **NEW ROWS added by the re-derivation:** **T0-12**, **T0-13** (above); **T1-17**…**T1-21** and **T2-9**,
 > **T2-10** (below). None of them was in any register before today.
 
+> ### 🔴 2026-08-20 — WHAT THE S5d+S5e THREE-LENS REVIEW AND ITS COMPLETENESS CRITIC ADDED, AND THE FOUR FIX AGENTS AFTER THEM
+> **NEW ROWS:** **T0-14**, **T0-15**, **T0-16** (Tier 0); **T1-22**, **T1-23**, **T1-24** (Tier 1); **T2-11**,
+> **T2-12**, **T2-13** (Tier 2); **six Tier-3 rows**. **Seven of these were found WHILE FIXING, not while
+> reviewing** — five of them wrong-money or data-loss, each reproduced with literals through the real screens.
+> They are written down here because the last time a defect of exactly this shape was *"recorded as routed to
+> `plan.md` when it was not"* (the §194C deductee-type branch), it was lost for weeks and shipped wrong money.
+>
+> **✅ CLOSED IN THE SAME PASS, and recorded so nobody re-opens them:**
+> - **The window-level notice bar truncated EVERY Phase 10.11 lifecycle refusal at one line** — measured by
+>   render at **1280×720 DIP** (the 372-character GST shape refusal cut at *"…Alter re-computes the A"*) and
+>   still at **1920×1080 DIP** (*"…read the stamped figures. C"*). **Every one of those sentences ends with the
+>   operator's instructions, so the discarded half was always the actionable half**, on the one channel that
+>   exists precisely because these refusals are otherwise invisible. **FIXED** (`MinHeight` + padding,
+>   `TextWrapping`, `MaxLines="4"` derived from the longest reachable refusal). 🔴 **It is the FIRST defect of
+>   the UI-truncation class ever found on this surface, and no review lens hunted it** — the completeness
+>   critic named the class as unhunted and was right.
+> - **The residue claim attached to that fix — *"8 other unwrapped `{Binding Message}` TextBlocks remain"* — is
+>   FALSE and is withdrawn**; see the Tier-3 row. Do not open campaign work off it.
+>
+> **✅ TWO POSITIVE RESULTS THAT CLOSE CRITIC ITEMS RATHER THAN OPENING THEM. A LATER READER MUST NOT
+> RE-DERIVE THESE, AND A FIXER TOLD TO "CLOSE THEM" WOULD HAVE WRITTEN DEAD GUARDS.**
+> - **Three of the five limbs the critic said *"nobody enumerated"* are ALREADY refused at the door, by name,
+>   with a shipped test.** `VoucherAlterationEligibility.ItemGridDerivedLegRefusal` refuses: any **TDS** on any
+>   leg; any **TCS** on any leg — its predicate is *"has a TCS"*, so the **below-threshold** detail the critic
+>   singled out is covered too, not only the collecting case; a **reverse-charge pair**; and a **GST statutory
+>   adjustment**. **Payroll** is refused separately in the same file. ⇒ **THE COMPLETE CENSUS OF `EntryLine`'s
+>   EIGHT OPTIONAL FIELDS after the 2026-08-20 fixes, which is the artefact this review was missing:**
+>   `BillAllocations` **RE-KEYED on the party leg, SILENTLY DROPPED elsewhere (T1-23)** · `CostAllocations`
+>   **CARRIED (fixed)** · `BankAllocation` **DROPPED (T1-22)** · `Forex` **CARRIED (fixed)** · `Gst`
+>   **RE-DERIVED and shape-pinned (blind on T0-14 / T0-15)** · `Tds` **REFUSED AT THE DOOR** · `Tcs` **REFUSED
+>   AT THE DOOR** · `Payroll` **REFUSED AT THE DOOR**. **T1-22 and T1-23 are the entire residue.**
+> - **The POS screen has NO discount field and NO round-off field at all** — a zero-hit grep over
+>   `PosBillingViewModel`, a `PosConfig` that carries neither, and a round-off parameter POS never passes. **So
+>   two critic worries about what the POS rehydration might lose are VOID: there is nothing to lose and nothing
+>   to test.** ✅ And an IMPORTED POS bill that *did* carry a round-off leg is already refused by name by the
+>   existing leg partition.
+>
+> **⚠️ ONE NARROWING SHIPPED IN THE SAME PASS AND IS STATED PLAINLY RATHER THAN LEFT TO BE DISCOVERED:** a POS
+> bill carrying **two tenders of one kind** is now refused at the POS door, and POS bills were already refused
+> at the accounting door — **so such a bill is alterable on NO screen.** That is the correct answer for a shape
+> no screen can represent (preserving N tenders of one kind is a new payment-panel design, an R6 plan row, not
+> a defect fix), but it is a real narrowing and the refusal sentence names the two routes left.
+
 ### TIER 0 — WRONG MONEY AND LEGALLY INVALID DOCUMENTS
 
 | ID | Gap | Evidence | Harm |
@@ -1098,6 +1315,9 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T0-11** | **Purchase item-invoices, Credit Notes and Debit Notes never print in invoice format** — they silently fall back to a Dr/Cr voucher print. | `VoucherPrintProjector.IsTaxInvoice` requires `BaseType == Sales` (`:48`). Contradicts `docs/phase5-reports-io-requirements.md:217` RQ-11. | Supplier and return documents are unusable as documents. |
 | **T0-12** | 🔴 **NEW 2026-08-18. Recording the same attendance period twice silently DOUBLES the pay.** The attendance service's record method **always appends a new entry** with no dedupe on employee + type + period; its delete method has **zero callers in `src/Apex.Desktop`**; and the payroll computation **sums every matching entry**. | Survey-measured at HEAD `6fb5fe5`: `PayrollAttendanceService` (record appends, delete uncalled), `AttendanceVoucherEntryViewModel` (writes every non-blank row, zero `duplicat` hits), `PayrollComputationService` (the attendance sum). §1.2a row 7.8. | An On-Attendance or On-Production pay head pays twice, and **the operator has no in-app way to undo it** — the recorded entry can be neither altered nor removed. Real money, real salaries. |
 | **T0-13** | 🔴 **NEW 2026-08-18. A leaver accrues gratuity provision and statutory bonus for ever.** `Employee.DateOfLeaving` has **zero hits across all of `src/Apex.Desktop`** — no field, no XAML — while **three engines read it**: the gratuity provision skips an employee who has left, the bonus register clips the eligibility year on it, and the ESI contribution emits it as the last working day. | Survey-measured at HEAD: `Employee`, `GratuityProvision`, `BonusRegister`, `EsiContribution`; settable only through JSON/XML import. §1.2a row 7.2. | Provisions and bonus keep accruing for staff who left, and the ESI file never carries a last working day. Both are wrong figures in a filed or auditable artefact. |
+| **T0-14** | 🔴 **NEW 2026-08-20. The alteration screen's tax-head shape pin is BLIND to an intra-state GST rate master moved between an EVEN basis-point figure and the ODD one above it, so the ITC and the supplier's credit silently restate on an amendment that touched nothing.** The CGST and SGST legs are stamped with `integratedBp / 2`, an **integer** division, so **500 and 501 both stamp 250** and `TaxHeadSignature` — which compares `ledger｜side｜head｜rate` — sees no change. An INTER-state invoice is safe: the IGST leg carries the full basis points. | **[V] 2026-08-20**, reproduced through the REAL purchase item-invoice screen by the agent fixing the cess blocker: moved the item's rate 5.00% → 5.01% with the alteration screen open and `AcceptAlteration` returned TRUE with *"Purchase No. 1 altered."*; signature identical on both sides; **ITC moved 92.60 + 92.59 = 185.19 → 92.78 + 92.78 = 185.56 and the supplier's credit 3,888.90 → 3,889.27.** The halving is in `GstService.ComputeInvoiceTax`'s rate-group loop; the pin is `VoucherAlterationDerivedLegs.TaxHeadSignature`, whose doc comment now carries these literals under its *"WHAT THIS SIGNATURE IS BLIND TO"* enumeration. | Rs 0.37 on the measured fixture, **unbounded in principle** — the drift scales with the invoice. It is written into the book and into the filed return under the guard's own claim that *"a rate master moved since posting"* is exactly what it refuses. **OPEN.** §1.3 item 12 category (D). |
+| **T0-15** | 🔴 **NEW 2026-08-20. The same pin is BLIND to a TAXABILITY FLIP that another line of the same rate group masks.** The signature deliberately excludes the stamped `GstLineTax.TaxableValue` — right for an ordinary amendment, and it also hides a moved master. Only a flip that empties the WHOLE rate group is caught, because only then does a leg disappear. | **[V] 2026-08-20**, reproduced through the real screens: two items both at 18% (one rate group), one posted invoice; flipping ONE item Taxable → Exempt with the screen open was ACCEPTED (*"Purchase No. 1 altered."*) with the signature identical, while **the stamped taxable base fell 7,654.15 → 3,950.44, the ITC fell 688.88 + 688.87 → 355.54 + 355.54 and the supplier's credit fell 9,031.90 → 8,365.23.** | **Rs 666.67 measured on one two-line invoice**, on an alteration that touched nothing. Same class as T0-14 and as the cess blocker the same review found. **OPEN.** §1.3 item 12 category (D). |
+| **T0-16** | 🔴 **NEW 2026-08-20. A cess-bearing item sold over the counter collects ZERO Compensation Cess, while the identical item on a Sales item invoice collects it.** `PosBillingViewModel.ComputeGst` builds its taxable line with **no cess argument at all**, where the accounting item-invoice screen resolves the cess master and passes one. This is a **feature gap, not a regression** — it has been true since the POS screen was built — and it is why the cess drift-pin's POS arm is a refusal on an un-re-derivable bill rather than a master-drift comparison. | **[V] 2026-08-20**, found while wiring the POS half of the cess pin: `PosBillingViewModel.ComputeGst` vs `VoucherEntryViewModel.ComputeItemInvoiceGst` (which calls the cess resolver). The doc comment on `PosBillingViewModel.ReDerivedCessOnPostedRows` names this and states what becomes of the guard when `ComputeGst` gains cess. | Under-collected Compensation Cess on every counter sale of a cess-bearing good, and a GSTR-1 cess column that disagrees with the accounting screen for the same item. **OPEN — needs an R6 plan row, and its RATE side must be web-verified against CBIC at build time (A6/R7 mandate); no per-unit or ad-valorem cess figure may be asserted from memory.** |
 
 ### TIER 1 — ROUTINE TASKS IMPOSSIBLE, OR DAMAGE PERMANENT
 
@@ -1124,6 +1344,9 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T1-19** | 🔴 **NEW 2026-08-18. Printed wide reports carry BLANK column headings, and 17 report kinds EXPORT with blank headers.** The print projector hard-labels the first column and emits an **empty caption** for every other column; the real captions live only in the **export** twin. Separately, the export header map covers 16 kinds and falls through to an empty array for the rest. | Survey-measured at HEAD: `ReportPrintProjector` (the empty-caption emission) against `ReportTabularProjector` (the captions). The 17 are Batch-wise, Batch Age Analysis, Price List, the nine TDS/TCS kinds and the five payroll kinds. §1.2a rows 12.1 and 13.5. | A printed Stock Summary, GSTR-1 or Order Register **has no headings at all** while its CSV of the same data does — the two projectors diverged and nothing noticed. The exported subset is the mirror defect. |
 | **T1-20** | 🔴 **NEW 2026-08-18. There is not a single file or folder dialog in the product, and Restore cannot target any company but the one already open.** Zero hits in `src/Apex.Desktop` for the storage provider, both file dialogs, the folder dialog and the picker options type. The restore screen's target-name property has **zero bindings in the XAML**. | Survey-measured at HEAD. §1.2a rows 13.10 and 13.2. **This WIDENS T1-7** — the engine signature accepts any target path; the screen cannot express one, fresh install or not. | Backup destination, restore source, import source, export destination and the `.eml` path are typed strings or a silent default to Documents, overwriting in place. **A user restoring from a backup must type the full archive path from memory**, into a screen that will only ever restore over the company they already have open. |
 | **T1-21** | 🔴 **NEW 2026-08-18. The seeded TDS and TCS statutory masters are immutable, so T0-6's rates cannot be corrected in-app.** Both Nature-of-Payment and Nature-of-Goods screens are **create-only** and say so in their own doc comments: the predefined masters are an add-only domain and the screen does not edit a seeded nature. | Survey-measured at HEAD: `NatureOfPaymentMasterViewModel`, `NatureOfGoodsMasterViewModel`, `SeedTdsTcsRates`. §1.2a rows 6.28 and 6.36. | The seed's claim that a Finance-Act change is *"a data edit, not a code change"* is true **only of the C# source**. A user facing a wrong rate has no remedy inside the product. This makes T0-6 worse than it reads. |
+| **T1-22** | 🔴 **NEW 2026-08-20. A `BankAllocation` on the PARTY leg of an item invoice is DESTROYED on re-accept — the instrument detail AND the reconciliation date — and the warning rides on the SUCCESS message.** `BuildItemInvoice` constructs the party line bare, so the cheque/DD number, its type, its instrument date and its bank date all vanish. `Replace`'s `CarryBankDatesForward` does not carry it; it raises a warning which is then **appended to the "… altered." message**, so the operator is told the amendment succeeded and the loss is on the same line. **The party picker really does offer a bank ledger** — the party list is *"(none)" + every ledger*. | **[V] 2026-08-20**, scratch xUnit fact posted through the REAL item-invoice screen, then a `Replace`-stamped `BankAllocation`, then the REAL `ForAlter`/`AcceptAlteration`. Verbatim before: `bank=True instr='CHQ-90210' type=ChequeOrDD instrDate=03-04-2026 bankDate=05-04-2026`; after: `bank=False instr='' type= instrDate= bankDate=`. 🔴 **AND THIS CORRECTS THE S5d/S5e VERIFIER, WHICH IS THE PART THIS PROJECT LOSES:** the verifier told the fixer to DROP this limb and asserted *"only the instrument detail, not the reconciliation date, would be at risk there"*. **The reconciliation is lost too.** The fixer probed instead of assuming, and the verifier was wrong. | A reconciled bank line silently becomes unreconciled, and the instrument reference the reconciliation was made against is gone. **NOT FIXED** — it was outside the fixer's item by explicit instruction. The mechanism to close it exists: `TryCarryDerivedLegChildren` / `CarriedLegChildren` in `VoucherEntryViewModel`. ⚠️ **Closing it needs a ruling on whether `Replace`'s `CarryBankDatesForward` warning stays.** |
+| **T1-23** | 🔴 **NEW 2026-08-20. `BillAllocations` on a bill-wise VALUE leg are destroyed on re-accept with NO warning at all — not even the one T1-22 gets.** Bill-wise is properly re-keyed on the PARTY leg; on the value leg it is dropped. A Purchase Accounts ledger with `MaintainBillByBill` set is legal — the validator gates only on that flag and on the split footing the line, neither of which is party-specific. **Nobody had enumerated this: the finding, its verifier and the completeness critic all discuss bill-wise only on the party leg.** | **[V] 2026-08-20**, same scratch fact: value ledger with `billWise: true`, item invoice 2 @ 1234.57, value leg 2469.14 carrying one `BillAllocation(NewRef, 'VALUE-LEG-REF', 2469.14)`. Verbatim before: `bills=1 'VALUE-LEG-REF'`; `AcceptAlteration -> True : Purchase No. 1 altered.`; after: `bills=0`. | That ledger's bill-wise outstanding becomes unallocated, silently, under a plain success message. **NOT FIXED** — it carries a design question (carry, or refuse at the door?) that is a user/design call, not a fixer's. |
+| **T1-24** | 🔴 **NEW 2026-08-20. The type F-keys destroy an in-progress POS bill AND an unsaved POS ALTERATION, with no prompt and no notice.** Same root as the accounting-screen work-loss defect fixed in the same review: the F4–F9 button-bar rows are enabled on *has a company* alone, and `OpenVoucher` → `OpenPageColumn` → `ClearSubScreens` nulls `PosBilling` and `Reports` unconditionally. **The fix that shipped is scoped to `Screen.VoucherEntry` per its brief and does NOT cover this.** | **[V] 2026-08-20**, throwaway `[AvaloniaFact]` driving the REAL MainWindow tunnel handler. Verbatim: one plain **F8** replaced a keyed bill of 3 × Rs 849.37 (cash tendered Rs 3,000) with a blank Sales entry — `notice='' message='' promptOpen=False`. The ALTERING half is worse because it also tears the report down: `isAltering=True rate='999.11' columns=3 reportsNull=False billTotal=1298.74` → `posNull=True notice='' promptOpen=False columns=2 reportsNull=True` — the amendment and the Day Book column both gone to one keystroke. | Unsaved keying and the operator's place in the report, lost to a key they pressed for another purpose. **FIX SHAPE, already named in the shipped guard's own doc comment:** a `HasUnsavedWork` on `PosBillingViewModel` plus a second arm in `MainWindowViewModel.OpenVoucherFromTypeKey`. **OPEN.** |
 
 ### TIER 2 — CAPABILITY GAPS WITH NO WRONG FIGURE
 
@@ -1139,6 +1362,9 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | T2-8 | **Keyboard: KB-3 prefix type-to-filter is not built.** Three design rounds NOT-READY; no filtering code in `src/` at all. S5 shipped type-to-*jump*. | plan.md:551-557. Lowest business harm in the register, and correctly last. |
 | T2-9 | 🔴 **NEW 2026-08-18. Complete engine verbs with ZERO production callers — the T1-14 dead-field shape, one layer up.** (a) The **memorandum conversion verb** (the catalog's "a memo becomes a real voucher"): the shell method has zero production callers and **its own gate — whose doc comment says it "drives the Convert action" — has zero consumers anywhere**: no button-bar item, no key arm, no XAML binding. The only callers are a test file, so **a dead feature has a live test**. (b) **DRC-03**: the posting method and its record type are complete and `Drc03` returns zero hits across all of `src/Apex.Desktop`. (c) **Consolidated e-Way Bill (EWB-02)**: the prepare method has zero Desktop callers. (d) **The inventory cancel and delete** methods (see T1-17). (e) The e-mail **mailto URI**, computed and bound nowhere. (f) **Seven inventory master delete services**, zero Desktop callers each. | Survey-measured at HEAD. §1.2a rows 4.17, 6.20, 6.15, 11.4, 13.7 and 3.1–3.12. **The pattern, not the list, is the finding:** a verb that exists, is tested, and cannot be reached is indistinguishable from a shipped feature in every artefact except the running app. |
 | T2-10 | 🔴 **NEW 2026-08-18. Three surfaces exist and cannot be found from a menu, and one Gateway hint points at the wrong screen.** **Import** and **Export Data** have **no menu row** — the Gateway's "Data" header carries exactly one child, Backup / Restore — and are reachable only by a bare-key arm on the Gateway root. **Saved Views** has no menu row either: the only two hits for the label in the shell are doc comments, so the list is reachable only by pressing Alt+K while already standing on a report-kind surface. And the Gateway header hint reads **"Y: Data"** while **bare Y opens Export Data** and **Alt+Y opens Backup / Restore** — the one hint the screen gives for the data surface names the wrong one. | Survey-measured at HEAD. §1.2a rows 13.3, 13.4 and 14.7. | 
+| T2-11 | 🔴 **NEW 2026-08-20. The SALES ITEM INVOICE is alterable by no key on any screen, against an attested corpus route** — a ruling-9 **category (b)** divergence, and the first record anywhere that names it as such. Refused by name on the accounting door and again on the POS door; plain Enter reaches only the read-only column. **Blocked on a schema column** for the list rate and the price-level discount (the posted rate is the *effective* rate). ⚠️ **The tempting narrowing is a trap and is recorded as one:** the arm was NOT narrowed to *"the multiple-price-levels flag is on"*, because that flag is LIVE and reading it to judge a voucher posted months ago is the master-drift defect this phase has already shipped twice. | **[V] 2026-08-20.** Corpus: STUDY GUIDE printed **p.281** (*"select any Sale Invoice and press Enter"* / *"Sales Invoice alteration screen will appear"*, `-raw`) and the Book's section-terminal *"How to Show/Edit Sale Voucher Entry … Sale Register > Select Month & Show/Edit Entry"* closing a Sale (F8) section that covers Item Invoice, Accounting Invoice and As Voucher modes. Code: `VoucherAlterationEligibility.EntryModeRefusal`. Full record: §1.3 item 12. **The user has FULL schema authority (§5 ruling), so lifting this is theirs to authorise.** |
+| T2-12 | 🔴 **NEW 2026-08-20. Both attested `Ctrl+Enter` MASTER limbs are unbuilt — *"to alter a master during voucher entry or from drilldown of a report"*, and the product has neither.** The only `Ctrl+Enter` master arm is gated on the stock-item master screen (a creation list, not a report drilldown), and there is **no `Ctrl+Enter` arm on the voucher-entry screen at all**, so **no inline master alteration from a voucher field exists anywhere**. That second limb is the substantive missing feature. | **[V] 2026-08-20.** BOOK PDF p.436 [printed p.432], `-raw`. ✅ **Master alteration is NOT unreachable** — plain Enter on the Chart of Accounts opens Ledger or Group Alteration (`MainWindowViewModel.AlterHighlightedChartRow`), so this is a missing route on an attested chord, not a missing verb. ✅ **And S5d does not shadow it:** its arm returns `NoVoucherHere` and does not consume the key on a non-voucher row, pinned by its own shipped test, so the chord is still free on exactly the Trial-Balance / Chart rows a master arm would claim. **Do not "fix" this by unbinding S5d's chord** — see §1.3 item 12's Short-Key bullet. |
+| T2-13 | 🔴 **NEW 2026-08-20. The corpus's one attested F-key CONVERSION on an alteration screen is built and unreachable, and only the work-loss half of the defect was fixed.** BOOK, verbatim: *"Click on Payment (F5) button provided at memorandum alteration screen"* / *"The voucher will converted as payment voucher with same entry."* `ConvertMemorandum` exists in `MainWindowViewModel` with **zero production callers** and no key or button route. | **[V] 2026-08-20**, corpus re-extracted with `-raw`. The 2026-08-20 fix made plain F4–F9 stop silently discarding an unsaved entry or alteration on `Screen.VoucherEntry`; it deliberately did **not** implement the conversion, which is a feature. **This is the same verb T2-9(a) already names** — recorded again here because T2-9 files it as a dead verb and this row files it as an **owed corpus behaviour on the alteration screen**, which is what makes it a step-5a obligation rather than dead code. |
 
 ### TIER 3 — REGISTER AND PLAN FALSEHOODS
 
@@ -1184,6 +1410,12 @@ These harm the project rather than the business, but they are the reason nobody 
 | plan.md 10.8: negative stock "STOPPED AND BANKED" | **A false claim of absence — the rarer and more dangerous kind.** `Company.WarnOnNegativeStock` shipped, persists and is honoured, with zero UI toggle. Behaviour changed and the register says nothing shipped. |
 | gap-audit §4.6: "CN/DN have no menu row", "Ctrl+F7 unbound" | Both STALE/FIXED. Menu rows at `MainWindowViewModel.cs:1002-1003`; Ctrl+F7 bound at **†** `MainWindow.axaml.cs:765` *(was cited `:681`; corrected 2026-08-15 — `:681` is now the bare-E Export arm, and the Ctrl+F7 arm with its grounding comment is `:758-765`)*. |
 | `PopulatedCompanyFixture` described as "51 vouchers of every type" | 51 is right; "every type" is not — 8 of 23 base types, zero inventory/order/job-work/POS/payroll vouchers. ⚠️ **CORRECTED 2026-08-17: this was true when the census was written and has been FALSE since `1de940e` (2026-08-10), which extended the fixture to post 23 of 23 SEEDED base kinds** — 8 accounting, 12 stock/order, 2 provisional, Payroll, plus a POS-flagged second Sales type and `AttendanceEntry` rows, with a `PopulatedFixtureCoverageTests` beside it. Re-derive from that test, never from this row. |
+| 🔴 **NEW 2026-08-20 — THE FIDELITY GATE IS PROSE-CHECKED, NOT DERIVATION-CHECKED, AND THAT IS THE MECHANISM, NOT A LAPSE.** `plan.md` §2.2 step 5a says the count *"is maintained"* in §1.3 and *"do not copy the digits into this file"*. **S5d wrote a full, correctly-categorised R7 record — into `plan.md`.** **S5e wrote none at all** (`git diff --stat a34d989 b89213e -- plan.md` is empty; zero corpus citations across a 2,926-line diff). | A compliant author discharged the gate in substance and left every maintained figure in §1.3 and §1.2a stale. **No artefact failed, because no artefact exists that could.** Corrected in this pass (§1.2a row 5.1, §1.3 item 12, the anchor block, §1.2's column sums); **the mechanism is NOT corrected** — a slice can still do exactly this tomorrow. ⇒ **Owed: a step-5a artefact that fails.** |
+| 🔴 **NEW 2026-08-20. `BookLevelRefusalFor`'s two doc comments asserted a call graph the code does not have** — *"named once here and consumed by `RefusalFor(Company, Voucher, VoucherType)` and by `PosAlterationEligibility` alike"*, and *"one list, consumed by both doors, so this one cannot quietly grow a weaker copy"*. | **Both false.** `BookLevelRefusalFor` had exactly ONE caller tree-wide; `RefusalFor` consumes the three private methods **directly**. What is single-sourced is the **ARMS**, not the **COMPOSITION**. ✅ **CORRECTED IN THE CODE 2026-08-20** — the comments now state arms-vs-composition and record the property a later author must keep (a fourth book-level arm goes INSIDE one of the three methods, never as a fourth method wired only into `RefusalFor`'s chain). ⚠️ **The sole call site was entirely unpinned** — on the one POS shape every existing test builds it returns null, so deleting it reddened nothing. Three constructed cases (live IRN, §34 CDN link, `ApplicableUpto`) exist and **should be added as tests**; that half is **still owed**. |
+| 🔴 **NEW 2026-08-20. `InventoryVoucherLineViewModel`'s "backstop" doc comment claims a safety the code does not provide.** It says the closing effective-rate comparison *"would catch it here too"* if the door were widened, and that *"no assumption about which screens carry a discount is load-bearing in this method"*. | **Both false as stated.** `RehydrateFrom` never writes `DiscountText` and its caller suppresses the only code that would, so the parsed discount is 0 by construction and the comparison reduces to `posted.Rate == posted.Rate` on every input a discount could produce. The method's discount safety rests entirely on the **door** one file away (`VoucherAlterationEligibility.EntryModeRefusal`'s Sales arm). ⚠️ **But "dead in ALL futures" is ALSO wrong and must not go into a fix list that way** — a control run that pre-seeded a discount on the row got the refusal **by name**, so the comparison is live in exactly the future its own refusal sentence proposes (a schema column carrying the list rate and the discount). **Zero present money impact** — the harm path is unreachable while the door refuses Sales. **Owed: correct the comment; do not delete the guard.** |
+| 🔴 **NEW 2026-08-20. The reachability invariant's "independent by-NAME cross-check" is not independent on the axis that can erode it.** Both its queries run through the same `Namespace == …ViewModels` gate, so a screen-shaped `ForAlter` declared outside that namespace is invisible to the lock AND to the cross-check simultaneously, and the non-vacuity assertion stays satisfied by the in-namespace factories regardless. | **Measured: 75 of 763 shipped `Apex.Desktop` types sit in that blind region** (`<global>`, `Apex.Desktop`, `.Converters`, `.Services`, `.Views`). Live escapes today: **zero**, so this is an **undisclosed limit**, not a live hole — the limit is absent from the class's own *"WHAT IT DOES NOT COVER"* list and from the mirrors of it in `plan.md` and `memory.md`, all three of which name only non-transitivity, reflection blindness and the one-assembly scope. ⚠️ **The one-line fix is NOT semantically free:** sourcing the by-name query from all `Apex.Desktop` types makes it red for any public static named `ForAlter` outside the namespace **including one that returns nothing screen-shaped**, so it needs its OWN assertion and its OWN message, not a reuse of the shape-erosion one. |
+| 🔴 **NEW 2026-08-20. The only shell-driven POS accept-alteration proof cannot tell a COMMIT from a REFUSAL.** It closes on *one voucher, same id* — true on both paths, because the replacement is constructed with the existing id. | **Measured both ways in one run:** refused → `Message="Item … needs a rate greater than zero." SavedNumber=0 CurrentScreen=PosBilling vm.PosBilling=bound`; committed → `Message="Sales (POS) No. 1 altered." SavedNumber=1 CurrentScreen=Report vm.PosBilling=<null>`. **Both shipped assertions passed in both runs.** ⚠️ **THE ORIGINALLY-SUGGESTED FIX IS ITSELF BROKEN:** `Assert.Null(vm.PosBilling!.Message)` **NREs on the passing path**, because a successful alteration runs `BackFromPage()` and unbinds the screen. **Use `Assert.Null(vm.PosBilling)`, or capture the view model before the key and assert `SavedNumber`** — better still, amend a figure first and assert it moved. |
+| 🔴 **NEW 2026-08-20 — A UI-CAMPAIGN CLAIM MEASURED AND FOUND FALSE, RECORDED SO IT IS NOT PROPAGATED.** The agent that fixed the notice-bar truncation also reported *"8 [`{Binding Message}` TextBlocks in `MainWindow.axaml`] carry neither [`TextWrapping` nor `TextTrimming`] (lines 10526, 11523, 11621, 11767, 11907, 11976, 12081, 12182)"*. | **FALSE, measured 2026-08-20 by parsing every `<TextBlock …>` opening tag in the file** (attribute-level, not line-level — the difference is the whole error): **59 `Text="{Binding Message…}"` TextBlocks, 59 of them carry `TextWrapping`, ZERO carry neither** — at HEAD `b89213e` and in the working tree alike. **All eight named lines carry `TextWrapping="Wrap"` verbatim.** The *"51 wrap / 8 neither"* split appears to be a line-level grep counting continuation lines. ⚠️ **The truncation defect the agent FIXED was real and is separately recorded**; only this residue claim is withdrawn. **Do not open UI-campaign work off it.** |
 
 ---
 
