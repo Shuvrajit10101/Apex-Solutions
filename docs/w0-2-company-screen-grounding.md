@@ -412,25 +412,25 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:967-973` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1022-1028` `SellerBlock`:
 
-- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:917-918` — MailingName falling back to Name,
+- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:972-973` — MailingName falling back to Name,
   **matching Tally's convention exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:970`) — **changed by W0-2a.**
-  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:988-991`) returns `null` unless `company.Address` is
-  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1089-1097`),
+  (`VoucherPrintProjector.cs:1025`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1043-1046`) returns `null` unless `company.Address` is
+  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1144-1151`),
   which appends Country then `"PIN: " + Pin`, each skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:972`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:1027`) — **unchanged; still never `company.State`.**
 
-Called from `VoucherPrintProjector.cs:483` on the item pass,
-and from `VoucherPrintProjector.cs:761` on the service pass.
-`SplitAddress` (`VoucherPrintProjector.cs:1122-1124`) returns `Array.Empty` on null/whitespace.
+Called from `VoucherPrintProjector.cs:521` on the item pass,
+and from `VoucherPrintProjector.cs:810` on the service pass.
+`SplitAddress` (`VoucherPrintProjector.cs:1177-1179`) returns `Array.Empty` on null/whitespace.
 
-**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:759` declares `DrawPartyBlock`;
-it is called at `InvoicePdf.cs:439` with the caption `"Supplier:"`.
+**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:865` declares `DrawPartyBlock`;
+it is called at `InvoicePdf.cs:541` with the caption `"Supplier:"`.
 The address `foreach` (`InvoicePdf.cs:765`) never executes when the list is empty, and the State line
 (`InvoicePdf.cs:771-773`) is skipped when `StateText` is blank.
 **So what a GST-off company prints today is:** `"Supplier:"` / `<company name>` / `"GSTIN: Unregistered"`
@@ -460,9 +460,9 @@ The address `foreach` (`InvoicePdf.cs:765`) never executes when the list is empt
 
 **(i) `Company.State` is never printed on an invoice — and as of W0-2a, `Company.Pin` and `Company.Country`
 ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode`
-(`VoucherPrintProjector.cs:972`), **not** from `company.State`.
+(`VoucherPrintProjector.cs:1027`), **not** from `company.State`.
 The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText`
-(`VoucherPrintProjector.cs:1063-1066`) routes through the shared `PostalAddressText`
+(`VoucherPrintProjector.cs:1118-1122`) routes through the shared `PostalAddressText`
 (`VoucherPrintProjector.cs:1089-1097`).
 
 > 🔴 **HALF OF THIS SECTION WAS MADE FALSE BY W0-2a, AND IS REWRITTEN HERE (2026-08-15).** It previously read
@@ -653,7 +653,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:972`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:1027`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the

@@ -24,6 +24,11 @@ public sealed class PdfWriter
     private readonly List<PageBuffer> _pages = new();
     private PageBuffer? _current;
 
+    /// <summary>Distinct bitmaps drawn anywhere in the document, in first-use order; the index is the XObject's
+    /// <c>/ImN</c> suffix. Empty for every document that draws no image, which is what keeps those documents
+    /// byte-identical (ER-13).</summary>
+    private readonly List<PdfBitmap> _images = new();
+
     /// <summary>Metadata /Title. De-branded by the caller; never contains a third-party brand.</summary>
     public string DocumentTitle { get; init; } = "Apex Solutions Report";
 
@@ -67,6 +72,44 @@ public sealed class PdfWriter
         content.Append("S\n");
     }
 
+    /// <summary>
+    /// Draws a <b>1-bit monochrome image</b> into the box whose lower-left corner is (<paramref name="x"/>,
+    /// <paramref name="y"/>) and whose size is <paramref name="width"/> x <paramref name="height"/> points. The
+    /// bitmap is scaled to fill that box exactly, so the caller sizes the picture in the same units it sizes
+    /// everything else on the page.
+    ///
+    /// <para><b>The one primitive this writer lacked (census T0-9).</b> Until this method existed the writer could
+    /// draw text and rules and nothing else, so no raster mark of any kind could reach a document - which is why an
+    /// e-invoiced supply's PDF could not carry the QR code CGST Rule 46(r) requires on it. It is deliberately narrow:
+    /// one bit per sample, no filter, no colour space beyond <c>/DeviceGray</c>. That is everything a QR symbol needs
+    /// and it is expressible in PDF 1.4 with no external code, so the no-dependency constraint is not strained.</para>
+    ///
+    /// <para><b>Sampling.</b> The image is emitted at one sample per module with <c>/Interpolate false</c>, so a
+    /// viewer or printer resamples it nearest-neighbour and every module stays a hard-edged square. Smoothing a QR
+    /// symbol is the one thing that would make it harder to read, not easier.</para>
+    ///
+    /// <para>Passing the same <see cref="PdfBitmap"/> instance twice emits <b>one</b> XObject and draws it twice.</para>
+    /// </summary>
+    public void Image(double x, double y, double width, double height, PdfBitmap bitmap)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
+
+        var page = Require();
+        int index = _images.IndexOf(bitmap);
+        if (index < 0) { _images.Add(bitmap); index = _images.Count - 1; }
+        if (!page.Images.Contains(index)) page.Images.Add(index);
+
+        // q/Q brackets the CTM change so the image's scaling cannot leak into anything drawn afterwards.
+        var content = page.Content;
+        content.Append("q\n");
+        content.Append(Num(width)).Append(" 0 0 ").Append(Num(height)).Append(' ')
+               .Append(Num(x)).Append(' ').Append(Num(y)).Append(" cm\n");
+        content.Append("/Im").Append((index + 1).ToString(CultureInfo.InvariantCulture)).Append(" Do\n");
+        content.Append("Q\n");
+    }
+
     /// <summary>Number of pages started so far.</summary>
     public int PageCount => _pages.Count;
 
@@ -84,8 +127,14 @@ public sealed class PdfWriter
         //   4 = Font F2 (Helvetica-Bold)
         //   5 = Info dictionary
         //   then for each page i (0-based): pageObj = 6 + 2*i, contentObj = 7 + 2*i
+        //   then, LAST, one XObject per distinct image.
+        //
+        // The image objects are numbered AFTER every page object on purpose: a document that draws no image adds no
+        // object, shifts no object number and moves no xref offset, so it serialises byte-for-byte as it did before
+        // this primitive existed (ER-13). Numbering them anywhere earlier would have renumbered every page.
         int pageObjStart = 6;
-        int totalObjects = 5 + _pages.Count * 2;
+        int imageObjStart = pageObjStart + _pages.Count * 2;
+        int totalObjects = 5 + _pages.Count * 2 + _images.Count;
 
         // Build content strings first so we can compute lengths.
         var bytes = new List<byte>();
@@ -148,10 +197,23 @@ public sealed class PdfWriter
             int pageObj = pageObjStart + i * 2;
             int contentObj = pageObj + 1;
 
+            // A page that draws no image emits the resource dictionary EXACTLY as before - no empty /XObject entry,
+            // no extra space - so its bytes are unchanged (ER-13).
+            var xobjects = new StringBuilder();
+            if (page.Images.Count > 0)
+            {
+                xobjects.Append("/XObject << ");
+                foreach (int imageIndex in page.Images)
+                    xobjects.Append("/Im").Append((imageIndex + 1).ToString(CultureInfo.InvariantCulture))
+                            .Append(' ').Append((imageObjStart + imageIndex).ToString(CultureInfo.InvariantCulture))
+                            .Append(" 0 R ");
+                xobjects.Append(">> ");
+            }
+
             StartObject(pageObj);
             AppendAscii("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
                 + Num(page.Width) + " " + Num(page.Height) + "] "
-                + "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> "
+                + "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> " + xobjects + ">> "
                 + "/Contents " + contentObj.ToString(CultureInfo.InvariantCulture) + " 0 R >>\n");
             EndObject();
 
@@ -164,6 +226,23 @@ public sealed class PdfWriter
             AppendAscii("stream\n");
             bytes.AddRange(contentBytes);
             AppendAscii("endstream\n");
+            EndObject();
+        }
+
+        // --- image XObjects (1-bit /DeviceGray, unfiltered) ---
+        for (int i = 0; i < _images.Count; i++)
+        {
+            var bitmap = _images[i];
+            var sample = bitmap.RawBytes;
+            StartObject(imageObjStart + i);
+            AppendAscii("<< /Type /XObject /Subtype /Image"
+                + " /Width " + bitmap.PixelWidth.ToString(CultureInfo.InvariantCulture)
+                + " /Height " + bitmap.PixelHeight.ToString(CultureInfo.InvariantCulture)
+                + " /ColorSpace /DeviceGray /BitsPerComponent 1 /Interpolate false"
+                + " /Length " + sample.Length.ToString(CultureInfo.InvariantCulture) + " >>\n");
+            AppendAscii("stream\n");
+            bytes.AddRange(sample);
+            AppendAscii("\nendstream\n");
             EndObject();
         }
 
@@ -364,6 +443,10 @@ public sealed class PdfWriter
         public double Width { get; }
         public double Height { get; }
         public StringBuilder Content { get; } = new();
+
+        /// <summary>Indices into the document's image registry that THIS page draws, in first-use order. A page's
+        /// resource dictionary names only the images it actually uses.</summary>
+        public List<int> Images { get; } = new();
 
         public PageBuffer(double width, double height)
         {

@@ -252,6 +252,61 @@ public sealed class InvoicePrintData
     /// </summary>
     public bool IsCancelled { get; init; }
 
+    // ---------------------------------------------------------------- e-Invoice (census T0-9)
+
+    /// <summary>
+    /// The IRP-issued <b>signed QR string</b>, verbatim, for a supply issued under CGST Rule 48(4); blank on every
+    /// other document. When set, <see cref="InvoicePdf"/> encodes it as a QR symbol and prints it - the particular
+    /// CGST Rule 46(r) requires: "Quick Response code, having embedded Invoice Reference Number (IRN) in it, in case
+    /// invoice has been issued in the manner prescribed under sub-rule (4) of rule 48" (inserted w.e.f. 30-09-2020 by
+    /// Notification 72/2020-CT; source <c>https://taxinformation.cbic.gov.in/</c>, CGST Rule 46).
+    ///
+    /// <para><b>Why this is not cosmetic.</b> CGST Rule 48(5): "Every invoice issued by a person to whom sub-rule (4)
+    /// applies in any manner other than the manner specified in the said sub-rule <b>shall not be treated as an
+    /// invoice</b>." A covered supply whose printed document omits the QR is not a document with a missing decoration;
+    /// it is a document the law declines to recognise, and the recipient's input tax credit hangs off it.</para>
+    ///
+    /// <para><b>VERBATIM, and that is structural (ER-5).</b> This carries the IRP's own signed string, character for
+    /// character - never re-derived, re-serialised, case-folded or de-branded. The signature over the payload is the
+    /// entire point: it is what lets anyone verify the invoice offline against the IRP's public key. A QR rebuilt from
+    /// parsed fields would encode the same facts and prove nothing.</para>
+    ///
+    /// <para>Blank on every document that is not an e-invoice, and nothing is drawn or measured when it is blank -
+    /// so every already-shipped invoice PDF renders byte-identically (ER-13).</para>
+    /// </summary>
+    public string EInvoiceSignedQr { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The 64-character Invoice Reference Number, printed as human-readable text beside the QR; blank on every other
+    /// document.
+    ///
+    /// <para><b>OURS - permitted, not required.</b> The GST Network's e-invoice FAQ (v1.4, 30-03-2021) Q69 answers
+    /// "is it mandatory to print the IRN on the invoice" with: "No. It's optional. IRN is anyway embedded in the QR
+    /// Code which is one of the mandatory particulars on invoice"
+    /// (<c>https://www.gstn.org.in/assets/mainDashboard/Pdf/GST%20e-invoice%20System%20-%20FAQs%20-%20Version%201.4%20Dt.%2030-3-2021.pdf</c>).
+    /// We print it because a human reading a paper invoice cannot read a QR code, and the IRN is the one string that
+    /// lets them look the document up. The source corpus is silent on the whole subject (A14 sweep, 2026-08-19: zero
+    /// occurrences of "IRN", "QR" or "IRP" across all ten PDFs), so nothing here narrows an attested behaviour.</para>
+    /// </summary>
+    public string EInvoiceIrn { get; init; } = string.Empty;
+
+    /// <summary>The IRP acknowledgement number; blank on every other document. <b>OURS</b> - the same GSTN FAQ (Q73)
+    /// says "There is no mandate to print these particulars on invoice copy" and that they "are only for reference".
+    /// Printed because they are what the portal asks for when a document is queried.</summary>
+    public string EInvoiceAckNo { get; init; } = string.Empty;
+
+    /// <summary>The IRP acknowledgement date, already formatted; blank on every other document. <b>OURS</b>, on the
+    /// same footing as <see cref="EInvoiceAckNo"/>.</summary>
+    public string EInvoiceAckDateText { get; init; } = string.Empty;
+
+    /// <summary>
+    /// True iff this document carries e-invoice particulars to print. <b>The single gate</b> the renderer measures
+    /// with and draws with, and the on-screen preview mirrors - three surfaces, one predicate, so none of them can
+    /// state an e-invoice the others do not.
+    /// </summary>
+    public bool StatesEInvoice =>
+        !string.IsNullOrWhiteSpace(EInvoiceSignedQr) || !string.IsNullOrWhiteSpace(EInvoiceIrn);
+
     /// <summary>Invoice serial number (Rule 46 (b)).</summary>
     public string InvoiceNumber { get; init; } = string.Empty;
 

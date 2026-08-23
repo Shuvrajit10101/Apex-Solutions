@@ -151,7 +151,7 @@ A **record** document is headed by the **SUPPLIER**. A field captioned *"Invoice
 voucher number, under the supplier's identity, is therefore **a false statement** — not a cosmetic label.
 
 **The ruling:** the **supplier's** number goes in the existing **ReferenceNo / ReferenceCaption** pair, whose
-helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:906-907` **already returns *"Supplier Invoice
+helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962` **already returns *"Supplier Invoice
 No."* for a Purchase**; and the number field itself **acquires a caption** so ours reads **"Our Record Ref."**
 A caption is presentational, so the *no-new-money-fields* rule survives intact.
 

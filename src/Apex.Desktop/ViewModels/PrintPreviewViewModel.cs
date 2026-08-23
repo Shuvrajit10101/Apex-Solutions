@@ -425,6 +425,20 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             : PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
         if (!inv.IsRecipientRecord)
             rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
+        // census T0-9 - the mirror states the e-invoice particulars the bytes carry, gated on the SAME predicate
+        // (InvoicePrintData.StatesEInvoice) InvoicePdf measures and draws with. The QR itself is a raster mark and
+        // this mirror is a text grid, so the mirror says that the signed QR prints rather than trying to show it: an
+        // operator approving a preview that was silent about the QR would be approving a different document from the
+        // one that leaves the printer, which is the exact divergence W0-1 and W0-15 each had to close elsewhere.
+        if (inv.StatesEInvoice)
+        {
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceIrn))
+                rows.Add(PrintRow.Header("e-Invoice IRN: " + inv.EInvoiceIrn, string.Empty, string.Empty));
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceAckNo))
+                rows.Add(PrintRow.Header("IRP Ack No: " + inv.EInvoiceAckNo, "Ack Date", inv.EInvoiceAckDateText));
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceSignedQr))
+                rows.Add(PrintRow.Header("Signed QR code: printed on the invoice", string.Empty, string.Empty));
+        }
 
         int sr = 0;
         foreach (var it in inv.Items)
