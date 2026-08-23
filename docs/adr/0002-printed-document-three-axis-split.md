@@ -1,7 +1,22 @@
 # ADR 0002 — Printed documents: the three-axis split (entitlement / rendering / orientation)
 
-- **Status:** Accepted. Slice **S0** of the T0-11 chain records it; **S1–S4** implement it; **S5** is
-  deliberately deferred and recorded rather than left silent.
+- **Status:** Accepted. The DECISION is accepted; the status of the WORK is the ledger on the next line and
+  nowhere else in this file. Slice **S0** of the T0-11 chain records the decision, slices **S1–S4** are its
+  allocated implementation, and **S5** is deliberately deferred and recorded rather than left silent.
+  ~~*"**S1–S4** implement it"*~~ — **struck 2026-08-21, T0-11 review C25/L3-11.** That clause was written at
+  **S0**, before anything shipped, as a forward-looking ALLOCATION; no amendment revised it while this ADR
+  grew **dated completion blocks** (*"AMENDMENT (slice S1)"*, *"AMENDED BY SLICE S2 — the record document is
+  BUILT"*), which turn an ADR into a status-carrying document a reader takes at its word. **S3 and S4 have
+  not shipped**, the only unbuilt work the Status line named was S5, and nothing anywhere in this file said
+  so — while `plan.md` (no ✅ on S3/S4) and census rows 4.6 / 12.2 (*"STILL PARTIAL"*) both recorded the gap
+  honestly. This ADR was the sole outlier, and it is the one `plan.md` makes mandatory reading first.
+- **Slice status (machine-checked against `plan.md` Phase 10.13 by
+  `tests/Apex.Ledger.Tests/SliceStatusClaimTests.cs`):** S0 SHIPPED · S1 SHIPPED · S2 CODE-COMPLETE ·
+  S3 NOT-YET-BUILT · S4 NOT-YET-BUILT · S5 DEFERRED. **S2 is CODE-COMPLETE and not SHIPPED because its
+  governing R12 question — whether a purchase record states the supplier's tax — is ASKED AND OUTSTANDING
+  (see the open-decision bullet below and `plan.md` Phase 10.13); the code shipped the recommendation ahead
+  of the ruling.** The test asserts this ledger BOTH ways against `plan.md`'s completion stamps, so an
+  over-claim and an under-claim are equally red.
 - **Date:** 2026-08-20
 - **Phase:** 10.13 (T0-11 — printed documents for recipient-side vouchers), `plan.md`
 - **Deciders:** A14 (Tally domain / corpus) + A13 (technical writer), on the grounded T0-11 design pass
@@ -22,7 +37,7 @@ invoice format"* and blames the print gate. **The symptom is real and worse than
 and the row bundles two different defects under one id.**
 
 **The symptom, verified end to end.** `GstReportSupport.IsTaxInvoice`
-(`src/Apex.Ledger/Reports/GstReportSupport.cs:1342`) returns false for anything whose base type is not Sales.
+(`src/Apex.Ledger/Reports/GstReportSupport.cs:1346`) returns false for anything whose base type is not Sales.
 The printer's wrapper is a **pure forward** to it (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`),
 so `BuildPrintPreview` (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`) takes the else branch
 into the plain voucher projection, whose only loop walks the accounting `Lines`. The voucher's
@@ -39,9 +54,9 @@ missing projection at three layers.**
    *dangerous* rather than merely wrong.** `IsTaxInvoice` has **three** consumers that move together:
    - the **printer**, through the pure forward above;
    - **`IsBillOfSupply`'s limb 2**, which gates on it at
-     `src/Apex.Ledger/Reports/GstReportSupport.cs:1094` (`if (!IsTaxInvoice(company, voucher)) return false;`);
+     `src/Apex.Ledger/Reports/GstReportSupport.cs:1098` (`if (!IsTaxInvoice(company, voucher)) return false;`);
    - the **NIC e-Way portal document code**, because `IsBillOfSupplyForFiling`
-     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1144`) feeds `EWayBillService.PartACodesFor` at
+     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1148`) feeds `EWayBillService.PartACodesFor` at
      `src/Apex.Ledger/Services/EWayBillService.cs:482`.
 
    So flipping the Sales gate would **also** title a wholly-exempt purchase **"BILL OF SUPPLY"** — a document
@@ -136,7 +151,7 @@ A **record** document is headed by the **SUPPLIER**. A field captioned *"Invoice
 voucher number, under the supplier's identity, is therefore **a false statement** — not a cosmetic label.
 
 **The ruling:** the **supplier's** number goes in the existing **ReferenceNo / ReferenceCaption** pair, whose
-helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:717-718` **already returns *"Supplier Invoice
+helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:906-907` **already returns *"Supplier Invoice
 No."* for a Purchase**; and the number field itself **acquires a caption** so ours reads **"Our Record Ref."**
 A caption is presentational, so the *no-new-money-fields* rule survives intact.
 
@@ -262,6 +277,16 @@ unregistered"*, plus the compliance gaps written into `plan.md` and the §1.3 fi
 ---
 
 ## ▶ AMENDED BY SLICE S2, 2026-08-20 — the record document is BUILT, and building it corrected the decision in three places
+
+> **▶ 🔴 STATUS OF THIS AMENDMENT, ADDED 2026-08-21 (T0-11 review C25/L3-11).** BUILT is not DONE here. S2 is
+> **CODE-COMPLETE**, and the ledger in the Status block above is the single place this file states that. Its
+> governing R12 question — *"whether a purchase record shows the tax the SUPPLIER charged, or suppresses all
+> tax"*, the open decision recorded above at the head of this ADR — **is ASKED AND OUTSTANDING**, and correction 1 of this very
+> amendment is the answer that shipped ahead of it. **S3 (the purchase accounting/service record) and S4 (the
+> Rule 53 note) have NOT shipped**: `IsRecipientRecordDocument` returns false unless the voucher has
+> inventory lines, so a purchase ACCOUNTING invoice still classifies `NoStatutoryDocument` and prints the
+> plain Dr/Cr voucher, and S4's specified *"Original Invoice No"* caption occurs in **zero** files under
+> `src/`. Do not read BUILT, here or in the Status line, as covering either.
 
 **S2 shipped the recipient-side record for a PURCHASE ITEM INVOICE.** What the ADR said held, with these
 corrections — each recorded because a later reader will otherwise re-litigate them.

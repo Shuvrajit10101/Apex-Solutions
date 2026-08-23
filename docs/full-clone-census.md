@@ -13,7 +13,8 @@
 > 1. **§1.2's split is now `216 · 47 / 97 / 72 / 0`.** Exactly `+1 partial, −1 absent`, from row 5.1 alone.
 >    The 2026-08-19 `216 · 47 / 96 / 73 / 0` is kept in place below as the record of that day.
 > 2. ⚠️ **SUPERSEDED LATER THE SAME DAY — the anchor block reads `12 · 13 · 204 · 203` from the T0-11 slice-S0
->    pass, which added item 14 (GROUNDED, NOT YET BUILT) and separated the two halves again. This banner is the
+>    pass, which added item 14 (graded `[GRADE: GROUNDED-AHEAD]`) and separated the two halves again. This
+>    banner is the
 >    record of the FIRST pass of 2026-08-20 and is kept as one; §1.3 wins.** It read:
 >    **§1.3's anchor block is `12 · 12 · 204 · 204`**, and the two halves now COINCIDE for the first time —
 >    item 12 was the only header that was grounded and not yet compared, so closing it makes
@@ -727,16 +728,16 @@ impossible to blur. The real one:
 
 **Existence was measured. Fidelity was not.** All three mapping agents measured *does the code exist and can a user reach it*. Almost nothing was measured against *does it behave the way Tally behaves*. Capabilities with any sourced behavioural verification at all:
 
-1. Chart of accounts — 28 predefined groups (OFFICIAL help.tallysolutions.com, verification report A1)
-2. Double-entry posting — Robert and Bright fixtures reproduce to the paisa
-3. Voucher shortcut keys (OFFICIAL keyboard-shortcuts page)
-4. PO/SO/GRN/DN stock-vs-accounts effect rules (corpus BOOK p.67)
-5. EPS/EPF split (OFFICIAL epfindia.gov.in)
-6. Rule-88A ITC set-off with the §49(5)(c)/(d) proviso
-7. GSTR-1 amendment section-to-table map (A14-confirmed in-file)
-8. Cost category/centre worked example (corpus SG pp.101-102)
+1. Chart of accounts — 28 predefined groups (OFFICIAL help.tallysolutions.com, verification report A1) `[GRADE: COMPARED]`
+2. Double-entry posting — Robert and Bright fixtures reproduce to the paisa `[GRADE: COMPARED]`
+3. Voucher shortcut keys (OFFICIAL keyboard-shortcuts page) `[GRADE: COMPARED]`
+4. PO/SO/GRN/DN stock-vs-accounts effect rules (corpus BOOK p.67) `[GRADE: COMPARED]`
+5. EPS/EPF split (OFFICIAL epfindia.gov.in) `[GRADE: COMPARED]`
+6. Rule-88A ITC set-off with the §49(5)(c)/(d) proviso `[GRADE: COMPARED]`
+7. GSTR-1 amendment section-to-table map (A14-confirmed in-file) `[GRADE: COMPARED]`
+8. Cost category/centre worked example (corpus SG pp.101-102) `[GRADE: COMPARED]`
 9. **Company creation & alteration - the profile screen (added 2026-08-16 with W0-2b; row rewritten
-   2026-08-17 after review).** **PARTIAL, and the partial is the point.**
+   2026-08-17 after review).** **PARTIAL, and the partial is the point.** `[GRADE: COMPARED]`
 
    **What IS sourced - each with the page it comes from, and nothing else claimed:**
    - **The field set and its three section headings**, reproduced verbatim: *Primary Mailing Details* ->
@@ -837,7 +838,7 @@ impossible to blur. The real one:
 > stopped the Alt+X/Alt+D provenance defect (item 10) from being written into the code first and questioned
 > afterwards.
 
-10. **Voucher cancellation (Phase 10.11 slice S3).** **BUILT** — shipped in slice S3 of Phase 10.11 (Alt+X, the single confirmation, the greyed Day Book row and the CANCELLED overprint are all live).
+10. **Voucher cancellation (Phase 10.11 slice S3).** `[GRADE: COMPARED]` **BUILT** — shipped in slice S3 of Phase 10.11 (Alt+X, the single confirmation, the greyed Day Book row and the CANCELLED overprint are all live).
 
     **What IS sourced:**
     - `Alt+X` = *"To cancel a voucher"* / *"To cancel a voucher from a report"*, with the "Where does it work"
@@ -862,7 +863,7 @@ impossible to blur. The real one:
       to cancelling from a report"*; the corpus cell says **both** forms and scopes it **"Vouchers &
       Reports"**. Corrected in `plan.md` 2026-08-17.
 
-11. **Voucher and master deletion (Phase 10.11 slice S4).** **BUILT** — shipped in slice S4 of Phase 10.11 (Alt+D on the five surfaces, the single confirmation, and the numbering / referential / bill-wise / master guards).
+11. **Voucher and master deletion (Phase 10.11 slice S4).** `[GRADE: COMPARED]` **BUILT** — shipped in slice S4 of Phase 10.11 (Alt+D on the five surfaces, the single confirmation, and the numbering / referential / bill-wise / master guards).
 
     **What IS sourced:**
     - `Alt+D` = *"To delete an entry from a report"* — BOOK PDF **p.435** [printed p.431].
@@ -939,7 +940,7 @@ impossible to blur. The real one:
     `b89213e` (S5e) opened purchase item invoices and gave POS its own door, and neither slice touched this
     file.** This item is now the **ruling-9 step-5a fidelity record for the whole alteration verb**, written by
     A14 on 2026-08-20 and covering S5a…S5e together, because the corpus does not slice the verb the way our
-    diffs do. **§1.2a row 5.1 is `PARTIAL` on the strength of this record and carries no digits of its own.**
+    diffs do. **§1.2a row 5.1 is `PARTIAL` on the strength of this record and carries no digits of its own.** `[GRADE: COMPARED]`
 
     **▶ 🔴 WHY THIS ROW IS THE ONE THAT WENT STALE — the mechanism, not the excuse.** `plan.md` §2.2 step 5a
     says *"§1.3 is where that count is maintained; do not copy the digits into this file"*. **S5d wrote a full,
@@ -1069,7 +1070,7 @@ impossible to blur. The real one:
       two measured axes** (**T0-14**, **T0-15**): both are OURS, both are open, and neither is a fidelity gap.
     - The POS alteration door as a distinct screen with its own eligibility list.
 
-13. **METHOD NOTE — not a capability row.** 🔴 **`pdftotext -layout` silently scrambles the Book's three-column
+13. **METHOD NOTE — not a capability row.** `[GRADE: METHOD-NOTE]` 🔴 **`pdftotext -layout` silently scrambles the Book's three-column
     shortcut tables on pp.436-437.** The Key / Function / "Where does it work" columns come out as three
     independent top-to-bottom streams, so the reader must re-pair them by counting. On p.435 the counts happen
     to match (15 keys : 15 functions) and the pairing is recoverable; **on p.436 and p.437 they do not** — 20
@@ -1082,8 +1083,9 @@ impossible to blur. The real one:
 
 14. **Printed documents for recipient-side vouchers — the entitlement / rendering / orientation split
     (Phase 10.13, T0-11 slice chain S0–S5; census rows 4.6, 4.7, 4.8, 12.2 and gap-register T0-11).**
-    **GROUNDED; PARTLY BUILT — the PURCHASE ITEM-INVOICE half shipped 2026-08-20 (slice S2).** Written by
-    A14 + A13 on **2026-08-20** with slice **S0** (requirements amendment + ADR, docs only). It is the
+    **GROUNDED; PARTLY BUILT — the PURCHASE ITEM-INVOICE half shipped 2026-08-20 (slice S2).**
+    `[GRADE: GROUNDED-AHEAD]` Written by A14 + A13 on **2026-08-20** with slice **S0** (requirements
+    amendment + ADR, docs only). It is the
     fidelity record **ruling 5** owes for this chain, landed **ahead** of the slices that build it, for the
     same reason items 10–12 were: pre-landing it is what stops a corpus-silent title string being written
     into the code first and questioned afterwards.
@@ -1092,8 +1094,19 @@ impossible to blur. The real one:
     S2 shipped a real, user-visible document — `PURCHASE RECORD`, with item detail, the supplier heading it
     and his tax captioned as his — but **every string and every layout decision in it is corpus-silent**, so
     **ruling 9** bars all of it from the shipped-and-compared set. It is therefore still **UNCOMPARED**, and
-    figures (1) and (2) are unchanged. When S3 (the purchase accounting-invoice) and S4 (the Rule 53 note)
-    land, this header becomes BUILT — and the anchor block still does not move, for the same reason.
+    figures (1) and (2) are unchanged **by S2**: this item keeps the grade `[GRADE: GROUNDED-AHEAD]`, which is
+    exactly what puts it inside figure (2) and keeps it out of figure (1).
+
+    **▶ 🔴 WHAT HAPPENS TO FIGURE (1) WHEN S3 AND S4 LAND IS AN OPEN RULING-9 QUESTION, AND IT IS STATED
+    ONCE HERE RATHER THAN ANSWERED TWICE IN OPPOSITE DIRECTIONS (T0-11 review C19/L3-05, 2026-08-21).** This
+    item used to assert BOTH that when they land ~~*"the anchor block still does not move"*~~ AND, sixty lines
+    lower, that ~~*"figure (1) moves by one"*~~ — two opposite instructions for the next pass, inside one
+    item, neither of them struck at the time. **The question neither of them had answered:** may an item
+    whose **statutory** grounding is sourced, but every one of whose **strings** is corpus-silent, ever be graded
+    `[GRADE: COMPARED]` at all? **Item 9 is the precedent for YES** — it is PARTIAL, its unsourced half
+    enumerated rather than glossed, and it sits inside figure (1). **This item's own ruling-9 paragraph above
+    is the argument for NO.** It is an **R12 question and this pass does not settle it**; until it is ruled the
+    grade does not move, so none of the four figures moves either.
 
     **What IS sourced — statute, and it is the whole grounding of this chain:**
     - **CGST Act §31(1)/(2)** — the tax invoice is issued by *"a registered person **supplying**"*. This is
@@ -1150,11 +1163,14 @@ impossible to blur. The real one:
 
     **▶ FIDELITY ARITHMETIC EFFECT, STATED SO NOBODY READS THIS ITEM AS PROGRESS ON FIGURE (1).** This chain
     moves census rows **4.6, 4.7, 4.8, 12.2** from *uncompared with no sourced verification* to *uncompared
-    but **GROUNDED***. It adds **ZERO** to shipped-and-compared, now and after S1–S4 ship, **because ruling 9
-    bars corpus-silent behaviour from the verified set and every title on every one of these four documents is
-    corpus-silent.** When S1–S4 land, this header changes from GROUNDED to BUILT and figure (1) moves by one —
-    it does **not** move by four, and it does **not** move now.
-**12 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed; the tenth and eleventh became shipped-and-compared when S3 and S4 landed; and the twelfth became shipped-and-compared on 2026-08-20, when S5a–S5e's step-5a record was written into item 12 above. ~~NO ITEM HEADER WAS ADDED, so the GROUNDED count stays at 12 — what changed is that the last grounded-but-unbuilt header is now built and compared. That leaves 204 uncompared as shipped behaviour, and 204 with no sourced verification of any kind.~~** 🔴 **AMENDED LATER THE SAME DAY (2026-08-20), BY THE T0-11 SLICE-S0 PASS, AND THE STRUCK SENTENCE IS WHY THE AMENDMENT IS NOT A CONTRADICTION.** A header WAS added afterwards — **item 14**, GROUNDED, NOT YET BUILT — so **the grounded count is 13, and figures (3) and (4) SEPARATE AGAIN at 204 and 203.** The struck sentence predicted exactly this: *"if a later slice grounds a capability ahead of building it, they separate again."* **Figure (1) did not move**; nothing new was compared. Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **204**.
+    but **GROUNDED***. It adds **ZERO** to shipped-and-compared **now**, and it can ever add **at most one** —
+    never four — because this is **one item header**, not four. **Whether it adds that one when S3 and S4 land
+    is the open ruling-9 question stated at the head of this item**, and it is deliberately not answered here:
+    ruling 9 bars corpus-silent behaviour from the verified set, and every title on every one of these four
+    documents is corpus-silent, while the chain's **statutory** grounding is sourced throughout. What is
+    settled either way, and is all this paragraph ever needed to say: it does **not** move by four, and it does
+    **not** move now.
+**12 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed; the tenth and eleventh became shipped-and-compared when S3 and S4 landed; and the twelfth became shipped-and-compared on 2026-08-20, when S5a–S5e's step-5a record was written into item 12 above. ~~NO ITEM HEADER WAS ADDED, so the GROUNDED count stays at 12 — what changed is that the last grounded-but-unbuilt header is now built and compared. That leaves 204 uncompared as shipped behaviour, and 204 with no sourced verification of any kind.~~** 🔴 **AMENDED LATER THE SAME DAY (2026-08-20), BY THE T0-11 SLICE-S0 PASS, AND THE STRUCK SENTENCE IS WHY THE AMENDMENT IS NOT A CONTRADICTION.** A header WAS added afterwards — **item 14**, graded `[GRADE: GROUNDED-AHEAD]` (its header reads *"GROUNDED; PARTLY BUILT"*) — so **the grounded count is 13, and figures (3) and (4) SEPARATE AGAIN at 204 and 203.** The struck sentence predicted exactly this: *"if a later slice grounds a capability ahead of building it, they separate again."* **Figure (1) did not move**; nothing new was compared. Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **204**.
 
 > **▶ 🔴 THE PREVIOUS SENTENCE, QUOTED SO THE MOVE IS CHECKABLE (2026-08-19 → 2026-08-20):** ~~*"11 of 216
 > capabilities have had their SHIPPED behaviour compared to a source … Item 12 alone is still grounded ahead of
@@ -1174,7 +1190,8 @@ impossible to blur. The real one:
 > **▶ 🔴 MOVED TWICE ON 2026-08-20, IN OPPOSITE HALVES OF THE BLOCK, AND BOTH MOVES ARE RECORDED.** The first
 > pass (S5a–S5e's step-5a record) moved **(1)** from 11 to 12 and read ~~*"12 shipped-and-compared · 12
 > grounded · 204 uncompared as shipped · 204 with no sourced verification of any kind"*~~. The second pass —
-> this one — **added item 14** (the T0-11 chain's fidelity record, headed GROUNDED, NOT YET BUILT), which moves
+> this one — **added item 14** (the T0-11 chain's fidelity record, graded `[GRADE: GROUNDED-AHEAD]`),
+> which moves
 > **(2)** from 12 to 13 and **(4)** from 204 to 203. **(1) and (3) did NOT move: nothing new was compared, and
 > a grounded-ahead header is not a shipped one.** **(3) and (4) therefore separate again**, exactly as the
 > first pass's own note said they would the moment a capability was grounded ahead of being built.
@@ -1212,10 +1229,45 @@ impossible to blur. The real one:
 > derivation read ~~*"items 1–11 → 11"*~~ and ~~*"item 12 alone → 11 + 1 = 12"*~~ directly beneath a block
 > asserting 12 · 12. **The digits were right and the derivation that is supposed to produce them was wrong** —
 > the same class of defect as a green suite proving nothing. Re-derived below by actually re-counting.
-> 1. **shipped-and-compared** = the number of numbered items in this section whose own header records the
->    surface as **BUILT / shipped**. Re-count them: items **1–12**. → **12**. *(Item 12 joined on 2026-08-20;
+> **▶ 🔴 AND SINCE 2026-08-21 THE DERIVATION IS A COMMAND, NOT A DESCRIPTION — T0-11 review C19/L3-05.**
+> Every numbered item below carries **exactly one** machine-readable grade inside its header:
+> `[GRADE: COMPARED]` (built **and** compared to a source), `[GRADE: GROUNDED-AHEAD]` (grounded from a source,
+> **not** yet compared as shipped) or `[GRADE: METHOD-NOTE]` (not a capability row — item 13 alone).
+> **THE COUNTING COMMAND, in the shape §1.2a has carried since 2026-08-18 — re-run it, never re-read it:**
+>
+> ```
+> awk '/^### 1\.3 /{s=1} s&&/^## 2\./{exit} s&&/^[0-9]+\. /{h=1} s&&/^$/{h=0} \
+>      s&&h&&match($0,/\[GRADE: [A-Z-]+\]/){print substr($0,RSTART,RLENGTH)}' \
+>   docs/full-clone-census.md | sort | uniq -c
+> ```
+>
+> **Its literal output, 2026-08-21 — fourteen tokens for fourteen numbered items:**
+>
+> ```
+>      12 [GRADE: COMPARED]
+>       1 [GRADE: GROUNDED-AHEAD]
+>       1 [GRADE: METHOD-NOTE]
+> ```
+>
+> `tests/Apex.Ledger.Tests/CensusFidelityDerivationTests.cs` is that command in C#, and it additionally
+> asserts that the four bullets below reproduce the four figures above against §1.2's denominator — so a
+> grade that moves without the block being re-derived is now RED rather than silent.
+> **⚠️ WHY THE OLD RULES WERE REPLACED RATHER THAN RE-WORDED: they could not be run at all.** Bullet 1 read
+> *"whose own header records the surface as BUILT / shipped"*, which matches **neither** items 1–8 (one-line
+> entries naming a source, carrying no grade word) **nor** item 9 (*"PARTIAL"*), and **does** match item 14
+> (*"PARTLY BUILT — the PURCHASE ITEM-INVOICE half shipped"*), which it must not. Bullet 2 counted the literal
+> **GROUNDED, NOT YET BUILT**, which **no live item has ever carried**.
+> Item 14 was born *"GROUNDED; PARTLY BUILT"* in the very commit (`96db1c0`) that wrote the bullet, and the
+> only §1.3 header text containing the bullet's literal is item 12's **struck-out** quotation of its own
+> superseded grade — an item already inside figure (1). So a reader obeying *"re-count the headers; never
+> carry a digit forward"* re-derived
+> **grounded = 12** and **(4) = 204** against the stated 13 and 203. **The digits were right and the derivation
+> that is supposed to produce them was wrong — for the second time in two days, in the block that had just
+> diagnosed exactly that failure in itself.** Re-derived below by re-running the command, not by editing a digit.
+> 1. **shipped-and-compared** = the number of numbered items in this section graded `[GRADE: COMPARED]`.
+>    Re-count them: items **1–12**. → **12**. *(Item 12 joined on 2026-08-20;
 >    the superseded count was* ~~*items 1–11 → 11*~~*.)*
-> 2. **grounded** = that number, plus the items whose header records **GROUNDED, NOT YET BUILT**. Today that is
+> 2. **grounded** = that number, plus the items graded `[GRADE: GROUNDED-AHEAD]`. Today that is
 >    item **14** alone. → **12 + 1 = 13**. *(Superseded:* ~~*item 12 alone → 11 + 1 = 12*~~*.)*
 > 3. **uncompared as shipped** = §1.2's denominator minus (1). → **216 − 12 = 204**. *(Was `216 − 11 = 205`
 >    until 2026-08-20, and `200 − 11 = 189` until 2026-08-19; the denominator moved, the derivation did not.)*
@@ -1408,7 +1460,7 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T0-8** | **Every printed invoice carried a blank seller address block.** **CLOSED 2026-08-17 - both halves have shipped and the creation path's crash is fixed.** The PRINT half (W0-2a, 2026-08-15) made `SellerBlock` read `MailingName`, `Address`, `Country` and `Pin`, so a captured address prints in full and matches the recipient block. The **WRITE half (W0-2b)** is the company profile screen: the Rule 46(a) address is typeable on creation and on alteration. **What is NOT retroactive, and must not be read as closed:** books already on disk carry no address until someone opens Company Alteration and types one - the fix makes the field reachable, it does not populate history. | **[V] 2026-08-17:** `VoucherPrintProjector.cs:758-764` (`SellerBlock`), `:747-751` (`SupplierPostalAddressText` - the guard that keeps an uncaptured company byte-identical), `Company.cs:67-97`; the capture side is `CompanyProfileViewModel.cs` and `MainWindowViewModel.cs`. Pinned end-to-end by `A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block`. **The structural pin is `CompanyCaptureReachTests`, and its own claim was corrected 2026-08-17:** the reach test that merely counts assignment sites had THREE independent satisfiers (creation, alteration, and the alter screen's private rollback helper), so deleting either real capture left it green. It is now two tests - a floor that says the block is typeable at all, and `Both_company_capture_methods_still_assign_every_postal_member`, which names the two capture methods and fails if either stops assigning any of the four members. **The floor that made the write half safe - `CompanyStorage.cs:128`** is `company.EnsureValid()`, the desktop layer's single validation choke point; it now also holds the books-begin invariant, so a company Save accepts is a company Load can reopen. Its one carve-out - a file-level backup RESTORE, which cannot pass through it - is checked in `RestoreCompanyViewModel.Apply` and stated in the `Save` doc. **And the inheritance is a DISPLAY default, not a stamp - `GstConfigViewModel.cs:583`** seeds the GST home State from the postal one only when nothing is stored and no GSTIN was typed, because a code written onto a GST-off company is discarded by the very next load. *(Previously cited `VoucherPrintProjector.cs:745-750` at census baseline `468a96e`.)* | CGST Rule 46 requires the supplier address on a tax invoice. **Fixable from inside the UI at last** - and still absent on every historical book until it is typed. |
 | **T0-9** | **IRN and signed QR are never printed on an e-invoiced supply** — and structurally cannot be. `PdfWriter` exposes only `Text` and `Line`; there is no image primitive. | `PdfWriter.cs:30-70`; zero `Irn`/`QrCode` hits in `InvoicePdf.cs`/`InvoicePrintData.cs`/`VoucherPrintProjector.cs`. | A printed e-invoiced supply is non-compliant. Blocked behind a print-engine rewrite. |
 | **T0-10** | **Credit and Debit Notes move no stock.** `ItemInvoiceStock.Counts()` returns true only for Purchase and Sales. 🔴 **WIDENED 2026-08-20 — THIS ROW ALSO OWNS THE CN/DN *PRINT-SHAPE* WALL, WHICH T0-11 USED TO BE BLAMED FOR.** A note cannot carry inventory lines **at any point in its life**: `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws on every post and `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert, so there is nothing for a printer to draw. **The re-attribution does NOT enlarge the fix**, and it must not be read as doing so: the legally complete note (**RQ-11b**, CGST **Rule 53**) is **value-level** and ships without this row moving at all. What the re-attribution buys is honesty about the cause. | `src/Apex.Ledger/Services/ItemInvoiceStock.cs:53`. plan.md 10.9 NEXT-1, decision D3 approved behind an oracle. **The print-shape half:** `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` (the throw), `src/Apex.Ledger/Services/VoucherValidator.cs:150-151` (the call), `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` (the inert chord) — all three re-measured first-hand 2026-08-20 before the re-attribution was written down. | Every goods return leaves inventory permanently overstated. **And** an item table can never appear on a printed note while this row is open — which is a commercial-presentation gap, **not** a compliance one, because Rule 53 does not require one. |
-| **T0-11** | **A Purchase item-invoice prints as a Dr/Cr voucher with ZERO item detail.** 🔴 **RE-SCOPED AND RE-CAUSED 2026-08-20 (T0-11 grounded design pass, slice S0). THE ORIGINAL ROW READ** ~~*"Purchase item-invoices, Credit Notes and Debit Notes never print in invoice format — they silently fall back to a Dr/Cr voucher print."*~~ **It named the right symptom, the wrong cause, and bundled two different defects under one id.** The **Credit / Debit Note half is REFUTED and moved to T0-10** (rows 4.7 / 4.8). What remains here is the **PURCHASE** half — and it is **worse** than the row said: the plain voucher projection never reads `voucher.InventoryLines` at all, the voucher print DTO has nowhere to put them, and the voucher PDF can only draw a Particulars / Debit / Credit table. **This is a MISSING PROJECTION at three layers, not a predicate flip.** | 🔴 **CORRECTED 2026-08-20. THE ORIGINAL EVIDENCE CELL READ** ~~*"`VoucherPrintProjector.IsTaxInvoice` requires `BaseType == Sales` (`:48`). Contradicts `docs/phase5-reports-io-requirements.md:217` RQ-11."*~~ **All three of its claims are wrong, and each was re-measured first-hand at HEAD before being replaced.** **(1) THE LOCATOR `:48` IS STALE.** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:48` is **prose inside an XML doc comment** (a §206C TCS carry-forward note). The wrapper is a **pure forward** at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`, and **the rule lives at `src/Apex.Ledger/Reports/GstReportSupport.cs:1342`** — `if (type?.BaseType != VoucherBaseType.Sales) return false;` — where it moved when the §31(3)(c) exempt limb began serving the e-Way engine as well as the printer. **(2) "CONTRADICTS RQ-11" IS BACKWARDS: RQ-11 WAS ITSELF WRONG AND THIS ROW INHERITED THE ERROR.** RQ-11 as shipped commanded a **tax-invoice** format for a *"sales / **purchase** item-invoice"* — a document CGST **§31(1)** puts on *"a registered person **supplying**"*, i.e. one we have no right to issue on the purchase half. **RQ-11 is amended in place to SALES-ONLY, and RQ-11a (recipient-side record) and RQ-11b (Rule 53 note) are added** — `docs/phase5-reports-io-requirements.md:217`. **(3) THE DEFECT IS THE CALL SITE, NOT THE PREDICATE.** Sales-only is the **correct** answer to the question `IsTaxInvoice` is named for; it is **used** at `src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107` to answer a different one — *"should this render with item detail?"* ⚠️ **AND WIDENING THE PREDICATE WOULD BE DANGEROUS, NOT MERELY WRONG — THIS IS THE HAZARD THE ROW NEVER SAW.** `src/Apex.Ledger/Reports/GstReportSupport.cs:1094` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1144`) feeds the NIC e-Way `docType` at `src/Apex.Ledger/Services/EWayBillService.cs:482`. So the naive fix would **also** title a wholly-exempt purchase **"BILL OF SUPPLY"** — which CGST **Rule 49** likewise puts on the supplier — **and silently move a code we file with a government portal.** Three consumers move together; the method's NAME is the conflation. **The resolution is the three-axis split in `docs/adr/0002-printed-document-three-axis-split.md`; the slice chain is `plan.md` Phase 10.13.** | A supplier's document is unusable as a document — a purchase item-invoice prints no items, so it cannot be used to verify the input tax credit being claimed. ✅ **THE ITEM-INVOICE SHAPE IS CLOSED 2026-08-20 (Phase 10.13 slice S2)**: it prints a recipient-side `PURCHASE RECORD` carrying its item detail, headed by the SUPPLIER (CGST Rule 46(a)), stating the tax he charged under a caption naming him, with place of supply, our declaration and our signature suppressed, and our voucher number under its own caption *"Our Record Ref."* rather than *"Invoice No."*. **`IsTaxInvoice` and `IsBillOfSupply` were NOT edited** — the classifier consults them — so the NIC e-Way `docType` is unmoved, and the byte golden shows this slice moved **one** printed document and no other. 🔴 Every string on it is **OURS (ruling 9)**. **STILL OPEN under this row:** the purchase **accounting (service)** invoice, which takes the other projection pass (slice S3). |
+| **T0-11** | **A Purchase item-invoice prints as a Dr/Cr voucher with ZERO item detail.** 🔴 **RE-SCOPED AND RE-CAUSED 2026-08-20 (T0-11 grounded design pass, slice S0). THE ORIGINAL ROW READ** ~~*"Purchase item-invoices, Credit Notes and Debit Notes never print in invoice format — they silently fall back to a Dr/Cr voucher print."*~~ **It named the right symptom, the wrong cause, and bundled two different defects under one id.** The **Credit / Debit Note half is REFUTED and moved to T0-10** (rows 4.7 / 4.8). What remains here is the **PURCHASE** half — and it is **worse** than the row said: the plain voucher projection never reads `voucher.InventoryLines` at all, the voucher print DTO has nowhere to put them, and the voucher PDF can only draw a Particulars / Debit / Credit table. **This is a MISSING PROJECTION at three layers, not a predicate flip.** | 🔴 **CORRECTED 2026-08-20. THE ORIGINAL EVIDENCE CELL READ** ~~*"`VoucherPrintProjector.IsTaxInvoice` requires `BaseType == Sales` (`:48`). Contradicts `docs/phase5-reports-io-requirements.md:217` RQ-11."*~~ **All three of its claims are wrong, and each was re-measured first-hand at HEAD before being replaced.** **(1) THE LOCATOR `:48` IS STALE.** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:48` is **prose inside an XML doc comment** (a §206C TCS carry-forward note). The wrapper is a **pure forward** at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`, and **the rule lives at `src/Apex.Ledger/Reports/GstReportSupport.cs:1346`** — `if (type?.BaseType != VoucherBaseType.Sales) return false;` — where it moved when the §31(3)(c) exempt limb began serving the e-Way engine as well as the printer. **(2) "CONTRADICTS RQ-11" IS BACKWARDS: RQ-11 WAS ITSELF WRONG AND THIS ROW INHERITED THE ERROR.** RQ-11 as shipped commanded a **tax-invoice** format for a *"sales / **purchase** item-invoice"* — a document CGST **§31(1)** puts on *"a registered person **supplying**"*, i.e. one we have no right to issue on the purchase half. **RQ-11 is amended in place to SALES-ONLY, and RQ-11a (recipient-side record) and RQ-11b (Rule 53 note) are added** — `docs/phase5-reports-io-requirements.md:217`. **(3) THE DEFECT IS THE CALL SITE, NOT THE PREDICATE.** Sales-only is the **correct** answer to the question `IsTaxInvoice` is named for; it is **used** at `src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107` to answer a different one — *"should this render with item detail?"* ⚠️ **AND WIDENING THE PREDICATE WOULD BE DANGEROUS, NOT MERELY WRONG — THIS IS THE HAZARD THE ROW NEVER SAW.** `src/Apex.Ledger/Reports/GstReportSupport.cs:1098` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1148`) feeds the NIC e-Way `docType` at `src/Apex.Ledger/Services/EWayBillService.cs:482`. So the naive fix would **also** title a wholly-exempt purchase **"BILL OF SUPPLY"** — which CGST **Rule 49** likewise puts on the supplier — **and silently move a code we file with a government portal.** Three consumers move together; the method's NAME is the conflation. **The resolution is the three-axis split in `docs/adr/0002-printed-document-three-axis-split.md`; the slice chain is `plan.md` Phase 10.13.** | A supplier's document is unusable as a document — a purchase item-invoice prints no items, so it cannot be used to verify the input tax credit being claimed. ✅ **THE ITEM-INVOICE SHAPE IS CLOSED 2026-08-20 (Phase 10.13 slice S2)**: it prints a recipient-side `PURCHASE RECORD` carrying its item detail, headed by the SUPPLIER (CGST Rule 46(a)), stating the tax he charged under a caption naming him, with place of supply, our declaration and our signature suppressed, and our voucher number under its own caption *"Our Record Ref."* rather than *"Invoice No."*. **`IsTaxInvoice` and `IsBillOfSupply` were NOT edited** — the classifier consults them — so the NIC e-Way `docType` is unmoved, and the byte golden shows this slice moved **one** printed document and no other. 🔴 Every string on it is **OURS (ruling 9)**. **STILL OPEN under this row:** the purchase **accounting (service)** invoice, which takes the other projection pass (slice S3). |
 | **T0-12** | 🔴 **NEW 2026-08-18. Recording the same attendance period twice silently DOUBLES the pay.** The attendance service's record method **always appends a new entry** with no dedupe on employee + type + period; its delete method has **zero callers in `src/Apex.Desktop`**; and the payroll computation **sums every matching entry**. | Survey-measured at HEAD `6fb5fe5`: `PayrollAttendanceService` (record appends, delete uncalled), `AttendanceVoucherEntryViewModel` (writes every non-blank row, zero `duplicat` hits), `PayrollComputationService` (the attendance sum). §1.2a row 7.8. | An On-Attendance or On-Production pay head pays twice, and **the operator has no in-app way to undo it** — the recorded entry can be neither altered nor removed. Real money, real salaries. |
 | **T0-13** | 🔴 **NEW 2026-08-18. A leaver accrues gratuity provision and statutory bonus for ever.** `Employee.DateOfLeaving` has **zero hits across all of `src/Apex.Desktop`** — no field, no XAML — while **three engines read it**: the gratuity provision skips an employee who has left, the bonus register clips the eligibility year on it, and the ESI contribution emits it as the last working day. | Survey-measured at HEAD: `Employee`, `GratuityProvision`, `BonusRegister`, `EsiContribution`; settable only through JSON/XML import. §1.2a row 7.2. | Provisions and bonus keep accruing for staff who left, and the ESI file never carries a last working day. Both are wrong figures in a filed or auditable artefact. |
 | **T0-14** | 🔴 **NEW 2026-08-20. The alteration screen's tax-head shape pin is BLIND to an intra-state GST rate master moved between an EVEN basis-point figure and the ODD one above it, so the ITC and the supplier's credit silently restate on an amendment that touched nothing.** The CGST and SGST legs are stamped with `integratedBp / 2`, an **integer** division, so **500 and 501 both stamp 250** and `TaxHeadSignature` — which compares `ledger｜side｜head｜rate` — sees no change. An INTER-state invoice is safe: the IGST leg carries the full basis points. | **[V] 2026-08-20**, reproduced through the REAL purchase item-invoice screen by the agent fixing the cess blocker: moved the item's rate 5.00% → 5.01% with the alteration screen open and `AcceptAlteration` returned TRUE with *"Purchase No. 1 altered."*; signature identical on both sides; **ITC moved 92.60 + 92.59 = 185.19 → 92.78 + 92.78 = 185.56 and the supplier's credit 3,888.90 → 3,889.27.** The halving is in `GstService.ComputeInvoiceTax`'s rate-group loop; the pin is `VoucherAlterationDerivedLegs.TaxHeadSignature`, whose doc comment now carries these literals under its *"WHAT THIS SIGNATURE IS BLIND TO"* enumeration. | Rs 0.37 on the measured fixture, **unbounded in principle** — the drift scales with the invoice. It is written into the book and into the filed return under the guard's own claim that *"a rate master moved since posting"* is exactly what it refuses. **OPEN.** §1.3 item 12 category (D). |

@@ -389,31 +389,52 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 
 ### 7.2 The printer
 
+> 🔴 **[V] RE-ANCHORED AGAIN 2026-08-21, AND THE MECHANISM IS THE FINDING (T0-11 review C20/L3-06).**
+> The T0-11 citation-repair pass re-anchored exactly **three** pointers in the bullet list below
+> (`:734-740` → `:778-784`, `:740` → `:781`, `:742` → `:783`) and left the rest stale beside them — and
+> then wrote, in §10, that it *"correctly re-anchored the **live** pointers in §7.2/§7.3"*, which is the sentence
+> that stops the next reader checking. It had not: five further live pointers in this list, and both of
+> §7.3's, were still wrong, one of them (`SupplierPostalAddressText`) contradicting the value the SAME commit
+> range wrote into `plan.md` for the same symbol.
+> **🔴 WHY EXACTLY THOSE THREE WERE THE ONES IT FOUND, which is the durable half:** they were the only
+> pointers here that carried a **file name**. The rest used this section's bare `` `:NN` `` shorthand, and
+> **both** guards key on `File.ext:NN` — `DocumentCodeAgreementTests` (reach) and
+> `LoadBearingCitationContentTests` (content). **A bare `:NN` is therefore checked by NOTHING**, which is why
+> it could be wrong for two print rewrites running with no signal at all. The shorthand is expanded
+> throughout §7.2 and §7.3 so every pointer sits inside a guard, and **eleven anchors covering this
+> section were added to `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs`** — that file's own
+> lesson (*"point the tool at the code nobody has read yet"*) applied a fourth time, after the fourteen
+> T0-11 anchors landed in the census, the ADR and RQ-11 and **none** in the file that had actually drifted.
+> **Measured at HEAD on 2026-08-21** (`VoucherPrintProjector.cs` is 1,132 lines, `InvoicePdf.cs` 816), and
+> every pointer below now resolves **by content**, not merely by reach.
+>
 > **[V] Re-anchored 2026-08-15 to the post-W0-2a tree.** The numbers here were `fa651ae`'s and every one of them
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:778-784` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:967-973` `SellerBlock`:
 
-- `Name` = `CompanyDisplayName` (`:676-677` — MailingName falling back to Name, **matching Tally's convention
-  exactly**)
+- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:917-918` — MailingName falling back to Name,
+  **matching Tally's convention exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:781`) — **changed by W0-2a.**
-  `SupplierPostalAddressText` (`:744-747`) returns `null` unless `company.Address` is non-blank, and otherwise
-  defers to the shared `PostalAddressText` (`:822-829`), which appends Country then `"PIN: " + Pin`, each
-  skipped when blank.
+  (`VoucherPrintProjector.cs:970`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:988-991`) returns `null` unless `company.Address` is
+  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1089-1097`),
+  which appends Country then `"PIN: " + Pin`, each skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:783`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:972`) — **unchanged; still never `company.State`.**
 
-Called from `:399` (item pass) and `:520` (service pass). `SplitAddress` (`:855`) returns `Array.Empty` on
-null/whitespace.
+Called from `VoucherPrintProjector.cs:483` on the item pass,
+and from `VoucherPrintProjector.cs:761` on the service pass.
+`SplitAddress` (`VoucherPrintProjector.cs:1122-1124`) returns `Array.Empty` on null/whitespace.
 
-**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:564` `DrawPartyBlock`, called at `:295` with caption `"Supplier:"`.
-The address `foreach` (`:570`) never executes when the list is empty, and the State line (`:578`) is
-skipped when `StateText` is blank. **So what a GST-off company prints today is:** `"Supplier:"` / `<company
-name>` / `"GSTIN: Unregistered"` — **the address emits nothing at all**: no placeholder, no blank line; the block
-silently collapses.
+**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:759` declares `DrawPartyBlock`;
+it is called at `InvoicePdf.cs:439` with the caption `"Supplier:"`.
+The address `foreach` (`InvoicePdf.cs:765`) never executes when the list is empty, and the State line
+(`InvoicePdf.cs:771-773`) is skipped when `StateText` is blank.
+**So what a GST-off company prints today is:** `"Supplier:"` / `<company name>` / `"GSTIN: Unregistered"`
+— **the address emits nothing at all**: no placeholder, no blank line; the block silently collapses.
 
 > 🔴 **[V] The address guard is load-bearing, and it is why W0-2a is ER-13-safe.** `companies.country` is
 > `TEXT NOT NULL` and `Company.Country` defaults to `"India"`, while **nothing in `src/Apex.Desktop` ever assigns
@@ -438,9 +459,11 @@ silently collapses.
 ### 7.3 🔴 Two findings the census does not record
 
 **(i) `Company.State` is never printed on an invoice — and as of W0-2a, `Company.Pin` and `Company.Country`
-ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode` (`:726`), **not** from `company.State`.
-The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText` (`:796`) routes through
-the shared `PostalAddressText` (`:822-829`).
+ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode`
+(`VoucherPrintProjector.cs:972`), **not** from `company.State`.
+The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText`
+(`VoucherPrintProjector.cs:1063-1066`) routes through the shared `PostalAddressText`
+(`VoucherPrintProjector.cs:1089-1097`).
 
 > 🔴 **HALF OF THIS SECTION WAS MADE FALSE BY W0-2a, AND IS REWRITTEN HERE (2026-08-15).** It previously read
 > "`Company.State` **and** `Company.Pin` are never printed … nothing appends `Pin` … **The seller block has no
@@ -630,7 +653,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:783`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:972`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
@@ -902,8 +925,13 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 > its own header names. Re-anchoring either against a later working tree does not repair the row, it destroys it.
 >
 > **What happened.** The T0-11 S1/S2 slices added lines to `VoucherPrintProjector.cs`, and the citation-repair pass
-> that followed correctly re-anchored the *live* pointers in §7.2/§7.3 (`:734-740` → `:778-784`, `:740` → `:781`,
-> `:742` → `:783`) — and then swept this row up with them, rewriting column 2 from the original
+> that followed re-anchored ~~*the live pointers in §7.2/§7.3*~~ **three** of the live pointers in §7.2
+> (`:734-740` → `:778-784`, `:740` → `:781`, `:742` → `:783`) — **the claim of completeness is struck
+> 2026-08-21 (T0-11 review C20/L3-06): five more in the same bullet list and both of §7.3's were left stale,
+> and §7.3 — which this document itself calls "the evidence base the R12 gate rested on" — received zero
+> repairs in that range. All are repaired and anchored as of 2026-08-21; see the banner at the head of
+> §7.2 for the mechanism, which is that a bare `` `:NN` `` is invisible to every guard in the repository.**
+> The same pass also swept this row up with them, rewriting column 2 from the original
 > **`VoucherPrintProjector.cs:751-759`** to `:772-780`. **Restored above.** The rewritten value was false in every
 > frame at once: at `fa651ae` `:751-759` is `PlaceOfSupply`, which is precisely the wrong place the A14 pass pointed
 > at and what this row exists to record, while `:772-780` at `fa651ae` is something else again and in the current

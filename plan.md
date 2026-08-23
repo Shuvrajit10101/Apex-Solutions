@@ -3037,7 +3037,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
     `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
     typed into the screen is refused. Recorded here rather than left to be discovered.
-    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:799-802`).** Country/PIN
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:988-991`).** Country/PIN
     are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
     `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
     `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
@@ -3158,7 +3158,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
     wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
     alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
-    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:783` is
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:972` is
     `StateText = StateText(company.Gst?.HomeStateCode)`.
     **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
@@ -3445,6 +3445,14 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **Until then the invariant "printed Grand Total == posted party leg" holds for every non-TCS sale, and the class
     doc must not claim more.** (Purchase additional-costs ride the same party-leg idiom but cannot print: `IsTaxInvoice`
     is Sales-only.)
+    **✅ CLOSED 2026-08-21 (T0-11 review C1 / finding L1-01).** The DTO field landed as
+    `InvoicePrintData.OtherCharges` — a row per posted party-side charge, captioned with the posted ledger's own
+    name — with its `InvoicePdf` row and its preview-mirror row. **And the parenthesis above was the miss that made
+    this a blocker:** it was true of W0-10 and stopped being true at slice S2, which routed a Purchase item invoice
+    through this very pass. Measured through the shipped UI: 10 Nos @ ₹1,000.00 + Freight Inward ₹1,234.56 + Input
+    CGST ₹900.00 + Input SGST ₹900.00 = **Cr Supplier ₹13,034.56**, printed as a PURCHASE RECORD reading **GRAND
+    TOTAL ₹11,800.00** with the word "Freight" nowhere on the page. Both members are now stated, and the qualification
+    "on every non-TCS sale" is struck from the class doc because the exception it named is gone.
   - **▶ CARRY-FORWARD (b) — the item pass has NO footing guard, and now it could have one.** The service pass demotes
     a voucher to the plain Dr/Cr print when its projection does not reconcile to the posted party leg
     (`ServiceInvoiceFoots`, F2) — the guard that stops crafted/imported `GstLineTax` legs printing a fabricated
@@ -3453,6 +3461,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     expressible. **It was NOT added in this slice deliberately: a TCS-bearing sale does not foot (carry-forward (a)),
     so a footing refusal today would stop every TCS invoice printing as a tax invoice — a real regression traded for
     a crafted-data one.** Sequence it AFTER (a).
+    **✅ CLOSED 2026-08-21 (T0-11 review C1) — and the sequencing constraint was DISCHARGED, not waived.** (a) and (b)
+    landed together: because the collected TCS is now a stated `OtherCharges` row, a TCS-bearing sale foots, so the
+    refusal demotes nothing it should not. `VoucherPrintProjector.ProjectInvoice` ends by comparing its own Grand
+    Total against the posted party leg and throws `FootingRefusal` when they differ, naming the amount it cannot
+    account for. **▶ RESIDUE, recorded rather than hidden:** the refusal is a THROW at the projection, not a
+    classification conjunct like `ServiceInvoiceFoots`, so a voucher it refuses does not fall back to the plain
+    Dr/Cr print — it fails to print at all. Nothing this app POSTS can reach it (every accept path builds the party
+    leg from exactly the five terms the DTO now carries), and `ProjectInvoice` has exactly one production caller,
+    behind `Document.RendersItemDetail`; a crafted or imported voucher carrying a party-side leg class we cannot
+    state is the only shape that can. Turning it into a conjunct means moving the item pass's money reads down into
+    `GstReportSupport` so the classifier does not re-derive the projection's arithmetic a second time — **a slice of
+    its own, and that second body is the thing to avoid, not the throw.**
     **▶ W0-10 REVIEW (finding #5) — WHAT THIS ENTRY FAILED TO RECORD: the switch itself flips one shape from footing to
     NOT footing.** A Sales item voucher whose Output CGST/SGST legs carry no `GstLineTax` (importable — `<gst>` is
     optional in `CanonicalXml`; also the shipped As-Voucher screen's idiom) used to foot, because the live recompute
@@ -3513,6 +3533,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     with TCS added to the out-of-scope list and a **characterization test** pinning the measured shortfall (posted
     party leg **₹56,368.14** vs printed **₹55,810.14**, short by the collected **₹558**) so the day the DTO field lands
     it fails BY DESIGN and is restated.
+    **✅ THAT DAY WAS 2026-08-21 (T0-11 review C1).** The characterization test failed by design, the DTO field landed
+    as `InvoicePrintData.OtherCharges`, and the test is restated as
+    `A_tcs_bearing_invoice_states_the_collected_tcs_and_foots_to_the_posted_party_leg` — the collected **₹558.00** now
+    prints under its posted ledger's name and the Grand Total reads **₹56,368.14**, the posted party debit. The class
+    doc's qualification "on every non-TCS sale" is struck with it, because the universal is now ENFORCED rather than
+    claimed: `ProjectInvoice` refuses any projection whose Grand Total and posted party leg disagree.
     **(4) A taxable-at-0% supply states no rate row — REAL, but the reviewer's CURE is REFUTED (findings #2/#4/#9).**
     The facts are right: `AddHead` early-returns on a zero amount, so a 0%-rated group leaves no posted footprint, the
     item pass stopped emitting the `"0% | value | 0.00 | 0.00"` row, and the comment claiming an ordinary reprint is
@@ -5038,8 +5064,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   supplier?*) is a third. **The defect is that one predicate was used to answer all three at**
   `src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`.
 - **▶ 🔴 THE THREE-CONSUMER HAZARD — THE REASON THE OBVIOUS FIX IS DANGEROUS RATHER THAN MERELY WRONG.**
-  `src/Apex.Ledger/Reports/GstReportSupport.cs:1094` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and
-  `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1144`) feeds the **NIC e-Way portal**
+  `src/Apex.Ledger/Reports/GstReportSupport.cs:1098` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and
+  `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1148`) feeds the **NIC e-Way portal**
   `docType` at `src/Apex.Ledger/Services/EWayBillService.cs:482`. Widening the Sales gate would **also** title
   a wholly-exempt purchase **"BILL OF SUPPLY"** (CGST **Rule 49** puts that on the supplier too) **and
   silently move a code we file with a government system.** `IsTaxInvoice` and `IsBillOfSupply` are therefore
@@ -5100,12 +5126,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     for which no statutory document may be issued (reachable only by a direct call; the app routes past it).
     S1 named that branch rather than moving it, because moving it is a behaviour change.
   - **S2 — THE PURCHASE ITEM-INVOICE PRINTS AS A RECORD DOCUMENT (the user's actual defect).
-    ✅ DONE 2026-08-20. NO SCHEMA. One document class changed; every other printed document is byte-identical.**
+    🔴 CODE COMPLETE 2026-08-20 — NOT DONE: BLOCKED ON OPEN R12 QUESTION (1). NO SCHEMA. One document
+    class changed; every other printed document is byte-identical.**
     Route on *renders-item-detail*, not on entitlement. Item table from `voucher.InventoryLines`; **supplier and
     recipient blocks SWAPPED** so the supplier heads the document; place of supply, our declaration and our
     signature **suppressed** (all CGST Rule 46 *supplier* particulars); the supplier's number through the
     existing *"Supplier Invoice No."* caption at
-    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:717-718`, and **our** number under its own caption
+    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:906-907`, and **our** number under its own caption
     reading *"Our Record Ref."* — never *"Invoice No."*, which under the supplier's identity is a false
     statement. **Closes census row 4.6 and the purchase half of 12.2 / T0-11.**
     **▶ WHAT SHIPPED.** `GstReportSupport.ClassifyPrintedDocument`
@@ -5152,11 +5179,151 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     Supplier` over the rate breakup; the record legend and **no** declaration and **no** signature. The
     on-screen pane was captured headless (Skia) and shows the drill badge reading **"Purchase Record"** and the
     preview headed **"Purchase Record No. 42"**.
-    **▶ CARRIED FORWARD, NOT FIXED HERE.** *(a)* The preview pane's Particulars column **truncates** the new
-    `Supplier: …` row exactly as it already truncates `1. Widget (HSN 84…` — a **pre-existing** property of
-    that pane (the row it replaced, `Buyer: …`, had the identical width), belonging to the UI truncation
-    campaign, not to this slice. *(b)* `ProjectInvoice` still stamps `TAX INVOICE` on the
+    **▶ CARRIED FORWARD, NOT FIXED HERE.** *(a)* ~~The preview pane's Particulars column **truncates** the
+    new `Supplier: …` row exactly as it already truncates `1. Widget (HSN 84…` — a **pre-existing** property
+    of that pane (the row it replaced, `Buyer: …`, had the identical width), belonging to the UI truncation
+    campaign, not to this slice.~~ *(b)* `ProjectInvoice` still stamps `TAX INVOICE` on the
     `NoStatutoryDocument` arm when called directly, as S1 recorded.
+    **▶ 🔴 ITEM (a) IS STRUCK AND CORRECTED — 2026-08-21, T0-11 review C18/L3-04 (overstated closure).** It
+    accounted for **one** of the **two** rows this slice put in that pane, and routed both to a campaign that
+    had no reason to look here. **MEASURED FROM THE COMMIT rather than read off the file:**
+    `git show 96db1c0 -- src/Apex.Desktop/ViewModels/PrintPreviewViewModel.cs` shows
+    `rows.Add(PrintRow.Header(GstReportSupport.SupplierTaxCaption, …))` as a **bare `+` with no paired `-`**
+    (six lines added, none removed), while the party row **is** a genuine `-Buyer:` / `+Supplier:` swap. So
+    **`Tax Charged by the Supplier` had no predecessor of any width in that pane** — it is a row **this slice
+    created**, and it painted as `Tax Charged by the…`, losing exactly the word **Supplier**: 27 glyphs at the
+    shipped Consolas advance (6.048 DIP at `FontSize="11"`) is 163.29 DIP against a literal 120 DIP cell. The
+    word it lost is the whole content of the claim, three lines below a comment in that same file saying so.
+    ***"pre-existing"* and *"not this slice"* were both FALSE of it**, and the outward control proves the point
+    rather than softening it: `GST Breakup` is 66.53 DIP and would have fitted whole. The parenthesis was true
+    of the OTHER row and not load-bearing even there — the cell width is unchanged at 120, but the caption
+    grew from `Buyer: ` (7) to `Supplier: ` (10), so the party name lost three further characters
+    (`Buyer: Gujarat Sup…` → `Supplier: Gujarat …`).
+    **▶ ✅ AND BOTH ROWS ARE NOW CLOSED — 2026-08-21, in this same review chain (C17/L3-03 + CRITIC-01).**
+    The pane sizes each column from the print model's own declared `PrintColumn.Weight` — the weights
+    `ReportPdf` and `InvoicePdf` have always split the PAPER by, and which this pane alone threw away for a
+    literal 120 — floored at that same 120, so the change is **monotone**: every column either widens or is
+    exactly as it was, on every report kind. Pinned by
+    `tests/Apex.Desktop.Tests/PrintPreviewColumnWidthTests.cs`, which asserts the caption and the supplier name
+    paint WHOLE and that three item rows at three different quantities and rates stop painting as three
+    identical strings. **What genuinely does belong to the campaign** is the composed item row itself: it is
+    inherited, unchanged by this slice, and lands identically on every outward tax invoice and every bill of
+    supply — which is why the fix was scoped to the SHARED mirror and not to the record branch.
+    **▶ ✅ THE SINGLE-BOOLEAN DTO COLLAPSE IS CLOSED — 2026-08-21 (T0-11 review C2/L1-02 and C24/L3-10, one
+    address).** The review found four findings at one root: `PrintedDocumentClass` holds seven fields across
+    three axes and `InvoicePrintData` carried ONE boolean for all of them, so `InvoicePdf` answered the ROLE
+    questions, the ORIENTATION question and the Rule 46(q) DECLARATION/SIGNATURE question off `IsRecipientRecord`,
+    while two helpers written for the OUTWARD side were never re-derived from the new axes.
+    - **C2/L1-02 (major, wrong-document) — FIXED, and at the projector, not the renderer.** One ordinary supplier-
+      master correction blanked the SUPPLIER's GSTIN and `InvoicePdf.DrawPartyBlock` printed the positive assertion
+      **"GSTIN: Unregistered"** on the same page as **CGST 900.00 / SGST 900.00** under `Tax Charged by the
+      Supplier` — a page that refutes itself (CGST Act §32(1) bars an unregistered person from collecting any
+      amount by way of tax) and names no registered supplier against the credit it exists to verify. Root:
+      `BuyerBlock` carries the whole FIX-3 reconciliation (`IssuedBuyerStateCode` + `ConsistentBuyerGstin`), whose
+      every clause is about what an ISSUED document may state about ITS BUYER, and slice S2 flipped that block into
+      the SUPPLIER slot; `PostedForwardRouting` is direction-neutral, so a purchase's own tagged Input CGST/SGST
+      answered *"posted INTRA"*. The record now builds its counterparty block through `RecordedSupplierBlock` —
+      the supplier's own recorded State and GSTIN **verbatim**, because his identity is a fact about him that we
+      determined none of. Untouched books are byte-identical: the reconciliation only ever fired where live and
+      posted disagree. Pinned RED-then-GREEN by
+      `PurchaseRecordPartyIdentityTests.A_supplier_master_correction_never_prints_the_supplier_as_unregistered`
+      (red: `Expected "24AAACC1206D1ZM" / Actual ""`), with the outward twin
+      `The_outward_buyer_reconciliation_is_untouched_by_the_record_fix` proving FIX-3 is unmoved where it belongs.
+    - **C24/L3-10 (minor, correctness) — FIXED by widening the DTO, which is what the review's completeness critic
+      called for.** `InvoicePrintData` now carries `Heads` (Rule 46(a) orientation) and
+      `StatesOurDeclarationAndSignature` (Rule 46(q)) alongside `IsRecipientRecord`, and `InvoicePdf` reads each
+      axis for its own question: party captions and the tax-band caption off `Heads`, the record legend off role
+      **and** orientation together, the signature drop off the declaration axis. **That also closes C22/L3-08's
+      write-only field** — the classifier set it on both branches and no production code read it. Both new axes
+      **default to the coherent pairing** the classifier produces, so every shipped document and every hand-built
+      test DTO is byte-identical (ER-13). All four renderer reads were mutation-tested one at a time and each one
+      independently reds `A_record_headed_by_us_states_no_legend_about_a_supplier_who_is_us`.
+    - **▶ 🔴 C6/L1-06 and C7/L1-07 ARE DELIBERATELY NOT FIXED HERE, and the reason is R12, not effort.** Both are
+      corrections to *what a purchase record SAYS ABOUT TAX* — the intra/inter head caption with its `CGST 0.00 /
+      SGST 0.00` pair on a supply that bears no head, and the label `Taxable Value` over money that was never
+      taxable — and that is **open R12 question (1) below**, which the user is answering. What this pass did close
+      is the reason a renderer-only patch would have been WRONG for both: the fact was **inexpressible**.
+      `InvoicePrintData.IsInwardExempt` now carries it, derived by the projector from the POSTED legs (no tax, no
+      cess) and pinned by `A_record_that_states_no_tax_figure_carries_the_inward_exempt_fact`. **Nothing renders
+      it yet.** When the ruling lands, the wording fix is two paired one-line edits and no new data:
+      `InvoicePdf.cs`'s totals label `data.IsBillOfSupply ? "Value of Supply" : "Taxable Value"` and its mirror
+      twin in `PrintPreviewViewModel.BuildInvoicePreviewReport` must move together (a fix to one alone is this
+      codebase's FIX-W1e class), plus — if the ruling also drops the empty head rows — `InvoicePdf.HeadRows`' zero
+      limb and the intra/inter caption gate. `PurchaseRecordPrintTests.cs`'s `Assert.DoesNotContain("Invoice No.",
+      lines)` is the assertion that must be TIGHTENED rather than deleted if a caption ever gains that substring.
+    **▶ ✅ THE RULE 48(1) COPY MARKING IS CORRECTED, AND CONFINED TO DOCUMENTS WE ISSUE — 2026-08-21 (T0-11
+    review C10/L1-10 and C3/L1-03, moved together because they are one band).**
+    - **C10/L1-10 (major, statutory) — THE DUPLICATE AND TRIPLICATE CAPTIONS WERE TRANSPOSED.** The app paired
+      `Duplicate ⇒ "DUPLICATE FOR SUPPLIER"` and `Triplicate ⇒ "TRIPLICATE FOR TRANSPORTER"`. **CGST Rule 48(1),
+      verified at the primary source before anything was touched** — CBIC's own text at
+      `https://cbic-gst.gov.in/pdf/cgst-rules-30122017.pdf`, PDF p.40 / printed p.37, extracted with
+      `pdftotext -raw` — reads: *"(a) the original copy being marked as ORIGINAL FOR RECIPIENT; (b) the duplicate
+      copy being marked as DUPLICATE FOR TRANSPORTER; and (c) the triplicate copy being marked as TRIPLICATE FOR
+      SUPPLIER."* RQ-12 (`docs/phase5-reports-io-requirements.md:306`) already said the same. So the copy handed
+      to a transporter on a roadside check was marked, on its face, as the one the rule does not give him. Six
+      sites moved: the label switch and the enum member docs in `PrintConfig.cs`, its type doc (which **also
+      miscited the requirement to "Rule 46(1) proviso"** — Rule 46 prescribes invoice CONTENTS; the copies are
+      Rule 48), `PrintConfigViewModel`'s doc, the two operator-facing F12 radio captions in `MainWindow.axaml`,
+      and **two shipped tests that asserted the transposition as correct** (`InvoicePdfTests.cs`'s duplicate and
+      triplicate probes). Those two were re-pointed **to the rule text**, with the clause quoted at each — never
+      to "what the new code says". Nothing numeric moves; `CopyMarking` still defaults to `None`.
+      **Rule 48(2)'s services set is NOT smuggled in:** it marks a two-copy set *ORIGINAL FOR RECIPIENT /
+      DUPLICATE FOR SUPPLIER* and has no triplicate at all, so it cannot license the old pairing inside a
+      three-valued enum that offers one. A goods/services split of the marking remains unmodelled and is recorded
+      here rather than silently assumed away.
+    - **C3/L1-03 (major, statutory) — THE BAND LEAKED ONTO A DOCUMENT WE DO NOT ISSUE, from TWO sites.** Rule
+      48(1) prescribes the markings for the invoice the SUPPLIER prepares under §31(1) / Rule 46, so stamping one
+      on a recipient-side **PURCHASE RECORD** makes that page assert it is one of his statutory copies — the last
+      issuer particular S2 left ungated, beside the title, the number caption, the place of supply, the
+      declaration and the signature. It leaked from `InvoicePdf.DrawFirstHeader` **and** from
+      `PrintPreviewViewModel.BuildInvoicePreviewReport`, each an ungated `if (CopyMarking != None)`; fixing either
+      alone is this codebase's own preview/paper drift class. **The gate is `StatesOurDeclarationAndSignature`,
+      not `IsRecipientRecord`** — Rule 48(1)'s markings and Rule 46(q)'s signature are one question ("is this a
+      copy of a document WE issued?"), and answering it off two flags is how the band leaked in the first place.
+      It is also the answer S5 needs: on a §31(3)(f) self-invoice the role is `Recorded` and **we** are the issuer,
+      so the markings belong on it — a role-axis gate would wrongly suppress them, and that shape is pinned.
+      Byte-identical on every outward document (the axis defaults to `!IsRecipientRecord`).
+    - **▶ EVIDENCE — RED, THEN GREEN, THEN MUTATED IN BOTH DIRECTIONS.** New
+      `Apex.Ledger.Io.Tests/CopyMarkingRule48Tests.cs` (12 rows) went **Failed: 9, Passed: 3** before the fix, the
+      label row reading `Expected: "DUPLICATE FOR TRANSPORTER" / Actual: "DUPLICATE FOR SUPPLIER"`; new
+      `Apex.Desktop.Tests/CopyMarkingMirrorLockstepTests.cs` (11 rows) went **Failed: 6, Passed: 5**. The lockstep
+      test asserts the mirror and the bytes **agree**, on every marking × both roles, rather than two separate
+      lists of expectations — and it was mutation-proved to bite **both ways**: mirror gate removed ⇒ 6 red, bytes
+      gate removed ⇒ 3 red, both on the `Assert.Equal(onPaper, onScreen)` line. Suites after: **Apex.Ledger.Io
+      443 · Apex.Desktop 2536 · Apex.Ledger 1857, 0 failed, 0 skipped.**
+    - **▶ 🔴 THE OPERATOR-FACING HALF WAS UNPINNED, AND IS NOW PINNED — BUT ONLY AT INSTANCE SCOPE (2026-08-23,
+      QA mutation pass).** The evidence above covers the RENDERER. It does **not** cover the two F12 radio
+      captions in `MainWindow.axaml`, and a mutation pass proved it: both were reverted to the transposed
+      wording and **11 of 11** CopyMarking/PrintConfig tests still passed — the strings occurred nowhere under
+      `tests/`. So five of the six corrected sites were guarded and the two the operator READS BEFORE PRINTING
+      were guarded by nothing. New `tests/Apex.Desktop.Tests/CopyMarkingCaptionLockTests.cs` (2 rows) closes
+      that: it drives the real `MainWindow` headlessly, realises the F12 panel and asks the realised
+      `RadioButton`s what they SAY, against Rule 48(1) literals transcribed from CBIC and **never read back out
+      of `PrintConfig`**, plus a non-vacuity assertion that four radios realised (so "no wrong caption" cannot
+      quietly mean "no radios"). **Mutation-proved 2026-08-23:** transposing the two counterparties gives
+      `Assert.Equal() Failure: Collections differ at index 2 / Expected: "Duplicate for Transporter" / Actual:
+      "Duplicate for Supplier"`; restored ⇒ **2 of 2 green**, `MainWindow.axaml` numstat back to its prior
+      31/8.
+    - **▶ R6 ITEM, OPEN — THE SINGLE-SOURCE REFACTOR THAT RETIRES THE DEFECT CLASS. Hardening, NOT a defect:
+      the shipped captions are correct and are now pinned.** The lock above pins THIS instance; it cannot stop a
+      SEVENTH site being written, because the Rule 48(1) pairing still has two independent spellings in the tree
+      — `PrintConfig.CopyMarkingLabel` and the AXAML literals — which is this project's most-repeated shape (one
+      rule, several places, guards on only some). Owed:
+      **(a)** add `PrintConfigViewModel.CopyMarkingCaption(CopyMarking)`, deriving the caption from
+      `PrintConfig.CopyMarkingLabel` by re-casing only — the ONE home;
+      **(b)** bind the four F12 radios' `Content` to it, so no statutory wording is spelled in the XAML;
+      **(c)** a drift lock in the idiom of `Apex.Ledger.Tests/OneRuleDriftLockTests.cs` forbidding a literal
+      pairing beside the radios, with non-vacuity that the three statutory radios are bound to three DISTINCT
+      captions (one binding reused thrice would render one marking three times and still pass a "no literals"
+      check).
+      **🔴 The three tests for (a)–(c) were already WRITTEN** — `The_derived_captions_are_the_Rule_48_1_pairings`,
+      `The_caption_is_the_printed_label_recased_and_nothing_else`,
+      `The_statutory_captions_are_not_respelled_in_the_XAML` — by the agent that attempted the refactor and was
+      killed mid-way. They are **recoverable from that session's transcript and need no redesign**; they were
+      deleted rather than stubbed or `Skip`-marked because a test file whose doc-comment describes three locks
+      over one live lock is exactly the overstated-closure defect this project keeps finding. **Deferred here
+      and not attempted** because the refactor needs a new view-model method + four AXAML binding changes +
+      render verification, and the tree carries ~1,300 lines of uncommitted, gated work.
     **▶ 🔴 A TOOLING INCIDENT DURING THIS SLICE, DISCLOSED BECAUSE A REVIEWER MUST KNOW WHERE TO LOOK.** A
     failed scripted edit **truncated `src/Apex.Ledger/Reports/GstReportSupport.cs` to zero bytes** (an
     open-for-write that threw mid-`write`). S1's work in that file was **uncommitted**, so it could not be
@@ -5222,7 +5389,25 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **Schema: NONE for S0 through S4.** Nothing in this chain persists a new fact. Every discriminator already
   exists on the posted voucher or in an existing table, and the classification is **computed at print time,
   never stored** — so this phase **creates no collision with the edit-log track's version number.**
-- **▶ 🔴 THREE OPEN R12 QUESTIONS FOR THE USER. S2 AND S4 ARE BLOCKED ON (1) AND (2) RESPECTIVELY.**
+- **▶ 🔴 THREE R12 QUESTIONS FOR THE USER — (1) IS ASKED AND OUTSTANDING as of 2026-08-21.
+  S2 AND S4 ARE BLOCKED ON (1) AND (2) RESPECTIVELY.**
+  🔴 **STATUS, RECORDED 2026-08-21 (T0-11 review C21/L3-07) — READ THIS BEFORE THE THREE QUESTIONS.**
+  Question (1) has now been **put to the user and is awaiting a ruling**. No ruling exists: `plan.md` §5's
+  standing set runs 1–12 across three dated R12 banners and **none of them is this question**. Meanwhile
+  **the code already shipped the un-approved RECOMMENDATION** — `GstReportSupport.SupplierTaxCaption`,
+  `StatesTax: TaxParticulars.AsChargedByTheSupplier`, `InvoicePdf`'s band heading and the
+  `PrintPreviewViewModel` mirror row — so what the user is being asked to rule on is **live shipped
+  behaviour, not a design sketch**, and this block's own price for the wrong answer (*"one slice of rework
+  confined to the suppression set and the PDF column headings"*) is now rework of built, tested,
+  byte-goldened and thrice-documented code. **S2's stamp is corrected from ✅ DONE to CODE COMPLETE / NOT
+  DONE accordingly, and it does not become DONE until the ruling lands.** Two aggravators are recorded with
+  it, because both are process rather than prose: S2's closure block argues its *"FOUR CORRECTIONS TO THE
+  DESIGN, EACH MADE DELIBERATELY"* from law and machinery alone and **never discloses that a user gate was
+  open**, so the closure notice concealed the bypass rather than disclosing it; and R6 permits a deviation
+  only when it is logged in `memory.md` with its reason, which it was not — an R5 gap riding on the R12
+  one, closed by the 2026-08-21 entry there. Pinned by
+  `tests/Apex.Ledger.Tests/SliceStatusClaimTests.cs`, which now goes RED on any slice stamped done inside a
+  phase block that still records it as blocked.
   1. **On a purchase RECORD, do we print the tax the SUPPLIER charged us, or suppress all tax?**
      **RECOMMEND: SHOW IT, captioned as the supplier's charge.** The existing money machinery already reads
      the input legs correctly with no projector change, and a record that hides the tax is useless for

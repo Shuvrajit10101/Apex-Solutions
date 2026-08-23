@@ -231,6 +231,66 @@ public sealed class LoadBearingCitationContentTests
             @"throws *""Item-invoice stock lines are only valid on a",
             "VoucherValidator.cs",
             "only valid on a Purchase or Sales voucher"),
+
+        // ---- §7.2 / §7.3 of the grounding doc: the print-path evidence base the R12 gate rested on ----
+        // Added 2026-08-21 for T0-11 review C20/L3-06, and it is this file's own lesson a FOURTH time. The T0-11
+        // citation-repair pass re-anchored exactly THREE pointers in the §7.2 bullet list and left the rest stale
+        // beside them, then wrote at w0-2:905 that it "correctly re-anchored the *live* pointers in §7.2/§7.3" —
+        // the sentence that stops the next reader re-checking. The fourteen T0-11 anchors added above land in the
+        // census, the ADR and RQ-11; NONE landed in w0-2, which is the file that had drifted, and the three
+        // pre-existing w0-2 anchors happened to cover only the pointers that WERE repaired.
+        //
+        // 🔴 THE MECHANISM, and the reason a reach check could never have caught it: §7.2 wrote its pointers as a
+        // bare `:NN` shorthand, and BOTH guards key on `File.ext:NN`. A bare `:NN` is therefore checked by nothing
+        // at all — not reach, not content — and the pointers that carried a file name are exactly the ones the
+        // repair pass found. The shorthand is expanded throughout §7.2/§7.3 so every pointer is inside a guard.
+        new("docs/w0-2-company-screen-grounding.md",
+            "`SellerBlock`:",
+            "VoucherPrintProjector.cs",
+            "private static InvoicePartyBlock SellerBlock(Company company)"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "MailingName falling back to Name",
+            "VoucherPrintProjector.cs",
+            "company.MailingName) ? company.Name"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "returns `null` unless `company.Address` is",
+            "VoucherPrintProjector.cs",
+            "IsNullOrWhiteSpace(company.Address)"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "which appends Country then",
+            "VoucherPrintProjector.cs",
+            @"""PIN: "" + pin.Trim()"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "on the item pass,",
+            "VoucherPrintProjector.cs",
+            "var ourBlock = SellerBlock(company);"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "on the service pass.",
+            "VoucherPrintProjector.cs",
+            "Seller = SellerBlock(company),"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "returns `Array.Empty` on null/whitespace.",
+            "VoucherPrintProjector.cs",
+            "IsNullOrWhiteSpace(address)) return Array.Empty"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "declares `DrawPartyBlock`;",
+            "InvoicePdf.cs",
+            "DrawPartyBlock(PdfWriter writer"),
+        new("docs/w0-2-company-screen-grounding.md",
+            @"with the caption `""Supplier:""`.",
+            "InvoicePdf.cs",
+            @"""Supplier:"", data.Seller"),
+        // §7.3 is the section the document itself names as "the evidence base the R12 gate rested on", and it
+        // received ZERO repairs in the T0-11 range. Its two pointers are the State finding the user is being
+        // asked to rule on, and the buyer-side contrast that makes it a finding at all.
+        new("docs/w0-2-company-screen-grounding.md",
+            "**not** from `company.State`.",
+            "VoucherPrintProjector.cs",
+            "StateText(company.Gst?.HomeStateCode)"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "routes through the shared `PostalAddressText`",
+            "VoucherPrintProjector.cs",
+            "PostalAddressText(mailing.Address"),
     };
 
     private static string RepoRoot()
