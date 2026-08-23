@@ -93,9 +93,18 @@ public class TdsServiceTests
         Assert.Equal(Money.FromRupees(80_000m), carve.NetPartyAmount);
     }
 
+    /// <summary>
+    /// 🔴 <b>THESE TWO EXPECTED FIGURES WERE CHANGED BY T0-1, AND THE OLD ONES PINNED THE DEFECT.</b> Until then
+    /// this Theory asserted ₹10,000 / ₹5,00,000 — 0.1% and 5% of the WHOLE ₹1,00,00,000 — under a comment that
+    /// called §194Q's excess base "a documented later refinement". It is not a refinement; §194Q(1) charges
+    /// "0.1 per cent. of such sum <b>exceeding</b> fifty lakh rupees", so on a first ₹1,00,00,000 purchase of the FY
+    /// the charged base is the ₹50,00,000 excess: <b>₹5,000</b> with PAN, <b>₹2,50,000</b> under the §206AA
+    /// second-proviso 5% cap. The rate resolution this test was written to prove (0.1% / the 5% cap rather than the
+    /// general 20%) is unchanged and still asserted. See <see cref="Tds194QExcessCarveTests"/> for the carve itself.
+    /// </summary>
     [Theory]
-    [InlineData(DeducteePan, 10, 10_000)]  // with PAN: 194Q 0.1% of 1 crore = 10,000
-    [InlineData(null, 500, 5_00_000)]       // no PAN: §194Q special cap 5% (NOT 20%) = 5,00,000
+    [InlineData(DeducteePan, 10, 5_000)]    // with PAN: 194Q 0.1% of the ₹50,00,000 EXCESS = 5,000 (was 10,000)
+    [InlineData(null, 500, 2_50_000)]       // no PAN: §194Q special cap 5% (NOT 20%) of the excess (was 5,00,000)
     public void Section_194Q_resolves_special_no_pan_cap(string? pan, int expectedRateBp, decimal expectedTds)
     {
         var c = NewTdsCompany();
@@ -103,11 +112,12 @@ public class TdsServiceTests
         var buyer = AddLedger(c, "Goods Seller", "Sundry Creditors", false);
         buyer.TdsApplicable = true; buyer.TdsNatureOfPaymentId = nop.Id; buyer.PartyPan = pan;
 
-        // Assessable above the ₹50 lakh cumulative threshold (uniform rule: TDS on the full current assessable —
-        // §194Q's "only on the value exceeding ₹50 lakh" base is a documented later refinement).
+        // Assessable ₹1,00,00,000, the first of the FY: the ₹50,00,000 cumulative gate is crossed and the charged
+        // base is the ₹50,00,000 above it (T0-1). The FULL ₹1,00,00,000 stays the recorded AssessableValue.
         var w = new TdsService(c).ComputeWithholding(Money.FromRupees(1_00_00_000m), nop, buyer, D1);
         Assert.True(w.Applies);
         Assert.Equal(expectedRateBp, w.RateBasisPoints);
+        Assert.Equal(Money.FromRupees(1_00_00_000m), w.AssessableValue);
         Assert.Equal(Money.FromRupees(expectedTds), w.TdsAmount);
     }
 
@@ -251,10 +261,13 @@ public class TdsServiceTests
         supplier.DeducteeType = DeducteeType.Company; supplier.PartyPan = DeducteePan;
 
         var nop = c.FindNatureOfPaymentByCode("194C")!;
-        var gross = Money.FromRupees(2_00_000m); // > ₹1,00,000 194C aggregate ⇒ TDS applies at 1% (with-PAN Ind/HUF base)
+        // > ₹1,00,000 194C aggregate ⇒ TDS applies. The supplier is a COMPANY, so §194C(1)(ii) charges 2%.
+        // 🔴 This assertion read ₹2,000.00 (1%) until the deductee-type branch shipped — the engine resolved
+        // RateWithPanBp for every legal status. ₹4,000.00 is the statutory figure; see Tds194CDeducteeTypeTests.
+        var gross = Money.FromRupees(2_00_000m);
         var carve = new TdsService(c).BuildCarveOut(gross, gross, nop, supplier, D1);
         Assert.True(carve.Applies);
-        Assert.Equal(Money.FromRupees(2_000m), carve.TdsAmount); // 1% of 2,00,000
+        Assert.Equal(Money.FromRupees(4_000m), carve.TdsAmount); // 2% of 2,00,000
 
         var v = post.Post(new Voucher(Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id, D1,
             new[] { new EntryLine(purchases.Id, gross, DrCr.Debit), carve.PartyLine, carve.TdsPayableLine! },

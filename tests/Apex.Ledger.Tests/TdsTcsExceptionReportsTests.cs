@@ -258,7 +258,7 @@ public class TdsTcsExceptionReportsTests
         Assert.Equal("Consultant", row.Party);
         Assert.Equal("194J(b)", row.Section);
         Assert.Equal(Money.FromRupees(20_000m), row.Assessable);
-        Assert.Equal(Money.FromRupees(20_000m), row.CumulativeInFy);
+        Assert.Equal(Money.FromRupees(20_000m), row.AggregateInWindow);
         Assert.Equal(Money.FromRupees(50_000m), row.Threshold);
         Assert.Equal(Money.FromRupees(30_000m), row.Shortfall);
     }
