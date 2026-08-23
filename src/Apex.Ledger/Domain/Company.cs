@@ -11,6 +11,7 @@ public sealed class Company
     private readonly List<Ledger> _ledgers = new();
     private readonly List<VoucherType> _voucherTypes = new();
     private readonly List<Voucher> _vouchers = new();
+    private readonly List<VoucherEditLogEntry> _voucherEditLog = new();
     private readonly List<CostCategory> _costCategories = new();
     private readonly List<CostCentre> _costCentres = new();
     private readonly List<Budget> _budgets = new();
@@ -418,6 +419,55 @@ public sealed class Company
     public IReadOnlyList<Ledger> Ledgers => _ledgers;
     public IReadOnlyList<VoucherType> VoucherTypes => _voucherTypes;
     public IReadOnlyList<Voucher> Vouchers => _vouchers;
+
+    /// <summary>
+    /// The <b>voucher edit log</b> (schema v52): one <see cref="VoucherEditLogEntry"/> per Cancel / Delete /
+    /// Alter applied to a posted voucher, in the order the verbs ran. Empty on every book that has never used
+    /// one of the three, which is why this addition moves no figure anywhere (ER-13).
+    ///
+    /// <para><b>Append-only, and the persistence layer enforces it independently of this list.</b>
+    /// <c>SqliteCompanyStore.Save</c> is a delete-all + full re-insert snapshot of the aggregate, and a log that
+    /// went through that cycle could be erased by a single save from a stale in-memory company. So the store does
+    /// NOT delete this table in <c>DeleteCompanyRows</c> and inserts with <c>INSERT OR IGNORE</c> on the entry's
+    /// own primary key: rows already written stay written, and re-saving the same entry is a no-op. The
+    /// precedent is <c>saved_views</c>, the other table <c>Save</c> deliberately does not own.</para>
+    /// </summary>
+    public IReadOnlyList<VoucherEditLogEntry> VoucherEditLog => _voucherEditLog;
+
+    /// <summary>The most recent <see cref="VoucherEditLog"/> entry, or <c>null</c> when nothing has been
+    /// cancelled, deleted or altered. This is how a caller gets hold of the entry a verb just appended, so it can
+    /// hand it back to <c>LedgerService.DiscardUncommittedEditLogEntry</c> when its save does not commit.</summary>
+    public VoucherEditLogEntry? LastVoucherEditLogEntry =>
+        _voucherEditLog.Count == 0 ? null : _voucherEditLog[^1];
+
+    /// <summary>
+    /// Appends <paramref name="entry"/> to the edit log. <b>Public because the two REHYDRATION paths need it</b>
+    /// — <c>SqliteCompanyStore.Load</c> replaying stored rows, and any future importer — exactly as
+    /// <see cref="AddInventoryVoucher"/> is public for the same reason. The verbs themselves go through
+    /// <see cref="AddVoucherEditLogEntryInternal"/>; there is no correctness difference, only intent.
+    /// </summary>
+    public void AddVoucherEditLogEntry(VoucherEditLogEntry entry) =>
+        _voucherEditLog.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+
+    internal void AddVoucherEditLogEntryInternal(VoucherEditLogEntry entry) => _voucherEditLog.Add(entry);
+
+    /// <summary>
+    /// Removes <paramref name="entry"/> — and refuses unless it is the <b>last</b> entry in the log.
+    ///
+    /// <para>🔴 <b>The last-only bound is the whole point.</b> An audit log with an unbounded delete is not an
+    /// audit log. This one can only drop the entry that was just appended, which is precisely the compensating
+    /// undo a verb needs when the save that would have made it durable did not commit — and is structurally
+    /// unable to reach anything older. See <c>LedgerService.DiscardUncommittedEditLogEntry</c> for why that
+    /// undo has to exist in an application whose persistence is a whole-aggregate snapshot with no transaction
+    /// spanning the engine and the store.</para>
+    /// </summary>
+    internal bool RemoveLastVoucherEditLogEntryInternal(VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (_voucherEditLog.Count == 0 || !ReferenceEquals(_voucherEditLog[^1], entry)) return false;
+        _voucherEditLog.RemoveAt(_voucherEditLog.Count - 1);
+        return true;
+    }
 
     /// <summary>Cost categories (catalog §6); includes the seeded "Primary Cost Category".</summary>
     public IReadOnlyList<CostCategory> CostCategories => _costCategories;
@@ -1001,7 +1051,20 @@ public sealed class Company
     public bool RemoveLedger(Ledger ledger) => _ledgers.Remove(ledger);
     /// <summary>Removes a voucher type (used by the transactional import roll-back).</summary>
     public bool RemoveVoucherType(VoucherType type) => _voucherTypes.Remove(type);
-    /// <summary>Removes a posted voucher (used by the transactional import roll-back).</summary>
+    /// <summary>
+    /// Removes a posted voucher (used by the transactional import roll-back).
+    ///
+    /// <para>🔴 <b>THIS DELIBERATELY WRITES NO EDIT-LOG ENTRY, and the absence is a decision.</b> Every caller of
+    /// this method — <c>ApplyJournal.Rollback</c> and the three view-model undo stacks
+    /// (<c>PosBillingViewModel</c>, <c>VoucherEntryViewModel</c>) — is undoing a voucher that IT posted moments
+    /// earlier within an operation that then failed. Nothing was ever saved, so there is no edited book to record;
+    /// a log entry here would assert that an operator deleted a voucher when in fact one was never accepted. The
+    /// verb that removes an ALREADY-POSTED voucher is <c>LedgerService.Delete</c>, and that one logs.</para>
+    ///
+    /// <para>The line that separates the two is "was this voucher ever part of a committed book?" — not "is a
+    /// voucher being removed?". A future caller that uses this method to remove a voucher the operator had
+    /// previously accepted would be on the wrong side of it and must go through <c>LedgerService.Delete</c>.</para>
+    /// </summary>
     public bool RemoveVoucher(Voucher voucher) => _vouchers.Remove(voucher);
     /// <summary>Removes a currency (used by the transactional import roll-back).</summary>
     public bool RemoveCurrency(Currency currency) => _currencies.Remove(currency);

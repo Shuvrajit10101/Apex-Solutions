@@ -253,6 +253,10 @@ public sealed class InventoryVoucherRoundTripTests
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // Drop the v52 voucher-edit-log table + its index so the reopen's v51->v52 CREATE TABLE does not
+        // collide with an already-present table.
+        Exec(conn, "DROP INDEX IF EXISTS ix_voucher_edit_log_company;");
+        Exec(conn, "DROP TABLE IF EXISTS voucher_edit_log;");
         // Drop the v47 numbering affix child tables so the reopen's v46→v47 CREATE TABLE does not collide (the
         // voucher_types rebuild below strips the v47 prevent_duplicate/number_width/prefill_with_zero columns too).
         Exec(conn, "DROP TABLE IF EXISTS voucher_type_prefix;");

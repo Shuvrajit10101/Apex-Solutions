@@ -84,21 +84,51 @@ public sealed class Voucher
         }
     }
 
-    /// <summary>Alt+X — number retained in sequence, zero effect on balances.</summary>
-    public bool Cancelled { get; set; }
+    // ---------------------------------------------------------------- the provisional-state vector + Cancelled
+    //
+    // 🔴 THE FOUR SETTERS BELOW ARE `internal`, AND THAT IS THE POINT OF THIS BLOCK.
+    //
+    // Each of these four decides whether the voucher affects live balances AT ALL. `LedgerBalance.cs` opens its
+    // as-of test with `if (v.Cancelled || v.Optional) return false;`, PostDated withholds a voucher until its date
+    // is reached, and ApplicableUpto is what makes a Reversing Journal lapse. So writing one of them moves the
+    // books by a WHOLE voucher - every figure it touches - with no verb, no guard, no warning and no figure ON the
+    // voucher changing.
+    //
+    // `LedgerService.Replace` refuses a change to all four BY NAME (see its section 7.4 guard, and the measured
+    // swings recorded there). But that refusal binds Replace and nothing else: while these setters were PUBLIC,
+    // any caller anywhere could do the same move directly, and the refusal was a guard that existed in exactly one
+    // caller. Narrowing them to `internal` makes the engine assembly the only thing that can move a posted
+    // voucher's lifecycle state, which is what the Replace guard was always asserting.
+    //
+    // The ONE production caller outside this assembly was the Alt+X save-failure rollback in
+    // MainWindowViewModel, writing `voucher.Cancelled = false`. It is now `LedgerService.DiscardUncommittedCancel`,
+    // which had to change anyway - the rollback also has to discard the edit-log entry the Cancel appended.
+    //
+    // The constructor still takes all four, so building a voucher is unaffected; only moving one after it is
+    // posted is now the engine's business. `InternalsVisibleTo("Apex.Ledger.Tests")` keeps the fixtures that key
+    // these directly compiling, and is scoped to the test assembly.
+    //
+    // NOT DONE, and named rather than left to be rediscovered: `InventoryVoucher.Cancelled` / `.PostDated` carry
+    // the identical public setters on the pure-stock aggregate.
 
-    /// <summary>Ctrl+L — excluded from live balances until regularised.</summary>
-    public bool Optional { get; set; }
+    /// <summary>Alt+X — number retained in sequence, zero effect on balances. Setter <c>internal</c>: see the
+    /// banner above.</summary>
+    public bool Cancelled { get; internal set; }
 
-    /// <summary>Ctrl+T — excluded from balances until its date is reached.</summary>
-    public bool PostDated { get; set; }
+    /// <summary>Ctrl+L — excluded from live balances until regularised. Setter <c>internal</c>: see the banner
+    /// above.</summary>
+    public bool Optional { get; internal set; }
+
+    /// <summary>Ctrl+T — excluded from balances until its date is reached. Setter <c>internal</c>: see the
+    /// banner above.</summary>
+    public bool PostDated { get; internal set; }
 
     /// <summary>
     /// "Applicable upto" date for a <see cref="VoucherBaseType.ReversingJournal"/> (catalog §7): the
     /// last date on which the reversing entry is in force. Under a scenario it affects reports only for
     /// as-of dates ≤ this value; on/after it lapses (reverses out). <c>null</c> for every other voucher.
     /// </summary>
-    public DateOnly? ApplicableUpto { get; set; }
+    public DateOnly? ApplicableUpto { get; internal set; }
 
     /// <summary>
     /// The <b>counterparty document number</b> (numbering-design-v2 §8): the OTHER party's number on an

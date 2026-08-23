@@ -131,6 +131,17 @@ public sealed class InventoryPostingService
     /// It no longer is; the cancel always applies, and the resulting shortfall (if any) is reported by
     /// <see cref="DetectNegativeStock"/>.
     /// </summary>
+    /// <summary>
+    /// 🔴 <b>DECLARED GAP — the pure-stock aggregate is NOT covered by the voucher edit log (schema v52).</b>
+    /// <c>LedgerService.Cancel</c> / <c>.Delete</c> / <c>.Replace</c> each append a
+    /// <see cref="VoucherEditLogEntry"/>; this aggregate's Cancel and Delete do not, so cancelling or deleting a
+    /// pure-stock voucher (Stock Journal, Physical Stock, Delivery/Receipt Note, order) still leaves no record.
+    /// Recorded here rather than left to be rediscovered. What it would take: <c>VoucherSnapshot.Of</c> is typed to
+    /// <see cref="Voucher"/> and an <see cref="InventoryVoucher"/> is a different type in a different list, so the
+    /// snapshot needs a sibling overload; the table and the entry record need nothing new. Scoped OUT of this
+    /// slice deliberately — the accounting book is where an auditor's question lands, and a half-covered log whose
+    /// boundary is undocumented is worse than one whose boundary is written down.
+    /// </summary>
     public void Cancel(Guid voucherId)
     {
         var v = _company.FindInventoryVoucher(voucherId)

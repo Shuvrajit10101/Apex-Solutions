@@ -61,9 +61,30 @@ public sealed record VoucherAlterationWarning(
 public sealed class LedgerService
 {
     private readonly Company _company;
+    private readonly Func<DateTimeOffset> _now;
 
-    public LedgerService(Company company)
-        => _company = company ?? throw new ArgumentNullException(nameof(company));
+    public LedgerService(Company company) : this(company, now: null) { }
+
+    /// <summary>
+    /// <see cref="LedgerService(Company)"/> with an explicit clock for the <b>voucher edit log</b>'s
+    /// <see cref="VoucherEditLogEntry.RecordedAt"/> stamp. Every test that asserts on a log entry passes a fixed
+    /// instant; every production caller uses the parameterless overload.
+    ///
+    /// <para>🔴 <b>THIS IS THE ONE CLOCK READ IN <c>Apex.Ledger</c>, AND IT IS A DELIBERATE, NARROW EXCEPTION TO
+    /// THE HOUSE RULE.</b> The rule is real and is written down on <c>EWayValidity</c> — <i>"the caller supplies
+    /// <c>generatedAt</c> / <c>now</c> … so no <c>DateTime.Now</c> ever enters the engine"</i> — and it exists so
+    /// that engine ARITHMETIC is reproducible. Nothing computes from this stamp: it is written into a log line and
+    /// read by a human, and no report, balance, return or validity window touches it. The alternative considered
+    /// and rejected was a nullable timestamp supplied per call, which makes "the caller forgot" indistinguishable
+    /// from "the time is unknown" and would have produced untimed audit entries from the great majority of the
+    /// construction sites that pass a company and nothing else. An edit log that cannot say WHEN is not an edit
+    /// log, and this stays the only reason the engine reads a clock.</para>
+    /// </summary>
+    public LedgerService(Company company, Func<DateTimeOffset>? now)
+    {
+        _company = company ?? throw new ArgumentNullException(nameof(company));
+        _now = now ?? (() => DateTimeOffset.Now);
+    }
 
     /// <summary>
     /// Validates invariants (§6), assigns a number for Automatic-numbered types when the
@@ -153,11 +174,16 @@ public sealed class LedgerService
     /// retro-drove a later movement's on-hand negative (e.g. cancelling the purchase a later delivery drew from).
     /// It no longer is — the cancel always applies, and the shortfall is reported by
     /// <see cref="InventoryPostingService.DetectNegativeStock"/>.</summary>
-    public void Cancel(Guid voucherId)
+    public VoucherEditLogEntry Cancel(Guid voucherId)
     {
         var v = _company.FindVoucher(voucherId)
             ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        // The snapshot is taken BEFORE the flag moves, and the append happens only once the voucher has been
+        // found - a Cancel that throws "not found" leaves no entry behind.
+        var entry = RecordEdit(v, VoucherEditVerb.Cancel);
         v.Cancelled = true;
+        return entry;
     }
 
     /// <summary>Alt+D — remove entirely.
@@ -174,11 +200,16 @@ public sealed class LedgerService
     /// ⚠️ NS-3: deleting an item-invoice voucher reverses its stock effect, and that used to be BLOCKED when it
     /// retro-drove a later movement's on-hand negative. It no longer is — the delete always applies, and the
     /// shortfall is reported by <see cref="InventoryPostingService.DetectNegativeStock"/>.</summary>
-    public void Delete(Guid voucherId)
+    public VoucherEditLogEntry Delete(Guid voucherId)
     {
         var v = _company.FindVoucher(voucherId)
             ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        // 🔴 The snapshot MUST be taken before the removal - this is the one verb after which the voucher does
+        // not exist anywhere else, so this entry is the only remaining evidence of what was on the books.
+        var entry = RecordEdit(v, VoucherEditVerb.Delete);
         _company.RemoveVoucherInternal(v);
+        return entry;
     }
 
     /// <summary>
@@ -457,6 +488,11 @@ public sealed class LedgerService
 
         RaiseRenderedNumberWarning(existing, replacement, raised);
         RaiseStatutoryDivergenceWarnings(existing, replacement, raised);
+
+        // The edit-log entry (schema v52) is appended HERE - past every guard and every throw, so a REFUSED
+        // alteration logs nothing, and before the swap, so the snapshot is of the outgoing voucher. `existing` is
+        // safe to snapshot at this point because CarryBankDatesForward only ever writes to `replacement`.
+        RecordEdit(existing, VoucherEditVerb.Alter);
 
         // Clause 4 — swap at the index; never Remove + Add.
         _company.ReplaceVoucherInternal(existing, replacement);
@@ -913,6 +949,13 @@ public sealed class LedgerService
 
         // Post first (validates); only remove the memo once the real voucher is accepted.
         Post(regular);
+
+        // 🔴 THIS PATH REMOVES A POSTED VOUCHER, and it was found by sweeping the callers of
+        // Company.RemoveVoucherInternal rather than from any brief. It is not Alt+D - the memo becomes a real
+        // voucher rather than vanishing - so it carries its OWN verb instead of being logged as a Delete, which
+        // would misdescribe it. The snapshot is of the memo as it stood; the regular voucher it became is on the
+        // book under a fresh Guid, and the narration/lines in the snapshot are what tie the two together.
+        RecordEdit(memo, VoucherEditVerb.ConvertMemorandum);
         _company.RemoveVoucherInternal(memo);
         return regular;
     }
@@ -930,5 +973,86 @@ public sealed class LedgerService
             if (v.TypeId == voucherTypeId && v.Number > max)
                 max = v.Number;
         return max + 1;
+    }
+
+    // ------------------------------------------------------------------ voucher edit log (schema v52)
+
+    /// <summary>
+    /// Appends one <see cref="VoucherEditLogEntry"/> for <paramref name="verb"/> applied to
+    /// <paramref name="before"/>, snapshotting the voucher AS IT STANDS. Every call site above takes the snapshot
+    /// before it mutates or removes anything, which is the only ordering that records a before-state.
+    ///
+    /// <para><b>Private, and the verbs are the only callers, deliberately.</b> The log records what the ENGINE
+    /// did. A public "write me a log line" would let a caller state an edit that never happened, which is the
+    /// mirror image of the defect this whole slice exists to close.</para>
+    /// </summary>
+    private VoucherEditLogEntry RecordEdit(Voucher before, VoucherEditVerb verb)
+    {
+        var entry = new VoucherEditLogEntry(
+            Guid.NewGuid(), before.Id, verb, _now(), VoucherSnapshot.Of(before));
+        _company.AddVoucherEditLogEntryInternal(entry);
+        return entry;
+    }
+
+    /// <summary>
+    /// Drops <paramref name="entry"/> from the edit log because <b>the save that would have made its verb durable
+    /// did not commit</b>. Refuses anything but the most recent entry.
+    ///
+    /// <para>🔴 <b>WHY AN AUDIT LOG HAS A REMOVAL AT ALL - the honest reason, not a convenience.</b> This
+    /// application's persistence is a whole-aggregate snapshot (<c>SqliteCompanyStore.Save</c> = delete-all +
+    /// re-insert) and there is NO transaction spanning the engine and the store: every lifecycle verb mutates the
+    /// in-memory book first and the save happens after it. The screens already hand-roll a compensating undo for
+    /// exactly that window - Alt+X restores the flag, Alter re-Replaces the original - and each of those undos is
+    /// documented in its own view model as <i>"a rollback of a transaction that did not commit"</i>. Without this
+    /// method the undo would be INCOMPLETE: the flag would go back but the log would keep a line saying the
+    /// voucher was cancelled, and the next successful save on any screen would persist that line. An audit log
+    /// that records edits which never happened is as wrong as one that misses edits that did.</para>
+    ///
+    /// <para><b>The last-only bound (enforced in <c>Company.RemoveLastVoucherEditLogEntryInternal</c>) is what
+    /// keeps this from being an erasure API.</b> It can reach the entry a verb just appended and nothing else -
+    /// not a row already on disk, not a line from an earlier session, not a chosen entry from the middle. A
+    /// caller unwinding two verbs (the alteration and its rollback re-alteration) calls it twice, newest
+    /// first.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="entry"/> is not the last entry in the log.</exception>
+    public void DiscardUncommittedEditLogEntry(VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
+            throw new InvalidOperationException(
+                $"Only the most recent voucher edit-log entry can be discarded, and only because its save did "
+                + $"not commit. Entry {entry.Id} ({entry.Verb} on voucher {entry.VoucherId}) is not the most "
+                + "recent one; the log is otherwise append-only.");
+    }
+
+    /// <summary>
+    /// The compensating undo for a <see cref="Cancel"/> whose save did not commit: clears the flag AND discards
+    /// the entry <see cref="Cancel"/> appended, in one call.
+    ///
+    /// <para><b>Why this exists as an engine verb rather than the screen writing <c>voucher.Cancelled = false</c>
+    /// as it used to.</b> Two reasons, and both are the point of this slice. (1) The rollback has to undo BOTH
+    /// halves; a screen that only put the flag back would leave the log asserting a cancellation that never
+    /// reached disk. (2) <see cref="Voucher.Cancelled"/>'s setter is now <c>internal</c> - a posted voucher's
+    /// lifecycle state is not something any caller may move without a verb - so the screen could no longer do it
+    /// even if it wanted to.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, <paramref name="entry"/> does not
+    /// describe a <see cref="VoucherEditVerb.Cancel"/> of that voucher, or it is not the last log entry.</exception>
+    public void DiscardUncommittedCancel(Guid voucherId, VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.Verb != VoucherEditVerb.Cancel || entry.VoucherId != voucherId)
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is a {entry.Verb} on voucher {entry.VoucherId}; it cannot roll back a "
+                + $"Cancel of voucher {voucherId}.");
+
+        var v = _company.FindVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        // Discard FIRST: it is the half that can refuse, and a refusal must leave the flag exactly as it found it
+        // rather than un-cancelling a voucher whose log line stays behind.
+        DiscardUncommittedEditLogEntry(entry);
+        v.Cancelled = false;
     }
 }

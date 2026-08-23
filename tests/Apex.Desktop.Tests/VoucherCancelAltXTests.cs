@@ -1750,4 +1750,69 @@ public sealed class VoucherCancelAltXTests
         }
         catch (IOException) { /* best effort */ }
     }
+
+    // ============================================================ (f) the VOUCHER EDIT LOG (schema v52)
+
+    /// <summary>
+    /// 🔴 <b>Alt+X now leaves a record that is not the flag.</b> Cancel was always the only one of the three verbs
+    /// that left ANY evidence, and even that evidence was just a boolean on the voucher: it says the voucher IS
+    /// cancelled, never that somebody cancelled it, and it says nothing at all about WHEN. The log entry does, and
+    /// this proves the screen route reaches it — the engine's own tests cannot, because the wiring is what a
+    /// screen-level guard is famously able to be missing from.
+    /// </summary>
+    [AvaloniaFact]
+    public void Y_writes_one_edit_log_entry_that_survives_a_reload()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Cancel Log Co");
+            var c = vm.Company!;
+            Assert.Empty(c.VoucherEditLog);
+
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            Pump(window);
+
+            var entry = Assert.Single(c.VoucherEditLog);
+            Assert.Equal(VoucherEditVerb.Cancel, entry.Verb);
+            Assert.Equal(k.Receipt.Id, entry.VoucherId);
+            // The snapshot is the voucher BEFORE the flag moved — the after-state is on the book.
+            Assert.Contains("\"Cancelled\":false", entry.BeforeSnapshot, StringComparison.Ordinal);
+            Assert.True(c.FindVoucher(k.Receipt.Id)!.Cancelled);
+
+            // …and it is on disk, which is the only thing that makes it evidence rather than a session artefact.
+            var storage = new CompanyStorage(dir);
+            var reopened = storage.Load(storage.ListCompanies().Single(e => e.Name == c.Name));
+            var persisted = Assert.Single(reopened.VoucherEditLog);
+            Assert.Equal(entry.Id, persisted.Id);
+            Assert.Equal(entry.BeforeSnapshot, persisted.BeforeSnapshot);
+            Assert.Equal(entry.RecordedAt, persisted.RecordedAt);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>A declined cancellation writes NO entry. A log that records the questions as well as the answers
+    /// would be as misleading as one that missed edits.</summary>
+    [AvaloniaFact]
+    public void N_writes_no_edit_log_entry()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Cancel NoLog Co");
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+
+            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.N, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Empty(vm.Company!.VoucherEditLog);
+        }
+        finally { Close(window, dir); }
+    }
+
 }
