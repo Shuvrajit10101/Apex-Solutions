@@ -1,0 +1,11 @@
+# Line endings are normalised to LF in the repository (the index is already 100% LF).
+#
+# This file exists because that correct blob state currently rests on a SYSTEM-scope
+# core.autocrlf=true from the Git-for-Windows installer (C:/Program Files/Git/etc/gitconfig),
+# which is invisible to a fresh clone, to a Linux CI runner and to a container. Without this
+# file the repository's line endings depend on who happens to be checking it out.
+#
+# "text=auto" only, deliberately NOT "eol=lf": both are zero-diff against today's index, but
+# eol=lf would contradict .editorconfig's [*] end_of_line = crlf and rewrite the working tree.
+
+* text=auto
