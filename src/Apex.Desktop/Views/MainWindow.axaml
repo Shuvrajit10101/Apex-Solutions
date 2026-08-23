@@ -15686,10 +15686,10 @@
                                 <RadioButton GroupName="CopyMark" Content="Original for Recipient"
                                              IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Duplicate for Supplier"
+                                <RadioButton GroupName="CopyMark" Content="Duplicate for Transporter"
                                              IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Triplicate for Transporter"
+                                <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
                                              IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
 
@@ -16600,26 +16600,49 @@
                                                    HorizontalAlignment="Center" Foreground="#555555" Margin="0,0,0,6"
                                                    TextTrimming="CharacterEllipsis"
                                                    ToolTip.Tip="{Binding Subtitle}"/>
-                                        <ItemsControl ItemsSource="{Binding Headers}">
+                                        <!-- T0-11 review CRITIC-01 / C17-L3-03 — the column WIDTH is data, not a
+                                             literal. Every cell here was Width="120": the shell is monospace
+                                             (6.0479 DIP/glyph at FontSize 11), so a cell held eighteen glyphs and
+                                             an ellipsis, and because the width was a literal inside a horizontal
+                                             StackPanel with no star track the cut was invariant under every window
+                                             size and every DPI. A purchase record's three item lines at three
+                                             different quantities and rates all painted "N. Widget  (HSN 84…", and
+                                             "Tax Charged by the Supplier" lost the word that says whose tax it is.
+                                             PreviewCell.Width comes from the print model's own PrintColumn.Weight —
+                                             the weights InvoicePdf/ReportPdf have always split the PAPER by — so
+                                             the pane and the paper give a column the same share. The header band
+                                             and the body cells read the SAME widths (PreviewPage.HeaderColumns is
+                                             PreviewPage.Columns), or a figure would line up under a caption that
+                                             does not govern it. ToolTip.Tip is the residue recovery for a name
+                                             longer than its column, the pattern the Subtitle above already uses. -->
+                                        <ItemsControl ItemsSource="{Binding HeaderColumns}">
                                           <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                                           </ItemsControl.ItemsPanel>
                                           <ItemsControl.ItemTemplate>
-                                            <DataTemplate><TextBlock Text="{Binding}" FontWeight="Bold" FontSize="11"
-                                                                     Width="120" Foreground="{StaticResource BrandNavy}"/></DataTemplate>
+                                            <DataTemplate x:DataType="vm:PreviewCell">
+                                              <TextBlock Text="{Binding Text}" FontWeight="Bold" FontSize="11"
+                                                         Width="{Binding Width}" TextTrimming="CharacterEllipsis"
+                                                         ToolTip.Tip="{Binding Text}"
+                                                         Foreground="{StaticResource BrandNavy}"/>
+                                            </DataTemplate>
                                           </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                         <Border Height="1" Background="{StaticResource GridLine}" Margin="0,2"/>
                                         <ItemsControl ItemsSource="{Binding Lines}">
                                           <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:PreviewLine">
-                                              <ItemsControl ItemsSource="{Binding Cells}">
+                                              <ItemsControl ItemsSource="{Binding Columns}">
                                                 <ItemsControl.ItemsPanel>
                                                   <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                                                 </ItemsControl.ItemsPanel>
                                                 <ItemsControl.ItemTemplate>
-                                                  <DataTemplate><TextBlock Text="{Binding}" FontSize="11" Width="120"
-                                                                           TextTrimming="CharacterEllipsis"/></DataTemplate>
+                                                  <DataTemplate x:DataType="vm:PreviewCell">
+                                                    <TextBlock Text="{Binding Text}" FontSize="11"
+                                                               Width="{Binding Width}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip.Tip="{Binding Text}"/>
+                                                  </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                               </ItemsControl>
                                             </DataTemplate>

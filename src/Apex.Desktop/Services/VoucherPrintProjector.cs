@@ -21,15 +21,19 @@ namespace Apex.Desktop.Services;
 ///
 /// <para><b>🔴 W0-10 — THE ONE MONEY RULE THIS CLASS KEEPS: every printed figure is read off the voucher's POSTED
 /// legs, on BOTH passes.</b> No rate, cess, routing or total is ever resolved from a live master or recomputed at
-/// print time, so the printed Grand Total is the debt the general ledger recorded — <b>on every non-TCS sale</b>, and
-/// by construction. <b>That qualification is exact and load-bearing</b> (W0-10 review, findings #3/#10; plan.md
-/// carry-forward (a) states it in the same words): §206C TCS is collected on top of the GST-inclusive total and rides
-/// the party debit (<c>VoucherEntryViewModel.AcceptItemInvoice</c>), while <see cref="InvoicePrintData"/> has no TCS
-/// member at all — measured on the odd-paisa fixture, a posted party leg of ₹56,368.14 against a printed Grand Total
-/// of ₹55,810.14, short by the collected ₹558. That is NOT something this class caused or can reach (TCS is not GST
-/// tax, so the posted-legs switch cannot see it) and it is listed as out of scope below; <b>the unqualified claim that
-/// used to stand here is exactly the claim that would justify deleting a TCS row as redundant</b>, and it is also what
-/// the next planned slice (the item-path footing guard) would have acted on by refusing to print every TCS invoice.
+/// print time, so the printed Grand Total is the debt the general ledger recorded.
+/// <para><b>🔴 T0-11 review C1 — that sentence is no longer a claim about the shapes someone thought of: it is
+/// CHECKED.</b> <see cref="ProjectInvoice"/> ends by comparing its own Grand Total against the posted party leg and
+/// <b>refuses the projection</b> when they differ (<see cref="FootingRefusal"/>, RQ-11a ER-4). The qualification that
+/// used to stand here — "on every non-TCS sale" — is gone because the exception it named is gone: §206C TCS is
+/// collected on top of the GST-inclusive total and rides the party debit
+/// (<c>VoucherEntryViewModel.AcceptItemInvoice</c>), and it is now STATED on the document as an
+/// <see cref="InvoiceChargeRow"/> like any other posted party-side charge, so the measured shortfall (a posted party
+/// leg of ₹56,368.14 against a printed ₹55,810.14) is closed rather than pinned. The same member closed the defect
+/// that made the guard urgent: the moment slice S2 routed a Purchase item invoice through this pass, an
+/// <b>additional cost of purchase</b> became the second unrepresentable party-side leg — measured through the shipped
+/// UI, a printed ₹11,800.00 against a posted ₹13,034.56, with the cost ledger nowhere on the page. Both are one
+/// class, and the class is now closed at one address: represent the charge, or refuse the document.</para>
 /// The item pass used to re-derive its head totals, its per-rate breakup rows and its intra/inter routing from a live
 /// <see cref="GstService.ComputeInvoiceTax"/> while the service pass read the posted legs, so ONE projector held TWO
 /// sources of truth for money and every ordinary master edit silently rewrote already-issued documents (measured, all
@@ -40,14 +44,22 @@ namespace Apex.Desktop.Services;
 ///
 /// <para><b>KNOWN, DELIBERATELY OUT OF SCOPE HERE (recorded so the next reader does not re-discover them):</b></para>
 /// <list type="bullet">
-/// <item><b>§206C(1H)/§206C(1) TCS is on the party leg but NOT on the document</b> (W0-10 carry-forward (a); review
-/// findings #3/#10). <c>AcceptItemInvoice</c> builds the Sales party debit as <c>Σ item value + GST + cess + TCS</c>
-/// and <see cref="InvoicePrintData"/> carries no TCS field, so a TCS-bearing invoice prints short by exactly the
-/// collected TCS — measured ₹55,810.14 printed against ₹56,368.14 posted. Closing it needs a DTO field plus an
-/// <c>InvoicePdf</c>/preview row, i.e. a slice of its own, and the <b>item-path footing guard must be sequenced after
-/// it</b> or it would demote every TCS invoice to a plain voucher. Pinned meanwhile by
-/// <c>ItemInvoicePostedTaxTests.A_tcs_bearing_invoice_still_prints_as_a_tax_invoice_and_pins_the_known_shortfall</c>,
-/// which fails BY DESIGN the day the row lands.</item>
+/// <item><b>✅ CLOSED (T0-11 review C1) — §206C TCS is on the party leg AND on the document.</b> This entry used to
+/// record the opposite: <c>AcceptItemInvoice</c> builds the Sales party debit as <c>Σ item value + GST + cess +
+/// TCS</c> while <see cref="InvoicePrintData"/> carried no TCS field, so a TCS-bearing invoice printed short by
+/// exactly the collected TCS (measured ₹55,810.14 against ₹56,368.14 posted) — and the note sequenced the
+/// <b>item-path footing guard AFTER</b> a TCS DTO field, "or it would demote every TCS invoice to a plain voucher".
+/// They landed together instead, which is precisely what made the guard safe to add: <see cref="PostedOtherCharges"/>
+/// states the collected TCS as an <see cref="InvoiceChargeRow"/> under its posted ledger's own name, so the
+/// sequencing constraint is discharged rather than deferred. Pinned by
+/// <c>ItemInvoicePostedTaxTests.A_tcs_bearing_invoice_states_the_collected_tcs_and_foots_to_the_posted_party_leg</c>.</item>
+/// <item><b>✅ CLOSED (T0-11 review C1) — the ADDITIONAL COST OF PURCHASE, the second member of the same class.</b>
+/// It was never listed here because it was unreachable until slice S2 routed a Purchase item invoice through this
+/// pass; it then printed a Grand Total short of the posted supplier credit by the whole cost, with the cost ledger
+/// nowhere on the page (measured through the shipped UI: ₹11,800.00 printed against ₹13,034.56 posted). Now stated
+/// from <see cref="AdditionalCostApportionment.TrackedCostLegs"/> — <b>the same one predicate the valuation engine
+/// apportions with</b>, never a second reading of "which leg is a cost?". Pinned by
+/// <c>PurchaseRecordAdditionalCostPrintTests</c>, which drives the whole shape through the shipped entry screen.</item>
 /// <item><b>A supply TAXABLE AT 0% states no rate row</b> (W0-10 review findings #2/#4/#9). A zero-rate group posts no
 /// tax leg at all (<c>GstService.AddHead</c> early-returns on a zero amount), so neither pass can see it: the item
 /// pass stopped emitting the <c>"0% | value | 0.00 | 0.00"</c> row the pre-W0-10 live resolve produced, which is how
@@ -126,6 +138,41 @@ public static class VoucherPrintProjector
         "invoice, while section 10(4) bars the dealer from collecting any tax from the recipient - so a tax invoice " +
         "is the document he is denied, and a bill of supply would state a total short of the posted party leg. It " +
         "prints as the plain voucher, which states every posted leg exactly.";
+
+    /// <summary>
+    /// 🔴 <b>THE ITEM-PATH FOOTING REFUSAL (RQ-11a ER-4: "every figure SHALL tie to the posted voucher to the
+    /// paisa").</b> Built once here so the message and the tests that pin it cannot drift, and kept ASCII-safe (it
+    /// can surface in the UI).
+    ///
+    /// <para><b>What it is for, and why it is a CLASS guard rather than a case fix</b> (T0-11 review C1/L1-01).
+    /// <see cref="InvoicePrintData"/>'s money vocabulary is finite. Every posted leg that moves the party total must
+    /// map onto one of {goods value, GST heads, Compensation Cess, <see cref="InvoicePrintData.OtherCharges"/>,
+    /// round-off}; a leg outside that set used to be dropped from the demand with nothing on the page naming it, and
+    /// the document then stated a figure the general ledger does not carry. That had already happened twice — §206C
+    /// TCS on an outward invoice (measured 55,810.14 printed against 56,368.14 posted) and, the moment slice S2
+    /// routed a Purchase item invoice through this pass, the additional cost of purchase (measured 11,800.00 against
+    /// 13,034.56). Both are now REPRESENTED; this refusal is what stops a third member arriving silently. The message
+    /// NAMES the amount it cannot account for, so the next reader learns which leg class to add rather than
+    /// discovering a shortfall in a customer's ledger.</para>
+    ///
+    /// <para><b>Refusing is the conservative direction, and it is this codebase's settled one</b> — the service pass
+    /// takes it already (<c>GstReportSupport.ServiceInvoiceFoots</c> is a conjunct of
+    /// <c>IsServiceAccountingInvoice</c>, so a service voucher that does not foot prints the plain Dr/Cr voucher).
+    /// A document that states a different figure from the one the books carry is worse than no document.</para>
+    /// </summary>
+    internal static string FootingRefusal(decimal printed, decimal postedPartyLeg)
+    {
+        var difference = postedPartyLeg - printed;
+        // AmountAlways, never Amount: the blank-at-zero form would render "would read  while the party leg …" on the
+        // very shape where the projection states NOTHING, which is the case the message most needs to be readable on.
+        return "This voucher cannot be printed as an invoice-shaped document: its Grand Total would read "
+             + $"{IndianFormat.AmountAlways(printed)} while the party leg the books recorded is "
+             + $"{IndianFormat.AmountAlways(postedPartyLeg)} - a difference of "
+             + $"{IndianFormat.AmountAlways(Math.Abs(difference))} "
+             + "carried on posted legs this document has no way to state. Every figure on the document must tie to "
+             + "the posted voucher to the paisa, so it is refused rather than printed short. Print the plain "
+             + "voucher, which states every posted leg exactly.";
+    }
 
     /// <summary>
     /// True iff a <b>ledger-only Sales</b> voucher is a SERVICE (Accounting Invoice) sale — the one ledger-only shape
@@ -410,12 +457,35 @@ public static class VoucherPrintProjector
         // never re-derived, so the badge, the preview mirror and the bytes cannot disagree.
         bool record = document.Role == DocumentRole.Recorded;
         // Rule 46(a). On a record the counterparty is the SUPPLIER and heads the document; we are the recipient.
-        // Both blocks are built by the same two builders as ever — only which one lands in which field moves, and it
-        // moves off `document.Heads` rather than off a base-type test spelled here for a second time.
-        var counterpartyBlock = BuyerBlock(company, partyLedger, buyerState);
+        // Which block lands in which field moves off `document.Heads` rather than off a base-type test spelled here
+        // for a second time.
+        //
+        // 🔴 T0-11 review C2/L1-02 — AND SO DOES WHICH BUILDER MAKES THE COUNTERPARTY BLOCK. `BuyerBlock` is not a
+        // neutral "the other party" builder: through `IssuedBuyerStateCode` and `ConsistentBuyerGstin` it carries the
+        // whole FIX-3 reconciliation, and every clause of that rule is about what an ISSUED document may state about
+        // ITS BUYER — the printed State reconciled against tax WE posted, and the GSTIN dropped when its own two-digit
+        // prefix would contradict the State so reconciled. Slice S2 flipped this block into the SUPPLIER slot without
+        // revisiting either helper, and `PostedForwardRouting` is direction-neutral, so a purchase's own tagged Input
+        // CGST/SGST answered "posted INTRA" and one ordinary master correction (the operator discovers his supplier is
+        // a Gujarat dealer) printed the home State over a "24…" GSTIN, dropped the GSTIN for disagreeing with it, and
+        // left `InvoicePdf.DrawPartyBlock` asserting "GSTIN: Unregistered" on the same page as the CGST and SGST that
+        // supplier charged. CGST Act §32(1) bars an unregistered person from collecting any amount by way of tax, so
+        // the page refuted itself and named no registered supplier against the credit it exists to verify.
+        //
+        // The supplier's identity on a record is a fact ABOUT HIM, held in HIS master, and there is nothing to
+        // reconcile because we determined none of it. So it is stated verbatim — which is also what the pre-S2
+        // `ProjectVoucher` render did, and what the untouched-master case (every already-shipped record) already
+        // produced, so nothing byte-identical moves: the reconciliation only ever fires where live and posted
+        // disagree, and on an untouched book they never do.
+        var counterpartyBlock = document.Heads == PartyOrientation.WeAreRecipient
+            ? RecordedSupplierBlock(partyLedger)
+            : BuyerBlock(company, partyLedger, buyerState);
         var ourBlock = SellerBlock(company);
         bool weAreRecipient = document.Heads == PartyOrientation.WeAreRecipient;
-        return new InvoicePrintData
+        // T0-11 review C1 — the posted party-side charges that are neither goods nor GST/cess. Read off the POSTED
+        // legs like every other figure here, and captioned with the posted ledger's own name (see PostedOtherCharges).
+        var otherCharges = PostedOtherCharges(company, voucher);
+        var data = new InvoicePrintData
         {
             // The NoStatutoryDocument arm is NOT dead and NOT a new behaviour: this method is reachable directly
             // (only tests do so today — the app calls it behind the same routing question) on a voucher for which
@@ -428,6 +498,27 @@ public static class VoucherPrintProjector
                 : document.Title,
             IsBillOfSupply = billOfSupply,
             IsRecipientRecord = record,
+            // T0-11 review C24/L3-10 — the OTHER TWO AXES, carried rather than re-answered from the role flag one
+            // layer down. The classification holds seven fields across three axes and this DTO used to hold one
+            // boolean for all of them, so the renderer answered "whose identity heads the page" (Rule 46(a)) and
+            // "do OUR declaration and signature belong on it" (Rule 46(q)) off `IsRecipientRecord`. Read from the
+            // SAME instance as the title and the badge, so the three can no longer be paired differently here than
+            // the classifier paired them.
+            Heads = document.Heads,
+            // The NoStatutoryDocument arm keeps the value the page has always had, for the SAME reason the
+            // DocumentTitle arm above keeps "TAX INVOICE" on it: this method is reachable directly on a voucher for
+            // which no statutory document may be issued, it has always stamped that title, and a title carries the
+            // Rule 46(q) signature. Whether that arm should keep making either claim is a question for the slice
+            // that gives it a document of its own, not for a fix that may move nothing (ER-13).
+            StatesOurDeclarationAndSignature = document.Role == DocumentRole.NoStatutoryDocument
+                || document.StatesOurDeclarationAndSignature,
+            // T0-11 review C6/L1-06, C7/L1-07 — the inward-exempt fact, made SAYABLE. Read off the POSTED legs like
+            // every other figure here: a record whose supply carries no forward tax and no cess bore none and could
+            // bear none. Nothing renders it yet — the two wordings it exists for are under an open R12 question
+            // (plan.md Phase 10.13 question 1); see the member's own note.
+            IsInwardExempt = record
+                && money.TotalCgst.Amount == 0m && money.TotalSgst.Amount == 0m
+                && money.TotalIgst.Amount == 0m && money.TotalCess.Amount == 0m,
             // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
             // replacing it — cancelling a document does not change what it was issued as, and a renderer that
             // read one flag for two questions would eventually print the wrong document name.
@@ -454,7 +545,8 @@ public static class VoucherPrintProjector
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,
             // The taxable/goods total = sum of ALL line values (rated + exempt/nil), so exempt lines are never
-            // silently dropped from the Grand Total (GrandTotal = TotalTaxable + TotalTax + TotalCess + RoundOff).
+            // silently dropped from the Grand Total (which is TotalTaxable + TotalTax + TotalCess + OtherCharges
+            // + RoundOff — the OtherCharges term arrived with T0-11 review C1, see below).
             // On a bill of supply this IS the Grand Total — Rule 49(g)'s "value of supply".
             TotalTaxable = new Money(totalGoodsValue),
             TotalCgst = billOfSupply ? Money.Zero : money.TotalCgst,
@@ -467,9 +559,93 @@ public static class VoucherPrintProjector
             // can no longer appear on the reprint. W0-1: a bill of supply bears no cess either — and `IsBillOfSupply`
             // refuses that classification whenever cess WAS posted, so this can only ever zero an already-zero figure.
             TotalCess = billOfSupply ? Money.Zero : money.TotalCess,
+            // T0-11 review C1 — NOT suppressed on a bill of supply. CGST Rule 49 prescribes no RATE and no TAX
+            // particular; a freight the supplier is charging is neither, and dropping it would restate the very
+            // defect this member exists to close (the Grand Total would fall short of the posted party leg again).
+            OtherCharges = otherCharges,
             RoundOff = roundOff,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
         };
+
+        // 🔴 RQ-11a ER-4, ENFORCED rather than asserted in prose. See FootingRefusal for the whole argument: this is
+        // the guard the class doc has listed as owed since W0-10, and it is what makes "the printed Grand Total is
+        // the debt the general ledger recorded" a checked property of this method instead of a claim about the
+        // shapes someone happened to think of. A voucher with no party has no debt to state and nothing to tie to.
+        if (PostedPartyLeg(company, voucher) is { } partyLeg && data.GrandTotal.Amount != partyLeg.Amount)
+            throw new InvalidOperationException(FootingRefusal(data.GrandTotal.Amount, partyLeg.Amount));
+
+        return data;
+    }
+
+    /// <summary>
+    /// The posted party-side charges an invoice-shaped document must state but that are neither the value of the
+    /// supply nor GST/cess on it (T0-11 review C1/L1-01). Two classes exist today and BOTH are read off posted data
+    /// only — no live master decides whether a charge is on the document:
+    /// <list type="number">
+    /// <item><b>Additional cost of purchase</b> (Book pp.133–141; RQ-16..RQ-19) — enumerated by
+    /// <see cref="AdditionalCostApportionment.TrackedCostLegs"/>, <b>the same one predicate the valuation engine
+    /// apportions with</b>. The printed charge and the landed rate can therefore never come out of two different
+    /// readings of "which leg is a cost?"; a second copy of that rule here is exactly how two <c>IsBillOfSupply</c>
+    /// predicates once came to disagree (W0-9).</item>
+    /// <item><b>§206C TCS</b> — a non-party leg carrying <see cref="TcsLineTax"/> with a non-zero collection. TCS is
+    /// collected on top of the GST-inclusive total and rides the party debit
+    /// (<c>VoucherEntryViewModel.AcceptItemInvoice</c>), so it is part of what the customer owes. The party leg is
+    /// skipped deliberately: a BELOW-threshold sale rides its (TCS 0) detail there for the FY-receipts projection and
+    /// collects nothing, so reading it would state a charge that was never made.</item>
+    /// </list>
+    ///
+    /// <para><b>The caption is the posted ledger's own name</b>, never a label invented here — the operator chose
+    /// "Freight Inward" and that is what the supplier is charging. ASCII-folded like every other printed string.</para>
+    /// </summary>
+    private static List<InvoiceChargeRow> PostedOtherCharges(Company company, Voucher voucher)
+    {
+        var rows = new List<InvoiceChargeRow>();
+
+        foreach (var leg in AdditionalCostApportionment.TrackedCostLegs(company, voucher))
+            rows.Add(new InvoiceChargeRow
+            {
+                Caption = ReportPrintProjector.Ascii(leg.Ledger.Name),
+                Amount = leg.Amount,
+            });
+
+        foreach (var line in voucher.Lines)
+        {
+            if (voucher.PartyId is Guid pid && line.LedgerId == pid) continue;
+            if (line.Tcs is not { } tcs || tcs.TcsAmount.Amount == 0m) continue;
+            rows.Add(new InvoiceChargeRow
+            {
+                Caption = ReportPrintProjector.Ascii(company.FindLedger(line.LedgerId)?.Name ?? string.Empty),
+                Amount = line.Amount,
+            });
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// What the voucher recorded against its party, signed the way <see cref="InvoicePrintData.GrandTotal"/> states
+    /// it: positive when the party owes us (a Sales debit) or we owe the party (a Purchase credit). <c>null</c> when
+    /// the voucher names no party — there is then no debt for a document to state and nothing to tie to.
+    /// <para>Both sides of the party ledger are netted rather than summed, so a voucher that also posts a contra leg
+    /// to the same ledger states what is actually outstanding on it. On every shape this app posts there is exactly
+    /// one party leg and the netting is the identity.</para>
+    /// </summary>
+    private static Money? PostedPartyLeg(Company company, Voucher voucher)
+    {
+        if (voucher.PartyId is not Guid partyId) return null;
+
+        var partyOwesUs = company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Purchase;
+        var chargeSide = partyOwesUs ? DrCr.Debit : DrCr.Credit;
+
+        var total = 0m;
+        var sawPartyLeg = false;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.LedgerId != partyId) continue;
+            sawPartyLeg = true;
+            total += line.Side == chargeSide ? line.Amount.Amount : -line.Amount.Amount;
+        }
+        return sawPartyLeg ? new Money(total) : null;
     }
 
     // ---------------------------------------------------------------- service (Accounting Invoice) tax invoice
@@ -564,6 +740,19 @@ public static class VoucherPrintProjector
                 ? GstReportSupport.TaxInvoiceTitle
                 : document.Title,
             IsBillOfSupply = billOfSupply,
+            // T0-11 review C24/L3-10 — carried on THIS pass too, off its own classification. Every shape this pass
+            // reaches today is outward, so both are the values the DTO would have defaulted to and nothing moves;
+            // stating them is what stops slice S3 (the purchase ACCOUNTING-invoice record, the half this pass owns)
+            // from having to remember, and what keeps "read from the ONE classification" true of both passes rather
+            // than of one.
+            Heads = document.Heads,
+            // The NoStatutoryDocument arm keeps the value the page has always had, for the SAME reason the
+            // DocumentTitle arm above keeps "TAX INVOICE" on it: this method is reachable directly on a voucher for
+            // which no statutory document may be issued, it has always stamped that title, and a title carries the
+            // Rule 46(q) signature. Whether that arm should keep making either claim is a question for the slice
+            // that gives it a document of its own, not for a fix that may move nothing (ER-13).
+            StatesOurDeclarationAndSignature = document.Role == DocumentRole.NoStatutoryDocument
+                || document.StatesOurDeclarationAndSignature,
             // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
             // replacing it — cancelling a document does not change what it was issued as, and a renderer that
             // read one flag for two questions would eventually print the wrong document name.
@@ -812,14 +1001,35 @@ public static class VoucherPrintProjector
     /// <param name="stateCode">The State code to print — <see cref="GstReportSupport.IssuedBuyerStateCode"/>'s verdict, which is
     /// the party's own live code except where it would contradict the posted tax (FIX-3).</param>
     private static InvoicePartyBlock BuyerBlock(
-        Company company, Apex.Ledger.Domain.Ledger? party, string? stateCode) => new()
+        Company company, Apex.Ledger.Domain.Ledger? party, string? stateCode) =>
+        CounterpartyBlock(party, stateCode, ConsistentBuyerGstin(party, stateCode));
+
+    /// <summary>
+    /// The counterparty block on a <b>recipient-side record</b> — the SUPPLIER's own recorded identity, State and
+    /// GSTIN stated verbatim (T0-11 review C2/L1-02).
+    /// <para><b>Deliberately NOT <see cref="BuyerBlock"/>.</b> That builder carries the FIX-3 reconciliation, whose
+    /// every clause is about an ISSUED document and ITS BUYER: the printed State recovered from tax WE posted, and
+    /// the GSTIN dropped when its own State prefix denies that recovery. Neither premise holds here — we posted the
+    /// supplier's charge as INPUT tax and determined nothing about his location — and reaching it from this slot is
+    /// what printed "GSTIN: Unregistered" above a supplier's own CGST/SGST after one ordinary master correction.
+    /// Name and address come from the same two helpers as ever, so the untouched-master case is byte-identical.</para>
+    /// </summary>
+    private static InvoicePartyBlock RecordedSupplierBlock(Apex.Ledger.Domain.Ledger? party) =>
+        CounterpartyBlock(party, party?.PartyGst?.StateCode, party?.PartyGst?.Gstin ?? string.Empty);
+
+    /// <summary>The shape both counterparty blocks share — the party's Mailing Name (Tally's "Mailing Name (auto,
+    /// editable)" convention) or the ledger's own Name, its WI-4 mailing address lines, and whichever State and GSTIN
+    /// the caller's own rule resolved. One body, so the two orientations cannot drift on anything but the one
+    /// question that actually differs between them.</summary>
+    private static InvoicePartyBlock CounterpartyBlock(
+        Apex.Ledger.Domain.Ledger? party, string? stateCode, string? gstin) => new()
     {
         Name = ReportPrintProjector.Ascii(
             string.IsNullOrWhiteSpace(party?.Mailing?.MailingName)
                 ? party?.Name ?? string.Empty
                 : party!.Mailing!.MailingName!),
         AddressLines = SplitAddress(BuyerAddressText(party)),
-        Gstin = ReportPrintProjector.Ascii(ConsistentBuyerGstin(party, stateCode)),
+        Gstin = ReportPrintProjector.Ascii(gstin ?? string.Empty),
         StateText = StateText(stateCode),
     };
 

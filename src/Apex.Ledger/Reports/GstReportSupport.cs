@@ -855,13 +855,17 @@ public static class GstReportSupport
     /// Before W0-10 the live <c>ComputeInvoiceTax</c> reconstructed the tax from the item masters and the document
     /// happened to foot, so the switch REVERSED the direction of failure for this shape.</para>
     ///
-    /// <para><b>Deliberately NARROWER than the item-path footing guard plan.md defers</b> (carry-forward (b), sequenced
-    /// after the TCS row). A full "printed Grand Total == posted party leg" refusal cannot land yet: §206C TCS rides
-    /// the party debit and <c>InvoicePrintData</c> has no TCS field, so it would stop every TCS invoice printing as a
-    /// tax invoice — a real regression traded for a crafted-data one. This asks only about the company's own GST
-    /// ledgers, and <b>TCS Payable is not one</b>, so a §206C sale cannot trip it. Pinned in both directions by
+    /// <para><b>Deliberately NARROWER than the item-path footing guard, which has since landed</b> (T0-11 review C1:
+    /// <c>VoucherPrintProjector.FootingRefusal</c>). This one asks only whether the company's own GST ledgers carry
+    /// their metadata, and it is still the right question here, at the CLASSIFICATION layer: a voucher whose posted
+    /// tax the printer cannot see is not an invoice document at all and takes the plain Dr/Cr voucher, whereas the
+    /// footing guard sits inside the projection and refuses a document it cannot state. The old sequencing note —
+    /// "a full printed-Grand-Total == posted-party-leg refusal cannot land yet, because §206C TCS rides the party
+    /// debit and <c>InvoicePrintData</c> has no TCS field" — is discharged: the DTO now carries the collected TCS as
+    /// an <c>InvoiceChargeRow</c>, so a §206C sale foots. Note also that <b>TCS Payable is not a GST ledger</b>, so a
+    /// §206C sale never tripped THIS predicate either. Pinned in both directions by
     /// <c>ItemInvoicePostedTaxTests.An_item_invoice_whose_output_tax_legs_carry_no_metadata_prints_as_the_plain_voucher</c>
-    /// and <c>…A_tcs_bearing_invoice_still_prints_as_a_tax_invoice_and_pins_the_known_shortfall</c>.</para>
+    /// and <c>…A_tcs_bearing_invoice_states_the_collected_tcs_and_foots_to_the_posted_party_leg</c>.</para>
     ///
     /// <para>Every genuine invoice satisfies it by construction — the accept paths, the POS cart and
     /// <c>CreditDebitNoteService</c> all post the engine's own <c>TaxLines</c>, each stamped — so this is

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
@@ -280,23 +281,71 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (current.Count > 0) yield return current;
     }
 
+    /// <summary>
+    /// The width one preview column gets, in DIP, from the print model's own declared
+    /// <see cref="PrintColumn.Weight"/>.
+    ///
+    /// <para>🔴 <b>T0-11 review CRITIC-01 and C17/L3-03.</b> Every cell of this pane used to be a literal 120 DIP.
+    /// The shell is monospace (<c>MainWindow.axaml</c>'s <c>FontFamily="Consolas, …"</c>, 6.0479 DIP/glyph at
+    /// <c>FontSize="11"</c>, measured under Skia), so a cell held eighteen glyphs and an ellipsis — and because the
+    /// width was a literal inside a horizontal StackPanel with no star track, the cut was invariant under every
+    /// window size and every DPI. Rendered at 1280x720 DIP, the purchase record's three item lines — 2 @ 12,345.67,
+    /// 3 @ 8,901.23 and 1 @ 45,678.91 — all painted as "N. Widget  (HSN 84…", i.e. the slice's whole subject matter
+    /// was unreachable on the pane the operator approves, and "Tax Charged by the Supplier" lost the word that says
+    /// whose tax it is.</para>
+    ///
+    /// <para><b>The weights were already there and this pane was throwing them away.</b> <c>PrintColumn.Weight</c>
+    /// is documented as "columns share the content width in proportion to their weights" and <c>ReportPdf</c> has
+    /// always split the PAPER that way; only the screen mirror ignored it, so the screen gave "Particulars"
+    /// (weight 4) exactly what it gave a two-figure amount column. Reading the same weights is the same
+    /// mirror-follows-the-bytes discipline as every other row in this file.</para>
+    ///
+    /// <para><b>The floor is what keeps this from being a trade.</b> A purely proportional split would NARROW the
+    /// columns of a wide report (a twelve-column payroll matrix), buying the invoice's readability with somebody
+    /// else's. Flooring at the 120 the pane has always used makes the change monotone: every column either widens
+    /// or stays exactly as it was, on every report kind.</para>
+    ///
+    /// <para><b>Why 80 per weight unit.</b> It is the largest round scale whose total for the widest of these
+    /// reports still fits the sheet at the narrowest supported viewport. Measured on the shipped shell at
+    /// 1280x720 DIP (== 1920x1080 at 150%, an ordinary full-HD laptop) the preview sheet gives its rows 572.00 DIP;
+    /// the invoice mirror's weights (4 / 1 / 1.5) come to 320 + 120 + 120 = 560, so the Grand Total still lands
+    /// inside the sheet with no horizontal scrolling. At 90 it would be 615 and the money column would go behind a
+    /// scrollbar at that size, which is not a trade worth making for eight more glyphs.</para>
+    ///
+    /// <para><b>The residue, stated rather than hidden:</b> a stock-item name long enough to push the composed row
+    /// past 320 DIP still trims. That is why the cell now carries <c>ToolTip.Tip</c> — the pattern the sheet's own
+    /// Subtitle has used all along — and why <c>InvoicePdf</c> remains the authority on the full particulars.</para>
+    /// </summary>
+    private const double PreviewWidthPerWeightUnit = 80.0;
+
+    /// <summary>The width every preview cell had before the column budget existed. Now a FLOOR: no column may be
+    /// narrower than the pane has always drawn it, so widening one can never starve another.</summary>
+    private const double PreviewMinimumCellWidth = 120.0;
+
+    private static double PreviewColumnWidth(PrintColumn column) =>
+        Math.Max(PreviewMinimumCellWidth, Math.Round(column.Weight * PreviewWidthPerWeightUnit));
+
     private PreviewPage BuildPreviewPage(List<PrintRow> rows, int pageNo)
     {
+        var widths = new double[_previewReport.Columns.Count];
+        for (int i = 0; i < widths.Length; i++) widths[i] = PreviewColumnWidth(_previewReport.Columns[i]);
+
         var lines = new List<PreviewLine>(rows.Count);
         foreach (var r in rows)
         {
-            var cells = new List<string>(_previewReport.Columns.Count);
+            var cells = new List<PreviewCell>(_previewReport.Columns.Count);
             for (int i = 0; i < _previewReport.Columns.Count; i++)
             {
                 string text = i < r.Cells.Count ? (r.Cells[i] ?? string.Empty) : string.Empty;
                 if (i == 0 && r.Indent > 0) text = new string(' ', r.Indent) + text;
-                cells.Add(text);
+                cells.Add(new PreviewCell(text, widths[i]));
             }
             lines.Add(new PreviewLine(cells, r.IsHeader, r.IsTotal));
         }
 
-        var headers = new List<string>(_previewReport.Columns.Count);
-        foreach (var c in _previewReport.Columns) headers.Add(c.Header);
+        var headers = new List<PreviewCell>(_previewReport.Columns.Count);
+        for (int i = 0; i < _previewReport.Columns.Count; i++)
+            headers.Add(new PreviewCell(_previewReport.Columns[i].Header, widths[i]));
 
         return new PreviewPage(_previewReport.Title, _previewReport.Subtitle, headers, lines, pageNo);
     }
@@ -345,7 +394,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         var inv = _invoice!;
         var cfg = BuildPrintConfig();
         var rows = new List<PrintRow>();
-        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
+        // T0-11 review C3/L1-03 — the CGST Rule 48(1) copy marking is an issuer particular, and the mirror drops it
+        // on a record for the same reason and off the SAME axis as InvoicePdf.DrawFirstHeader does. The two sites
+        // must move together: a fix applied to the bytes alone is exactly the preview/paper drift this file's own
+        // comments name as the thing to avoid, and a mirror still offering "DUPLICATE FOR TRANSPORTER" over a page
+        // that carries none would have the operator approving a statutory copy marking the paper does not bear.
+        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel) && inv.StatesOurDeclarationAndSignature)
             rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
         // W0-1: CGST Rule 5(1)(f) puts the composition declaration at the TOP of the bill of supply — so it is the
         // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title. W0-1 follow-up
@@ -362,7 +416,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 : inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber,
             "Date", inv.InvoiceDateText));
         // On a record the counterparty is the SUPPLIER, and he is the party in the block that HEADS the document.
-        rows.Add(inv.IsRecipientRecord
+        // T0-11 review C24/L3-10 — that is the ORIENTATION question (Rule 46(a)), so it reads `Heads`, exactly as
+        // `InvoicePdf` now does for the same row. The mirror re-derives the record's presentation from the same
+        // structural axes as the bytes; if the two disagreed the operator would approve one document and issue
+        // another.
+        rows.Add(inv.Heads == PartyOrientation.WeAreRecipient
             ? PrintRow.Header("Supplier: " + inv.Seller.Name, string.Empty, string.Empty)
             : PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
         if (!inv.IsRecipientRecord)
@@ -395,7 +453,9 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             // it cannot carry the caption where InvoicePdf carries it; without this the operator would approve a
             // screen showing "IGST 17,473.31" with nothing on it saying the charge is the supplier's, which is the
             // one thing RQ-11a makes binding about a record's tax.
-            if (inv.IsRecipientRecord)
+            // T0-11 review C24/L3-10 — "whose tax" is the ORIENTATION question, the same axis `InvoicePdf` reads for
+            // the same caption. The wording is untouched (open R12 question, plan.md Phase 10.13).
+            if (inv.Heads == PartyOrientation.WeAreRecipient)
                 rows.Add(PrintRow.Header(GstReportSupport.SupplierTaxCaption, string.Empty, string.Empty));
             if (inv.IsInterState is true)
                 rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
@@ -415,6 +475,14 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             if (inv.TotalCess.Amount != 0m)
                 rows.Add(new PrintRow(new[] { "Compensation Cess", string.Empty, IndianFormat.AmountAlways(inv.TotalCess) }));
         }
+        // T0-11 review C1 (L1-01): the posted party-side charges that are neither goods nor GST/cess — an additional
+        // cost of purchase on a record, §206C TCS on an outward invoice. Same condition and same POSITION as
+        // InvoicePdf.DrawClosingBlock (outside the bill-of-supply branch, after the heads, before the round-off): the
+        // whole defect was a Grand Total that exceeded the visible rows by an amount the page never mentioned, and a
+        // mirror that reproduced it would have the operator approve one document and issue another. Empty on every
+        // document that bears none ⇒ the pane is unchanged (ER-13).
+        foreach (var charge in inv.OtherCharges)
+            rows.Add(new PrintRow(new[] { charge.Caption, string.Empty, IndianFormat.AmountAlways(charge.Amount) }));
         if (inv.RoundOff.Amount != 0m)
             rows.Add(new PrintRow(new[] { "Round Off", string.Empty, IndianFormat.AmountAlways(inv.RoundOff) }));
         rows.Add(PrintRow.Total(inv.IsBillOfSupply ? "Total" : "Grand Total",
@@ -576,17 +644,31 @@ public sealed class PreviewPage
 {
     public string Title { get; }
     public string Subtitle { get; }
+
+    /// <summary>The column headings as the pane lays them out — the caption AND the column's width, so the header
+    /// band and the body cells below it can never line up under different captions.</summary>
+    public IReadOnlyList<PreviewCell> HeaderColumns { get; }
+
+    /// <summary>The heading TEXTS. A view over <see cref="HeaderColumns"/>, materialised once — never a second
+    /// copy of the same answer.</summary>
     public IReadOnlyList<string> Headers { get; }
+
+    /// <summary>The page's column layout. It IS <see cref="HeaderColumns"/> — the header band and every body cell
+    /// are laid out from one set of widths, so a figure can never line up under a caption that does not govern
+    /// it — and this name is here for readers (and tests) asking about the layout rather than about the captions.</summary>
+    public IReadOnlyList<PreviewCell> Columns => HeaderColumns;
+
     public IReadOnlyList<PreviewLine> Lines { get; }
     public int PageNumber { get; }
     public int TotalPages { get; private set; }
 
-    public PreviewPage(string title, string subtitle, IReadOnlyList<string> headers,
+    public PreviewPage(string title, string subtitle, IReadOnlyList<PreviewCell> headerColumns,
         IReadOnlyList<PreviewLine> lines, int pageNumber)
     {
         Title = title;
         Subtitle = subtitle;
-        Headers = headers;
+        HeaderColumns = headerColumns;
+        Headers = headerColumns.Select(c => c.Text).ToList();
         Lines = lines;
         PageNumber = pageNumber;
         TotalPages = pageNumber;
@@ -598,16 +680,40 @@ public sealed class PreviewPage
     public string Footer => $"Apex Solutions  -  Page {PageNumber} of {TotalPages}";
 }
 
-/// <summary>One preview body line: the per-column cell texts, plus header/total styling flags.</summary>
+/// <summary>
+/// One cell of the preview sheet: the text, and the width of the column it sits in.
+///
+/// <para>The width is DATA rather than markup because a literal in the cell template made the truncation invariant
+/// under every window size and every DPI (T0-11 review CRITIC-01 / C17-L3-03): a report whose model says its first
+/// column is four times the width of its amount column got the same 120 DIP for both. It is computed once per page
+/// from <see cref="PrintColumn.Weight"/> — the weights the PDF renderer has always split the paper by — so the pane
+/// and the paper give the same column the same share.</para>
+///
+/// <para>This is the shell's own established shape for a width-carrying cell, not a new one: the payroll matrix grid
+/// binds <c>PayrollMatrixCellVm</c>'s <c>Text</c>/<c>Width</c> pair exactly this way (<c>MainWindow.axaml</c>), for
+/// the same reason — a horizontal StackPanel keeps its columns aligned only if every cell's width is stated.</para>
+/// </summary>
+/// <param name="Text">The already-formatted cell text.</param>
+/// <param name="Width">The column's width in DIP.</param>
+public sealed record PreviewCell(string Text, double Width);
+
+/// <summary>One preview body line: the per-column cells, plus header/total styling flags.</summary>
 public sealed class PreviewLine
 {
+    /// <summary>The cells as the pane lays them out: text plus the width of the column each sits in.</summary>
+    public IReadOnlyList<PreviewCell> Columns { get; }
+
+    /// <summary>The cell TEXTS. A view over <see cref="Columns"/>, materialised once in the constructor — one
+    /// source of truth, not a parallel copy that could drift from it.</summary>
     public IReadOnlyList<string> Cells { get; }
+
     public bool IsHeader { get; }
     public bool IsTotal { get; }
 
-    public PreviewLine(IReadOnlyList<string> cells, bool isHeader, bool isTotal)
+    public PreviewLine(IReadOnlyList<PreviewCell> columns, bool isHeader, bool isTotal)
     {
-        Cells = cells;
+        Columns = columns;
+        Cells = columns.Select(c => c.Text).ToList();
         IsHeader = isHeader;
         IsTotal = isTotal;
     }

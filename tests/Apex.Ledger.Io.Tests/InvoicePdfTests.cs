@@ -687,7 +687,12 @@ public sealed class InvoicePdfTests
         Assert.Contains("IGST", s);
         // Parentheses are backslash-escaped inside the PDF literal string.
         Assert.Contains(@"Inter-State \(IGST\)", s);
-        Assert.Contains("DUPLICATE FOR SUPPLIER", s);
+        // CGST Rule 48(1)(b): "the duplicate copy being marked as DUPLICATE FOR TRANSPORTER". This assertion read
+        // "DUPLICATE FOR SUPPLIER" until T0-11 review C10/L1-10 — the duplicate and triplicate captions shipped
+        // transposed, and this line was one of the two green tests locking the transposition in. Re-pointed to the
+        // rule, whose verbatim text and CBIC source are on `CopyMarking`; the pairing is exercised on its own in
+        // CopyMarkingRule48Tests.
+        Assert.Contains("DUPLICATE FOR TRANSPORTER", s);
         // Grand total 8,750 + 1,575 = 10,325.
         Assert.Contains("10,325.00", s);
     }
@@ -705,7 +710,10 @@ public sealed class InvoicePdfTests
     public void Triplicate_and_none_copy_markings()
     {
         var trip = AsLatin1(InvoicePdf.Render(IntraStateInvoice(out _), new PrintConfig { CopyMarking = CopyMarking.Triplicate }, new PageConfig()));
-        Assert.Contains("TRIPLICATE FOR TRANSPORTER", trip);
+        // CGST Rule 48(1)(c): "the triplicate copy being marked as TRIPLICATE FOR SUPPLIER" — the issuer's own
+        // retained copy. This assertion read "TRIPLICATE FOR TRANSPORTER" until T0-11 review C10/L1-10; see the
+        // note on the duplicate above.
+        Assert.Contains("TRIPLICATE FOR SUPPLIER", trip);
 
         var none = AsLatin1(InvoicePdf.Render(IntraStateInvoice(out _), new PrintConfig { CopyMarking = CopyMarking.None }, new PageConfig()));
         Assert.DoesNotContain("FOR RECIPIENT", none);

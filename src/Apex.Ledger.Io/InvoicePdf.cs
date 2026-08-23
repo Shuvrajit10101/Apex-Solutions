@@ -117,7 +117,13 @@ public static class InvoicePdf
         }
         pages.Add(current);
 
-        bool closingOnNewPage = y - closing.Height < bottom;
+        // T0-11 review C4/L1-04, third measurement. `y` here is the paginator's position for the LAST item row; the
+        // closing block is drawn from `yy - 2`, and `yy` is one ROW below that row's baseline (DrawItemRow returns
+        // `y - RowHeight`). Measured without the row, this check believed the closing started a whole row higher than
+        // it does and kept it on a page it did not fit: on a Letter page of 30 rows "Authorised Signatory" was drawn
+        // at y = 44.00 against a footer occupying [36, 44] — the closing block's own version of the last-item-row
+        // defect, and invisible to any assertion about the header alone.
+        bool closingOnNewPage = y - page.RowHeight - closing.Height < bottom;
         int total = pages.Count + (closingOnNewPage ? 1 : 0);
 
         var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
@@ -187,6 +193,30 @@ public static class InvoicePdf
             ? new List<string>()
             : VoucherPdf.WrapText(Debrand.Text(data.TopDeclaration.Trim()), page.ContentWidth, page.BodyFontSize);
 
+    /// <summary>
+    /// The gap a bold column-heading row opens between itself and the rule drawn under it (<c>y -= 3</c>). It is
+    /// drawn twice — under the item table's headings (<see cref="DrawItemTableHeader"/>) and under the per-rate
+    /// breakup's headings (<see cref="DrawClosingBlock"/>) — and it is REAL drawn height, so every measurement that
+    /// spans one of those rules has to carry it.
+    /// <para><b>T0-11 review C4/L1-04.</b> Neither measurement did. It is the "latent 3 pt" the verifier separated
+    /// out from the 11 pt reference row: on a fixture whose residual is under 3 pt the last item row breached the
+    /// bottom guard with NO reference number at all, and a fix that corrected only the reference row would have left
+    /// the arithmetic 3 pt out of true on the first page and on every continuation sheet.</para>
+    /// </summary>
+    private const double HeadingRuleGap = 3;
+
+    /// <summary>
+    /// Does the header state the counterparty's own document number (v48 numbering §8 — their PO on an outward
+    /// invoice; on a purchase record RQ-11a makes this pair the carrier of the SUPPLIER's invoice number, so it is
+    /// present on essentially every real one)?
+    /// <para><b>THE SINGLE SOURCE for both the reserved height and the drawn row</b>, in the same idiom as
+    /// <see cref="TopDeclarationLines"/> and <see cref="HeadRows"/>. <b>T0-11 review C4/L1-04:</b> this row was drawn
+    /// by <see cref="DrawFirstHeader"/> and reserved by nobody, so the paginator sized page 1 from a header one row
+    /// shorter than the one the renderer drew — and page 1's last six-cell money row, Amount included, was drawn on
+    /// top of the "Page 1 of N" footer.</para>
+    /// </summary>
+    private static bool StatesReferenceRow(InvoicePrintData data) => !string.IsNullOrWhiteSpace(data.ReferenceNo);
+
     private static double FirstHeaderHeight(InvoicePrintData data, PageConfig page)
     {
         double h = page.TitleFontSize + 8 + 4;   // title band + rule
@@ -198,15 +228,22 @@ public static class InvoicePdf
         int declLines = TopDeclarationLines(data, page).Count;
         if (declLines > 0) h += declLines * (page.BodyFontSize + 2) + 4;
         h += PartyBlockHeight(data.Seller, data.Buyer, page) + 4;
-        h += 0.5;                                 // rule
-        h += (page.BodyFontSize + 2) * 2;         // invoice-no/date + place-of-supply rows
+        // The number/date row, the optional reference row and the place-of-supply row — counted off the SAME
+        // predicate the drawing branches on, so the two cannot disagree about how many rows there are.
+        //
+        // The rule between the party blocks and these rows used to be reserved as `h += 0.5`. It is a STROKE: it is
+        // drawn AT the current y and moves the pen by nothing, so it costs no height, and the 0.5 left measured and
+        // drawn 0.5 apart on every document ever rendered. Removed rather than kept as a cushion — the whole defect
+        // was two numbers that were supposed to be one.
+        h += (page.BodyFontSize + 2) * (StatesReferenceRow(data) ? 3 : 2);
         h += 6;                                   // rule spacer
-        h += page.BodyFontSize + 2;               // item-table header offset
+        h += page.BodyFontSize + 2;               // the item table's own column-heading row
+        h += HeadingRuleGap;                      // …and the gap DrawItemTableHeader opens under those headings
         return h;
     }
 
     private static double ContinuationHeaderHeight(InvoicePrintData data, PageConfig page) =>
-        page.TitleFontSize + 8 + 4 + page.BodyFontSize + 2
+        page.TitleFontSize + 8 + 4 + page.BodyFontSize + 2 + HeadingRuleGap
         + (data.IsCancelled ? page.TitleFontSize + 2 : 0);   // + the S3 CANCELLED over-print
 
     /// <summary>
@@ -218,6 +255,18 @@ public static class InvoicePdf
     /// </summary>
     private const string CancelledBanner = "CANCELLED";
 
+    /// <summary>
+    /// <b>This measurement deliberately OVER-reserves, and that is left alone.</b> It prices every line at
+    /// <c>BodyFontSize + 1</c>, while <see cref="DrawPartyBlock"/> drops <c>BodyFontSize + 1</c> for the caption and
+    /// the name and <c>FooterFontSize + 1</c> for the address, State and GSTIN lines — so on the ordinary
+    /// two-address-line block it reserves 60 pt against 56 pt drawn.
+    /// <para>Measured while closing T0-11 review C4/L1-04, and recorded rather than changed. It errs in the SAFE
+    /// direction (the paginator believes rows sit lower than they do, so it admits fewer, never more), it is not the
+    /// defect L1-04 names, and the only thing it costs is density: on that block page 1 holds 47 item rows where the
+    /// exact arithmetic would hold 48, the 48th landing at y = 51.89 against a 50 guard. Making it exact would
+    /// re-paginate every multi-page invoice the product has ever produced for a cosmetic gain — a change that wants
+    /// its own slice, not a ride on a footer-overlap fix.</para>
+    /// </summary>
     private static double PartyBlockHeight(InvoicePartyBlock seller, InvoicePartyBlock buyer, PageConfig page)
     {
         int Lines(InvoicePartyBlock b)
@@ -233,6 +282,29 @@ public static class InvoicePdf
     }
 
     // ================================================================ closing block model
+
+    /// <summary>
+    /// The vertical space the per-rate breakup table occupies, term for term as <see cref="DrawClosingBlock"/>
+    /// draws it: the rule down to the caption baseline, the caption down to the column-head baseline, the heads
+    /// down to the first rate row (<see cref="HeadingRuleGap"/> plus the row the rule opens), one row per rate,
+    /// and the 2 pt tail. Zero when <see cref="StatesTaxBreakup"/> refuses the table, so a bill of supply and an
+    /// unrouted document measure exactly as they draw.
+    ///
+    /// <para><b>T0-11 review C4/L1-04, second measurement.</b> Written out inline, this block reserved
+    /// <c>BodyFontSize + 2</c> (11 pt) for a gap the drawing spends <c>RowHeight + HeadingRuleGap</c> (16 pt) on —
+    /// so every taxed invoice's closing block was measured 5 pt shorter than it is drawn, and the paginator kept it
+    /// on a page it did not fit. Measured: "Authorised Signatory" drawn at y = 44.00 against a footer occupying
+    /// [36, 44] on a Letter page. Same class as the header row, different measurement, and only an invariant over
+    /// the WHOLE page could see it — the header fix alone leaves it live.</para>
+    /// </summary>
+    private static double TaxBreakupHeight(InvoicePrintData data, PageConfig page) =>
+        !StatesTaxBreakup(data)
+            ? 0
+            : (page.BodyFontSize + 2)                     // rule -> caption baseline
+              + page.RowHeight                            // caption -> column-head baseline
+              + HeadingRuleGap + page.RowHeight           // column heads -> rule -> first rate row
+              + data.TaxRows.Count * page.RowHeight
+              + 2;
 
     private sealed class Closing
     {
@@ -256,14 +328,27 @@ public static class InvoicePdf
         // actual price…" is OUR attestation about a document WE issued; on a page headed by the supplier it would be
         // an attestation about someone else's. The record says what it is instead, and the signature block below is
         // dropped with it (Rule 46(q) puts the signature on the ISSUER).
-        string declaration = data.IsRecipientRecord
+        //
+        // 🔴 T0-11 review C24/L3-10 — TWO QUESTIONS, TWO AXES, read separately. The legend is a ROLE-and-ORIENTATION
+        // statement: it says this page records "a document issued by the SUPPLIER NAMED ABOVE", which is true only
+        // when the party in the head block is somebody else. Whether OUR declaration belongs here is the Rule 46(q)
+        // question and is `StatesOurDeclarationAndSignature`'s. Off one flag, a Recorded document headed by US printed
+        // the legend over our own name; off the two axes it states neither the legend (nobody else issued it) nor a
+        // suppressed declaration (whatever the classification said). Byte-identical on every shipped shape, because
+        // both axes default to the coherent pairing.
+        string declaration =
+            data.IsRecipientRecord && data.Heads == PartyOrientation.WeAreRecipient
             ? GstReportSupport.RecipientRecordLegend
+            : !data.StatesOurDeclarationAndSignature
+            ? string.Empty
             : data.IsBillOfSupply
             ? "Declaration: We declare that this bill of supply shows the actual price of the goods described and " +
               "that all particulars are true and correct."
             : "Declaration: We declare that this invoice shows the actual price of the goods described and that " +
               "all particulars are true and correct.";
-        var declLines = VoucherPdf.WrapText(declaration, page.ContentWidth * 0.62, page.FooterFontSize);
+        var declLines = declaration.Length == 0
+            ? new List<string>()
+            : VoucherPdf.WrapText(declaration, page.ContentWidth * 0.62, page.FooterFontSize);
 
         // Totals rows: Taxable + (IGST | CGST+SGST) + optional Cess + optional Round Off + Grand Total.
         // The Cess row appears only on a cess-bearing invoice, so a cess-free one measures (and renders) as before.
@@ -271,21 +356,17 @@ public static class InvoicePdf
         // total — kept in lockstep with DrawClosingBlock below.
         // W0-15: `IsInterState` is three-valued — null (nothing established a routing) states NO named head row.
         // The count comes from HeadRows, the SAME list DrawClosingBlock draws, so measure and draw cannot drift.
+        // T0-11 review C1: `OtherCharges` draws one row each, on EVERY document kind (the loop in DrawClosingBlock
+        // sits outside the bill-of-supply branch for the reason stated there), so both limbs count it.
         int totalRows = data.IsBillOfSupply
-            ? 1 + (data.RoundOff.Amount != 0m ? 1 : 0) + 1
+            ? 1 + data.OtherCharges.Count + (data.RoundOff.Amount != 0m ? 1 : 0) + 1
             : 1 + HeadRows(data).Count
                 + (data.TotalCess.Amount != 0m ? 1 : 0)
+                + data.OtherCharges.Count
                 + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
         double h = 2 + totalRows * page.RowHeight + 2;
 
-        if (StatesTaxBreakup(data))
-        {
-            h += page.BodyFontSize + 2                 // "GST Breakup" caption + rule
-               + page.RowHeight                        // caption row
-               + page.BodyFontSize + 2                 // head row + rule
-               + data.TaxRows.Count * page.RowHeight
-               + 2;
-        }
+        h += TaxBreakupHeight(data, page);
 
         h += page.BodyFontSize + 2 + wordLines.Count * (page.BodyFontSize + 3) + 4;   // amount-in-words + rule
         if (narrationLines.Count > 0) h += narrationLines.Count * (page.BodyFontSize + 3) + 4;
@@ -304,7 +385,19 @@ public static class InvoicePdf
 
         y -= page.TitleFontSize;
         Center(writer, title, left, right, y, page.TitleFontSize, bold: true);
-        if (config.CopyMarking != CopyMarking.None)
+        // T0-11 review C3/L1-03 — the copy marking is an ISSUER particular and must not print on a document we do
+        // not issue. CGST Rule 48(1) prescribes the three markings for the invoice prepared by the SUPPLIER under
+        // §31(1) / Rule 46; a page recording a supply made TO us is none of his three copies, so stamping one on it
+        // makes the page assert it IS one — the same false self-description slice S2 removed from the title, the
+        // number caption, the place of supply, the declaration and the signature. It was the one issuer particular
+        // S2 left ungated.
+        // The gate is `StatesOurDeclarationAndSignature`, NOT `IsRecipientRecord`: Rule 48(1)'s markings and Rule
+        // 46(q)'s signature answer one question — "is this a copy of a document WE issued?" — and answering it off
+        // two different flags is how this leaked in the first place. It is also the answer the shapes ahead need:
+        // on slice S5's §31(3)(f) self-invoice the role is Recorded and WE are the issuer, so the markings belong on
+        // it, which a role-axis gate would wrongly suppress. Byte-identical on every outward document (the axis
+        // defaults to `!IsRecipientRecord`).
+        if (config.CopyMarking != CopyMarking.None && data.StatesOurDeclarationAndSignature)
         {
             string label = config.CopyMarkingLabel;
             double w = PdfWriter.MeasureHelvetica(label, page.FooterFontSize);
@@ -341,9 +434,12 @@ public static class InvoicePdf
         // The captions name the ROLES, and the projector decides which party fills which. On a recipient-side record
         // the left block is the real supplier and the right is us — so "Bill to" would be wrong there (nobody is
         // billing us on a page we produced) and the plain "Recipient:" is what is true.
+        // T0-11 review C24/L3-10: that is the ORIENTATION question — whose identity heads the page (Rule 46(a)) —
+        // so it reads `Heads`, not the role flag. On a Recorded document that WE head, "Bill to" is true again.
         double sellerY = DrawPartyBlock(writer, page, "Supplier:", data.Seller, left, blockTop);
         double buyerY = DrawPartyBlock(writer, page,
-            data.IsRecipientRecord ? "Recipient:" : "Recipient (Bill to):", data.Buyer, geo.MidX + 6, blockTop);
+            data.Heads == PartyOrientation.WeAreRecipient ? "Recipient:" : "Recipient (Bill to):",
+            data.Buyer, geo.MidX + 6, blockTop);
         y = Math.Min(sellerY, buyerY) - 4;
 
         writer.Line(left, y, right, y, 0.5);
@@ -365,7 +461,9 @@ public static class InvoicePdf
         y -= page.BodyFontSize + 2;
         // v48 (numbering §8): the buyer's reference (e.g. their PO / "Reference No."). Printed only when captured,
         // so an invoice without one is byte-identical to before (ER-13).
-        if (!string.IsNullOrWhiteSpace(data.ReferenceNo))
+        // T0-11 review C4/L1-04 — the presence question is `StatesReferenceRow`, the SAME expression
+        // FirstHeaderHeight reserves against. It used to be asked here and nowhere else.
+        if (StatesReferenceRow(data))
         {
             var refLine = data.ReferenceCaption + ": " + data.ReferenceNo;
             if (!string.IsNullOrWhiteSpace(data.ReferenceDateText)) refLine += "   Dated: " + data.ReferenceDateText;
@@ -463,7 +561,7 @@ public static class InvoicePdf
         RightText(writer, "Qty", geo.HsnRight, geo.QtyRight, y, page.BodyFontSize, bold: true);
         RightText(writer, "Rate", geo.QtyRight, geo.RateRight, y, page.BodyFontSize, bold: true);
         RightText(writer, "Amount", geo.RateRight, geo.AmtRight, y, page.BodyFontSize, bold: true);
-        y -= 3;
+        y -= HeadingRuleGap;
         writer.Line(left, y, right, y, 0.5);
         y -= page.RowHeight;
         return y;
@@ -512,6 +610,15 @@ public static class InvoicePdf
             if (data.TotalCess.Amount != 0m)
                 TotalLine("Compensation Cess", Fmt(data.TotalCess), false);
         }
+        // T0-11 review C1 — the posted party-side charges that are neither goods nor GST/cess: an additional cost of
+        // purchase (Freight, Packing, …) on a record, §206C TCS on an outward invoice. Each is captioned with the
+        // ledger the operator posted it to and each reaches the Grand Total, so the demand is the posted debt.
+        // NOT inside the `!IsBillOfSupply` block: Rule 49 withholds the RATE and TAX particulars from a bill of
+        // supply, and a freight charge is neither — suppressing it would put the Grand Total back out of true.
+        // Drawn AFTER the tax heads so no reader can infer the tax above was charged on these amounts. Empty on
+        // every document that bears none ⇒ byte-identical (ER-13).
+        foreach (var charge in data.OtherCharges)
+            TotalLine(charge.Caption, Fmt(charge.Amount), false);
         if (data.RoundOff.Amount != 0m)
             TotalLine("Round Off", FmtSigned(data.RoundOff), false);
         writer.Line(geo.QtyRight, y + page.RowHeight - 2, right, y + page.RowHeight - 2, 0.7);
@@ -530,8 +637,11 @@ public static class InvoicePdf
             // T0-11 slice S2 — WHOSE tax this is, said out loud. The record must state the tax (it is what
             // substantiates the input tax credit we claim), and the figures come off the posted Input legs, so the
             // caption is the only thing keeping the page from asserting that WE charged it.
+            // T0-11 review C24/L3-10: "whose tax" is the ORIENTATION question, so it reads `Heads`. On a document WE
+            // head, captioning the breakup as somebody else's charge would be the same false statement in reverse.
+            // (The wording itself is untouched — it is under an open R12 question, plan.md Phase 10.13.)
             writer.Text(left, y,
-                data.IsRecipientRecord ? GstReportSupport.SupplierTaxCaption : "GST Breakup",
+                data.Heads == PartyOrientation.WeAreRecipient ? GstReportSupport.SupplierTaxCaption : "GST Breakup",
                 page.BodyFontSize, bold: true);
             y -= page.RowHeight;
 
@@ -560,7 +670,7 @@ public static class InvoicePdf
                 RightText(writer, "CGST", rTaxableR, rC1R, y, page.BodyFontSize, bold: true);
                 RightText(writer, "SGST", rC1R, rC2R, y, page.BodyFontSize, bold: true);
             }
-            y -= 3;
+            y -= HeadingRuleGap;
             writer.Line(left, y, right, y, 0.4);
             y -= page.RowHeight;
 
@@ -621,7 +731,12 @@ public static class InvoicePdf
         // produced — not a mislabelled caption but an attestation in someone else's name. CGST Rule 46(q) puts the
         // signature on the ISSUER, and on this document that is not us. Costs no measured height: the block draws in
         // the right column beside the declaration BuildClosing already sized.
-        if (data.IsRecipientRecord) return;
+        // T0-11 review C22/L3-08 + C24/L3-10 — read off the axis that ANSWERS the Rule 46(q) question rather than off
+        // a proxy from the role axis. `StatesOurDeclarationAndSignature` was write-only until this change: the
+        // classifier set it on both branches and no production code read it, so the field claimed to govern a
+        // suppression that was in fact governed by a different flag. Byte-identical on every shipped shape (it
+        // defaults to `!IsRecipientRecord`), and now the classification's own answer is the one obeyed.
+        if (!data.StatesOurDeclarationAndSignature) return;
 
         double sigY = declTop + (page.FooterFontSize + 2);
         string forCompany = "For " + data.Seller.Name;

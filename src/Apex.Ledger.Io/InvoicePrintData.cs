@@ -1,4 +1,5 @@
 using Apex.Ledger;
+using Apex.Ledger.Reports;
 
 namespace Apex.Ledger.Io;
 
@@ -70,6 +71,34 @@ public sealed class InvoiceTaxRow
 }
 
 /// <summary>
+/// One <b>additional charge posted against the party</b> that is neither the value of the supply nor GST/cess on it —
+/// an <b>additional cost of purchase</b> (Freight, Packing, …; Book pp.133–141, RQ-16) on a purchase record, or
+/// §206C <b>TCS</b> collected on top of the GST-inclusive total on an outward invoice.
+///
+/// <para><b>🔴 WHY THIS TYPE EXISTS (T0-11 review C1/L1-01 — the class, not the case).</b>
+/// <see cref="InvoicePrintData"/>'s money vocabulary used to be closed: <c>GrandTotal = TotalTaxable + TotalTax +
+/// TotalCess + RoundOff</c>, with <c>TotalTaxable</c> read off the inventory lines alone. Any posted leg outside
+/// {goods, GST, cess, round-off} that moves the party total was therefore <b>structurally unrepresentable</b>, and
+/// the document silently footed to a different number than the books. Two members of that class were already
+/// recorded — §206C TCS (measured 55,810.14 printed against 56,368.14 posted) and, after slice S2 routed a Purchase
+/// item invoice here for the first time, the additional cost of purchase (measured 11,800.00 against 13,034.56).
+/// A row per charge is the representation; <c>VoucherPrintProjector</c>'s footing refusal is what stops a THIRD
+/// member being introduced silently.</para>
+///
+/// <para><b>The caption is the posted LEDGER's own name</b>, never a label this layer invents: the operator chose
+/// "Freight Inward" and that is what the supplier is charging. Inventing a caption would put a description of the
+/// charge on the document that no posted leg supports.</para>
+/// </summary>
+public sealed class InvoiceChargeRow
+{
+    /// <summary>The charge's caption — the posted ledger's own name (e.g. "Freight Inward", "TCS Payable").</summary>
+    public string Caption { get; init; } = string.Empty;
+
+    /// <summary>The paisa-exact amount this charge adds to what the party owes.</summary>
+    public Money Amount { get; init; }
+}
+
+/// <summary>
 /// A framework-agnostic projection of an item-invoice (Sales) ready to render as a GST <b>tax invoice</b>
 /// (RQ-11; Rule 46) — or, when <see cref="IsBillOfSupply"/> is set, as the <b>bill of supply</b> CGST Act §31(3)(c)
 /// requires instead (Rule 49; W0-1). The thin Avalonia layer resolves the company (seller) and party (buyer) masters, runs
@@ -121,8 +150,77 @@ public sealed class InvoicePrintData
     ///
     /// <para><b>Default false, so every already-shipped document is byte-identical (ER-13).</b> Presentational and
     /// structural only: it adds no money field, and no figure on any page moves because of it.</para>
+    ///
+    /// <para><b>🔴 IT IS THE ROLE AXIS AND ONLY THE ROLE AXIS (T0-11 review C24/L3-10).</b> It used to answer three
+    /// different axes' questions on its own — see <see cref="Heads"/> and
+    /// <see cref="StatesOurDeclarationAndSignature"/>, which now carry the other two.</para>
     /// </summary>
     public bool IsRecipientRecord { get; init; }
+
+    /// <summary>
+    /// <b>Whose identity HEADS the document</b> (CGST Rule 46(a)) — <see cref="PrintedDocumentClass.Heads"/>, carried
+    /// through instead of being re-answered from <see cref="IsRecipientRecord"/>.
+    ///
+    /// <para><b>🔴 WHY IT EXISTS (T0-11 review C24/L3-10).</b> <see cref="PrintedDocumentClass"/> holds seven fields
+    /// across three axes and this DTO carried ONE boolean for all of them, so <see cref="InvoicePdf"/> answered the
+    /// ROLE questions (which title, which number caption, whether a place of supply may be stated), the ORIENTATION
+    /// questions (which party caption, whose tax the breakup states) and the Rule 46(q) DECLARATION/SIGNATURE
+    /// question off the same flag. Nothing pairs the axes upstream — <see cref="PrintedDocumentClass"/> is a bare
+    /// positional record with no validating constructor, and the pairing rests solely on one <c>if</c> in
+    /// <see cref="GstReportSupport.ClassifyPrintedDocument"/> — so any future branch returning
+    /// <see cref="DocumentRole.Recorded"/> with <see cref="PartyOrientation.WeAreSupplier"/> (slice S4's
+    /// purchase-return record, slice S5's §31(3)(f) self-invoice, where WE are the issuer) produced a half-swapped
+    /// page: measured, our own name and GSTIN under the fixed literal "Supplier:", the counterparty under
+    /// "Recipient:", and the record legend asserting the page records "a document issued by the supplier named
+    /// above" — the party named above being us.</para>
+    ///
+    /// <para><b>The default is the COHERENT pairing, not a constant</b>: with nothing set it follows
+    /// <see cref="IsRecipientRecord"/>, which is exactly what the classifier produces and exactly what every caller
+    /// that predates this field meant. So every shipped document and every hand-built DTO is byte-identical (ER-13),
+    /// while a caller that genuinely needs the other pairing can now say so instead of being silently overruled.</para>
+    /// </summary>
+    public PartyOrientation Heads
+    {
+        get => _heads ?? (IsRecipientRecord ? PartyOrientation.WeAreRecipient : PartyOrientation.WeAreSupplier);
+        init => _heads = value;
+    }
+    private readonly PartyOrientation? _heads;
+
+    /// <summary>
+    /// <b>Whether OUR declaration and OUR signature block belong on this document</b> —
+    /// <see cref="PrintedDocumentClass.StatesOurDeclarationAndSignature"/>, carried through. CGST Rule 46(q) and Rule
+    /// 53(1A) put the signature on the ISSUER, so a document we merely record carries the supplier's, never ours.
+    ///
+    /// <para><b>🔴 The axis was WRITE-ONLY before this (T0-11 review C22/L3-08, C24/L3-10).</b> The classifier set it
+    /// on both branches and no production code read it: the renderer dropped the signature off
+    /// <see cref="IsRecipientRecord"/> instead — a proxy from a different axis, and the whole reason the axes were
+    /// split apart. A purpose-built field that nothing reads is a claim the code does not keep.</para>
+    ///
+    /// <para><b>Default = the coherent pairing</b> (<c>!IsRecipientRecord</c>), so nothing already shipped moves.</para>
+    /// </summary>
+    public bool StatesOurDeclarationAndSignature
+    {
+        get => _statesOurDeclarationAndSignature ?? !IsRecipientRecord;
+        init => _statesOurDeclarationAndSignature = value;
+    }
+    private readonly bool? _statesOurDeclarationAndSignature;
+
+    /// <summary>
+    /// True iff this is a recipient-side record of an inward supply that <b>bore no tax and could bear none</b> — a
+    /// wholly exempt, nil-rated or non-GST purchase. Derived by the projector from the POSTED legs (no tax, no cess),
+    /// like every other figure on this path; never from a live master.
+    ///
+    /// <para><b>🔴 CARRIED, NOT YET READ — and that is deliberate, not an oversight (T0-11 review C6/L1-06,
+    /// C7/L1-07).</b> Two statements a wholly exempt record makes today have no referent on the transaction: the
+    /// intra/inter head caption with its <c>CGST 0.00 / SGST 0.00</c> head-row pair, and the totals-band label
+    /// "Taxable Value" over money that was never taxable (the outward twin of that supply says "Value of Supply").
+    /// Both are corrections to <b>what a purchase record says about tax</b>, which is an OPEN R12 question for the
+    /// user (<c>plan.md</c> Phase 10.13 question 1), so neither may be moved on this pass. What could be closed is
+    /// the reason a renderer-only patch would have been WRONG for both: the fact simply could not be expressed —
+    /// <see cref="IsRecipientRecord"/> is true on a TAXED record too, where "Taxable Value" is the truth and the head
+    /// rows have a referent. It is expressible now, and pinned.</para>
+    /// </summary>
+    public bool IsInwardExempt { get; init; }
 
     /// <summary>
     /// The declaration CGST Rule 5(1)(f) requires "at the <b>top</b> of the bill of supply" issued by a composition
@@ -215,6 +313,20 @@ public sealed class InvoicePrintData
     /// </summary>
     public Money TotalCess { get; init; }
 
+    /// <summary>
+    /// The <b>additional charges posted against the party</b> that are neither the value of the supply nor GST/cess
+    /// on it — see <see cref="InvoiceChargeRow"/> for the defect class this closes. Each row is stated on the
+    /// document under the posted ledger's own name and each reaches <see cref="GrandTotal"/>, so the printed demand
+    /// is the debt the general ledger recorded.
+    ///
+    /// <para><b>Placed AFTER the tax heads, deliberately.</b> These charges did not bear the GST stated above them
+    /// (the accept path computes GST from the item lines alone), so listing them before the heads would invite a
+    /// reader to conclude the tax was charged on them too.</para>
+    ///
+    /// <para><b>Default empty ⇒ nothing prints ⇒ every already-shipped document is byte-identical (ER-13).</b></para>
+    /// </summary>
+    public IReadOnlyList<InvoiceChargeRow> OtherCharges { get; init; } = Array.Empty<InvoiceChargeRow>();
+
     /// <summary>The signed round-off applied to the grand total (0 when none).</summary>
     public Money RoundOff { get; init; }
 
@@ -224,8 +336,24 @@ public sealed class InvoicePrintData
     /// <summary>Σ all GST tax (CGST+SGST+IGST) — <b>excludes</b> the ring-fenced <see cref="TotalCess"/> (ER-2).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
-    /// <summary>The invoice grand total = taxable + tax + cess + round-off (paisa-exact) — the amount the recipient
-    /// owes, which must foot to the posted party leg.</summary>
+    /// <summary>Σ <see cref="OtherCharges"/> (paisa-exact); 0 when the document bears none.</summary>
+    public Money TotalOtherCharges
+    {
+        get
+        {
+            var total = 0m;
+            foreach (var c in OtherCharges) total += c.Amount.Amount;
+            return new Money(total);
+        }
+    }
+
+    /// <summary>The invoice grand total = taxable + tax + cess + other charges + round-off (paisa-exact) — the amount
+    /// the recipient owes, which must foot to the posted party leg.
+    /// <para><b>The <see cref="TotalOtherCharges"/> term is what makes that last clause true rather than aspirational</b>
+    /// (T0-11 review C1). Before it, any posted party-side charge outside {goods, GST, cess, round-off} was dropped
+    /// from the demand with nothing on the page naming it; <c>VoucherPrintProjector</c> now refuses to project a
+    /// document whose Grand Total and posted party leg disagree, so the two can only be reconciled by stating the
+    /// charge, never by quietly omitting it.</para></summary>
     public Money GrandTotal =>
-        new(TotalTaxable.Amount + TotalTax.Amount + TotalCess.Amount + RoundOff.Amount);
+        new(TotalTaxable.Amount + TotalTax.Amount + TotalCess.Amount + TotalOtherCharges.Amount + RoundOff.Amount);
 }

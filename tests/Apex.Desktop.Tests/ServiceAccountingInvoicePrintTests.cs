@@ -634,7 +634,14 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
     /// into the service projection when <c>ProjectInvoice</c> was called directly — a divergence from HEAD. The check
     /// now lives INSIDE the gate.
     /// <para><b>Bite:</b> delete the base-type conjunct from <c>IsServiceAccountingInvoice</c> and this ledger-only
-    /// purchase projects a service row instead of the empty item projection HEAD produced.</para>
+    /// purchase diverts into the service projection, which foots — so the refusal asserted below stops firing and
+    /// this test goes red.</para>
+    /// <para><b>▶ T0-11 review C1 restated this assertion, and the subject is unchanged.</b> It used to pin HEAD's
+    /// literal behaviour on a direct call — "the (empty) item projection". That projection states a Grand Total of
+    /// 0.00 against a posted supplier credit of 5,000.00, i.e. exactly the shape
+    /// <c>VoucherPrintProjector.FootingRefusal</c> now exists to refuse (RQ-11a ER-4). The empty DTO was never a
+    /// document anyone could print — nothing routes this voucher to the item pass, as the last assertion here has
+    /// always said — so what moved is which wrong answer a direct caller receives, not what any operator sees.</para>
     /// </summary>
     [Fact]
     public void LedgerOnlyPurchase_neverDivertsIntoTheServiceProjection()
@@ -654,8 +661,10 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
 
         Assert.False(VoucherPrintProjector.IsServiceAccountingInvoice(c, v));
         Assert.False(VoucherPrintProjector.IsTaxInvoice(c, v));
-        // HEAD's behaviour for a direct ProjectInvoice call on a ledger-only purchase: the (empty) item projection.
-        Assert.Empty(VoucherPrintProjector.ProjectInvoice(c, v).Items);
+        // A direct ProjectInvoice call on a ledger-only purchase has nothing to state: the item pass would foot to
+        // 0.00 against a posted supplier credit of 5,000.00, so it is refused rather than projected short (ER-4).
+        var refusal = Assert.Throws<InvalidOperationException>(() => VoucherPrintProjector.ProjectInvoice(c, v));
+        Assert.Equal(VoucherPrintProjector.FootingRefusal(0m, 5000m), refusal.Message);
         // …and it still prints as the plain Dr/Cr voucher it is.
         Assert.Equal(PrintPreviewViewModel.PrintKind.Voucher, new VoucherDetailViewModel(c, v).BuildPrintPreview().Kind);
     }

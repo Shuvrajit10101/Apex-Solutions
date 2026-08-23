@@ -11,8 +11,10 @@ namespace Apex.Desktop.ViewModels;
 /// <list type="bullet">
 ///   <item>a document <see cref="TitleOverride"/> (e.g. "TAX INVOICE" ⇒ "PROFORMA INVOICE"; blank ⇒ default);</item>
 ///   <item><see cref="ShowNarration"/> — whether the narration line prints;</item>
-///   <item><see cref="CopyMarking"/> — the copy label (Original for Recipient / Duplicate for Supplier /
-///     Triplicate for Transporter), or None.</item>
+///   <item><see cref="CopyMarking"/> — the CGST Rule 48(1) copy label (Original for Recipient / Duplicate for
+///     Transporter / Triplicate for Supplier), or None. The pairing is the rule's, verbatim; it shipped
+///     transposed and is corrected in <see cref="Apex.Ledger.Io.CopyMarking"/>, which carries the rule text and
+///     its CBIC source (T0-11 review C10/L1-10).</item>
 /// </list>
 /// On <see cref="Apply"/> the values are pushed back onto the preview VM, which re-renders the PDF + on-screen
 /// preview in place. The panel opens seeded from the preview's current knobs, so opening → applying with no

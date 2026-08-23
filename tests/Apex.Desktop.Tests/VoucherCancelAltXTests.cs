@@ -872,7 +872,14 @@ public sealed class VoucherCancelAltXTests
 
     private sealed record GstKit(MainWindowViewModel Vm, Voucher Invoice, DomainLedger Customer, DomainLedger Sales);
 
-    /// <summary>A Regular-GST company with one posted Sales invoice — the supply a §34 note or an advance points at.</summary>
+    /// <summary>A Regular-GST company with one posted Sales invoice — the supply a §34 note or an advance points at.
+    /// <para><b>▶ T0-11 review C1 made the supply a real ITEM invoice</b> (one Widget line of ₹10,000.00 + tagged
+    /// Output CGST/SGST of ₹900.00 each), where it used to be a bare Dr Customer / Cr Sales pair. The party leg is
+    /// unchanged at ₹11,800.00, so every picker assertion built on this kit is untouched. The reason is
+    /// <c>A_cancelled_tax_invoice_prints_the_overprint_and_keeps_its_statutory_title</c>, which projects it through
+    /// <c>ProjectInvoice</c>: on the old fixture that projection stated a Grand Total of 0.00 against a posted
+    /// ₹11,800.00 — a document the app never builds (nothing routes a bare ledger-only sale to the item pass) and
+    /// that <c>VoucherPrintProjector.FootingRefusal</c> now refuses outright (RQ-11a ER-4).</para></summary>
     private static GstKit GstCompanyWithInvoice(string dir, string name)
     {
         var vm = new MainWindowViewModel(new CompanyStorage(dir));
@@ -902,15 +909,37 @@ public sealed class VoucherCancelAltXTests
             c.AddLedger(sales);
         }
 
+        // One stock line of 10,000.00 @ 18% intra-state ⇒ CGST 900.00 + SGST 900.00 ⇒ the same 11,800.00 party debit.
+        var invSvc = new InventoryService(c);
+        var grp = invSvc.CreateStockGroup("Goods");
+        var nos = invSvc.CreateSimpleUnit("Nos", "Numbers", unitQuantityCode: "NOS");
+        var widget = invSvc.CreateStockItem("Widget", grp.Id, nos.Id);
+        widget.Gst = new StockItemGstDetails
+        { HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        invSvc.AddOpeningBalance(widget.Id, c.MainLocation!.Id, 500m, Money.FromRupees(900m));
+
+        var gstSvc = new GstService(c);
+        var outCgst = gstSvc.FindTaxLedger(GstTaxHead.Central, GstTaxDirection.Output)!.Id;
+        var outSgst = gstSvc.FindTaxLedger(GstTaxHead.State, GstTaxDirection.Output)!.Id;
+
         var salesType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id;
         var invoice = new LedgerService(c).Post(new Voucher(
             Guid.NewGuid(), salesType, InvoiceDate,
             new[]
             {
                 new EntryLine(customer.Id, Money.FromRupees(11800m), DrCr.Debit),
-                new EntryLine(sales.Id, Money.FromRupees(11800m), DrCr.Credit),
+                new EntryLine(sales.Id, Money.FromRupees(10000m), DrCr.Credit),
+                new EntryLine(outCgst, Money.FromRupees(900m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Central, 1800, Money.FromRupees(10000m))),
+                new EntryLine(outSgst, Money.FromRupees(900m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.State, 1800, Money.FromRupees(10000m))),
             },
-            partyId: customer.Id));
+            partyId: customer.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(widget.Id, c.MainLocation!.Id, 10m, Money.FromRupees(1000m),
+                    StockDirection.Outward),
+            }));
 
         return new GstKit(vm, invoice, customer, sales);
     }

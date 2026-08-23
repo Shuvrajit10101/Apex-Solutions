@@ -493,7 +493,7 @@ public sealed class ItemInvoicePostedTaxTests : IDisposable
     /// <para>The cure is deliberately NARROWER than the deferred footing guard, and that is what makes it safe to land
     /// now: it asks only "is every rupee this voucher posted to one of the company's own ordinary Output GST ledgers
     /// visible to the projector as a tagged leg?". TCS Payable is not a GST ledger, so a §206C(1H) invoice cannot trip
-    /// it — see <see cref="A_tcs_bearing_invoice_still_prints_as_a_tax_invoice_and_pins_the_known_shortfall"/>.</para>
+    /// it — see <see cref="A_tcs_bearing_invoice_states_the_collected_tcs_and_foots_to_the_posted_party_leg"/>.</para>
     /// <para><b>Bite:</b> drop the <c>PostedOutputTaxIsFullyTagged</c> conjunct from
     /// <c>GstReportSupport.IsTaxInvoice</c> and this voucher prints a TAX INVOICE demanding ₹47,296.73.</para>
     /// </summary>
@@ -539,21 +539,26 @@ public sealed class ItemInvoicePostedTaxTests : IDisposable
     // ================================================================ 9 — W0-10 REVIEW: TCS is the ONE documented gap
 
     /// <summary>
-    /// <b>W0-10 review findings #3/#10 — the class doc asserted "the printed Grand Total is the debt the general
-    /// ledger recorded — always, and by construction", while plan.md's own carry-forward (a) for this slice says the
-    /// invariant "holds for every <i>non-TCS</i> sale, and the class doc must not claim more".</b> The doc now carries
-    /// the caveat; this test is the assertion that marks the boundary, so the day the TCS row lands on
-    /// <c>InvoicePrintData</c> it fails BY DESIGN and must be restated — exactly the discipline W0-10 applied to the
-    /// pinned ₹8,513.41.
-    /// <para>§206C(1H)/§206C(1) TCS is collected ON TOP of the GST-inclusive total and rides the party debit
-    /// (<c>VoucherEntryViewModel.AcceptItemInvoice</c>: <c>partyAmount = partyAmount + tcs.TotalTcs</c>), while
-    /// <c>InvoicePrintData</c> has no TCS member at all. This is NOT something W0-10 caused or could reach — TCS is not
-    /// GST tax and the posted-legs switch cannot see it.</para>
-    /// <para>It also pins the SAFETY property of the new untagged-legs guard: a TCS invoice's extra credit leg goes to
+    /// <b>🔴 THE DAY CAME. This test was written to fail by design the moment the TCS row landed on
+    /// <c>InvoicePrintData</c>, and T0-11 review C1 landed it — so the shortfall it pinned is now closed and the
+    /// assertion is restated in the same discipline W0-10 applied to the pinned ₹8,513.41.</b>
+    /// <para>What it used to pin: §206C(1H)/§206C(1) TCS is collected ON TOP of the GST-inclusive total and rides the
+    /// party debit (<c>VoucherEntryViewModel.AcceptItemInvoice</c>: <c>partyAmount = partyAmount + tcs.TotalTcs</c>),
+    /// while <c>InvoicePrintData</c> had no member that could carry it — so the printed demand was short by exactly
+    /// the collected ₹558 (₹55,810.14 against a posted ₹56,368.14). It was one of two known members of a class:
+    /// "a posted leg that moves the party total but has no term in the document's money vocabulary". The other, the
+    /// additional cost of purchase, became reachable when slice S2 routed a Purchase item invoice through the same
+    /// pass, and the review closed BOTH at one address — <c>InvoicePrintData.OtherCharges</c>, a row per posted
+    /// charge captioned with the posted ledger's own name, plus <c>VoucherPrintProjector.FootingRefusal</c>, which
+    /// refuses to project any document whose Grand Total and posted party leg disagree.</para>
+    /// <para>What it pins NOW: the collected TCS is STATED on the document under its posted ledger's name, and the
+    /// Grand Total is the posted party debit to the paisa. Every literal below is the fixture's own arithmetic —
+    /// 1% of the GST-inclusive ₹55,810.14 = ₹558.1014, rounded to the rupee under §288B ⇒ ₹558.</para>
+    /// <para>It also pins the SAFETY property of the untagged-legs guard: a TCS invoice's extra credit leg goes to
     /// TCS Payable, which is not a GST ledger, so the guard cannot demote it — the regression plan.md warns against.</para>
     /// </summary>
     [Fact]
-    public void A_tcs_bearing_invoice_still_prints_as_a_tax_invoice_and_pins_the_known_shortfall()
+    public void A_tcs_bearing_invoice_states_the_collected_tcs_and_foots_to_the_posted_party_leg()
     {
         var (vm, scrapId, godownId, buyerId) = NewTcsKit("Posted Tcs Co");
         vm.OpenVoucher(VoucherBaseType.Sales);
@@ -580,9 +585,21 @@ public sealed class ItemInvoicePostedTaxTests : IDisposable
         Assert.Equal(SupplyValue, data.TotalTaxable);
         Assert.Equal(PostedCgst, data.TotalCgst.Amount);
         Assert.Equal(PostedSgst, data.TotalSgst.Amount);
-        // 🔴 THE PIN: the printed demand is short by the whole collected TCS. Restate this the day the DTO field lands.
-        Assert.Equal(PostedPartyLeg, data.GrandTotal.Amount);
-        Assert.Equal(postedTcs, PartyLeg(v) - data.GrandTotal.Amount);
+        // 🔴 THE PIN, RESTATED (T0-11 review C1): the collected TCS is on the page under the ledger it was posted to,
+        // and the printed demand IS the posted party debit — no shortfall left to pin.
+        var tcsRow = Assert.Single(data.OtherCharges);
+        Assert.Equal(c.Ledgers.Single(l => l.TdsTcsClassification == TdsTcsLedgerKind.Tcs).Name, tcsRow.Caption);
+        Assert.Equal(558m, tcsRow.Amount.Amount);
+        Assert.Equal(56_368.14m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLeg(v), data.GrandTotal.Amount);
+        Assert.Equal(0m, PartyLeg(v) - data.GrandTotal.Amount);
+
+        // …and it reaches the page the customer receives, not just the DTO.
+        var pdf = System.Text.Encoding.Latin1.GetString(
+            InvoicePdf.Render(data, new PrintConfig(), new PageConfig()));
+        Assert.Contains(tcsRow.Caption, pdf);
+        Assert.Contains("558.00", pdf);
+        Assert.Contains("56,368.14", pdf);
     }
 
     // ================================================================ 10 — W0-10 REVIEW: taxable AT 0%, both passes
