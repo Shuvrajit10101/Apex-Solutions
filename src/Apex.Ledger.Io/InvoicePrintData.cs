@@ -158,6 +158,22 @@ public sealed class InvoicePrintData
     public bool IsRecipientRecord { get; init; }
 
     /// <summary>
+    /// <b>True iff this document is a §34 credit or debit note</b> (T0-11 slice S4; RQ-11b) — issued by us, or
+    /// recorded from the counterparty. Presentational and structural only: it carries no money and moves no figure.
+    ///
+    /// <para><b>What it is for, and why it is a flag rather than a title comparison.</b> The <b>nature of the
+    /// document</b> is a mandatory Rule-53 particular, so the F12 title override must not reach a note — the same
+    /// rule the bill of supply and the recipient-side record already carry, for the same reason: the document kind
+    /// follows the transaction, not a print preference, and a knob that could re-title a credit note "TAX INVOICE"
+    /// would state on paper that we supplied something we did not. Keying that refusal on the TITLE STRING instead
+    /// would make the guard evaporate the moment the title moved, which is precisely how FIX-W1h and FIX-W2b were
+    /// reached; the renderer derives it STRUCTURALLY, exactly as it does for the other two classes.</para>
+    ///
+    /// <para><b>Default false, so every already-shipped document is byte-identical (ER-13).</b></para>
+    /// </summary>
+    public bool StatesSection34Note { get; init; }
+
+    /// <summary>
     /// <b>Whose identity HEADS the document</b> (CGST Rule 46(a)) — <see cref="PrintedDocumentClass.Heads"/>, carried
     /// through instead of being re-answered from <see cref="IsRecipientRecord"/>.
     ///

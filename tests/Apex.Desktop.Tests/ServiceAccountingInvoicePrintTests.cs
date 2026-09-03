@@ -4,6 +4,7 @@ using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
@@ -631,27 +632,47 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
     /// <summary>
     /// <b>F7 (small).</b> <c>IsServiceAccountingInvoice</c> is public and <c>ProjectInvoice</c> calls it directly, so
     /// relying on <c>IsTaxInvoice</c> to have checked the base type first left a ledger-only PURCHASE able to divert
-    /// into the service projection when <c>ProjectInvoice</c> was called directly — a divergence from HEAD. The check
-    /// now lives INSIDE the gate.
-    /// <para><b>Bite:</b> delete the base-type conjunct from <c>IsServiceAccountingInvoice</c> and this ledger-only
-    /// purchase diverts into the service projection, which foots — so the refusal asserted below stops firing and
-    /// this test goes red.</para>
-    /// <para><b>▶ T0-11 review C1 restated this assertion, and the subject is unchanged.</b> It used to pin HEAD's
-    /// literal behaviour on a direct call — "the (empty) item projection". That projection states a Grand Total of
-    /// 0.00 against a posted supplier credit of 5,000.00, i.e. exactly the shape
-    /// <c>VoucherPrintProjector.FootingRefusal</c> now exists to refuse (RQ-11a ER-4). The empty DTO was never a
-    /// document anyone could print — nothing routes this voucher to the item pass, as the last assertion here has
-    /// always said — so what moved is which wrong answer a direct caller receives, not what any operator sees.</para>
+    /// into the OUTWARD service projection when <c>ProjectInvoice</c> was called directly — a divergence from HEAD.
+    /// The check now lives INSIDE the gate, and it is still Sales-only: CGST Act §31(1)/(2) attach the tax-invoice
+    /// duty to "a registered person <b>supplying</b>", so no purchase may ever reach the document this gate admits.
+    ///
+    /// <para><b>▶ 🔴 RE-POINTED BY T0-11 SLICE S3, AND THE ASSERTIONS BELOW DID NOT MOVE — only the claim around
+    /// them did.</b> The name and the doc comment used to say a ledger-only purchase <i>never</i> diverts into the
+    /// service projection at all. That universal is now FALSE, and deliberately so: <b>RQ-11a</b> puts the "purchase
+    /// accounting-(service)-invoice" inside its scope in as many words and requires it to render as a RECORD of the
+    /// supplier's document, so a genuine one now takes that pass through
+    /// <c>GstReportSupport.IsRecordedServiceAccountingInvoice</c> — the INWARD gate, which is a different predicate
+    /// with a different title and the party blocks the other way round (<c>PurchaseServiceRecordPrintTests</c>).
+    /// <b>The re-pointing is authorised by the amended requirement, never by the new code</b>: RQ-11a was written by
+    /// slice S0 before any of it existed, and this test's own subject is unchanged.</para>
+    ///
+    /// <para><b>Why THIS voucher still diverts nowhere, which is the fact the test now names.</b> Its expense ledger
+    /// DECLARES a taxable supply at 18% and the voucher posted no tax at all, so it fails conjunct F9
+    /// (<c>TaxedLegsCarryTheirTax</c>) on both sides — a taxable supply may not be billed at NIL GST. It is refused
+    /// as an inward record for exactly the reason it is refused as an outward invoice, and the reason is a conjunct
+    /// the two gates share, not the base type.</para>
+    ///
+    /// <para><b>Bite:</b> delete the F9 conjunct from the shared accounting-invoice shape and this purchase becomes a
+    /// PURCHASE RECORD stating 5,000.00 of taxable value with no tax against a supplier who charged none — and the
+    /// <c>PrintKind.Voucher</c> assertion below goes red. (The old bite — "delete the base-type conjunct" — is dead
+    /// and has been removed: with the inward gate in place, deleting it moves nothing for this voucher, and a bite
+    /// that no longer bites is the dead-guard defect class this project logs.)</para>
+    ///
+    /// <para><b>▶ T0-11 review C1 restated the middle assertion, and its subject is unchanged.</b> It used to pin
+    /// HEAD's literal behaviour on a direct call — "the (empty) item projection". That projection states a Grand
+    /// Total of 0.00 against a posted supplier credit of 5,000.00, i.e. exactly the shape
+    /// <c>VoucherPrintProjector.FootingRefusal</c> exists to refuse (RQ-11a ER-4).</para>
     /// </summary>
     [Fact]
-    public void LedgerOnlyPurchase_neverDivertsIntoTheServiceProjection()
+    public void LedgerOnlyPurchaseBilledAtNilGst_neverDivertsIntoEitherServiceProjection()
     {
         var k = NewServiceKit("Svc Print PurchaseGuard Co");
         var c = k.Vm.Company!;
         var purchaseType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase && t.IsActive);
 
-        // A ledger-only PURCHASE against a SAC-bearing expense ledger — and stamped with the accounting-invoice flag,
-        // which the purchase side of the screen cannot do today. The base-type check is what keeps it out regardless.
+        // A ledger-only PURCHASE against a SAC-bearing expense ledger that declares 18%, stamped with the
+        // accounting-invoice flag the shipped screen stamps — and posting NO tax leg. That last fact is what keeps
+        // it out of both projections (F9), and it is the fact this test exists to pin.
         var v = new Voucher(Guid.NewGuid(), purchaseType.Id, FyStart.AddDays(12), new[]
         {
             new EntryLine(k.ProfessionalFeesId, Money.FromRupees(5000m), DrCr.Debit),
@@ -661,6 +682,10 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
 
         Assert.False(VoucherPrintProjector.IsServiceAccountingInvoice(c, v));
         Assert.False(VoucherPrintProjector.IsTaxInvoice(c, v));
+        // T0-11 S3 — and the INWARD gate refuses it too, on the shared F9 conjunct rather than on the base type.
+        Assert.False(GstReportSupport.IsRecordedServiceAccountingInvoice(c, v));
+        Assert.Equal(DocumentRole.NoStatutoryDocument,
+            GstReportSupport.ClassifyPrintedDocument(c, v).Role);
         // A direct ProjectInvoice call on a ledger-only purchase has nothing to state: the item pass would foot to
         // 0.00 against a posted supplier credit of 5,000.00, so it is refused rather than projected short (ER-4).
         var refusal = Assert.Throws<InvalidOperationException>(() => VoucherPrintProjector.ProjectInvoice(c, v));
