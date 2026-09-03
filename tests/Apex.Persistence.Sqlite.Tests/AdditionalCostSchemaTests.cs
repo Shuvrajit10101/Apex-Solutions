@@ -225,6 +225,9 @@ public sealed class AdditionalCostSchemaTests
             name TEXT NOT NULL, base_type INTEGER NOT NULL,
             use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         CREATE TABLE inventory_vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             type_id TEXT NOT NULL REFERENCES voucher_types(id), number INTEGER NOT NULL, date TEXT NOT NULL);
         CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -235,5 +238,11 @@ public sealed class AdditionalCostSchemaTests
             voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL, stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL,
             quantity_micro INTEGER NOT NULL, direction INTEGER NOT NULL, rate_paisa INTEGER NOT NULL,
             batch_label TEXT NULL, batch_id TEXT NULL);
+        -- groups and stock_groups are required because the chain now runs through the v50->v51 GST-hierarchy
+        -- migration, whose ALTER TABLE groups / stock_groups ADD COLUMN gst_hsn_sac/gst_taxability/gst_rate_bp/
+        -- gst_supply_type needs both tables to exist. A real database of this vintage always has them (groups at
+        -- v1, stock_groups at v9); this fixture is a minimal hand-written subset, so they are declared here for
+        -- the ALTERs to land on.
+        CREATE TABLE stock_groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 }

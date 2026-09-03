@@ -219,6 +219,14 @@ public sealed class ItemInvoiceRoundTripTests
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // Drop the v52 voucher-edit-log table + its index so the reopen's v51->v52 CREATE TABLE does not
+        // collide with an already-present table.
+        Exec(conn, "DROP INDEX IF EXISTS ix_voucher_edit_log_company;");
+        Exec(conn, "DROP TABLE IF EXISTS voucher_edit_log;");
+        // Drop the v47 numbering affix child tables so the reopen's v46→v47 CREATE TABLE does not collide (the
+        // voucher_types rebuild below strips the v47 prevent_duplicate/number_width/prefill_with_zero columns too).
+        Exec(conn, "DROP TABLE IF EXISTS voucher_type_prefix;");
+        Exec(conn, "DROP TABLE IF EXISTS voucher_type_suffix;");
         // Drop the v26 TDS withholding-detail table (+ index) so the reopen's v25→v26 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_tds_lines_entry_line;");
         // Drop the v28 TCS collection-detail table (+ index) so the reopen's v27→v28 CREATE TABLE does not collide.
@@ -376,8 +384,56 @@ public sealed class ItemInvoiceRoundTripTests
             DROP TABLE voucher_types;
             ALTER TABLE voucher_types_v17 RENAME TO voucher_types;
             """);
+        // Rebuild vouchers WITHOUT the two v48 counterparty-reference columns (reference_no/reference_date), so this
+        // is a faithful pre-v48 shape and the reopen's v47→v48 ALTER TABLE ADD COLUMN does not collide. applicable_upto
+        // (v6) predates v11, so it is kept. The explicit DDL preserves the id PRIMARY KEY — a CREATE … AS SELECT would
+        // drop it, and voucher_inventory_lines (which FK-references vouchers(id)) then fails on the re-save.
+        Exec(conn, """
+            CREATE TABLE vouchers_v11 (
+                id          TEXT    NOT NULL PRIMARY KEY,
+                company_id  TEXT    NOT NULL,
+                type_id     TEXT    NOT NULL,
+                number      INTEGER NOT NULL,
+                date        TEXT    NOT NULL,
+                narration   TEXT        NULL,
+                party_id    TEXT        NULL,
+                cancelled   INTEGER NOT NULL,
+                optional    INTEGER NOT NULL,
+                post_dated  INTEGER NOT NULL,
+                applicable_upto TEXT    NULL);
+            INSERT INTO vouchers_v11
+                (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto)
+            SELECT id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto
+            FROM vouchers;
+            DROP TABLE vouchers;
+            ALTER TABLE vouchers_v11 RENAME TO vouchers;
+            """);
         DowngradeStripV16(conn);
         DowngradeStripV13(conn);
+        // Rebuild groups and stock_groups WITHOUT the four v51 GST-hierarchy columns each gained
+        // (gst_hsn_sac / gst_taxability / gst_rate_bp / gst_supply_type), so this is a faithful pre-v51 shape and
+        // the reopen's v50→v51 ALTER TABLE ADD COLUMN does not collide. Explicit DDL rather than a
+        // CREATE … AS SELECT: ledgers.group_id references groups(id) and stock_items.stock_group_id references
+        // stock_groups(id), so both PRIMARY KEYs have to survive or the re-save fails on an FK mismatch.
+        Exec(conn, """
+            CREATE TABLE groups_v11 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                nature INTEGER NOT NULL, parent_id TEXT NULL, alias TEXT NULL,
+                is_predefined INTEGER NOT NULL, is_pl_head INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO groups_v11 SELECT id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head
+                FROM groups;
+            DROP TABLE groups;
+            ALTER TABLE groups_v11 RENAME TO groups;
+            """);
+        Exec(conn, """
+            CREATE TABLE stock_groups_v11 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                parent_id TEXT NULL, alias TEXT NULL, add_quantities INTEGER NOT NULL DEFAULT 1);
+            INSERT INTO stock_groups_v11 SELECT id, company_id, name, parent_id, alias, add_quantities
+                FROM stock_groups;
+            DROP TABLE stock_groups;
+            ALTER TABLE stock_groups_v11 RENAME TO stock_groups;
+            """);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);
     }

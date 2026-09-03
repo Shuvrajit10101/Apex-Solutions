@@ -324,10 +324,9 @@ public sealed partial class ImsActionsViewModel : ViewModelBase
         paisa = 0;
         if (!decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var rupees))
             return false;
-        var scaled = rupees * 100m;
-        if (scaled != decimal.Truncate(scaled)) return false;   // sub-paisa ⇒ not representable
-        paisa = (long)scaled;
-        return true;
+        // ONE rupees→paisa rule (drift lock D3): the non-throwing EXACT variant — a typed amount finer than a
+        // paisa is rejected as input rather than silently rounded.
+        return Apex.Ledger.PaisaConversion.TryToPaisaExact(rupees, out paisa);
     }
 
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));

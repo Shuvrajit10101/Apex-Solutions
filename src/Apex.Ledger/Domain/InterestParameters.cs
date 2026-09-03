@@ -17,7 +17,17 @@ public sealed class InterestParameters
     /// <summary>Whether interest is activated for the ledger. When false, no interest accrues.</summary>
     public bool Enabled { get; }
 
-    /// <summary>Rate percentage per <see cref="Per"/> (e.g. 18 = 18% p.a. when <see cref="Per"/> is a year basis). ≥ 0.</summary>
+    /// <summary>
+    /// The interest rate, in percent. ≥ 0.
+    /// <para>
+    /// ⚠ Whether this is quoted <b>per annum</b> or <b>per <see cref="Per"/> period</b> is measurement
+    /// <b>T8</b> and is not yet settled (plan.md Phase 10.10 · WF-6 / slice S3). The engine currently
+    /// divides it by an annualised day count for every <see cref="Per"/> style, so it behaves as an annual
+    /// rate. Do not restate the convention here — the divisor actually in force for each style is stated on
+    /// that style's <see cref="InterestPer"/> member and implemented in
+    /// <see cref="Apex.Ledger.Reports.InterestCalculation.BasisFor(InterestPer, System.DateOnly)"/>.
+    /// </para>
+    /// </summary>
     public decimal RatePercent { get; }
 
     /// <summary>The rate basis (30-day month / 365-day year / calendar month / calendar year).</summary>

@@ -5,7 +5,7 @@
 > `src/Apex.Ledger` — a pure C# class library with **no UI and no DB dependencies**
 > (persistence is via repository interfaces the shell supplies).
 >
-> **Grounding:** `plan.md` §4 (Domain/Data Model — 28 groups, 2 ledgers, 24 voucher types),
+> **Grounding:** `plan.md` §4 (Domain/Data Model — 28 groups, 2 ledgers, 23 voucher types),
 > `docs/tally-feature-catalog.md` §1/§3/§4/§16/§22, `docs/adr/0001-tech-stack.md` (C#/.NET 10 +
 > Avalonia + SQLite), and the regression fixtures `tests/Apex.Ledger.Tests/Fixtures/robert.json`
 > and `bright.json`. This design is the load-bearing decision of the whole build (plan.md §1.1,
@@ -60,7 +60,7 @@ src/Apex.Ledger/                       (class library, netX.0, no UI/DB deps)
 ├─ Seed/
 │  ├─ SeedGroups.cs                    the 28 predefined groups (nature+parent)
 │  ├─ SeedLedgers.cs                   Cash, Profit & Loss A/c
-│  └─ SeedVoucherTypes.cs             the 24 predefined voucher types
+│  └─ SeedVoucherTypes.cs             the 23 predefined voucher types
 ├─ Services/
 │  ├─ CompanyFactory.cs                CreateSeeded(name, …)
 │  └─ LedgerService.cs                 Post(voucher), Cancel, Delete, numbering
@@ -249,7 +249,7 @@ empty read-only lists now so the shape is stable; each populates in its owning p
 ## 5. Seed data (applied on every `Company.CreateSeeded`)
 
 The seed is itself a **fixture-backed unit test** (plan.md §4.4): a fresh company must contain
-*exactly* these — 28 groups, 2 ledgers, 24 voucher types, Primary Cost Category, Main Location,
+*exactly* these — 28 groups, 2 ledgers, 23 voucher types, Primary Cost Category, Main Location,
 ₹/INR 2-dp "Paisa", FY 1-Apr→31-Mar. A 28-group count assertion guards against the historical
 28-vs-29 drift (verification §A6/A7 — "Bank OCC A/c" is an **alias** of Bank OD A/c, not a 29th
 group; P&L A/c is a **ledger**, not a 29th group per §A8).
@@ -310,9 +310,28 @@ the Balance Sheet liabilities/capital side and receives the period net profit (s
 1 it is modelled as a predefined ledger whose "group" is the reserved P&L head; its Balance-Sheet
 line is computed (opening P&L brought forward + current-period net profit), never entered directly.
 
-### 5.3 The 24 predefined voucher types (Name — Base type — Shortcut — Numbering)
+### 5.3 The 23 predefined voucher types (Name — Base type — Shortcut — Numbering)
 
-The **16 accounting/inventory core types** (catalog §4 table):
+> **Re-cut 2026-08-15 against `SeedVoucherTypes.cs` and now locked to it** by
+> `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs`
+> (`The_seed_tables_in_the_design_document_match_the_seed_code`), which compares these two tables to
+> `SeedVoucherTypes.Build()` row for row. Four things had drifted and are corrected below: **TallyPrime seeds
+> 24 and Apex seeds 23** — the 24th, **Attendance**, was deliberately dropped because nothing in the product
+> ever posted a voucher of that kind (decision **D24-B**; the `VoucherBaseType.Attendance` enum member stays,
+> because `voucher_types.base_type` is persisted as the enum ordinal); **Physical Stock is `Ctrl+F7`**, not
+> F10 (decision **X1** — F10 opens the Other Vouchers menu in this app); and the **Shortcut / `IsActive`
+> columns now carry the seeded value ALONE**, with the "reached from F10 Other Vouchers" and "gated on its
+> F11 feature" notes moved into the prose beneath, so the cells stay machine-comparable.
+>
+> **What "locked" does and does not mean (stated because the first version of the lock was weaker than it read).**
+> The comparison is **per column, per row, keyed on the HEADER TEXT**. A column a row does not carry was simply
+> skipped — so renaming a header (`Shortcut` → `Key`) switched that column off for all 16 core rows with no
+> diagnostic and no change in row count, and a corrupted shortcut passed. Since 2026-08-15 every compared column
+> must be carried by every row bar an exact, named, counted opt-out (`IsActive default`, absent from the core
+> table by design), so a rename now fails. **Editing a header here is therefore a load-bearing change**: rename a
+> column and the test tells you, but only because that opt-out list is kept honest.
+
+The **16 accounting/inventory core types** (catalog §4 table). All 16 are seeded `IsActive = true`:
 
 | # | Name | Base type | Shortcut | Numbering |
 |---|---|---|---|---|
@@ -325,7 +344,7 @@ The **16 accounting/inventory core types** (catalog §4 table):
 | 7 | Credit Note | CreditNote | Alt+F6 | Automatic |
 | 8 | Debit Note | DebitNote | Alt+F5 | Automatic |
 | 9 | Stock Journal | StockJournal | Alt+F7 | Automatic |
-| 10 | Physical Stock | PhysicalStock | F10 (Physical Stock) | Automatic |
+| 10 | Physical Stock | PhysicalStock | Ctrl+F7 | Automatic |
 | 11 | Sales Order | SalesOrder | Ctrl+F8 | Automatic |
 | 12 | Purchase Order | PurchaseOrder | Ctrl+F9 | Automatic |
 | 13 | Delivery Note | DeliveryNote | Alt+F8 | Automatic |
@@ -333,22 +352,29 @@ The **16 accounting/inventory core types** (catalog §4 table):
 | 15 | Rejection Out | RejectionOut | Ctrl+F5 | Automatic |
 | 16 | Rejection In | RejectionIn | Ctrl+F6 | Automatic |
 
-The **8 additional predefined types** (`F10 Other Vouchers → Show Inactive`; catalog §4). Payroll &
-Job-Work types are inactive until their F11 feature is enabled (verification §A15):
+The **7 additional predefined types**. All seven are reached from `F10 Other Vouchers → Show Inactive`;
+Memorandum and Reversing Journal carry **no** default shortcut of their own, and rows 19–22 (Job-Work) and
+row 23 (Payroll) are seeded `IsActive = false` until their respective **F11** feature is enabled
+(verification §A15; catalog §4):
 
 | # | Name | Base type | Shortcut | Numbering | `IsActive` default |
 |---|---|---|---|---|---|
-| 17 | Memorandum | Memorandum | — (F10) | Automatic | true |
-| 18 | Reversing Journal | ReversingJournal | — (F10) | Automatic | true |
-| 19 | Job Work In Order | JobWorkInOrder | — | Automatic | false (Job-Work F11) |
-| 20 | Material In | MaterialIn | — | Automatic | false (Job-Work F11) |
-| 21 | Job Work Out Order | JobWorkOutOrder | — | Automatic | false (Job-Work F11) |
-| 22 | Material Out | MaterialOut | — | Automatic | false (Job-Work F11) |
-| 23 | Attendance | Attendance | — (Ctrl+F4 area) | Automatic | false (Payroll F11) |
-| 24 | Payroll | Payroll | Ctrl+F4 | Automatic | false (Payroll F11) |
+| 17 | Memorandum | Memorandum | — | Automatic | true |
+| 18 | Reversing Journal | ReversingJournal | — | Automatic | true |
+| 19 | Job Work In Order | JobWorkInOrder | — | Automatic | false |
+| 20 | Material In | MaterialIn | — | Automatic | false |
+| 21 | Job Work Out Order | JobWorkOutOrder | — | Automatic | false |
+| 22 | Material Out | MaterialOut | — | Automatic | false |
+| 23 | Payroll | Payroll | Ctrl+F4 | Automatic | false |
 
-Total = 16 + 8 = **24**. The seed asserts exactly 24 types and the eight core accounting shortcuts
-(F4–F9, Alt+F5/F6) resolve to the right base types.
+> **Attendance is NOT here** — TallyPrime's 24th predefined type has no Apex seed row. It was dead master
+> data: the Attendance / Production screen writes `AttendanceEntry` rows through `PayrollAttendanceService`
+> and needs no voucher type at all, so the row existed only to prop up a "24 of 24" claim that was not true
+> (decision **D24-B**). This is a **recorded fidelity gap against TallyPrime**, not a typo — see
+> `docs/full-clone-census.md` Tier 3.
+
+Total = 16 + 7 = **23** (`SeedVoucherTypes.Count`). The seed asserts exactly that count at build time and the
+eight core accounting shortcuts (F4–F9, Alt+F5/F6) resolve to the right base types.
 
 ### 5.4 Other seeds
 
@@ -519,7 +545,7 @@ firm up under TDD in Phase 1.
 ```csharp
 public static class CompanyFactory
 {
-    /// Creates a fully seeded company: 28 groups, 2 ledgers, 24 voucher types,
+    /// Creates a fully seeded company: 28 groups, 2 ledgers, 23 voucher types,
     /// Primary Cost Category, Main Location, ₹/INR 2-dp, FY 1-Apr→31-Mar.
     public static Company CreateSeeded(
         string name,
@@ -598,7 +624,7 @@ against the fixtures' `expected` blocks.
 Robert and Bright (plan.md §6.3; R8) are the standing engine baseline. The Phase-1 test suite:
 
 1. **Load** each fixture (masters + vouchers), resolving names → ids.
-2. **Seed check** — a fresh `CreateSeeded` company contains exactly the 28 groups / 2 ledgers / 24
+2. **Seed check** — a fresh `CreateSeeded` company contains exactly the 28 groups / 2 ledgers / 23
    voucher types (count + identity assertions; guards the 28-vs-29 drift).
 3. **Post** all vouchers via `LedgerService.Post`; assert none is rejected and each balances.
 4. **Assert to the paisa** against each fixture's `expected`:

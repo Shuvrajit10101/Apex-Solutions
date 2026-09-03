@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
@@ -195,6 +195,84 @@ public partial class MainWindow : Window
             return;
         }
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // WHAT THIS CLOSES. `VoucherEntryViewModel.ForAlter` shipped with ZERO production callers — every caller
+        // lived in tests/Apex.Desktop.Tests — so no operator could reach voucher alteration by any sequence of
+        // keys. That is the SAME defect `StockItemAlterReachabilityTests` was written for one file away, and it
+        // shipped a second time in a codebase that already contained the test proving the shape. The standing
+        // lock against a third is `ViewModelAlterEntryPointReachabilityTests`, which derives its set rather than
+        // listing it.
+        //
+        // FIDELITY (R7) — TWO RECORDS, KEPT APART because conflating them is the defect lenses caught on S3 AND
+        // S5a. (A) The chord is a DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR: the corpus gives Ctrl+Enter as
+        // "To alter a master during voucher entry or from drilldown of a report" (Book PDF p.436 [printed p.432],
+        // `-raw`) — an alteration key, from a drill-down, for a MASTER; we widen it to a VOUCHER from the same
+        // place. (B) NOT using plain Enter is a DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR: the corpus
+        // reaches voucher alteration with plain Enter on a register row ("Select Month & Show/Edit Entry", Book
+        // PDF pp.32, 34, 37, 42, 47, 49, 64, 71) and has no separate read-only voucher screen — we keep plain
+        // Enter for the read-only VoucherDetail column, USER DECISION 1 / VL-1. Neither is corpus silence.
+        // 🔴 Ctrl+B STAYS RESERVED AND UNBOUND. Nothing here claims it.
+        //
+        // ORDER IS LOAD-BEARING, in both directions:
+        //   • BELOW the stock-item arm above, which owns Ctrl+Enter on Screen.StockItemMaster and returns false
+        //     everywhere else. The two surfaces are disjoint, so the order is a reading convenience — but it also
+        //     means master alteration keeps the chord it already had if a screen ever carries both.
+        //   • ABOVE the `vm.DrillSelectedRow()` arm immediately below, and THAT is a real behaviour change: that
+        //     arm tests `e.Key == Key.Enter` with NO modifier test at all, so before this block Ctrl+Enter on a
+        //     Day-Book row DRILLED, identically to plain Enter. Plain Enter still drills — the read-only column
+        //     is USER DECISION 1's half — and Ctrl+Enter now alters.
+        //
+        // EVERY GUARD, inherited from the S3/S4 reviews rather than re-derived:
+        //   • `vm.IsVoucherAlterTargetPage` — the live report page, the register drill, the voucher-detail
+        //     column: EXACTLY the three voucher arms of `IsDeleteTargetPage`, so Alt+D and Ctrl+Enter can never
+        //     disagree about which voucher the highlight means. It uses `IsLiveReportPage`, NOT
+        //     `IsReportContext`: the latter is deliberately TRUE while an F12 config, an Alt+F12 sort/filter, an
+        //     Alt+A picker, an Alt+K saved-views panel or a Print Preview column is stacked over the report with
+        //     the row still highlighted behind it. S3 measured that hole on five screens; it is not re-opened.
+        //     🔴 HONESTLY LABELLED, because the mutation was run and it did NOT say what this comment first
+        //     claimed: swapping this clause for `vm.IsReportContext` does NOT let a stacked column alter the row
+        //     behind it — `RequestAlterHighlightedVoucher`'s own `CurrentScreen` switch has no `ReportConfig`
+        //     arm and refuses it a second time. For THAT case the two guards are redundant and the view model is
+        //     what decides. This clause is still load-bearing, measurably, in the other direction: under that
+        //     same mutation the register drill and the voucher-detail column stop working entirely (both are
+        //     excluded from `IsReportContext` by construction), so the chord loses two of its three surfaces.
+        //     Read it as the readable statement of scope plus a cheap pre-filter — not as the thing standing
+        //     between an operator and S3's hole.
+        //   • `e.KeyModifiers == KeyModifiers.Control` — an EXACT match, not `HasFlag`. Ctrl+Alt+Enter,
+        //     Ctrl+Shift+Enter and Ctrl+Win+Enter are different chords. Same doctrine as the Alt+X and Alt+D arms
+        //     below and the bare-letter quick-jumps far beneath them. (The stock-item arm above keeps its own
+        //     `HasFlag` spelling; tightening it is not this slice's change to make.)
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, and labelled honestly. The three surfaces
+        //     this arm is scoped to carry no TextBox that takes focus today, and the report page's three
+        //     ComboBoxes are invisible on the report kinds that have voucher rows — so on the surfaces reachable
+        //     at this commit neither clause can change the outcome, and neither is independently pinnable. They
+        //     are kept, not deleted, for the same reason the Alt+X pair is: this arm puts a POSTED voucher into
+        //     an editable form, and the report page is one inline filter box away from making them load-bearing.
+        //     Do NOT write a test claiming to pin them — it would be pinning the screen gate.
+        // The view model does the REST of the gating (a row must be highlighted, it must resolve to a real
+        // voucher, no confirmation may already be up, and `ForAlter`'s eligibility predicate must accept the
+        // shape — 13 of 33 enumerated shapes REFUSE, and the refusal is shown on the notice bar, never swallowed).
+        //
+        // 🔴 `e.Handled` IS NOT UNCONDITIONAL HERE, and that is the one place this arm deliberately departs from
+        // Alt+X and Alt+D. Its outcome is three-valued (see `VoucherAlterationRequest`):
+        //   • Opened / Refused → CONSUMED. A refusal is terminal because the sentence has just been written to
+        //     the notice bar and `OnCurrentScreenChanged` clears that bar on any change of screen — falling
+        //     through to the drill below would open the voucher-detail column and wipe the explanation on the way
+        //     past, which is exactly the "invisible failed operation" defect S3's review found, by another route.
+        //   • NoVoucherHere → NOT consumed, so the keystroke continues to `DrillSelectedRow` below. That arm
+        //     tests `e.Key == Key.Enter` with no modifier test, so Ctrl+Enter on a Trial Balance ledger row (or
+        //     any header/total row) drills TODAY; swallowing it would take a working behaviour away in exchange
+        //     for a dead key.
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.Control
+            && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
+            && vm.RequestAlterHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
         // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble
@@ -230,6 +308,12 @@ public partial class MainWindow : Window
                 vm.ApplyExportData();
             else if (vm.CurrentScreen == Screen.ImportData)
                 vm.ApplyImport();
+            // Data -> Backup / Restore (the R-7 carve-out). On the Restore panel Ctrl+A is the DESTRUCTIVE step,
+            // and the VM refuses it unless the archive has been examined AND the confirmation is ticked (NFR-8).
+            else if (vm.CurrentScreen == Screen.BackupCompany)
+                vm.ApplyBackup();
+            else if (vm.CurrentScreen == Screen.RestoreCompany)
+                vm.ApplyRestore();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             else if (vm.CurrentScreen == Screen.EmailCompose)
@@ -254,14 +338,66 @@ public partial class MainWindow : Window
         //   • It sits AFTER the Ctrl+A arm above, so the accept-as-is shortcut still reaches its own handler and
         //     saves WITHOUT the prompt (the ~40 Ctrl+A screens are untouched, and Ctrl+A while the prompt happens
         //     to be up simply accepts, as the reference product does).
-        //   • It sits BEFORE the bare-Y (Gateway → Export Data) and Alt+N (Auto Columns) arms further down, so
-        //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
+        //   • It sits BEFORE the bare-Y (Gateway → Export Data), Alt+Y (Data → Backup / Restore, :633) and
+        //     Alt+N (Auto Columns) arms further down, and it CONSUMES all four shapes while the confirmation
+        //     is up: bare Y/N answer it, Alt+Y/Alt+N are inert (see the S1 block below). Nothing reaches a
+        //     backup panel, an Export-Data panel or an Auto-Columns chooser over a live confirmation.
         // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
         // their existing meanings across the rest of the app.
-        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        //
+        // V8 — USER DECISION: the !IsPickerOpen(e) guard fixes the stray-Y-saves bug. With the accept prompt AND
+        // a dropdown BOTH open, a bare Y used to reach ConfirmMasterAccept here and SAVE the master (measured:
+        // promptOpen=True dropdownOpen=True, ledgers 38 -> 39) — a Y the operator meant as type-ahead into the
+        // dropdown silently committed the ledger. This arm now YIELDS while a dropdown is open, so Y/N/Escape
+        // reach the dropdown, not the confirm. The same guard is on the navigation Escape arm below, so with
+        // both open the FIRST Escape closes the DROPDOWN (both arms yield; the ComboBox closes itself) and only a
+        // SECOND Escape — no dropdown left — reaches DismissMasterAccept. The prompt is never stranded: once the
+        // dropdown closes, IsPickerOpen is false and Y/N/Escape answer the prompt again exactly as before
+        // (Y_with_prompt_and_dropdown_open_does_not_save_but_saves_once_the_dropdown_closes,
+        // Escape_with_prompt_and_dropdown_open_closes_dropdown_first_then_dismisses_the_prompt).
+        //
+        // S1 (Phase 10.11) — THE SECOND MODIFIER HOLE, and the more dangerous of the two. This arm excluded
+        // Control but not Alt, so with the prompt up a stray Alt+Y — the Data / Backup-Restore accelerator,
+        // live on every screen a company is open on (its arm is further down this chain, so this one won) —
+        // reached ConfirmMasterAccept and SAVED the master. Measured: prompt open on Ledger Creation, Alt+Y,
+        // and "Bharat Motors" was in company.Ledgers. The operator asked for a menu and silently committed a
+        // record. It matters far beyond WI-11: this one prompt is the confirmation channel a later slice in
+        // this phase hangs DELETE on, so the same hole would have let Alt+Y confirm a deletion nobody answered.
+        //
+        // SCOPE — exactly Y and N, exactly Alt, and CONSUMED RATHER THAN YIELDED. Alt+Y/Alt+N must not answer
+        // the confirmation; they must also not be handed onward, and the difference is the whole review fix.
+        //
+        // WHY NOT YIELD (measured, and the first cut of this slice got it wrong). Narrowing with
+        // `case Key.Y when !altHeld` made Alt+Y fall through to its owner at :633 →
+        // ShowDataMenu → SelectRootItem → TrimColumnsAfter(0) → OpenSubmenuColumn → ClearSubScreens, which
+        // NULLS LedgerMaster/StockItemMaster/VoucherEntry. So the fix stopped the unconfirmed SAVE and bought
+        // an unconfirmed DESTROY in its place: prompt up on Ledger Creation, Alt+Y, and the ledger was indeed
+        // not created — but the typed name, the chosen group and the opening balance were gone, with the
+        // operator dumped on Backup / Restore and no message. Worse under Alt+C create-on-the-fly, where the
+        // create column sits OVER a live voucher: TrimColumnsAfter(0) takes the VOUCHER column too, so a
+        // half-keyed invoice dies to a menu chord. That is the D2 work-loss class this arm already exempts
+        // Escape for — the reasoning was applied to Escape and, first time round, not to Y.
+        //
+        // So while a confirmation is up the prompt is MODAL against Alt+letter chords: Alt+Y and Alt+N change
+        // nothing at all and leave the question on screen. Two presses, exactly the doctrine already settled
+        // for Escape — answer N/Esc, then press Alt+Y. Nothing is saved, nothing is discarded, and the
+        // outcome no longer depends on where the caret happens to be (the :633 owner requires !IsTyping(e),
+        // so a yield gave one answer with focus in the Name box and another with focus anywhere else).
+        // The prompt is never stranded: it is answerable immediately, and any real navigation resets it via
+        // OnCurrentScreenChanged → ResetMasterAcceptPrompt.
+        //
+        // ESCAPE IS DELIBERATELY NOT NARROWED. It is not a letter and owns no Alt accelerator, and the arm it
+        // would fall through to is `case Key.Escape when !IsPickerOpen(e)` → Back(), which POPS the column and
+        // discards the half-typed master — the same D2 work-loss class. Alt+Escape therefore still ANSWERS
+        // the prompt (dismiss, master intact), and a test pins that.
+        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsPickerOpen(e))
         {
+            var altHeld = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
             switch (e.Key)
             {
+                // Alt+Y / Alt+N: consumed and INERT. Guarded cases must precede their unguarded twins below.
+                case Key.Y when altHeld:
+                case Key.N when altHeld: e.Handled = true; return;
                 case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
                 case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
                 case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
@@ -288,10 +424,114 @@ public partial class MainWindow : Window
             if (e.Key == Key.V) { vm.ReorderLevels?.ToggleMinQtyAdvanced(); e.Handled = true; return; }
         }
 
-        // Alt+X cancels the in-progress voucher/ledger without saving (cancel shortcut).
-        if (e.Key == Key.X && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Alt+X IS VOUCHER CANCELLATION — it is NOT "abandon the screen I am on". (Phase 10.11 S3 / VL-3.)  │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // WHAT STOOD HERE BEFORE, and why it went. An arm bound Alt+X app-wide to `vm.CancelVoucher()` — the
+        // ABANDON-THE-ENTRY-SCREEN verb (now `vm.AbandonEntry()`), which discards a half-keyed voucher or master
+        // and pops its column. Two things were wrong with it:
+        //   • It squatted the accelerator the reference product spends on CANCELLING A POSTED VOUCHER, so the one
+        //     key an operator would reach for to cancel a posted entry instead threw away whatever was on screen.
+        //   • It was UNDER-GUARDED: it tested only for the Alt modifier — no `!IsPickerOpen`, no `!IsTyping`, no
+        //     Ctrl exclusion and no screen scope — so it fired from inside an open dropdown and from a text field,
+        //     and Ctrl+Alt+X abandoned the screen too.
+        // Nothing is orphaned by its removal: Escape reaches `vm.Back()` at the switch far below (which pops the
+        // page column and tears the entry VM down through `ClearSubScreens`), Left does the same, and the six
+        // on-screen "Cancel" buttons still call `vm.AbandonEntry()` directly.
+        //
+        // THE NEW ARM, and every guard on it:
+        //   • `vm.IsLiveReportPage` — THE REPORT MUST BE THE ACTIVE COLUMN, not merely bound. Cancel acts on a
+        //     POSTED voucher highlighted in a report (the Day Book is the one that carries voucher rows today),
+        //     never on an entry screen and never from a column STACKED OVER the report.
+        //     🔴 THIS GUARD WAS `vm.IsReportContext` AND THAT WAS A HOLE, measured: `IsReportContext` is
+        //     `Reports is not null && CurrentScreen is not (LedgerVouchers or VoucherDetail)`, and its own
+        //     doc-comment says it is built to STAY TRUE while an F12 config panel is open — it was written for
+        //     report-PARAMETER shortcuts that must survive a config column, not for a destructive verb. It stayed
+        //     true, with the Day Book row still highlighted underneath, on FIVE screens the operator is actually
+        //     standing in: `ReportConfig` (F12), `ReportSortFilter` (Alt+F12), `AddVoucherPicker` (Alt+A),
+        //     `SavedViews` (Alt+K) and `PrintPreview` (P) — every one of which leaves `Reports` deliberately bound
+        //     beneath it so Esc returns to the same live report. Alt+X from inside any of them raised the
+        //     confirmation for the voucher BEHIND the column, and one Y killed it. `IsPickerOpen` cannot see that:
+        //     it looks for an open ComboBox popup, not for a Miller column. `IsReportContext` keeps its own job
+        //     (the parameter shortcuts below); this arm asks the narrower question it actually needs.
+        //     Note the SCOPE is OUR decision, not fidelity: the corpus scopes Alt+X to "Vouchers & Reports"
+        //     (Book p.437), and we ship the narrower half deliberately because no alteration/entry-screen cancel
+        //     exists yet (S5).
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, and honestly labelled as such. Every text
+        //     field and every picker that today sits over a report lives in one of the five columns the screen
+        //     gate above now refuses, so neither predicate can change the outcome on any surface reachable at
+        //     this commit, and neither is independently pinnable — the report page template itself carries no
+        //     TextBox, and its three ComboBoxes (scenario, payroll month, payroll employee) are invisible on the
+        //     only report kind that has voucher rows. MEASURED, not assumed: dropping BOTH clauses leaves the whole
+        //     Desktop suite green at 2231/2231. They are kept, not deleted, because the report page is one inline
+        //     filter box away from making them load-bearing again and this is the one destructive accelerator in
+        //     the app. Do NOT write a test claiming to pin them: it would be pinning the screen gate. (Same
+        //     category as `RequestCancelHighlightedVoucher`'s null gate — legitimate defence with an honest label,
+        //     as opposed to a guard whose comment claims a mechanism it cannot deliver.)
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`. Ctrl+Alt+X is a different
+        //     chord, and so are Alt+Shift+X and Alt+Win+X: `HasFlag(Alt)` + a Ctrl exclusion admitted both, which
+        //     made the one destructive accelerator in the app the loosest match in this chain. The doctrine is
+        //     already written ~740 lines below for the bare-letter quick-jumps ("It deliberately excludes Shift as
+        //     well … admitting Shift would leave the same class of hole open on the next chord anyone binds") and
+        //     it applies here with more force, not less.
+        // The view model does the REST of the gating (a row must be highlighted, it must carry a voucher, the
+        // voucher must not already be cancelled, no confirmation may already be up, and no live IRN/EWB may be
+        // stranded by it); this arm only decides that the keystroke is ours.
+        // `e.Handled` marks the keystroke CONSUMED so it does not bubble past this window handler to any control
+        // beneath — the `return` on the next line is what stops the later arms in this chain, so the two are not
+        // the same thing and the flag is not redundant. It is set unconditionally once the guards pass, so a
+        // report with no highlighted voucher row is a quiet no-op rather than a live key. Pinned by
+        // `AltX_on_a_report_row_comes_back_Handled`.
+        if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsLiveReportPage && !IsTyping(e) && !IsPickerOpen(e))
         {
-            vm.CancelVoucher();
+            vm.RequestCancelHighlightedVoucher();
+            e.Handled = true;
+            return;
+        }
+
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Alt+D DELETES THE HIGHLIGHTED VOUCHER OR MASTER. (Phase 10.11 S4 / VL-2.)                        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // This is the arm that makes `LedgerService.Delete` REACHABLE for the first time in the project's life —
+        // it has existed since Phase 1 with no caller — so every consequence of removing a posted voucher arrives
+        // with this eight-line block. Both of them are guarded in `MasterDeletionRules`, which the view model calls
+        // BEFORE it puts the question up: the referential guard (refuse with the COUNT of documents that point at
+        // the voucher by Guid) and the numbering guard (refuse a FILED statutory document and offer Cancel,
+        // because `NextNumber` is `max+1` BY SCAN and deleting the highest number hands it to the next entry).
+        //
+        // ORDER: it sits directly beside the Alt+X arm because the two verbs are siblings and must be read
+        // together, and ABOVE the RQ-4 comparative Alt-letter arm (which claims C and N only) and the bare-letter
+        // quick-jump switch ~600 lines below (`Key.D` → Day Book). The quick-jump cannot collide: slice S1
+        // narrowed `CanQuickJump` to `e.KeyModifiers == KeyModifiers.None`, which is the guard that made Alt+D
+        // available to bind at all. Do not loosen it.
+        //
+        // EVERY GUARD ON THIS ARM, and each one is inherited from the S3 review rather than re-derived:
+        //   • `vm.IsDeleteTargetPage` — the five surfaces §6.4 item 6 names, and it uses `IsLiveReportPage`
+        //     (NOT `IsReportContext`) for the report clause. `IsReportContext` is deliberately TRUE while an F12
+        //     config, an Alt+F12 sort/filter, an Alt+A picker, an Alt+K saved-views panel or a Print Preview
+        //     column is stacked over the report, with the Day Book row still highlighted behind it — a
+        //     destructive verb written on it fires for the row BEHIND the column the operator is standing in.
+        //     That was a measured hole in S3's first cut; it is not re-opened here.
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`. Ctrl+Alt+D, Alt+Shift+D and
+        //     Alt+Win+D are different chords, and admitting them would make the app's SECOND destructive
+        //     accelerator its loosest match. Same doctrine as Alt+X above and the bare-letter jumps below.
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, labelled honestly. On the report page and
+        //     the two drill columns nothing focusable takes text today, so on those three surfaces neither clause
+        //     can change the outcome. On the OTHER TWO they are load-bearing and not merely defensive: the Chart
+        //     of Accounts and the Stock Item master are master screens with real TextBoxes and real pickers, and
+        //     the Stock Item master's Name/Alias fields are where an operator's caret sits while they type. A
+        //     bare `Alt+D` from inside a half-typed item name must not delete the item highlighted in the list
+        //     behind the form. `Alt_D_while_typing_in_the_stock_item_name_does_not_delete` pins exactly that, so
+        //     unlike S3's pair these clauses ARE independently falsifiable and are tested as such.
+        // The view model does the rest of the gating (a row must be highlighted, it must resolve to a real
+        // voucher/master, no confirmation may already be up, and the S4 guards must accept it). `e.Handled` is set
+        // unconditionally once the guards pass, so a surface with nothing highlighted is a quiet no-op rather than
+        // a live key that falls through to the Day Book jump.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestDeleteHighlighted();
             e.Handled = true;
             return;
         }
@@ -325,13 +565,31 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ctrl+B settles the spacebar-selected bills on the Outstandings page (Bill Settlement).
-        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            vm.SettleBills();
-            e.Handled = true;
-            return;
-        }
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Ctrl+B IS FREE AND RESERVED — DO NOT BIND IT. (Phase 10.11 S2 / VL-4 / register row IV-5.)        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // A "Bill Settlement" arm stood HERE, bound app-wide and unconditionally — it handled and returned
+        // REGARDLESS OF SCREEN — and called vm.SettleBills(), which POSTED a real Receipt or Payment for every
+        // spacebar-selected bill: always the bill's FULL pending amount, always through a ledger literally named
+        // "Cash", dated at the report's as-of, with no preview, no confirmation and no undo.
+        //
+        // In TallyPrime Ctrl+B is "BASIS OF VALUES" — a report option that re-bases how figures are COMPUTED AND
+        // PRESENTED, and it WRITES NOTHING TO THE BOOKS [TallyHelp keyboard-shortcuts, Reports: "Ctrl+B — To view
+        // values in different ways in a report — Right button"]. TallyPrime's Bills Outstanding has no settlement
+        // action of any kind; a bill is settled by keying a Receipt/Payment and choosing Against Reference from
+        // the List of Pending Bills [CORPUS-SG p.92 §5.5]. So an operator pressing Ctrl+B on Bills Receivable to
+        // change how figures DISPLAY instead posted a batch of receipt vouchers against their debtors — and the
+        // trap was armed by a correct Tally reflex (Spacebar = select line in report) and sprung by a second one.
+        //
+        // Settlement now lives on Alt+A, scoped to the Outstandings screen (see that arm further down).
+        //
+        // BASIS OF VALUES ITSELF IS NOT BUILT — it is named debt, not an oversight. A later slice needs
+        // ReportsViewModel to grow a re-basis (scale factor, stock valuation method, type of voucher entries) on
+        // the OpenReportConfig cascade pattern; THAT slice reclaims Ctrl+B from this reservation. Until then the
+        // key must reach nothing, so it stays unbound rather than being squatted by an unrelated feature.
+        // NOTE for whoever binds it: with no arm here, Ctrl+B falls through to the bare-letter report quick-jump
+        // switch far below (Key.B → Balance Sheet). That is harmless ONLY because slice S1 narrowed CanQuickJump
+        // to `e.KeyModifiers == KeyModifiers.None`; do not loosen that guard.
 
         // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
         // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
@@ -450,6 +708,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // G-5 — the SAME Alt+B on a Purchase/Sales ITEM INVOICE (BOOK pp.130-132 walks batch entry through F9
+        // then F8). One key, one meaning, on every screen that carries batch-tracked item lines. Same resolution
+        // rule: the focused row if it qualifies, else the first eligible line; a safe no-op when none does.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.VoucherEntry
+            && vm.VoucherEntry is { } invoice)
+        {
+            var focused = FocusedInventoryLine(e);
+            if (focused is not null && invoice.LineWantsBatchAllocation(focused))
+                invoice.RequestBatchAllocation(focused);
+            else
+                invoice.RequestBatchAllocationForFirstEligibleLine();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+T toggles the in-progress voucher as post-dated (post-dated cheque handling).
         if (e.Key == Key.T && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -474,6 +749,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+H "Change Mode" cycles a Purchase/Sales voucher through the three entry modes
+        // As Voucher → Item Invoice → Accounting Invoice → As Voucher. Consumed (e.Handled) ONLY on an invoiceable
+        // entry (Purchase/Sales) so the key is not swallowed app-wide; a no-op — and unhandled, falling through —
+        // everywhere else. Additive: it consumes a key the keystroke arbiter does not otherwise route, and touches no
+        // dropdown/Tab/arrow ownership, so the b8c617e arbitration and the numbering config are untouched.
+        // G-6 widened the gate from IsInvoiceableEntry (Purchase/Sales only) to IsChangeModeEntry, which also admits
+        // Contra/Payment/Receipt so Ctrl+H reaches Single Entry on the three vouchers that have it.
+        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsChangeModeEntry)
+        {
+            vm.ChangeMode();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+I toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42). Scoped to
         // the POS Billing screen so it never collides elsewhere; the item-invoice toggle stays on Ctrl+I.
         if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
@@ -490,6 +779,31 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.PosBilling)
         {
             vm.ShowPosTaxAnalysis();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+A on the Outstandings report SETTLES the spacebar-selected bills — by opening a Single-Entry
+        // Receipt/Payment PRE-LOADED with them as Against-Reference allocations, which the operator confirms
+        // (date, cash/bank ledger, per-bill amounts) and Accepts. It POSTS NOTHING itself. This is the
+        // replacement for the deleted Ctrl+B settlement arm; see the RESERVED block where that arm used to be.
+        //
+        // WHY Alt+A: TallyPrime's Reports bottom bar carries "Alt+A — Add voucher in report", which is precisely
+        // the semantic needed (create a voucher FROM this report), and it is already the meaning this app gives
+        // Alt+A on the Day Book — one key, one meaning. It squats nothing, so it does not repeat the IV-28
+        // mistake of picking the first letter of our own feature name.
+        //
+        // ORDER: BELOW the POS Alt+A immediately above, ABOVE the Day-Book Alt+A immediately below. The three
+        // guards are disjoint today — OpenPageColumn calls ClearSubScreens (which nulls Reports) before setting
+        // the page, so IsDayBookReport cannot hold while Screen.Outstandings is current, and Screen.PosBilling
+        // excludes both. The position is nevertheless deliberate, because this chain is FIRST-MATCH-WINS: if that
+        // invariant ever changes, the screen the operator is actually STANDING ON must win, and Outstandings sits
+        // above the Day Book for exactly that reason. Ctrl+A (Accept) is a separate Control-modified arm much
+        // further up, and !Control here keeps it that way.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsOutstandingsScreen)
+        {
+            vm.OpenSettlementVoucherFromOutstandings();
             e.Handled = true;
             return;
         }
@@ -560,6 +874,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere a
+        // company is open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only excludes
+        // Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
+        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is not null && !IsTyping(e))
+        {
+            vm.ShowDataMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+E on the Restore panel EXAMINES the chosen backup (reads its manifest; touches nothing). The
+        // destructive step stays on Ctrl+A, and the VM refuses that until this has passed and the tick is on.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.RestoreCompany)
+        {
+            vm.ExamineRestore();
+            e.Handled = true;
+            return;
+        }
+
         // Y (Gateway → Export Data; RQ-19/DP-4) opens the "Export Data" panel: a canonical JSON/XML backup of the
         // whole company. Same Gateway-root guard as Import — the header hint reads "Y: Data".
         if (e.Key == Key.Y && vm.CurrentScreen == Screen.Gateway
@@ -591,8 +925,7 @@ public partial class MainWindow : Window
         }
 
         // Inventory/order voucher shortcuts (modifier + F-key). Checked before the plain F-key switch so a
-        // modified F-key never falls through to its bare-key report/voucher action. Physical Stock is
-        // menu-only (F10 has no standalone modifier hotkey), matching the seed.
+        // modified F-key never falls through to its bare-key report/voucher action.
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
             switch (e.Key)
@@ -604,6 +937,14 @@ public partial class MainWindow : Window
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.SalesOrder); e.Handled = true; return;
                 case Key.F6: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionIn); e.Handled = true; return;
                 case Key.F5: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionOut); e.Handled = true; return;
+                // Ctrl+F7 Physical Stock — TallyPrime's official key ("To open Physical Stock | Ctrl+F7"). The type
+                // was seeded and rendered as "F10", which in this app opens the Other Vouchers menu, while Ctrl+F7
+                // was bound to nothing: the UI advertised a route that did not exist. Ctrl+F7 was free — this block
+                // previously handled only F5/F6/F8/F9, and Key.F7 appears nowhere else under Control — so nothing is
+                // shadowed. (F10 deliberately stays Apex's Other Vouchers menu: it is the only route to Memorandum,
+                // Reversing Journal and the four Job Work types, and re-cutting it to TallyPrime's voucher/master
+                // list would break a working, discoverable route to chase a label. Decision D7 option A / X6.)
+                case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.PhysicalStock); e.Handled = true; return;
             }
         }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -669,11 +1010,24 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
-            case Key.Up when !IsTyping(e):
+            // The !IsPickerOpen guard is the USER CONTRACT: arrows must work on every screen INCLUDING inside a
+            // dropdown. Without it this tunnel consumed both keys before the open popup could see them — measured
+            // on Ledger Creation with a 26-row picker open: `BEFORE down: pickerSel=25 open=True` ->
+            // `AFTER down: pickerSel=25 open=True`, with `bubble: Down handled=True src=ComboBoxItem`. The
+            // highlight could not be moved by keyboard AT ALL, which made the Enter/Escape yields below very
+            // nearly pointless — an operator could reach a dropdown but never navigate it.
+            //
+            // !IsTyping alone does not cover this: it tests `e.Source is TextBox`, and with a dropdown open
+            // e.Source is a ComboBoxItem. Same blind spot that left Left (below) unguarded.
+            //
+            // NARROWNESS: with NO dropdown open these arms are untouched, and they are the Miller-column
+            // navigation — the most-used key pair in the app. Arrows_with_no_picker_open_still_move_the_cascade_selection
+            // locks that direction (measured Gateway: selIdx 1 -> 2 on Down, back to 1 on Up).
+            case Key.Up when !IsTyping(e) && !IsPickerOpen(e):
                 vm.MoveUp();
                 e.Handled = true;
                 break;
-            case Key.Down when !IsTyping(e):
+            case Key.Down when !IsTyping(e) && !IsPickerOpen(e):
                 vm.MoveDown();
                 e.Handled = true;
                 break;
@@ -681,6 +1035,27 @@ public partial class MainWindow : Window
             // focus there). Right is a navigation key only when not editing a text field.
             case Key.Right when !IsTyping(e):
                 vm.DrillIn();
+                e.Handled = true;
+                break;
+            // V3 — USER DECISION: "Enter opens it." Enter on a FOCUSED, CLOSED picker OPENS its dropdown. This
+            // arm MUST precede BOTH Enter arms below, because on a focused closed picker each of them would
+            // otherwise claim the key: on a master screen the next arm raises "Accept …? (Y/N)" (measured), and
+            // on any screen the ActivateSelected arm drills the cascade. Placing it here makes Enter open the
+            // picker instead — and only then; the guards below still stand for every other Enter.
+            //
+            // NARROWNESS — three ways it is scoped so nothing else moves:
+            //   • IsPickerFocusedClosed matches ONLY a ComboBox that holds focus AND is closed. A menu/cascade
+            //     column focuses a menu row (not a ComboBox), so Enter still drills there
+            //     (Enter_on_a_menu_column_still_drills_the_cascade); with nothing focused e.Source is the
+            //     MainWindow, so the no-picker master prompt is untouched
+            //     (Enter_with_no_picker_open_still_raises_the_master_accept_prompt).
+            //   • It requires the dropdown CLOSED, so an already-OPEN picker is excluded — the !IsPickerOpen
+            //     yields below keep owning Enter there (commit the highlighted row + close), which is what lets
+            //     open→Down→commit compose (Enter_opens_then_Down_highlights_then_Enter_commits_and_closes).
+            //   • !IsAcceptPromptOpen keeps the :261 confirmation arm the owner of Enter while a prompt is up.
+            // e.Handled stops fall-through to the arms below AND stops the ComboBox toggling the dropdown shut.
+            case Key.Enter when !vm.IsAcceptPromptOpen && IsPickerFocusedClosed(e):
+                OpenFocusedPicker(e);
                 e.Handled = true;
                 break;
             // WI-11: Enter on a master screen ASKS before saving ("Accept Ledger? (Y/N)") instead of committing
@@ -691,21 +1066,51 @@ public partial class MainWindow : Window
             // RAISES the prompt) is called in the body, never in the `when` clause: a pattern-match guard that
             // mutates would raise a confirmation as a side effect of merely testing this arm, and would silently
             // change meaning the moment anyone appended another condition after it.
-            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen:
+            // The !IsPickerOpen guard is the D1 fix. With a dropdown OPEN this arm used to fire, so an operator
+            // who picked a row and pressed Enter got "Accept Ledger? (Y/N)" over a still-open dropdown instead
+            // of their selection (measured on Ledger Creation:
+            // `AFTER enter: open=True promptOpen=True promptText='Accept Ledger? (Y/N)'`). Live on all 24
+            // IsMasterAcceptScreen screens. Enter now falls through to the dropdown, which owns it.
+            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen && !IsPickerOpen(e):
                 vm.RequestMasterAccept();
                 e.Handled = true;
                 break;
-            case Key.Enter:
+            // The SAME guard is load-bearing here, and not decoration: without it the arm above merely hands the
+            // stolen Enter to this one — the prompt stops appearing but the key is still consumed and the
+            // dropdown still never sees it. Both arms must yield for Enter to actually reach the picker.
+            case Key.Enter when !IsPickerOpen(e):
                 vm.ActivateSelected();
                 e.Handled = true;
                 break;
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
             // navigation key only when not editing a text field (there it moves the caret).
-            case Key.Left when !IsTyping(e):
+            //
+            // The !IsPickerOpen guard is the SAME D2 fix as on Escape below, and it belongs here for the same
+            // reason: this comment calls Left and Esc one pair, and they must be guarded as one pair. Guarding
+            // only Escape left this arm reachable with a dropdown open, because !IsTyping tests
+            // `e.Source is TextBox` and an open dropdown makes e.Source a ComboBoxItem. Measured, and
+            // byte-identical to the D2 work-loss: `BEFORE left: columns=2 screen=LedgerMaster
+            // ledgerMasterNull=False dropDownOpen=True` -> `AFTER left: columns=1 screen=Gateway
+            // ledgerMasterNull=True` — one Left aimed at the dropdown discarded the half-typed ledger.
+            //
+            // As with Escape the guard is OPEN and not "focused": a closed picker must still let Left pop the
+            // column in one press, or ~157 form screens lose a keyboard exit
+            // (Left_on_a_CLOSED_picker_still_pops_the_column_in_one_press locks it).
+            case Key.Left when !IsTyping(e) && !IsPickerOpen(e):
                 vm.Back();
                 e.Handled = true;
                 break;
-            case Key.Escape:
+            // The !IsPickerOpen guard is the D2 fix. This arm was completely unguarded, so ONE Escape aimed at
+            // closing a dropdown also popped the Miller column and destroyed the in-progress master (measured on
+            // Ledger Creation: `BEFORE esc: columns=2 screen=LedgerMaster` -> `AFTER esc: columns=1
+            // screen=Gateway ledgerMasterNull=True` — a half-typed ledger discarded by a keystroke the operator
+            // aimed at the dropdown). Escape is TWO presses by settled contract: the first closes the dropdown
+            // (the ComboBox does that itself once this arm yields), the second reaches Back() and pops.
+            //
+            // The guard is IsPickerOpen and NOT IsTyping / "a picker is focused": a CLOSED picker leaves Escape
+            // unhandled (measured), so if this arm yielded on mere focus there would be no keyboard way out of a
+            // form column on ~157 screens.
+            case Key.Escape when !IsPickerOpen(e):
                 vm.Back();
                 e.Handled = true;
                 break;
@@ -771,6 +1176,68 @@ public partial class MainWindow : Window
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;
 
     /// <summary>
+    /// True when the keystroke originated inside a picker whose dropdown is currently OPEN — the state in which
+    /// Up, Down, Enter, Left and Escape belong to the dropdown, not to this window.
+    ///
+    /// <para><b>The five arms that consult it, and why they are exactly these five.</b> Up/Down move the
+    /// highlight INSIDE the popup (the settled contract that arrows work on every screen, dropdowns included);
+    /// Enter takes the highlighted row; Left and Escape are the two documented keyboard exits from a form column
+    /// and must not pop it while a popup is up. Every one of those was measured being stolen by this tunnel. The
+    /// F-key bar is deliberately NOT guarded — F4 stays Contra with a dropdown open, and a test pins it.</para>
+    ///
+    /// <para><b>Why the parent walk.</b> Once a dropdown opens, focus moves into the popup, so
+    /// <c>e.Source</c> is a <c>ComboBoxItem</c> (measured) and never the <c>ComboBox</c> itself — a plain
+    /// <c>e.Source is ComboBox</c> test would miss every case this guard exists for.</para>
+    ///
+    /// <para><b>Why "open" and not "focused".</b> Left and Escape are the only two keyboard exits from a form
+    /// column. A picker that is merely focused but CLOSED must still let both reach <c>Back()</c>, or ~157
+    /// screens lose their keyboard route out. Requiring <c>IsDropDownOpen</c> keeps the guard to exactly the
+    /// state where the popup has something to do with the key. This is deliberately NOT a widening of
+    /// <see cref="IsTyping"/>: that predicate answers a different question (is the operator typing into a text
+    /// field) and reaches far more arms.</para>
+    ///
+    /// <para><b>Scope note.</b> Under Avalonia's headless platform the popup is hosted in the same top-level, so
+    /// this window tunnel sees the keystroke and the guard is what stops it. On Win32 the popup may live in a
+    /// separate <c>PopupRoot</c>, in which case the tunnel never runs and the guard is simply inert — it cannot
+    /// make that case worse.</para>
+    /// </summary>
+    private static bool IsPickerOpen(KeyEventArgs e)
+    {
+        for (var c = e.Source as StyledElement; c is not null; c = c.Parent)
+            if (c is ComboBox { IsDropDownOpen: true }) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when the keystroke originated on a picker that IS focused but whose dropdown is CLOSED — the state
+    /// in which V3 ("Enter opens it.") turns Enter into an OPEN gesture. This is the exact complement of
+    /// <see cref="IsPickerOpen"/> on the open/closed axis: that guard yields keys to an OPEN popup; this one
+    /// arms Enter for a CLOSED, focused picker. Kept a sibling predicate deliberately — it must NOT widen
+    /// <see cref="IsTyping"/> (which answers a different question and reaches ~157 screens).
+    /// <para><b>Why the focus requirement.</b> A keyboard event's <c>Source</c> is the focused element, so a
+    /// closed ComboBox on its logical-parent chain already contains focus; requiring
+    /// <c>IsKeyboardFocusWithin</c> as well pins that intent and refuses to fire on a closed picker that merely
+    /// happens to be an ancestor of some other focused control. Measured on the real window: a focused closed
+    /// picker gives <c>e.Source = ComboBox</c> with <c>IsFocused = IsKeyboardFocusWithin = true</c>.</para>
+    /// </summary>
+    private static bool IsPickerFocusedClosed(KeyEventArgs e) => FocusedClosedPicker(e) is not null;
+
+    /// <summary>The focused, CLOSED <see cref="ComboBox"/> the key originated on, or null — the single walk
+    /// that backs both <see cref="IsPickerFocusedClosed"/> and <see cref="OpenFocusedPicker"/>.</summary>
+    private static ComboBox? FocusedClosedPicker(KeyEventArgs e)
+    {
+        for (var c = e.Source as StyledElement; c is not null; c = c.Parent)
+            if (c is ComboBox { IsDropDownOpen: false } cb && cb.IsKeyboardFocusWithin) return cb;
+        return null;
+    }
+
+    /// <summary>Opens the focused, closed picker the key originated on (the V3 "Enter opens it." action).</summary>
+    private static void OpenFocusedPicker(KeyEventArgs e)
+    {
+        if (FocusedClosedPicker(e) is { } picker) picker.IsDropDownOpen = true;
+    }
+
+    /// <summary>
     /// Resolves the inventory-voucher line the key event originated on by walking the control tree up from the
     /// key source to the first element whose DataContext is an <see cref="InventoryVoucherLineViewModel"/> — so
     /// Alt+B on a specific row targets that row. Returns null when the key came from outside any line row.
@@ -783,9 +1250,33 @@ public partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>Report quick-letters fire only on menu screens and never while typing in a field.</summary>
+    /// <summary>
+    /// Report quick-letters fire only on menu screens, never while typing in a field, and only for a
+    /// keystroke carrying NO modifier at all.
+    ///
+    /// <para><b>The modifier hole this closes (Phase 10.11 S1).</b> This predicate tested only
+    /// <c>IsMenuScreen &amp;&amp; !IsTyping(e)</c>, and the <c>switch (e.Key)</c> that consults it tests no
+    /// modifiers either — so all four quick-jumps fired for EVERY chord no earlier arm had already claimed.
+    /// Measured on Company Select (the one screen they are reachable on: once a company is open
+    /// <c>IsGatewayCascade</c> is true and <see cref="MainWindowViewModel.IsMenuScreen"/> is false):
+    /// <b>Alt+D opened the Day Book</b>, and so did Ctrl+D and Shift+D; Alt+B/Alt+P/Alt+T opened their
+    /// reports too. The fix belongs HERE and not on the four arms — a per-arm fix on D would have left three
+    /// survivors.</para>
+    ///
+    /// <para><b>Why it had to be its own change, ahead of everything else in the phase.</b> A later slice
+    /// binds <b>Alt+D to DELETE</b>. Binding a destructive verb on top of a chord that already fires a
+    /// navigation would make a stray Alt+D both destructive and ambiguous — which one won would depend on
+    /// the screen. The hole is closed first so Alt+D is genuinely unclaimed when delete arrives.</para>
+    ///
+    /// <para><b>Why <c>== KeyModifiers.None</c> and not merely "no Alt".</b> It is the identical predicate
+    /// the WI-2/WI-9 bare-letter menu arm at the end of this handler already uses, so "bare letter" means one
+    /// thing in both places. It deliberately excludes Shift as well: a quick-jump is a bare-letter
+    /// accelerator, and admitting Shift would leave the same class of hole open on the next chord anyone
+    /// binds. Nothing else changes — with no modifier held these four arms behave exactly as before, which
+    /// <c>Bare_D_on_company_select_still_opens_the_day_book</c> and its B/P/T sibling pin.</para>
+    /// </summary>
     private static bool CanQuickJump(MainWindowViewModel vm, KeyEventArgs e)
-        => vm.IsMenuScreen && !IsTyping(e);
+        => vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;
 
     private static void Fire(MainWindowViewModel vm, string key)
     {
@@ -800,17 +1291,59 @@ public partial class MainWindow : Window
     private void OnCreateCompanyClick(object? sender, RoutedEventArgs e)
         => Vm?.CreateCompany();
 
-    private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.VoucherEntry?.Accept();
+    private void OnAcceptCompanyProfileClick(object? sender, RoutedEventArgs e)
+        => Vm?.AlterCompany?.Accept();
 
-    private void OnCancelVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+    /// <summary>
+    /// The voucher-entry screen's on-screen <b>Accept</b> button. Phase 10.11 S5d routed it through the shell's
+    /// single accept decision instead of calling <c>VoucherEntry.Accept()</c> directly: the same screen now serves
+    /// entry AND alteration, and <c>Accept</c> HARD-REFUSES on an altering one, so the button and Ctrl+A would
+    /// have disagreed the moment alteration became reachable.
+    /// </summary>
+    private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.AcceptVoucherEntryOrAlteration();
+
+    /// <summary>
+    /// The voucher-entry screen's "Cancel (Esc)" button — it <b>ABANDONS THE ENTRY SCREEN</b> (discards a
+    /// half-keyed voucher and pops its column), which is <see cref="MainWindowViewModel.AbandonEntry"/>.
+    ///
+    /// <para>🔴 <b>It was called <c>OnCancelVoucherClick</c> and that name is now actively wrong.</b> Phase 10.11
+    /// S3 renamed the view-model verb <c>CancelVoucher</c> → <c>AbandonEntry</c> because <b>Alt+X now means
+    /// CANCEL A POSTED VOUCHER</b> — a different, destructive act on a document that is already on the books — and
+    /// S4 adds a real <b>DELETE</b> verb beside it. Leaving a handler named "cancel voucher" that actually abandons
+    /// an entry screen put three different meanings on two names, in the one slice where the difference between
+    /// "throw away what I am typing", "void a posted document" and "remove a posted document" has to be exact.</para>
+    ///
+    /// <para><b>Renaming this is not cosmetic: a XAML <c>Click=</c> binds by NAME at RUNTIME</b>, so renaming the
+    /// method without renaming the binding (or the reverse) compiles clean, ships, and fails only when a user
+    /// clicks the button. Both were changed together, and
+    /// <c>XamlClickHandlerBindingTests</c> now proves every <c>Click=</c> in the window resolves to a declared
+    /// handler, so the next half-rename is caught by a test instead of by an operator.</para>
+    /// </summary>
+    private void OnAbandonVoucherEntryClick(object? sender, RoutedEventArgs e)
+        => Vm?.AbandonEntry();
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddVoucherLine();
 
     private void OnAddItemInvoiceLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddItemInvoiceLine();
+
+    private void OnAddAccountingInvoiceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddAccountingInvoiceLine();
+
+    /// <summary>Removes the Particulars row the clicked "✕" belongs to (the button's own DataContext IS that row).</summary>
+    private void OnRemoveAccountingInvoiceLineClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.VoucherEntry is { } entry && (sender as Control)?.DataContext is AccountingInvoiceLineViewModel row)
+            entry.RemoveAccountingInvoiceLine(row);
+    }
+
+    private void OnToggleItemInvoiceClick(object? sender, RoutedEventArgs e)
+        => Vm?.ToggleItemInvoice();
+
+    private void OnToggleAccountingInvoiceClick(object? sender, RoutedEventArgs e)
+        => Vm?.ToggleAccountingInvoice();
 
     private void OnAddAdditionalCostClick(object? sender, RoutedEventArgs e)
         => Vm?.VoucherEntry?.AddAdditionalCostRow();
@@ -822,7 +1355,7 @@ public partial class MainWindow : Window
         => Vm?.InventoryVoucherEntry?.Accept();
 
     private void OnCancelInventoryVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddInventoryLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddInventoryLine();
@@ -842,14 +1375,36 @@ public partial class MainWindow : Window
             Vm?.AddCostAllocation(line);
     }
 
+    /// <summary>
+    /// G-1 — "+ Add bill" on the INVOICE-mode Bill-wise panel. Unlike the plain-grid sibling above, the allocations
+    /// belong to the screen (the party leg is derived at Accept), so the row is added to the entry view model itself.
+    /// </summary>
+    private void OnAddInvoiceBillAllocationClick(object? sender, RoutedEventArgs e) =>
+        Vm?.VoucherEntry?.AddInvoiceBillAllocation();
+
+    /// <summary>G-1 — "Remove" on an invoice-mode Bill-wise row (keeps at least one while the panel is on).</summary>
+    private void OnRemoveInvoiceBillAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: BillAllocationRowViewModel row })
+            Vm?.VoucherEntry?.RemoveInvoiceBillAllocation(row);
+    }
+
+    /// <summary>G-6 — "+ Add particular" on the Single-Entry grid (the many side).</summary>
+    private void OnAddSingleEntryParticularClick(object? sender, RoutedEventArgs e) =>
+        Vm?.VoucherEntry?.AddSingleEntryParticular();
+
     private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
         => Vm?.CostCategoryMaster?.Create();
 
     private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
         => Vm?.CostCentreMaster?.Create();
 
+    /// <summary>
+    /// The Outstandings "Settle Bills (Alt+A)" button — the same route the Alt+A key takes, so the button and the
+    /// accelerator can never do two different things. It OPENS a pre-loaded settlement voucher; it posts nothing.
+    /// </summary>
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
-        => Vm?.SettleBills();
+        => Vm?.OpenSettlementVoucherFromOutstandings();
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
@@ -921,17 +1476,17 @@ public partial class MainWindow : Window
         => Vm?.ManufacturingJournalEntry?.Accept();
 
     private void OnCancelManufacturingJournalClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddManufacturingCostClick(object? sender, RoutedEventArgs e)
         => Vm?.ManufacturingJournalEntry?.AddBlankAdditionalCost();
 
     // POS Billing (Phase 6 slice 7; RQ-38..RQ-44) — accept / cancel / add line / toggle payment mode / tax analysis.
     private void OnAcceptPosClick(object? sender, RoutedEventArgs e)
-        => Vm?.PosBilling?.Accept();
+        => Vm?.AcceptPosBillingOrAlteration();
 
     private void OnCancelPosClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddPosItemLineClick(object? sender, RoutedEventArgs e)
         => Vm?.PosBilling?.AddItemLine();
@@ -947,7 +1502,7 @@ public partial class MainWindow : Window
         => Vm?.JobWorkOrderEntry?.Accept();
 
     private void OnCancelJobWorkOrderClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddJobWorkLineClick(object? sender, RoutedEventArgs e)
         => Vm?.JobWorkOrderEntry?.AddBlankLine();
@@ -957,7 +1512,7 @@ public partial class MainWindow : Window
         => Vm?.MaterialMovementEntry?.Accept();
 
     private void OnCancelMaterialClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddMaterialSourceLineClick(object? sender, RoutedEventArgs e)
         => Vm?.MaterialMovementEntry?.AddSourceLine();
@@ -970,6 +1525,17 @@ public partial class MainWindow : Window
     {
         if (sender is Control { DataContext: ViewModels.InventoryVoucherLineViewModel line })
             Vm?.InventoryVoucherEntry?.RequestBatchAllocation(line);
+    }
+
+    /// <summary>
+    /// G-5 — opens the batch-allocation sub-screen for the ITEM-INVOICE (Purchase F9 / Sales F8) line the button
+    /// sits on. A separate handler from the stock-screen one because the two grids are hosted by different entry
+    /// view models; the line type is shared.
+    /// </summary>
+    private void OnOpenItemInvoiceBatchAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ViewModels.InventoryVoucherLineViewModel line })
+            Vm?.VoucherEntry?.RequestBatchAllocation(line);
     }
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
@@ -1175,6 +1741,17 @@ public partial class MainWindow : Window
 
     private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyImport();
+
+    // ---- Data -> Backup / Restore (the R-7 carve-out) ----
+
+    private void OnApplyBackupClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyBackup();
+
+    private void OnExamineRestoreClick(object? sender, RoutedEventArgs e)
+        => Vm?.ExamineRestore();
+
+    private void OnApplyRestoreClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyRestore();
 
     private void OnSaveEmailClick(object? sender, RoutedEventArgs e)
     {

@@ -292,24 +292,36 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
 
     // ---------------------------------------------------------------- pre-validation
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Over_delivery_surfaces_the_no_negative_message_and_does_not_throw</c>. Over-delivery used to
+    /// be REJECTED by the engine and the entry screen surfaced the exception text. There is no rejection any more:
+    /// TallyPrime blocks negative stock nowhere, so the voucher is accepted, the screen closes, and the movement
+    /// persists to a negative on-hand.
+    ///
+    /// <para><b>Deferred (see <c>notDone</c>):</b> the entry-screen WARNING surface. TallyPrime shows an advisory
+    /// "negative stock" message on the voucher screen before saving, gated by the company toggle
+    /// <c>WarnOnNegativeStock</c>; the engine-side detector and that toggle both ship in this slice, but wiring the
+    /// message into this view model does not. This test therefore asserts what the screen does TODAY — it accepts
+    /// and persists — and deliberately makes no claim about <c>entry.Message</c>.</para>
+    /// </summary>
     [Fact]
-    public void Over_delivery_surfaces_the_no_negative_message_and_does_not_throw()
+    public void Over_delivery_is_accepted_and_persists_a_negative_on_hand()
     {
         var k = NewKit("Over Delivery Co", openingQty: 10m);   // only 10 on hand
 
         k.Vm.OpenInventoryVoucher(VoucherBaseType.DeliveryNote);
         var entry = k.Vm.InventoryVoucherEntry!;
-        FillLine(entry, k, 25m);                    // deliver 25 — would drive on-hand negative
-        Assert.True(entry.CanAccept);               // shape is valid; the engine is the authority
+        FillLine(entry, k, 25m);                    // deliver 25 — drives on-hand negative
+        Assert.True(entry.CanAccept);
 
-        // Accept returns false and surfaces the engine's no-negative message — never crashes.
-        Assert.False(entry.Accept());
-        Assert.Contains("negative", entry.Message!, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
+        Assert.True(entry.Accept());
+        Assert.NotEqual(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);   // the screen closed on a real save
 
-        // Nothing persisted; on-hand unchanged.
+        // Persisted through storage, at −15.
         var reloaded = Reload(k.CompanyName);
-        Assert.Equal(10m, OnHand(reloaded, k.ItemId, k.MainGodownId));
+        Assert.Equal(-15m, OnHand(reloaded, k.ItemId, k.MainGodownId));
+        Assert.Contains(new InventoryPostingService(reloaded).DetectNegativeStock(),
+            s => s.StockItemId == k.ItemId && s.OnHand == -15m);
     }
 
     [Fact]
@@ -399,7 +411,7 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
         var orderLabels = k.Vm.Menu.Where(x => x.IsSelectable).Select(x => x.Label).ToArray();
         Assert.Equal(new[] { "Purchase Order", "Sales Order" }, orderLabels);
 
-        // Inventory Vouchers group → the six stock-moving pages incl. Physical Stock (F10 menu path).
+        // Inventory Vouchers group → the six stock-moving pages incl. Physical Stock (Ctrl+F7).
         k.Vm.ShowInventoryVouchersMenu();
         Assert.Equal(GatewayMenu.InventoryVouchers, k.Vm.CurrentGatewayMenu);
         var invLabels = k.Vm.Menu.Where(x => x.IsSelectable).Select(x => x.Label).ToArray();
@@ -423,7 +435,7 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
         k.Vm.OpenInventoryVoucher(VoucherBaseType.ReceiptNote);
         Assert.Equal(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
 
-        k.Vm.CancelVoucher();                       // Alt+X path → BackFromPage
+        k.Vm.AbandonEntry();                        // Esc / Cancel-button path → BackFromPage
         Assert.NotEqual(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
         Assert.Null(k.Vm.InventoryVoucherEntry);
     }

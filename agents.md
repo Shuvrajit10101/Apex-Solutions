@@ -90,8 +90,14 @@
 - **Inputs:** catalog §1–3, §9, §12–14, §22 (seed data), requests from Accounting-Engine/Inventory/GST/
   Payroll engineers, Architect's storage-engine ADR.
 - **Outputs:** ER diagrams, schema/migration files, seed-data scripts (28 groups + 2 ledgers + default
-  cost category/godown + 24 voucher types per catalog §22), a structured summary of schema changes for
-  CA and Code Reviewer.
+  cost category/godown + **23 voucher types**), a structured summary of schema changes for
+  CA and Code Reviewer. **The count and its source are stated separately, deliberately:** catalog §22
+  prescribes **24** (`docs/tally-feature-catalog.md:519`, and §4 at `:187`) and Apex seeds 23 — **Attendance** is
+  deliberately not seeded (decision **D24-B**; it was dead master data), a **recorded fidelity gap**
+  (`docs/full-clone-census.md` Tier 3). A sweep briefly wrote "23 voucher types **per catalog §22**", which
+  attributed to the requirements reference a figure that reference denies — under R7 exactly the defect a citation
+  exists to prevent, and the same edit the count check itself refuses one file over (it exempts the catalogue's own
+  24 with the reason "forcing the catalogue to say 23 would erase the requirement").
 
 ### 4. Accounting-Engine Engineer
 

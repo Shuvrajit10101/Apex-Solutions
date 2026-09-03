@@ -128,7 +128,11 @@ public sealed class GstConfig
     public int ReconDateWindowDays { get; set; }
 
     /// <summary>The reconciliation tolerance as a value object (paisa + days), built from the two config fields.</summary>
-    public ReconTolerance ReconTolerance => new((long)(ReconValueTolerance.Amount * 100m), ReconDateWindowDays);
+    // Rupees→paisa via the ONE rule (drift lock D3), ROUNDED: a comparison tolerance is derived, not stored, so
+    // it quantises rather than aborting. This was a bare (long) cast, i.e. a THIRD semantics — truncation toward
+    // zero — which narrowed a sub-paisa tolerance by a paisa instead of rounding it.
+    public ReconTolerance ReconTolerance =>
+        new(PaisaConversion.ToPaisaRounded(ReconValueTolerance), ReconDateWindowDays);
 
     /// <summary>The per-state / per-transaction-type consignment-threshold overrides (Phase 9 slice 5; §2.6). <b>Empty</b>
     /// for a company that never provisions them — every state then uses the flat <see cref="EWayThreshold"/> (ER-13
@@ -185,6 +189,45 @@ public sealed class GstConfig
     public void AddRcmCategory(RcmCategory category) =>
         _rcmCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
 
+    // --- The five-level GST master hierarchy (Phase 10.10 WF-1; register IV-1). The company is the LAST level of
+    //     both orders, so its default block is the fallback that stops D8's "unresolved rate" hard block from firing
+    //     on a customer who set the rate where the reference application tells them to. Null/LedgerFirst ⇒ a company
+    //     that never touches the hierarchy is byte-identical (ER-13). PERSISTED-BUT-INERT in slice S4. ---
+
+    /// <summary>
+    /// The company-level GST details — first in the corpus's list of five <i>methods</i> (an enumeration, not an
+    /// order — see <see cref="MasterGstDetails"/>) and the <b>last</b> level of both resolution orders. <c>null</c> ⇒
+    /// the company declares no default, which is how every pre-v51 company reads. Its four-field shape is the one
+    /// corpus screen that names them all: <c>tally/664311548-Tally-Prime-Book.pdf</c>, <c>pdftotext -layout</c>
+    /// extracted lines 6165-6172, <i>"Fill details like, description, HSN/SAC code, Type of Goods/services and tax
+    /// rate"</i>.
+    /// </summary>
+    public MasterGstDetails? DefaultGst { get; set; }
+
+    /// <summary>
+    /// "Source of HSN/SAC Details" — which end of the five-level hierarchy an <b>HSN/SAC</b> lookup starts from.
+    /// Defaults to <see cref="GstDetailSource.LedgerFirst"/>, the reference application's shipped order; a book
+    /// migrated from v50 is back-filled to <see cref="GstDetailSource.StockItemFirst"/> instead, so it keeps
+    /// resolving exactly as it did (R12 decision 1 — read the scope limit on that guarantee in
+    /// <see cref="GstDetailSource"/>).
+    /// </summary>
+    public GstDetailSource SourceOfHsnSacDetails { get; set; } = GstDetailSource.LedgerFirst;
+
+    /// <summary>
+    /// "Source of GST Rate" — which end of the five-level hierarchy a <b>rate</b> lookup starts from. Modelled as a
+    /// separate option from <see cref="SourceOfHsnSacDetails"/> (plan.md orchestrator ruling 2), so a book may
+    /// classify from the ledger and rate from the item.
+    ///
+    /// <para>🔴 <b>R7 — "the reference application ships them separately" is [web] and A14-UNVERIFIED</b>
+    /// (owed-review lens 3 finding 5). Zero corpus hits for "Source of HSN/SAC", "Source of GST Rate" or a GST-rate
+    /// "hierarchy" across the ten PDFs; the only two "hierarchy" hits are about the <i>account-group</i> hierarchy.
+    /// The claim is recorded at plan.md's Phase 10.10 "R7 fidelity — sources of record" bullet under a heading that
+    /// promises A14 confirms each before its slice ships — <b>and A14 never ran for this slice</b> (the design agent
+    /// died; see the R6 deviation on the S4 row). <b>This unverified claim carries two schema columns.</b> It is
+    /// cheap to keep and expensive to add later, which is why it shipped; it is not evidence.</para>
+    /// </summary>
+    public GstDetailSource SourceOfGstRate { get; set; } = GstDetailSource.LedgerFirst;
+
     /// <summary>The home <see cref="IndianState"/>, or <c>null</c> if the home state code is unset/invalid.</summary>
     public IndianState? HomeState => IndianState.FromCode(HomeStateCode);
 
@@ -239,6 +282,11 @@ public sealed class GstConfig
             if (EWayThreshold.Amount < 0)
                 throw new ArgumentException("The e-Way Bill consignment threshold must be ≥ 0.");
         }
+        // WF-1 (v51): the company-level default block is the LAST level of both resolution orders, so a malformed
+        // one would surface as a bad rate on any line no other level answered. Validate it with the same three rules
+        // every other GST block obeys (fail-fast, ER-6) rather than letting it reach a resolver.
+        DefaultGst?.EnsureValid();
+
         foreach (var t in _eWayStateThresholds)
         {
             if (!IndianState.IsValidCode(t.StateCode))

@@ -11,17 +11,13 @@ namespace Apex.Ledger.Io;
 /// </summary>
 public static class MoneyCodec
 {
-    /// <summary>The exact integer-paisa value of <paramref name="money"/> (rupees × 100).</summary>
-    public static long ToPaisa(Money money)
-    {
-        decimal paisa = money.Amount * 100m;
-        if (paisa != decimal.Truncate(paisa))
-            throw new InvalidOperationException($"Amount {money.Amount} is not paisa-exact and cannot be serialised.");
-        return (long)paisa;
-    }
+    /// <summary>The exact integer-paisa value of <paramref name="money"/> (rupees × 100). Delegates to
+    /// <see cref="PaisaConversion.ToPaisaExact(Money)"/> — the ONE rupees→paisa rule (drift lock D3). This is the
+    /// EXACT semantics: a sub-paisa amount throws rather than serialise a silently altered value.</summary>
+    public static long ToPaisa(Money money) => PaisaConversion.ToPaisaExact(money);
 
     /// <summary>The <see cref="Money"/> for an integer-paisa value (paisa ÷ 100, exact).</summary>
-    public static Money FromPaisa(long paisa) => new(paisa / 100m);
+    public static Money FromPaisa(long paisa) => PaisaConversion.ToMoney(paisa);
 
     /// <summary>Nullable variant for optional monetary fields.</summary>
     public static long? ToPaisa(Money? money) => money is { } m ? ToPaisa(m) : null;

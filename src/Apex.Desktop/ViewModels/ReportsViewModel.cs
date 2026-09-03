@@ -1366,8 +1366,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // the row RENDERS as its particulars ("{VoucherTypeName} No. {Number}") — matching a hidden internal
         // string would hide rows whose visible text matches (e.g. "No.") and match text that is never shown. We
         // also fold in the party/particulars so a party-name filter still works. Magnitude = the voucher amount;
-        // cancelled rows carry Money.Zero so a positive range filter naturally excludes them; the default view
-        // leaves the date-ordered list untouched.
+        // the default view leaves the date-ordered list untouched.
+        //
+        // 🔴 A CANCELLED ROW KEEPS ITS FULL MAGNITUDE HERE, DELIBERATELY. This comment used to claim "cancelled
+        // rows carry Money.Zero so a positive range filter naturally excludes them", and that was simply false:
+        // `DayBook.Build` passes `v.TotalDebit` regardless of `v.Cancelled`, and `Voucher.TotalDebit` sums the
+        // debit-line magnitudes with no cancelled test — so a cancelled ₹20,000 receipt survives an amount range of
+        // 15,000–100,000, measured. Nothing zeroes it and nothing should: the Day Book LISTS cancelled vouchers by
+        // design (that is the whole evidence value of Cancel over Delete), and a row that vanishes from a filtered
+        // view but not from the unfiltered one would be the worse behaviour. The claim was untestable before
+        // Phase 10.11 S3, because until then no voucher in the product could be cancelled at all; it is testable
+        // now, so it is stated as it is rather than as it was wished to be.
         var rows = _sortFilter.Apply(
             built,
             r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
@@ -1382,6 +1391,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
                 Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
                 Amount = amt,
+                // Phase 10.11 S3: carry the engine row's cancelled flag into presentation so the row renders in
+                // the muted ink (CancelledRowToBrushConverter). The "(Cancelled)" text above stays — colour alone
+                // is never the only carrier of a fact this material.
+                IsCancelled = r.IsCancelled,
                 DrillVoucherId = r.VoucherId,   // RQ-7: Enter opens this voucher's read-only detail
             });
         }
@@ -1401,7 +1414,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The particulars text a Day Book row renders (voucher type + number) — the SAME string used for
     /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
-    private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.Number}";
+    private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.FormattedNumber}";
 
     // =============================================================== inventory reports (slice 3.4b)
 
@@ -1527,7 +1540,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         foreach (var r in mv.Rows)
         {
-            var voucher = r.Number > 0 ? $"{r.VoucherTypeName} No. {r.Number}" : r.VoucherTypeName;
+            var voucher = r.Number > 0 ? $"{r.VoucherTypeName} No. {r.FormattedNumber}" : r.VoucherTypeName;
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
@@ -1565,7 +1578,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = r.Number.ToString(),
+                Col2 = r.FormattedNumber,
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -1619,7 +1632,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = $"{r.VoucherTypeName} No. {r.Number}",
+                Col2 = $"{r.VoucherTypeName} No. {r.FormattedNumber}",
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -1651,7 +1664,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col1 = FormatDate(o.Date),
                 Col2 = o.OrderNo,
                 Col3 = o.PartyName ?? string.Empty,
-                Col4 = $"{o.VoucherTypeName} No. {o.Number} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
+                Col4 = $"{o.VoucherTypeName} No. {o.FormattedNumber} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
                 IsHeader = true,
             });
             foreach (var c in o.Components)
@@ -1689,7 +1702,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = r.Number.ToString(),
+                Col2 = r.FormattedNumber,
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -2253,7 +2266,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     // --------------------------------------------------------------- R2 TDS Not Deducted
-    //   Date | Party | Section / Nature | Assessable | Cumulative in FY | Threshold | Shortfall
+    //   Date | Party | Section / Nature | Assessable | Aggregate in window | Threshold | Shortfall
+    //   The aggregate column is FY-to-date on every section but §194-I, whose threshold window is the CALENDAR
+    //   MONTH (first proviso: rent "for a month or part of a month" against ₹50,000, and no annual limb at all),
+    //   which is why the shared header reads "Cumulative" rather than "Cumul. (FY)".
     private void BuildTdsNotDeducted()
     {
         var report = Report.BuildTdsNotDeducted(_company, _asOf);
@@ -2267,7 +2283,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col2 = r.Party,
                 Col3 = StatSectionNature(r.Section, r.Nature),
                 Col4 = IndianFormat.Rupees(r.Assessable),
-                Col5 = IndianFormat.Rupees(r.CumulativeInFy),
+                Col5 = IndianFormat.Rupees(r.AggregateInWindow),
                 Col6 = IndianFormat.Rupees(r.Threshold),
                 Col7 = IndianFormat.Rupees(r.Shortfall),
             });
@@ -2713,7 +2729,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var r in report.Rows)
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Memo No. {r.Number}",
+                Particulars = $"{FormatDate(r.Date)}  Memo No. {r.FormattedNumber}",
                 Secondary = r.PartyOrParticulars ?? string.Empty,
                 Amount = IndianFormat.Amount(r.Amount),
             });
@@ -2741,7 +2757,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             var particulars = string.IsNullOrEmpty(r.Particulars) ? applicable : $"{r.Particulars}  ·  {applicable}";
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.Number}",
+                Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.FormattedNumber}",
                 Secondary = particulars,
                 Amount = IndianFormat.Amount(r.Amount),
             });
@@ -2777,7 +2793,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var r in report.Rows)
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Bill No. {r.Number}  ·  {r.Party}",
+                Particulars = $"{FormatDate(r.Date)}  Bill No. {r.FormattedNumber}  ·  {r.Party}",
                 Secondary = Tenders(r),
                 Amount = IndianFormat.Amount(r.BillTotal),
             });

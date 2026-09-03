@@ -66,13 +66,37 @@ public sealed partial class BillAllocationRowViewModel : ViewModelBase
     public bool IsBlank => string.IsNullOrWhiteSpace(Name) && string.IsNullOrWhiteSpace(AmountText);
 
     /// <summary>
-    /// True when this row is a complete allocation: a positive amount, and (unless On-Account) a name.
+    /// The field-level refusal for this row's amount, or <c>null</c> when it can be stored (W0-13 S2a).
+    ///
+    /// <para><b>The front line for this row, and it belongs HERE, not on a parent.</b> The same row type hangs off
+    /// TWO independent parents — <c>VoucherLineViewModel.BillAllocations</c> (the plain Dr/Cr grid) and
+    /// <c>VoucherEntryViewModel.InvoiceBillAllocations</c> (both invoice modes) — with separate validation and
+    /// separate Accept paths. A parent-side guard would have to be written twice and would be forgotten once; the
+    /// row is also where the text→decimal parse actually lives, so it is the front line by definition.</para>
+    ///
+    /// <para>Blank/unparsable is NOT this property's business: <see cref="IsBlank"/> and <see cref="IsComplete"/>
+    /// already refuse those, and reporting "'' is finer than a paisa" for an untouched row would be noise.</para>
+    /// </summary>
+    public string? AmountError =>
+        TryParseAmount(out var amt) ? StorableAmount.ErrorFor(amt, AmountText, "the bill-wise allocation amount") : null;
+
+    /// <summary>
+    /// True when this row is a complete allocation: a <b>storable</b> positive amount, and (unless On-Account) a
+    /// name.
+    ///
+    /// <para>Storability is folded in here — the same shape <c>AdditionalCostRowViewModel</c> and
+    /// <c>AccountingInvoiceLineViewModel</c> already ship — so that EVERY consumer refuses a sub-paisa row, not
+    /// only the two Accept paths this slice touched: <c>ToAllocation()</c> is called on complete rows alone, so an
+    /// unstorable amount can never reach the <see cref="BillAllocation"/> constructor. <see cref="AmountError"/>
+    /// exists alongside it because "incomplete" alone would surface the parent's generic "must sum to the line
+    /// amount" message — which is the WRONG diagnosis for a split that sums exactly.</para>
     /// </summary>
     public bool IsComplete
     {
         get
         {
             if (ParsedAmount <= 0m) return false;
+            if (!StorableAmount.IsStorable(ParsedAmount)) return false;
             return !NameRequired || !string.IsNullOrWhiteSpace(Name);
         }
     }

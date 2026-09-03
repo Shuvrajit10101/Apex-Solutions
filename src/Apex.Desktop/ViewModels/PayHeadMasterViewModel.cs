@@ -328,6 +328,15 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                 Message = "The slab 'over' amount must be a non-negative number (or blank).";
                 return;
             }
+            // FRONT LINE (W0-13 B7). The band bounds are money too — they persist as from_amount_paisa /
+            // to_amount_paisa through the same Paisa.FromMoney that throws on a sub-paisa figure. This file's
+            // slab editor tested sign and band ORDER only; PayHeadService.ValidateComputation never looks at slab
+            // money at all, and its one IsPaisaExact covers RoundingLimit. See StorableAmount for branch order.
+            if (StorableAmount.ErrorFor(f, SlabFromText, "the slab 'over' amount") is { } fromError)
+            {
+                Message = fromError;
+                return;
+            }
             from = new Money(f);
         }
         if (!string.IsNullOrWhiteSpace(SlabToText))
@@ -335,6 +344,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             if (!TryParseDecimal(SlabToText, out var t) || t < 0m)
             {
                 Message = "The slab 'up to' amount must be a non-negative number (or blank).";
+                return;
+            }
+            if (StorableAmount.ErrorFor(t, SlabToText, "the slab 'up to' amount") is { } toError)
+            {
+                Message = toError;
                 return;
             }
             to = new Money(t);
@@ -361,6 +375,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             if (!TryParseDecimal(SlabRateOrValueText, out var val) || val < 0m)
             {
                 Message = "Enter a non-negative amount for the value slab (e.g. 200).";
+                return;
+            }
+            if (StorableAmount.ErrorFor(val, SlabRateOrValueText, "the value slab amount") is { } valueError)
+            {
+                Message = valueError;
                 return;
             }
             value = new Money(val);
@@ -418,6 +437,17 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                 Message = "A rounding method needs a positive rounding limit (e.g. 1).";
                 return false;
             }
+            // FRONT LINE (W0-13 B7) — the FOURTH money field on this screen, and it needs the same guard as its
+            // three slab siblings above. PayHeadService.cs's own `!payHead.RoundingLimit.IsPaisaExact` check is
+            // HALF the rule: it has no magnitude ceiling, so a paisa-exact 18-digit limit passed the parse, passed
+            // `<= 0m`, passed ValidatePayHead and overflowed long inside Paisa.FromMoney. The broad catch below now
+            // contains that, but the operator would be shown the store's raw "too large or too small for an Int64"
+            // instead of a refusal that names the field.
+            if (StorableAmount.ErrorFor(limit, RoundingLimitText, "the rounding limit") is { } limitError)
+            {
+                Message = limitError;
+                return false;
+            }
             roundingLimit = new Money(limit);
         }
 
@@ -465,10 +495,15 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             }
         }
 
+        // W0-13 B7 — PayHeadService.CreatePayHead validates and then writes the head to the shared aggregate
+        // BEFORE the store is reached, and the shipped catch took no rollback at all: a refused save left a pay
+        // head the .db does not hold, so every LATER save threw. `created` is null on an engine failure because
+        // CreatePayHead validates before it adds, so the restore is exact rather than a list snapshot.
+        PayHead? created = null;
         try
         {
             var service = new PayHeadService(_company);
-            service.CreatePayHead(
+            created = service.CreatePayHead(
                 name,
                 SelectedType.Value,
                 calcType,
@@ -485,8 +520,13 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                 displayName: string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim());
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST and UNCONDITIONALLY — a type filter must never decide whether the rollback runs. The
+            // old `when (ex is InvalidOperationException or ArgumentException)` filter also let a SqliteException
+            // (SQLITE_BUSY from a second instance holding the write lock, READONLY, FULL) escape as a crash.
+            if (created is not null) _company.RemovePayHead(created);
+            if (!SaveFailure.IsReportable(ex)) throw;
             Message = ex.Message;
             return false;
         }

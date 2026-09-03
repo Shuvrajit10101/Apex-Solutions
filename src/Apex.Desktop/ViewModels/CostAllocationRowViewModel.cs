@@ -75,9 +75,24 @@ public sealed partial class CostAllocationRowViewModel : ViewModelBase
     /// <summary>True once this row is touched at all (a centre or an amount) — a fully-blank row is ignored.</summary>
     public bool IsBlank => SelectedCentre is null && string.IsNullOrWhiteSpace(AmountText);
 
-    /// <summary>True when this row is a complete allocation: a category, a centre, and a positive amount.</summary>
+    /// <summary>
+    /// The field-level refusal for this row's amount, or <c>null</c> when it can be stored (W0-13 S2a). Mirrors
+    /// <see cref="BillAllocationRowViewModel.AmountError"/> — and for the same reason: the parse lives here, so
+    /// this is the front line. The parent's own gate is a per-category exact-SUM check, which two sub-paisa halves
+    /// satisfy exactly (1,666.785 + 3,333.585 == 5,000.37), so the check that looks like it would catch this
+    /// passes it straight through to <c>Paisa.FromMoney</c>.
+    /// </summary>
+    public string? AmountError =>
+        TryParseAmount(out var amt) ? StorableAmount.ErrorFor(amt, AmountText, "the cost allocation amount") : null;
+
+    /// <summary>
+    /// True when this row is a complete allocation: a category, a centre, and a <b>storable</b> positive amount.
+    /// Storability is folded in so <see cref="ToAllocation"/> — called on complete rows only — can never hand the
+    /// <see cref="CostAllocation"/> constructor an amount the paisa store would refuse.
+    /// </summary>
     public bool IsComplete =>
-        SelectedCategory is not null && SelectedCentre is not null && ParsedAmount > 0m;
+        SelectedCategory is not null && SelectedCentre is not null && ParsedAmount > 0m
+        && StorableAmount.IsStorable(ParsedAmount);
 
     /// <summary>Builds the domain <see cref="CostAllocation"/> for this row (caller only invokes when complete).</summary>
     public CostAllocation ToAllocation() =>

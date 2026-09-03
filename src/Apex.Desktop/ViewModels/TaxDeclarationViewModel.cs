@@ -223,7 +223,20 @@ public sealed partial class TaxDeclarationViewModel : ViewModelBase
         return true;
     }
 
-    /// <summary>Parses a declared rupee figure: blank ⇒ ₹0; a negative or non-numeric value fails with a message.</summary>
+    /// <summary>
+    /// Parses a declared rupee figure: blank ⇒ ₹0; a negative, non-numeric or SUB-PAISA value fails with a message.
+    ///
+    /// <para><b>The sub-paisa check is a domain-boundary guard, and it is load-bearing.</b> The paisa store rejects
+    /// an amount finer than a paisa (<see cref="Money.IsPaisaExact"/> documents this as the front-line check every
+    /// typed-amount screen owes it — see <c>LedgerMasterViewModel</c>, <c>StockItemMasterViewModel</c>,
+    /// <c>BatchMasterViewModel</c>, <c>TdsStatPaymentViewModel</c> and ~15 other input paths). Without it here the
+    /// failure is not merely a bad message: <see cref="Save"/> calls <c>AddTaxDeclaration</c> on the SHARED in-memory
+    /// Company BEFORE the store is asked to persist, and neither <c>TaxDeclaration</c> nor <c>AddTaxDeclaration</c>
+    /// validates. So a sub-paisa figure would be written into the aggregate, the save would throw, the catch would
+    /// report it and return false — and the bad declaration would REMAIN in the Company, making every later,
+    /// unrelated save throw from a call site that has no try/catch. Rejecting the input here keeps the aggregate
+    /// clean, which is the property <c>SubPaisaDeclarationIsRejectedAndNeverEntersTheCompany</c> pins.</para>
+    /// </summary>
     private bool TryMoney(string? text, string fieldLabel, out Money value)
     {
         value = Money.Zero;
@@ -235,6 +248,12 @@ public sealed partial class TaxDeclarationViewModel : ViewModelBase
             return false;
         }
         value = new Money(amount);
+        if (!value.IsPaisaExact)
+        {
+            Message = $"'{text}' is finer than a paisa for {fieldLabel} (enter at most two decimal places).";
+            value = Money.Zero;
+            return false;
+        }
         return true;
     }
 

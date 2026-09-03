@@ -12,7 +12,7 @@ namespace Apex.Ledger.Reports;
 public sealed record Gstr1B2BRow(
     string PartyName,
     string? PartyGstin,
-    int InvoiceNumber,
+    string InvoiceNumber,
     DateOnly InvoiceDate,
     string? PlaceOfSupplyStateCode,
     Money TaxableValue,
@@ -26,6 +26,12 @@ public sealed record Gstr1B2BRow(
     /// leaves it null on every row (byte-identical, ER-13); it is not written to the tabular export in S4a.
     /// </summary>
     public string? Irn { get; init; }
+
+    /// <summary>The <b>raw underlying voucher sequence number</b> of this document (the bare int, before affix rendering).
+    /// A display-invisible ordering key: <see cref="InvoiceNumber"/> is the rendered display string (prefix/suffix and
+    /// all), so numeric ordering of the amendment tables (<see cref="Gstr1Amendments"/>) must sort on this raw int — an
+    /// ordinal sort of the rendered string would place "10" before "2". Defaults to 0 (never emitted anywhere).</summary>
+    public int RawNumber { get; init; }
 }
 
 /// <summary>
@@ -250,7 +256,12 @@ public sealed record Gstr1(
             if (!hasTax) continue;
 
             var party = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
-            var pos = GstReportSupport.PlaceOfSupply(company, voucher);
+            // W0-15: the place of supply an ISSUED document states — the s.10(1)(ca) ladder RECONCILED to the tax the
+            // voucher posted, the same value the printed invoice carries. Reading the raw ladder here let the return
+            // name the SUPPLIER's own State on an IGST-bearing voucher whose party State had since been cleared or
+            // "corrected" (NIC validation 24 makes that self-refuting) while the reprint of the same voucher printed
+            // nothing at all. An undrifted voucher resolves identically ⇒ byte-identical (ER-13).
+            var pos = GstReportSupport.IssuedPlaceOfSupply(company, voucher);
             var taxable = GstReportSupport.InvoiceTaxableValue(voucher);
 
             // Per-(integrated rate) breakdown of THIS invoice's posted tax, so a multi-rate invoice contributes
@@ -269,8 +280,9 @@ public sealed record Gstr1(
                     ? eiv.Irn
                     : null;
                 b2b.Add(new Gstr1B2BRow(
-                    party!.Name, party.PartyGst!.Gstin, voucher.Number, voucher.Date, pos,
-                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst)) { Irn = irn });
+                    party!.Name, party.PartyGst!.Gstin, EInvoiceService.DocumentNumberOf(company, voucher), voucher.Date, pos,
+                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst))
+                    { Irn = irn, RawNumber = voucher.Number });
             }
             else
             {
@@ -338,6 +350,17 @@ public sealed record Gstr1(
     /// plus <b>mismatched</b> — a Generated record whose voucher's current document number no longer matches (an edited
     /// voucher; surfaced, not auto-cleared). Advisory; recomputed each call (no persistence). The "GSTR-1 reconciles to
     /// IRN-tagged docs" gate: <see cref="Covered"/> == <see cref="Tagged"/> when every covered document has been IRN-tagged.
+    ///
+    /// <para>🔴 <b><see cref="Mismatched"/> IS A DOCUMENT-NUMBER COMPARISON, NOT AN AMENDMENT DETECTOR — do not read it
+    /// as one.</b> The only content check below is <c>record.DocumentNumberUpper</c> versus
+    /// <c>EInvoiceService.DocumentNumberOf</c>. The IRP signed a whole document, and the record's <c>SignedJson</c> is
+    /// never compared to anything, so an <b>amount-only</b> amendment leaves this counter reading a clean
+    /// <c>Mismatched = 0</c> while the GSTR-1 B2B row files the NEW taxable value under the OLD IRN. Measured: dividing
+    /// an IRN-tagged invoice by ten moved the B2B taxable value 60,000 to 6,000 with <c>Tagged = 1, Mismatched = 0</c>
+    /// throughout. That is worse than having no detector, because it is the thing a reviewer points at to say the case
+    /// is covered. The alteration path warns instead — <c>VoucherAlterationWarningCode.StatutoryRecordDiverged</c>,
+    /// raised by <c>LedgerService.Replace</c> — and the <c>EInvoiceStatus.Generated</c> REFUSAL is phase-10-11 §6.6's
+    /// S5b work. Widening this limb to compare a value the IRN was signed over is the real fix and is NOT done here.</para>
     /// </summary>
     public sealed record EInvoiceReconciliationView(
         int Covered, int Tagged, int Pending, int Failed, int Cancelled, int Mismatched);
@@ -357,7 +380,7 @@ public sealed record Gstr1(
             {
                 case EInvoiceStatus.Generated:
                     tagged++;
-                    if (!string.Equals(record.DocumentNumberUpper, EInvoiceService.DocumentNumberOf(voucher), StringComparison.Ordinal))
+                    if (!string.Equals(record.DocumentNumberUpper, EInvoiceService.DocumentNumberOf(company, voucher), StringComparison.Ordinal))
                         mismatched++;
                     break;
                 case EInvoiceStatus.Pending: pending++; break;
@@ -399,7 +422,8 @@ public sealed record Gstr1(
 
             rows.Add(new Gstr1Table9BRow(
                 link.CdnType, link.OriginalInvoiceVoucherId, link.OriginalInvoiceNumber, link.OriginalInvoiceDate,
-                v.Date, GstReportSupport.PlaceOfSupply(company, v),
+                // W0-15: the same reconciled place of supply the invoice states (see the Table 4/7 note above).
+                v.Date, GstReportSupport.IssuedPlaceOfSupply(company, v),
                 new Money(sign * taxable), new Money(sign * heads.Cgst), new Money(sign * heads.Sgst),
                 new Money(sign * heads.Igst), link.ReasonCode, link.Is9BTarget));
         }
@@ -531,7 +555,7 @@ public sealed record Gstr1(
             // rate group. Its (doubled) cess-rate key would otherwise inject a phantom rate row into the rate-wise /
             // B2C consolidation and duplicate the group's taxable value. Skip it here; reports read cess separately.
             if (g.TaxHead == GstTaxHead.Cess) continue;
-            var rate = GstReportSupport.IntegratedRateOf(g);
+            var rate = GstReportSupport.IntegratedRateOf(g, line.Amount);
             if (!byRate.TryGetValue(rate, out var acc)) byRate[rate] = acc = new HeadAmounts();
             switch (g.TaxHead)
             {
@@ -570,12 +594,31 @@ public sealed record Gstr1(
                 exempt += il.Value.Amount;
                 AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, hsnAcc);
             }
+
+            // Accounting (service) invoice with no stock lines: attribute the service-income LEDGER legs to the exempt
+            // bucket + their SAC row — but ONLY a genuinely exempt/nil service ledger (SalesPurchaseGst IsTaxable:false).
+            // A plain As-Voucher TAXABLE sale (an 18% ledger, but the plain grid posts NO tax legs) ALSO reaches this
+            // no-tax branch; attributing it here would file its value in the Table-12 EXEMPT column — a positive
+            // misstatement. The IsTaxable:false gate is the discriminator the flag-less structural signal otherwise
+            // lacks. Gated on InventoryLines.Count==0 so an existing exempt item invoice is never double-counted.
+            if (voucher.InventoryLines.Count == 0)
+                foreach (var (ledger, value) in ServiceLegs(company, voucher))
+                    if (IsNonTaxableServiceLedger(ledger))
+                    {
+                        exempt += value;
+                        AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc);
+                    }
             return;
         }
 
         if (voucher.InventoryLines.Count == 0)
         {
-            // As-voucher (no stock lines): nothing to attribute to HSN; return.
+            // Accounting (service) invoice: attribute the posted tax to the service-income LEDGER legs, grouped by
+            // SAC — the service mirror of the item-line attribution below. ONLY when there are no stock lines, so an
+            // existing item invoice's HSN summary is never double-counted (its stock lines carry the tax below). A
+            // plain As-Voucher sale with posted tax legs (unusual) still finds no SAC-bearing service leg here and is
+            // simply not attributed to HSN, exactly as before.
+            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt);
             return;
         }
 
@@ -635,15 +678,23 @@ public sealed record Gstr1(
     private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
         company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
 
+    /// <summary>Delegates to <see cref="ProRata.Rupees"/> — the ONE apportionment rule (drift lock D1). This was a
+    /// pure de-duplication: this copy carried no zero-denominator guard of its own, but it never needed one, because
+    /// BOTH call sites (the stock/HSN loop and the service-SAC loop) already <c>continue</c> on
+    /// <c>groupValue == 0m</c> before reaching here. Those caller-side guards are LOAD-BEARING — they skip the group
+    /// entirely, which is the observable behaviour; do not delete them believing the shared rule's <c>== 0</c>
+    /// replaces them, or the group's whole posted tax would land on its last leg via the remainder branch.</summary>
     private static decimal Apportion(decimal total, decimal value, decimal totalValue) =>
-        Math.Round(total * value / totalValue, 2, MidpointRounding.AwayFromZero);
+        ProRata.Rupees(total, value, totalValue);
 
     private static void AddHsnRow(
         Company company, VoucherInventoryLine il, decimal value, decimal cgst, decimal sgst, decimal igst,
         Dictionary<string, HsnAcc> hsnAcc)
     {
         var item = company.FindStockItem(il.StockItemId);
-        var hsn = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "(none)";
+        // Resolution order is the ONE rule (GstReportSupport.HsnSacOf, drift lock D7); the "(none)" bucket label
+        // is this report's own rendering of absence — see that method's note on why the sentinels differ.
+        var hsn = GstReportSupport.HsnSacOf(item) ?? "(none)";
         // WI-10 Gap 2 follow-on: declare the quantity in the unit the LINE is stated in when that unit maps to a
         // valid UQC ("2 DOZ"), exactly as the printed invoice already does — NOT the line quantity beside the
         // item's BASE UQC, which would file "2 NOS" for a Table-12 row in which 24 Nos were actually supplied.
@@ -684,6 +735,154 @@ public sealed record Gstr1(
         if (acc.BaseUnitId != decl.BaseUnitId) acc.MixedBases = true;
         acc.Quantity += decl.Quantity;
         acc.BaseQuantity += decl.BaseQuantity;
+        acc.Taxable += value;
+        acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
+    }
+
+    /// <summary>
+    /// The service-income LEDGER legs of an accounting (service) invoice — a non-party, non-tax entry line whose
+    /// ledger carries a <c>SalesPurchaseGst</c> (SAC) block; its taxable value is the leg amount. Round-Off and every
+    /// other ledger without a SAC block (or a GST tax ledger) are excluded. Used ONLY when the voucher has no stock
+    /// lines, so an item invoice never routes through here.
+    /// <para><b>Public because the e-invoice payload MUST share this exact definition.</b> The NIC INV-01 emitter used
+    /// to send <c>HsnCd = ""</c> on the ledger-only path while this method filed SAC 998311 in Table 12 for the very
+    /// same voucher — a blank mandatory HsnCd is an IRP rejection, and two parallel implementations would drift again.
+    /// One definition, two readers.</para>
+    /// </summary>
+    public static IEnumerable<(Domain.Ledger Ledger, decimal Value)> ServiceLegs(Company company, Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+        {
+            if (voucher.PartyId is Guid pid && line.LedgerId == pid) continue; // the party leg is not a service leg
+            var led = company.FindLedger(line.LedgerId);
+            if (led?.SalesPurchaseGst is null) continue;    // not a service-income / SAC-bearing ledger
+            if (led.GstClassification is not null) continue; // a GST (Duties &amp; Taxes) tax ledger
+            yield return (led, line.Amount.Amount);
+        }
+    }
+
+    /// <summary>
+    /// Attributes an accounting (service) invoice's posted tax to its service-income ledger legs, grouped by SAC —
+    /// the service mirror of <see cref="AccumulateHsn"/>'s item-line pass. Each leg's tax is a value-share of ITS OWN
+    /// integrated-rate group's posted tax (never the blended total); within a group the value-share is paisa-exact and
+    /// the group's last leg absorbs the rounding remainder, so Σ leg tax == the group's posted tax. Reads only posted
+    /// amounts — the per-leg RATE is read from the ledger's SAC purely to bucket the leg into the matching posted group.
+    ///
+    /// <para><b>A NON-TAXABLE service leg is NEVER a member of a posted rate group.</b> It contributed no taxable value
+    /// to the tax the screen computed (<c>ComputeAccountingInvoiceGst</c> skips it), so it must not receive a share of
+    /// that tax back here. Both money defects on this path were the same root cause:</para>
+    /// <list type="bullet">
+    /// <item><b>Single-rate invoice</b> — the <c>singleRate</c> collapse forced EVERY leg into the one posted group.
+    /// Consultancy 18% 10,000 + Exempt 5,000 filed <c>998311 taxable=10,000 cgst=600 sgst=600</c> and
+    /// <c>999999 taxable=5,000 cgst=300 sgst=300</c> with an EMPTY exempt bucket: the taxed SAC understated its own
+    /// tax, an EXEMPT supply was declared as taxed, and the exempt turnover disappeared — three misstatements at once.</item>
+    /// <item><b>Multi-rate invoice</b> — <see cref="LedgerIntegratedRate"/> returns 0 for a non-taxable ledger, no
+    /// rate-0 group exists, so the <c>continue</c> below DISCARDED the leg: the 5,000 exempt supply was absent from
+    /// Table 12 AND from the exempt bucket.</item>
+    /// </list>
+    /// <para>Every non-taxable leg is therefore routed to the EXEMPT bucket + a zero-tax SAC row (mirroring the
+    /// exempt-branch treatment in <see cref="AccumulateHsn"/>), and the posted tax is apportioned across the TAXABLE
+    /// legs only. A wholly-exempt invoice never reaches here (it has no posted tax); a wholly-taxable one behaves
+    /// exactly as before.</para>
+    /// </summary>
+    private static void AccumulateServiceHsn(
+        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt)
+    {
+        var rateGroups = ReadInvoiceRateGroups(voucher);
+
+        // Split first: exempt/nil/non-GST legs out of the rate machinery entirely, taxable legs into it.
+        var taxableLegs = new List<(Domain.Ledger Ledger, decimal Value)>();
+        foreach (var leg in ServiceLegs(company, voucher))
+        {
+            if (IsNonTaxableServiceLedger(leg.Ledger))
+            {
+                exempt += leg.Value;
+                AddServiceHsnRow(leg.Ledger, leg.Value, 0m, 0m, 0m, hsnAcc);
+                continue;
+            }
+            taxableLegs.Add(leg);
+        }
+
+        // The single-rate collapse is now scoped to the TAXABLE legs: when the invoice posted exactly one rate group,
+        // every taxable leg belongs to it regardless of where its own rate resolved (a rate-history override, a
+        // company-level default). A non-taxable leg can never reach this line.
+        var singleRate = rateGroups.Count == 1 ? rateGroups[0].Rate : (int?)null;
+
+        var legsByRate = new Dictionary<int, List<(Domain.Ledger Ledger, decimal Value)>>();
+        foreach (var leg in taxableLegs)
+        {
+            var rate = singleRate ?? LedgerIntegratedRate(leg.Ledger);
+            if (!legsByRate.TryGetValue(rate, out var list)) legsByRate[rate] = list = new List<(Domain.Ledger, decimal)>();
+            list.Add(leg);
+        }
+
+        foreach (var (rate, group) in rateGroups)
+        {
+            if (!legsByRate.TryGetValue(rate, out var groupLegs) || groupLegs.Count == 0)
+                continue; // no matched service leg for this posted rate group (defensive)
+
+            var groupValue = groupLegs.Sum(l => l.Value);
+            if (groupValue == 0m) continue;
+
+            var runCgst = 0m; var runSgst = 0m; var runIgst = 0m;
+            for (var i = 0; i < groupLegs.Count; i++)
+            {
+                var (ledger, value) = groupLegs[i];
+                decimal cgst, sgst, igst;
+                if (i == groupLegs.Count - 1)
+                {
+                    // The group's last leg absorbs the remainder so Σ leg tax == the group's posted tax exactly.
+                    cgst = group.Cgst - runCgst;
+                    sgst = group.Sgst - runSgst;
+                    igst = group.Igst - runIgst;
+                }
+                else
+                {
+                    cgst = Apportion(group.Cgst, value, groupValue);
+                    sgst = Apportion(group.Sgst, value, groupValue);
+                    igst = Apportion(group.Igst, value, groupValue);
+                    runCgst += cgst; runSgst += sgst; runIgst += igst;
+                }
+                AddServiceHsnRow(ledger, value, cgst, sgst, igst, hsnAcc);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The integrated GST rate (basis points) of a service-income ledger, read from its <c>SalesPurchaseGst</c> (SAC)
+    /// block — used only to bucket a multi-rate service invoice's legs into the matching posted rate group, never to
+    /// compute tax. A ledger with no resolvable taxable rate returns 0.
+    /// </summary>
+    private static int LedgerIntegratedRate(Domain.Ledger ledger) =>
+        ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+
+    /// <summary>Whether a service-income ledger's SAC block declares an <b>exempt / nil-rated / non-GST</b> supply.
+    /// The single discriminator for "this leg contributed nothing to the tax base, so it may never be bucketed into a
+    /// posted rate group" — see <see cref="AccumulateServiceHsn"/>. Kept as one predicate so the exempt-branch and the
+    /// taxed-branch treatments can never drift apart.</summary>
+    public static bool IsNonTaxableServiceLedger(Domain.Ledger ledger) =>
+        ledger.SalesPurchaseGst is { IsTaxable: false };
+
+    /// <summary>The SAC a service-income ledger declares, or <c>null</c> when it declares none. The single resolver
+    /// GSTR-1's Table-12 rows and the e-invoice <c>HsnCd</c> both read, so the two can never disagree (FIX-6).</summary>
+    public static string? ServiceSacOf(Domain.Ledger ledger) =>
+        string.IsNullOrWhiteSpace(ledger.SalesPurchaseGst?.HsnSac) ? null : ledger.SalesPurchaseGst!.HsnSac;
+
+    /// <summary>
+    /// Adds/accumulates a service-income ledger's SAC row: SAC = <c>ledger.SalesPurchaseGst.HsnSac</c>, description =
+    /// the ledger name, taxable = the leg value, tax = the attributed heads. A service carries no unit, so the row
+    /// declares a blank UQC and zero quantity (Table-12 rows for services have no quantity).
+    /// </summary>
+    private static void AddServiceHsnRow(
+        Domain.Ledger ledger, decimal value, decimal cgst, decimal sgst, decimal igst,
+        Dictionary<string, HsnAcc> hsnAcc)
+    {
+        var sac = ledger.SalesPurchaseGst?.HsnSac ?? "(none)";
+        if (!hsnAcc.TryGetValue(sac, out var acc))
+        {
+            acc = new HsnAcc { HsnSac = sac, Description = ledger.Name };
+            hsnAcc[sac] = acc;
+        }
         acc.Taxable += value;
         acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
     }

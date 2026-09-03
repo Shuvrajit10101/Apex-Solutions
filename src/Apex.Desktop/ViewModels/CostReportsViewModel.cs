@@ -80,9 +80,16 @@ public sealed partial class CostReportsViewModel : ViewModelBase
             Rows.Add(ReportRow.Line(cat.CategoryName, cat.Total));
 
         if (report.Categories.Count == 0)
+        {
             Rows.Add(new ReportRow { Particulars = "No cost allocations in this period.", IsHeader = true });
-        else
-            Rows.Add(ReportRow.Total("Grand Total", report.GrandTotal));
+            return;
+        }
+
+        AddAllocatedTotal(
+            report.GrandTotal, report.CategoryTotalsOverlap,
+            "Cost categories are parallel axes — an amount classified under more than one category appears " +
+            "in full under each of them, so the category totals above overlap. This figure is the cost " +
+            "counted once per entry line, not the sum of the rows above.");
     }
 
     // --------------------------------------------------------------- Cost Centre Break-up
@@ -117,12 +124,47 @@ public sealed partial class CostReportsViewModel : ViewModelBase
         }
 
         if (report.Centres.Count == 0)
+        {
             Rows.Add(new ReportRow { Particulars = "No cost centres defined.", IsHeader = true });
-        else
-            Rows.Add(ReportRow.Total("Grand Total", report.GrandTotal));
+            return;
+        }
+
+        AddAllocatedTotal(
+            report.GrandTotal, report.CategoryTotalsOverlap,
+            "Cost categories are parallel axes — an amount classified under more than one category is " +
+            "carried in full by one centre in each of them, so the centre totals above overlap. This " +
+            "figure is the cost counted once per entry line, not the sum of the rows above.");
     }
 
     // --------------------------------------------------------------- helpers
+
+    /// <summary>
+    /// Emits the footer total for a cost report (spec §4.2 rule C-27; gap G-2).
+    /// <para><b>The relabel and the note are driven by whether the rows above actually overlap</b>
+    /// (<c>CategoryTotalsOverlap</c>), never by whether a line happens to name two categories. Two distinct
+    /// populations name two categories and only one of them double-counts:</para>
+    /// <list type="bullet">
+    /// <item>A conforming <b>parallel set</b> carries the whole amount under each category, so Σ of the rows
+    /// exceeds the cost (₹15,000 of rows for one ₹5,000 expense). The footer is relabelled so it is not
+    /// mistaken for a column sum, and the note explains what the figure is instead.</item>
+    /// <item>A <b>pre-fix (legacy) partition</b> book carries ₹3,000.19 Branch + ₹2,000.18 Department on a
+    /// ₹5,000.37 line. Its rows add up to the total exactly — nothing double-counts and not one paisa on
+    /// screen has moved — so it keeps "Grand Total" and no note, exactly like a single-axis book. Relabelling
+    /// it would be an unexplained change to a shipped screen, and the note would flatly contradict the two
+    /// rows printed immediately above it.</item>
+    /// </list>
+    /// </summary>
+    private void AddAllocatedTotal(Money total, bool rowsOverlap, string note)
+    {
+        if (!rowsOverlap)
+        {
+            Rows.Add(ReportRow.Total("Grand Total", total));
+            return;
+        }
+
+        Rows.Add(ReportRow.Total("Total Cost Allocated", total));
+        Rows.Add(new ReportRow { Particulars = note, IsHeader = true });
+    }
 
     private static DateOnly ComputeAsOf(Company company)
     {

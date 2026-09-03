@@ -78,6 +78,9 @@ public sealed class AdvanceReceiptVoucherEntryViewModelTests : IDisposable
         vm.OpenVoucher(VoucherBaseType.Receipt);
         var e = vm.VoucherEntry!;
         e.Date = D1;
+        // Rule-50 advance receipts are keyed on the plain Dr/Cr grid, so leave the Single Entry screen a
+        // Receipt now opens in (there Lines[0] is the Account row with a DERIVED amount).
+        e.ChangeMode();
         e.Lines[0].SelectedLedger = bank;
         e.Lines[0].Side = DrCr.Debit;
         e.Lines[0].AmountText = gross.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -93,6 +96,9 @@ public sealed class AdvanceReceiptVoucherEntryViewModelTests : IDisposable
     {
         vm.OpenVoucher(type);
         var e = vm.VoucherEntry!;
+        // The name says it: this helper keys the PLAIN Dr/Cr grid. On a cash/bank type that now means stepping out of
+        // the Single Entry screen the voucher opens in, where Lines[0] is the Account row and its amount is derived.
+        if (e.CanBeSingleEntry) e.ChangeMode();
         e.Date = D1;
         e.Lines[0].SelectedLedger = dr;
         e.Lines[0].Side = DrCr.Debit;
@@ -554,6 +560,9 @@ public sealed class AdvanceReceiptVoucherEntryViewModelTests : IDisposable
         vm.OpenVoucher(VoucherBaseType.Receipt);
         var e = vm.VoucherEntry!;
         e.Date = D1;
+        // Rule-50 advance receipts are keyed on the plain Dr/Cr grid, so leave the Single Entry screen a
+        // Receipt now opens in (there Lines[0] is the Account row with a DERIVED amount).
+        e.ChangeMode();
         e.Lines[0].SelectedLedger = bank;
         e.Lines[0].Side = DrCr.Debit;
         e.Lines[0].AmountText = "100000";

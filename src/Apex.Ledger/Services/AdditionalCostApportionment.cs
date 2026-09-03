@@ -43,7 +43,7 @@ public static class AdditionalCostApportionment
         if (n == 0) return zeros;
 
         // Pool is a paisa-exact Money; work in integer paisa so the split can never leak a sub-paisa tail.
-        var poolPaisa = (long)decimal.Round(pool.Amount * 100m, 0, MidpointRounding.AwayFromZero);
+        var poolPaisa = PaisaConversion.ToPaisaRounded(pool); // ONE rupees→paisa rule (drift lock D3), ROUNDED
         if (poolPaisa <= 0L) return zeros;
 
         var totalWeight = 0m;
@@ -107,9 +107,55 @@ public static class AdditionalCostApportionment
     }
 
     /// <summary>
+    /// One POSTED additional-cost leg of a Purchase item invoice: the Direct-Expenses ledger it hit, that ledger's
+    /// <see cref="MethodOfAppropriation"/> and the amount it carries.
+    /// </summary>
+    /// <param name="Ledger">The additional-cost ledger — its <see cref="Ledger.Name"/> is what the operator typed and
+    /// is therefore the only truthful caption for this charge on a printed document.</param>
+    /// <param name="Method">The ledger's apportionment method (never null on a tracked leg — it is what makes the leg
+    /// one).</param>
+    /// <param name="Amount">The posted debit amount, paisa-exact.</param>
+    public readonly record struct TrackedCostLeg(
+        Domain.Ledger Ledger, MethodOfAppropriation Method, Money Amount);
+
+    /// <summary>
+    /// <b>THE single definition of "this posted leg is an additional cost of purchase"</b> (RQ-16..RQ-19): a
+    /// <b>debit</b> entry line whose ledger carries a non-null <see cref="Ledger.MethodOfAppropriation"/>, on a
+    /// voucher whose type is a <see cref="VoucherBaseType.Purchase"/> with
+    /// <see cref="VoucherType.TrackAdditionalCosts"/> on. A plain Direct-Expenses ledger with no method is NOT one
+    /// (RQ-19 — the fidelity trap), and neither is the same ledger on an untracked type. Legs come back in posted
+    /// order, so any consumer that lists them lists them the way the operator keyed them.
+    ///
+    /// <para><b>Why this is public and why it must stay the only body.</b> <see cref="ForPurchase"/> builds its two
+    /// pools from it, and the print projector reads the SAME list to state each cost on the document — the printed
+    /// charge and the valuation load can therefore never be computed from two different readings of "which leg is a
+    /// cost?". That divergence class is why <c>GstReportSupport.IsBillOfSupply</c> exists in exactly one place; a
+    /// second copy of this predicate would re-open it for the additional-cost family.</para>
+    /// </summary>
+    public static IReadOnlyList<TrackedCostLeg> TrackedCostLegs(Company company, Voucher voucher)
+    {
+        if (company is null) throw new ArgumentNullException(nameof(company));
+        if (voucher is null) throw new ArgumentNullException(nameof(voucher));
+
+        var type = company.FindVoucherType(voucher.TypeId);
+        if (type is null || !type.TrackAdditionalCosts || type.BaseType != VoucherBaseType.Purchase)
+            return Array.Empty<TrackedCostLeg>();
+
+        var legs = new List<TrackedCostLeg>();
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Side != DrCr.Debit) continue;  // an additional cost posts a Dr to its Direct-Expenses ledger
+            var ledger = company.FindLedger(line.LedgerId);
+            if (ledger?.MethodOfAppropriation is not { } method) continue;  // plain P&L ledger (RQ-19)
+            legs.Add(new TrackedCostLeg(ledger, method, line.Amount));
+        }
+        return legs;
+    }
+
+    /// <summary>
     /// Apportions a Purchase item-invoice's additional-cost entry lines across its item lines (RQ-16..RQ-19). The
-    /// additional-cost lines are the voucher's <b>debit</b> entry lines whose ledger has a non-null
-    /// <see cref="Ledger.MethodOfAppropriation"/> — but only when the voucher type is a Purchase with
+    /// additional-cost lines are exactly <see cref="TrackedCostLegs"/> — the voucher's <b>debit</b> entry lines whose
+    /// ledger has a non-null <see cref="Ledger.MethodOfAppropriation"/>, on a Purchase type with
     /// <see cref="VoucherType.TrackAdditionalCosts"/> on. Each such line joins its method's pool (by-quantity or
     /// by-value); the pools are then allocated over the item lines (weights = base-unit quantity / line value). A
     /// plain freight ledger with no method stays out of both pools (pure P&amp;L — RQ-19). Returns one
@@ -125,18 +171,10 @@ public static class AdditionalCostApportionment
         var qtyPool = Money.Zero;
         var valuePool = Money.Zero;
 
-        var type = company.FindVoucherType(voucher.TypeId);
-        var tracked = type is not null && type.TrackAdditionalCosts && type.BaseType == VoucherBaseType.Purchase;
-        if (tracked)
+        foreach (var leg in TrackedCostLegs(company, voucher))
         {
-            foreach (var line in voucher.Lines)
-            {
-                if (line.Side != DrCr.Debit) continue; // an additional cost posts a Dr to its Direct-Expenses ledger
-                var ledger = company.FindLedger(line.LedgerId);
-                if (ledger?.MethodOfAppropriation is not { } method) continue; // plain P&L ledger (RQ-19)
-                if (method == MethodOfAppropriation.ByQuantity) qtyPool += line.Amount;
-                else valuePool += line.Amount;
-            }
+            if (leg.Method == MethodOfAppropriation.ByQuantity) qtyPool += leg.Amount;
+            else valuePool += leg.Amount;
         }
 
         var qtyWeights = new decimal[items.Count];

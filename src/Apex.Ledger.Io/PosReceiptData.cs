@@ -62,8 +62,30 @@ public sealed class PosReceiptTender
 /// </summary>
 public sealed class PosReceiptData
 {
-    /// <summary>The receipt title (POS config default, or a fallback); de-branded on render.</summary>
+    /// <summary>The receipt title (POS config default, or a fallback); de-branded on render.
+    /// <para>Ignored when <see cref="IsBillOfSupply"/> is set — the document kind follows the supply, not a print
+    /// preference (the same rule <c>InvoicePdf</c> applies to the F12 title override).</para></summary>
     public string Title { get; init; } = string.Empty;
+
+    /// <summary>
+    /// <b>W0-1b.</b> True iff this over-the-counter sale must be documented as a <b>bill of supply</b> rather than a
+    /// retail (tax) invoice — CGST Act §31(3)(c) requires one "instead of a tax invoice" from a registered person
+    /// supplying exempted goods or services, or paying tax under §10 (composition), and §10(4) bars a composition
+    /// dealer from collecting "any tax from the recipient on supplies made by him".
+    /// <para>The flag is routed from the SAME predicate the voucher-screen invoice path uses
+    /// (<c>VoucherPrintProjector.IsBillOfSupply</c>) — never a second copy of the rule — so one dealer cannot get two
+    /// answers from two screens. When set, <c>PosReceiptPdf</c> drops the "Taxable" caption in favour of Rule 49(g)'s
+    /// "Value of Supply", drops every tax head and the per-rate breakup (CGST Rule 49 prescribes eight particulars and
+    /// none of them is a rate or an amount of tax), and titles the document structurally.</para>
+    /// </summary>
+    public bool IsBillOfSupply { get; init; }
+
+    /// <summary>
+    /// The declaration CGST Rule 5(1)(f) requires a <b>composition</b> taxable person to "mention … at the top of the
+    /// bill of supply issued by him", or blank. Blank for a REGULAR dealer's exempt bill of supply — he is not a
+    /// composition taxable person — and blank on every ordinary retail invoice, so nothing prints (ER-13).
+    /// </summary>
+    public string TopDeclaration { get; init; } = string.Empty;
 
     /// <summary>Seller (store) name printed under the title.</summary>
     public string StoreName { get; init; } = string.Empty;

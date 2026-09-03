@@ -45,11 +45,33 @@ public static class SalaryIncomeTax
 
     /// <summary>Health &amp; Education Cess — 4% on (income-tax + surcharge − rebate), both regimes, applied last.</summary>
     /// <remarks>
-    /// TODO(R7): <b>correct for FY 2025-26</b> (Finance Act 2025), which is the data this app holds — leave it as is.
-    /// <b>FY 2026-27 onward is UNCONFIRMED</b>: a full text search of the Finance Act 2026 First Schedule found <b>no
-    /// cess levy in Part III</b>. That is an absence of evidence, not evidence of absence, so the rate is deliberately
-    /// <b>neither removed nor re-cited</b> here. Before the FY 2026-27 rate tables are relied on, the cess must be
-    /// re-verified against a primary source; do not infer its status from a secondary aggregator.
+    /// 🔴 <b>T0-5 — VERIFIED, AND HERE IS THE SOURCE.</b> This rate is applied to a LIVE PAYROLL DEDUCTION and used
+    /// to carry no verifiable basis at all. It is now cited to the Income-tax Department's own rate page, which
+    /// states, under the heading it gives to <b>Assessment Year 2026-27</b> (= FY 2025-26, the year this app's
+    /// rate tables encode) and again for AY 2025-26:
+    /// <i>"Health and Education Cess: Health and Education Cess is levied at the rate of <b>4%</b> on the amount of
+    /// <b>income-tax plus surcharge</b>."</i>
+    /// — Income-tax Department, "Tax rates", <c>https://www.incometaxindia.gov.in/w/tax-rates</c>. The same page's
+    /// old-regime slabs for AY 2026-27 (nil to ₹2,50,000 · 5% · 20% · 30%, with the nil band at ₹3,00,000 for a
+    /// senior citizen and ₹5,00,000 for a super-senior) and its surcharge ladder (10% · 15% · 25% · 37%) are the
+    /// figures encoded above, so the cess's base is sourced together with the figures it is charged on.
+    ///
+    /// <para><b>THE BASE, MATCHED TO THE WORDS.</b> "Income-tax plus surcharge" is what
+    /// <see cref="ComputeAnnual"/> charges it on: <c>(slab tax − §87A rebate) + surcharge</c>. §87A is a rebate FROM
+    /// income-tax, so the income-tax amount the cess attaches to is already net of it; the cess is applied LAST and
+    /// nothing is charged on the cess itself. For salary this reaches the employee through §192, which withholds at
+    /// "the average rate of income-tax computed on the basis of the rates in force" — the Finance Act rates this
+    /// page states.</para>
+    ///
+    /// <para>⚠️ <b>WHAT IS STILL NOT VERIFIED, STATED RATHER THAN GLOSSED.</b> (1) The <b>Finance Act 2025's own
+    /// text</b> — its section 2 and First Schedule, which are the instrument the page summarises — could not be
+    /// retrieved: incometaxindia.gov.in returns HTTP 403 to every non-browser request for its PDFs, and its
+    /// Finance-Acts browser exposes no fetchable section URL. The Department's rate page is a government portal and
+    /// a primary source, but it is a summary of the Act, not the Act. (2) <b>FY 2026-27 onward remains
+    /// UNCONFIRMED</b>, on the earlier finding that a full-text search of the Finance Act 2026 First Schedule found
+    /// no cess levy in Part III. That is an absence of evidence, not evidence of absence, so the rate is
+    /// deliberately neither removed nor extended here. Before the FY 2026-27 rate tables are relied on, re-verify
+    /// against a primary source; do not infer its status from a secondary aggregator.</para>
     /// </remarks>
     public const decimal CessRate = 0.04m;
 

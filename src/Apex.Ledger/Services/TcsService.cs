@@ -130,6 +130,9 @@ public sealed class TcsService
     }
 
     /// <summary>
+    /// The mirror of <see cref="TdsService"/>'s §194Q carve (register IV-2 / census T0-1): the two engines agree on
+    /// the same statutory shape — an excess-charging section charges only the value above its cumulative threshold,
+    /// a qualifying-gate section charges the full value once crossed.
     /// The portion of <paramref name="current"/> the TCS is actually charged on. For the legacy §206C(1H)
     /// cumulative nature only the receipts <b>exceeding</b> the ₹50-lakh FY threshold are charged (bare-section
     /// "sale consideration exceeding fifty lakh rupees", mirror of §194Q): the excess is

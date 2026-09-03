@@ -10,9 +10,13 @@ namespace Apex.Ledger.Domain;
 /// <remarks>
 /// <para>Semantics (design §7; catalog §7): a scenario report = the actual (real-books) figures when
 /// <see cref="IncludeActuals"/> is <c>true</c>, PLUS the provisional vouchers whose voucher type is in
-/// <see cref="IncludedTypeIds"/> — <b>except</b> Optional/PostDated/Cancelled exclusion is relaxed for
+/// <see cref="IncludedTypeIds"/> — <b>except</b> Optional/PostDated exclusion is relaxed for
 /// the included types (an Optional voucher of an included type IS counted), while a Reversing Journal is
-/// counted only while the as-of date is within its <see cref="Voucher.ApplicableUpto"/>.</para>
+/// counted only while the as-of date is within its <see cref="Voucher.ApplicableUpto"/>.
+/// <b>A CANCELLED voucher never counts, in a scenario column or out of it</b> — <c>LedgerBalances.CountsAsOf</c>
+/// refuses it on its first statement, before any inclusion test runs, and that method's own doc list says so.
+/// This sentence used to name Cancelled alongside Optional/PostDated as relaxed, which was false and, until
+/// Phase 10.11 S3 made a voucher cancellable at all, untestable.</para>
 /// <para><see cref="ExcludedTypeIds"/> removes a voucher type from the scenario even if it would
 /// otherwise be actual (e.g. exclude a real Journal type). Exclusion takes precedence over inclusion.
 /// A real (non-provisional) voucher is counted when actuals are included and its type is not excluded.

@@ -292,6 +292,24 @@ public sealed partial class SalaryStructureMasterViewModel : ViewModelBase
                     Message = $"Pay head '{payHead.Name}' ({DescribeCalcType(payHead.CalculationType)}) needs a non-negative amount.";
                     return false;
                 }
+                // FRONT LINE (W0-13 B6). Sign was the ONLY numeric test on this path — here and again in
+                // SalaryStructureService, which checks `< Money.Zero`. A sub-paisa rate passed both, was written
+                // to the company by DefineForEmployee, and was refused by Paisa.FromMoney inside the store, whose
+                // message names neither the pay head nor the field. This one names both — see the label note
+                // below. Shared with the
+                // voucher-entry family via StorableAmount (magnitude-then-exactness; the ceiling matters because
+                // a 17-digit figure passes parse, sign AND the paisa test and then overflows long in the store).
+                //
+                // The label is a FIELD noun-phrase carrying the row identity — "the amount for pay head 'Basic'" —
+                // not the row identity alone. Every other ErrorFor site names a field ("the budget amount", "the
+                // line amount", "the slab 'over' amount"), and this screen carries other money columns a later
+                // slice will guard: a bare "pay head 'Basic'" would give two guards on one screen the same text.
+                if (StorableAmount.ErrorFor(amount, row.AmountText, $"the amount for pay head '{payHead.Name}'")
+                    is { } error)
+                {
+                    Message = error;
+                    return false;
+                }
                 lines.Add(new SalaryStructureLine(payHead.Id, order, new Money(amount)));
             }
             else
@@ -314,23 +332,34 @@ public sealed partial class SalaryStructureMasterViewModel : ViewModelBase
 
         var startType = (SelectedStartType ?? StartTypes.First()).Value;
         string targetName;
+        // W0-13 B6 — the engine writes the structure to the shared aggregate BEFORE the store is reached
+        // (SalaryStructureService.Define validates, then AddSalaryStructure), and the shipped catch took no
+        // rollback at all: a refused save left a structure the .db does not hold, so every LATER save threw. The
+        // capture is `defined` — the single structure Define returns — because Define validates before it adds,
+        // so on an engine failure there is nothing to take back and `defined` is still null.
+        SalaryStructure? defined = null;
         try
         {
             var service = new SalaryStructureService(_company);
             if (IsGroupScope)
             {
-                service.DefineForGroup(SelectedEmployeeGroup!.Id, effectiveFrom, lines, startType);
+                defined = service.DefineForGroup(SelectedEmployeeGroup!.Id, effectiveFrom, lines, startType);
                 targetName = SelectedEmployeeGroup.Name;
             }
             else
             {
-                service.DefineForEmployee(SelectedEmployee!.Id, effectiveFrom, lines, startType);
+                defined = service.DefineForEmployee(SelectedEmployee!.Id, effectiveFrom, lines, startType);
                 targetName = SelectedEmployee.Name;
             }
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST and UNCONDITIONALLY — a type filter must never decide whether the rollback runs. The
+            // old `when (ex is InvalidOperationException or ArgumentException)` filter also let a SqliteException
+            // (SQLITE_BUSY from a second instance holding the write lock, READONLY, FULL) escape as a crash.
+            if (defined is not null) _company.RemoveSalaryStructure(defined);
+            if (!SaveFailure.IsReportable(ex)) throw;
             Message = ex.Message;
             return false;
         }

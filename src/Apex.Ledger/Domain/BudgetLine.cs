@@ -36,6 +36,18 @@ public sealed class BudgetLine
             throw new ArgumentException("A budget line must target exactly one of a group or a ledger.");
         if (amount.Amount < 0m)
             throw new ArgumentException("Budget amount magnitude must be ≥ 0.", nameof(amount));
+        // Mirrors BillAllocation / CostAllocation / AdditionalCostLine: the line persists through Paisa.FromMoney
+        // (SqliteCompanyStore.InsertBudgets), which THROWS on a sub-paisa figure — and the Budget master had no
+        // catch block anywhere in the file, so that throw escaped as an UNHANDLED exception out of a Ctrl+A
+        // keystroke, leaving the budget on the aggregate so every LATER save threw too. Refuse it at the one
+        // choke point both factories flow through. Import (ImportPlan, via MoneyCodec.FromPaisa) and the SQLite
+        // read path (via Paisa.ToMoney) build from INTEGER paisa, so neither can ever trip this.
+        // FitsPaisaStore, not IsPaisaExact — "storable" is magnitude AND exactness, and the exactness half alone
+        // THROWS on a big enough figure instead of refusing it. See the note in BillAllocation.
+        if (!PaisaConversion.FitsPaisaStore(amount.Amount))
+            throw new InvalidOperationException(
+                $"A budget amount {amount.Amount} cannot be stored as integer paisa: it must be paisa-exact "
+              + $"(2 decimal places) and no larger than {PaisaConversion.MaxStorableRupees}.");
 
         GroupId = groupId;
         LedgerId = ledgerId;

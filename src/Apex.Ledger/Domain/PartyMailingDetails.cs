@@ -73,10 +73,9 @@ public sealed class PartyMailingDetails
     /// </summary>
     public void EnsureValid()
     {
-        if (string.IsNullOrWhiteSpace(Pincode)) return;
-
-        var pin = Pincode.Trim();
-        if (pin.Length != 6 || pin[0] < '1' || pin[0] > '9' || !pin.All(char.IsAsciiDigit))
+        // The rule itself lives in IndianPinCode, because Company.Pin must apply the SAME one — the recipient
+        // PIN was validated and the supplier PIN was not. The message is unchanged.
+        if (!IndianPinCode.IsValidOrBlank(Pincode))
             throw new ArgumentException($"PIN code '{Pincode}' is not a valid 6-digit Indian PIN code.");
     }
 

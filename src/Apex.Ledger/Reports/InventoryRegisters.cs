@@ -23,7 +23,8 @@ public sealed record InventoryRegisterRow(
     string? BatchLabel,
     Guid? PartyId,
     string? PartyName,
-    string? Narration);
+    string? Narration,
+    string FormattedNumber = "");
 
 /// <summary>
 /// One row in the Physical-Stock register (catalog §16; requirements RQ-31): the counted quantity vs the
@@ -59,7 +60,8 @@ public sealed record OrderRegisterRow(
     decimal OutstandingQuantity,
     Money? Rate,
     Guid? PartyId,
-    string? PartyName);
+    string? PartyName,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The stock-voucher registers (catalog §10/§16; requirements RQ-31) — Day-Book-style flat chronological
@@ -109,16 +111,20 @@ public static class InventoryRegisters
     }
 
     /// <summary>
-    /// The Order register — Purchase &amp; Sales orders over [from, to], one row per order line.
-    /// <para><b>Fulfilment derivation (judgment call).</b> Phase-3 orders carry no persisted tracking link to
-    /// their Receipt/Delivery notes, so this register cannot attribute a specific note to a specific order. It
-    /// therefore reports <see cref="OrderRegisterRow.FulfilledQuantity"/> = 0 and
-    /// <see cref="OrderRegisterRow.OutstandingQuantity"/> = the full ordered quantity — i.e. the orders as
-    /// placed. (Tracking-number-based fulfilment attribution is deferred with the order-processing chain; see
-    /// requirements RQ-18/RQ-20.) The columns exist so the UI can populate them once tracking lands.</para>
+    /// The Order register — Purchase &amp; Sales orders over [from, to], one row per order line, each carrying
+    /// the quantity actually fulfilled and the quantity still outstanding.
+    /// <para><b>Fulfilment (Phase 10.10 / WF-8).</b> Derived by <see cref="OrderFulfilment"/>, which retires an
+    /// order against the Receipt/Delivery notes that fulfil it. Read that class before changing anything here:
+    /// the attribution rule it applies is a <b>stated engineering choice</b> made because the explicit order
+    /// link TallyPrime uses is unreachable in this product, and its limitations are enumerated there.</para>
+    /// <para><b>The fulfilment map is built over the whole book up to <paramref name="to"/>, not over
+    /// [from, to].</b> An order placed before the window can still be fulfilled by a movement inside it, and if
+    /// such an order were absent from the cohort its movement would be misattributed to a NEWER in-window
+    /// order — the window would silently change the figures it reports. Only the LISTING is windowed.</para>
     /// </summary>
     public static IReadOnlyList<OrderRegisterRow> BuildOrders(Company company, DateOnly from, DateOnly to)
     {
+        var fulfilment = OrderFulfilment.Build(company, to);
         var rows = new List<OrderRegisterRow>();
         foreach (var v in company.InventoryVouchers)
         {
@@ -130,15 +136,28 @@ public static class InventoryRegisters
             if (type.BaseType is not (VoucherBaseType.PurchaseOrder or VoucherBaseType.SalesOrder)) continue;
 
             var partyName = v.PartyId is { } pid ? company.FindLedger(pid)?.Name : null;
-            foreach (var line in v.OrderLines)
+            for (var i = 0; i < v.OrderLines.Count; i++)
             {
+                var line = v.OrderLines[i];
                 var item = company.FindStockItem(line.StockItemId);
                 var godown = company.FindGodown(line.GodownId);
+                var done = fulfilment.TryGetValue((v.Id, i), out var f) ? f : 0m;
+                // Outstanding is floored at zero so an over-delivered line reads 0 rather than a negative that
+                // would net against a genuinely open line when a caller sums the column.
+                // 🔴 Stated plainly so a reviewer does not have to work it out: with the CURRENT derivation this
+                // floor can never fire — OrderFulfilment allocates at most each line's remaining quantity, so
+                // `done <= line.Quantity` always, and the clamp that actually bites lives there (the surplus is
+                // dropped for want of a line to carry it). It is kept because the floor belongs to the row, not
+                // to one attribution rule: an OrderLinks-based sum — the mechanism this slice could not reach,
+                // and the one JobWorkReports uses — has no per-line cap and CAN exceed the ordered quantity,
+                // which is why JobWorkReports carries this identical guard on its own pending figure.
+                var outstanding = line.Quantity - done;
+                if (outstanding < 0m) outstanding = 0m;
                 rows.Add(new OrderRegisterRow(
                     v.Date, type.Name, v.Number, line.StockItemId, item?.Name ?? "(unknown)",
                     line.GodownId, godown?.Name ?? "(unknown)",
-                    line.Quantity, FulfilledQuantity: 0m, OutstandingQuantity: line.Quantity,
-                    line.Rate, v.PartyId, partyName));
+                    line.Quantity, done, outstanding,
+                    line.Rate, v.PartyId, partyName, company.FormatVoucherNumber(v)));
             }
         }
         SortRegister(rows, r => (r.Date, r.Number, r.ItemName));
@@ -175,7 +194,8 @@ public static class InventoryRegisters
                 rows.Add(new InventoryRegisterRow(
                     v.Date, type.Name, v.Number, a.StockItemId, item?.Name ?? "(unknown)",
                     a.GodownId, godown?.Name ?? "(unknown)", qtyBase, a.Direction,
-                    rateBase, value, a.BatchLabel, v.PartyId, partyName, v.Narration));
+                    rateBase, value, a.BatchLabel, v.PartyId, partyName, v.Narration,
+                    company.FormatVoucherNumber(v)));
             }
         }
 
@@ -194,6 +214,18 @@ public static class InventoryRegisters
             return byNum != 0 ? byNum : string.Compare(ia, ib, StringComparison.OrdinalIgnoreCase);
         });
 
+    /// <summary>The allocation's quantity re-expressed in the item's BASE unit, for this class's own movement
+    /// registers — its only caller is <see cref="BuildAllocationRegister"/>.
+    /// <para>🔴 <b>It was briefly widened to <c>internal</c> with a doc claiming
+    /// <see cref="OrderFulfilment"/> normalised through it "so the two cannot drift". That was false</b> —
+    /// <c>OrderFulfilment</c> contains no reference to this helper at all; it reads
+    /// <see cref="InventoryMovements.Between"/>, which owns its own base-unit conversion for BOTH the
+    /// pure-stock and the item-invoice path (<c>InventoryMovements.cs:161</c> and <c>:186</c>). The widening was
+    /// therefore dead and the comment pointed a maintainer at the wrong code path — editing this method would
+    /// have moved the Receipt/Delivery/Rejection register rows and left fulfilment untouched, the exact silent
+    /// divergence it claimed to have removed. It is <c>private</c> again, and the real (stronger) guarantee is
+    /// stated where it belongs: fulfilment single-sources every movement quantity through
+    /// <see cref="InventoryMovements"/>, the same enumeration the on-hand and valuation engines read.</para></summary>
     private static decimal QuantityInBase(Company company, InventoryAllocation a)
     {
         if (a.UnitId is not { } unitId) return a.Quantity;

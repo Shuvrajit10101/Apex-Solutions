@@ -6,6 +6,7 @@ using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
+// NOT dead, despite CompanyStorage having gone with the posting path: IndianFormat (used by Rebuild) lives here.
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DomainLedger = Apex.Ledger.Domain.Ledger;
@@ -19,23 +20,43 @@ public enum OutstandingsKind
     Payables,
 }
 
+/// <summary>One party's validated Against-Reference allocations for a pre-loaded settlement voucher.</summary>
+/// <param name="Party">The bill-by-bill party whose bills are being settled.</param>
+/// <param name="Allocations">Agst-Ref allocations, already checked against genuinely open bills and capped at
+/// each bill's pending amount by <see cref="BillSettlementService.BuildSettlementAllocations"/>.</param>
+public readonly record struct SettlementPartyPreload(
+    DomainLedger Party, IReadOnlyList<BillAllocation> Allocations);
+
+/// <summary>
+/// Everything the shell needs to open a settlement voucher from an Outstandings selection: which voucher type
+/// to open, the report as-of the bills were validated against, and the per-party allocations to stamp.
+/// <b>Describes a voucher to be offered — it posts nothing.</b>
+/// </summary>
+public sealed record SettlementPreload(
+    VoucherType Type, DateOnly AsOf, IReadOnlyList<SettlementPartyPreload> Parties);
+
 /// <summary>
 /// The Outstandings page (catalog §5, Statements of Accounts → Outstandings → Receivables / Payables): the
-/// open bills for every bill-by-bill party of one side, with each bill's due date, pending amount and
-/// ageing. It supports <b>Bill Settlement (Ctrl+B)</b>: the spacebar multi-selects bills and Ctrl+B
-/// knocks them off through the engine (<see cref="BillSettlementService"/>) against a cash contra, then the
-/// report refreshes so settled bills disappear.
+/// open bills for every bill-by-bill party of one side, with each bill's due date, pending amount and ageing.
+/// The spacebar multi-selects bills; <b>Alt+A</b> then offers a settlement voucher for them
+/// (<see cref="BuildSettlementPreload"/>).
 ///
-/// <para>MVVM boundary: references the engine + persistence but no Avalonia types ⇒ headlessly testable.
-/// Settlement posts a Receipt (for receivables) or a Payment (for payables) that credits/debits the party
-/// bill-by-bill and contras Cash, exactly the voucher a user would enter by hand.</para>
+/// <para><b>This page used to POST (Phase 10.11 S2 / VL-4 / register row IV-5).</b> A <c>SettleSelected</c>
+/// bound to <b>Ctrl+B</b> knocked every selected bill off for its <i>full</i> pending amount through a ledger
+/// literally named "Cash", dated at <see cref="AsOf"/>, with no preview, no confirmation and no undo — and it
+/// refused outright when no ledger was named "Cash". In TallyPrime <b>Ctrl+B is "Basis of Values"</b>, a report
+/// option that changes how figures are DISPLAYED and writes nothing [TallyHelp keyboard-shortcuts]; TallyPrime's
+/// Bills Outstanding has no settlement action at all [CORPUS-SG p.92 §5.5]. This class now only <i>describes</i>
+/// a settlement — the operator confirms the date, the cash/bank ledger and every per-bill amount on a real
+/// voucher screen, and a part payment (which the old path could not express) is just a typed figure.</para>
+///
+/// <para>MVVM boundary: references the engine but no Avalonia types ⇒ headlessly testable. It no longer holds
+/// storage or a change callback, because it no longer writes anything.</para>
 /// </summary>
 public sealed partial class OutstandingsViewModel : ViewModelBase
 {
     private readonly Company _company;
-    private readonly CompanyStorage _storage;
     private readonly DateOnly _asOf;
-    private readonly Action _onChanged;
 
     [ObservableProperty] private OutstandingsKind _kind;
     [ObservableProperty] private string _title = string.Empty;
@@ -47,12 +68,9 @@ public sealed partial class OutstandingsViewModel : ViewModelBase
     /// <summary>The open-bill rows for this side (Receivables or Payables), as of the report date.</summary>
     public ObservableCollection<OutstandingRowViewModel> Rows { get; } = new();
 
-    public OutstandingsViewModel(
-        Company company, CompanyStorage storage, OutstandingsKind kind, Action? onChanged = null)
+    public OutstandingsViewModel(Company company, OutstandingsKind kind)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
-        _storage = storage ?? throw new ArgumentNullException(nameof(storage));
-        _onChanged = onChanged ?? (() => { });
         _kind = kind;
         _asOf = ComputeAsOf(company);
         Rebuild();
@@ -109,70 +127,84 @@ public sealed partial class OutstandingsViewModel : ViewModelBase
         Rows.Where(r => r.IsSelected).ToList();
 
     /// <summary>
-    /// Ctrl+B — Bill Settlement. Knocks off every spacebar-selected bill for its full pending amount via
-    /// a single settlement voucher per party (party knock-off vs a Cash contra), posted through the engine.
-    /// On success the report is rebuilt (settled bills disappear) and the company is persisted. No-op with a
-    /// clear message when nothing is selected. Returns true iff at least one bill was settled.
+    /// Alt+A — describes the settlement voucher the spacebar-selected bills imply, for the shell to OPEN and the
+    /// operator to confirm. Returns null (with <see cref="Message"/> set) when there is nothing to offer.
+    ///
+    /// <para><b>It writes nothing.</b> The cash/bank ledger is deliberately absent from the result: choosing it
+    /// is the operator's, which is the whole point of the fix — the deleted Ctrl+B path hard-coded a ledger named
+    /// "Cash". The date is absent so the entry screen's ordinary default stands and a settlement is dated exactly
+    /// like any hand-keyed Receipt.</para>
+    ///
+    /// <para><b>Do not read that as date PROTECTION — it is not, and an earlier draft of this comment claimed it
+    /// was.</b> <see cref="AsOf"/> is the maximum voucher date in the company (<see cref="ComputeAsOf"/>) and the
+    /// entry screen's own default is <i>the same expression</i> (<c>VoucherEntryViewModel</c>'s constructor:
+    /// <c>Date = date ?? company.Vouchers.Max(v =&gt; v.Date) ?? BooksBeginFrom</c>). An open bill implies at least
+    /// one voucher, so the two are equal on every reachable path: a book whose newest voucher is a 31-Mar year-end
+    /// journal DOES open the settlement dated 31-Mar. What actually differs from the deleted Ctrl+B path is that
+    /// the date is now on screen in an editable field the operator confirms, instead of being stamped invisibly on
+    /// a voucher that was already posted. <c>The_preloaded_date_is_the_ordinary_entry_default_not_a_shielded_one</c>
+    /// pins that equality so this comment cannot drift back.</para>
+    ///
+    /// <para>Amounts are seeded at each bill's FULL pending, because that is the common case and it is the figure
+    /// TallyPrime itself captures ("Amount will be captured automatically as per the amount entered earlier",
+    /// CORPUS-SG p.92 §5.5) — but they are now ordinary editable fields, so a PART payment is expressible, which
+    /// it was not through Ctrl+B.</para>
     /// </summary>
-    public bool SettleSelected()
+    public SettlementPreload? BuildSettlementPreload()
     {
         Message = null;
         var selected = SelectedRows;
         if (selected.Count == 0)
         {
-            Message = "Select one or more bills with the spacebar, then press Ctrl+B to settle.";
-            return false;
+            Message = "Select one or more bills with the spacebar, then press Alt+A to settle them.";
+            return null;
         }
 
-        var cash = _company.FindLedgerByName("Cash");
-        if (cash is null)
-        {
-            Message = "No 'Cash' ledger to settle through.";
-            return false;
-        }
-
-        // The settlement side uses Receipt for receivables (money in) and Payment for payables (money out).
+        // Receipt for receivables (money in), Payment for payables (money out).
         var wantType = Kind == OutstandingsKind.Receivables ? VoucherBaseType.Receipt : VoucherBaseType.Payment;
-        var vType = _company.VoucherTypes.FirstOrDefault(t => t.BaseType == wantType && t.IsActive)
-                    ?? _company.VoucherTypes.FirstOrDefault(t => t.BaseType == wantType);
+        // Resolve through the SAME rule as every navigation route (VoucherTypeResolver): only an ACTIVE,
+        // non-specialised type is ever used, and the seeded predefined series wins. A settlement is an ordinary
+        // Receipt/Payment the operator could have keyed by hand, so if they could not have OPENED it (F6 refuses
+        // on a deactivated series) we must not open one for them either. This rule predates the Ctrl+B removal and
+        // is preserved verbatim, message included — it is what VoucherTypeNavigationIdentityTests locks.
+        var vType = VoucherTypeResolver.ResolveForEntry(_company, wantType);
         if (vType is null)
         {
-            Message = $"No '{wantType}' voucher type is configured for this company.";
-            return false;
+            Message = VoucherTypeResolver.NoActiveTypeMessage(_company, wantType);
+            return null;
         }
 
+        // Build through BillSettlementService, never by reading Bill.Pending straight into an allocation: it is
+        // the only code that validates a reference against a genuinely open bill and caps the knock at its
+        // pending amount, so calling it here proves the selection is still settleable at the moment we offer it.
         var service = new BillSettlementService(_company);
-        var settledCount = 0;
-
+        var parties = new List<SettlementPartyPreload>();
         try
         {
-            // Group the selected bills by party — one settlement voucher per party.
+            // One Particulars line per party — several parties settle on ONE voucher against one cash/bank side.
             foreach (var group in selected.GroupBy(r => r.Bill.LedgerId))
             {
                 var party = _company.FindLedger(group.Key);
                 if (party is null) continue;
 
-                var knocks = group
-                    .Select(r => new BillSettlementService.Knock(r.Bill.Reference, r.Bill.Pending))
-                    .ToList();
-
-                service.SettleAndPost(
-                    party, cash, vType.Id, _asOf, knocks,
-                    narration: $"Bill settlement ({Kind}).");
-                settledCount += knocks.Count;
+                var knocks = group.Select(r => new BillSettlementService.Knock(r.Bill.Reference, r.Bill.Pending));
+                parties.Add(new SettlementPartyPreload(
+                    party, service.BuildSettlementAllocations(party, _asOf, knocks)));
             }
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
-            Message = $"Settlement failed: {ex.Message}";
-            return false;
+            Message = $"Cannot settle the selected bills: {ex.Message}";
+            return null;
         }
 
-        _storage.Save(_company);
-        Rebuild();
-        _onChanged();
-        Message = $"Settled {settledCount} bill{(settledCount == 1 ? string.Empty : "s")}.";
-        return true;
+        if (parties.Count == 0)
+        {
+            Message = "The selected bills have no party ledger to settle against.";
+            return null;
+        }
+
+        return new SettlementPreload(vType, _asOf, parties);
     }
 
     private static DateOnly ComputeAsOf(Company company)

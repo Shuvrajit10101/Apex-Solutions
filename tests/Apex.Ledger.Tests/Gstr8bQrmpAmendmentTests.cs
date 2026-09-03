@@ -424,7 +424,7 @@ public sealed class Gstr8bQrmpAmendmentTests
         Assert.Equal("B2BA", row.SectionCode);
         Assert.Equal("9A", row.FormTable);
         Assert.True(row.Advisory);
-        Assert.Equal(500, row.OriginalDocNumber);
+        Assert.Equal("500", row.OriginalDocNumber);
         Assert.Equal(new DateOnly(2025, 4, 5), row.OriginalDocDate);
         Assert.Equal(Money.FromRupees(1000m), row.OriginalTaxableValue);
         Assert.Equal(Money.FromRupees(1300m), row.RevisedTaxableValue);      // the LATEST re-statement is the revised value

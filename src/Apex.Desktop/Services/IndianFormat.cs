@@ -11,23 +11,16 @@ namespace Apex.Desktop.Services;
 /// </summary>
 public static class IndianFormat
 {
-    private static readonly CultureInfo Indian = CreateIndianCulture();
-
-    private static CultureInfo CreateIndianCulture()
-    {
-        // Build an invariant-based culture with the Indian digit-grouping (3;2;2) so the
-        // format is deterministic regardless of the host machine's locale.
-        var ci = (CultureInfo)CultureInfo.InvariantCulture.Clone();
-        ci.NumberFormat.CurrencyGroupSizes = new[] { 3, 2 };
-        ci.NumberFormat.NumberGroupSizes = new[] { 3, 2 };
-        ci.NumberFormat.NumberGroupSeparator = ",";
-        ci.NumberFormat.NumberDecimalSeparator = ".";
-        return ci;
-    }
+    /// <summary>The ONE Indian-grouping culture (<see cref="IndianMoneyFormat.Culture"/>, drift lock D2). This
+    /// class previously built its own identical copy; the grouping rule now has a single home in Apex.Ledger so
+    /// the report grids, the PDF certificates and the PDF invoices cannot group money three different ways.
+    /// The blank-at-zero and Dr/Cr conventions below remain this class's own — they are grid conventions, not
+    /// grouping.</summary>
+    private static CultureInfo Indian => IndianMoneyFormat.Culture;
 
     /// <summary>Formats a decimal as "1,05,000.00"; empty string for exactly zero.</summary>
     public static string Amount(decimal value)
-        => value == 0m ? string.Empty : value.ToString("#,##0.00", Indian);
+        => value == 0m ? string.Empty : IndianMoneyFormat.Amount(value);
 
     /// <summary>Formats <see cref="Money"/> with Indian grouping; empty for zero.</summary>
     public static string Amount(Money money) => Amount(money.Amount);

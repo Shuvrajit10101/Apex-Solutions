@@ -525,5 +525,7 @@ public sealed class GstReversalService
         return new ReversalAmount(c, s, i, cess);
     }
 
-    private static long ToPaisa(Money money) => (long)Math.Round(money.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// <summary>Delegates to <see cref="PaisaConversion.ToPaisaRounded(Money)"/> — the ONE rupees→paisa rule
+    /// (drift lock D3), ROUNDED semantics: a reversal share is a derived intermediate, it does not abort.</summary>
+    private static long ToPaisa(Money money) => PaisaConversion.ToPaisaRounded(money);
 }

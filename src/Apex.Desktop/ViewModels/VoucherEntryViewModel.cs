@@ -68,13 +68,124 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
 
     /// <summary>
+    /// True for a <b>Sales or Purchase</b> voucher — the accounting-(service)-invoice mode (G-7; SG p.80 names its
+    /// two use cases: service purchases and fixed-asset purchases).
+    /// <para><b>History, kept because it is the reason this predicate is dangerous to touch.</b> The purchase arm was
+    /// written, then gated off, because shipping it silently BROKE MONEY: <c>TdsPossible</c> and
+    /// <c>DetectTdsShape</c> read the plain <c>Lines</c> collection, which is EMPTY in accounting mode, so a
+    /// professional-fee purchase posted <c>Cr Consultant 1,18,000 / Dr Professional Fees 1,00,000 / Dr Input CGST
+    /// 9,000 / Dr Input SGST 9,000</c> with <b>no §194J TDS carve-out at all</b> (and RCM mis-evaluated the same
+    /// way). The stated precondition for flipping this predicate was "wire TDS/RCM to the Particulars lines first".
+    /// That is now done — see <see cref="DetectAccountingTdsShape"/>, <see cref="DetectAccountingRcmShape"/>,
+    /// <see cref="AssessableExGst"/>'s accounting branch, and the carve-out/RCM application in
+    /// <see cref="AcceptAccountingInvoice"/>. <c>PurchaseAccountingInvoiceTdsTests</c> is the regression guard: it
+    /// proves §194J still fires, still rounds to the rupee, still records a below-threshold assessment, and still
+    /// declines on the sentinel. <b>Do not widen this predicate further without the equivalent proof.</b></para>
+    /// </summary>
+    public bool CanBeAccountingInvoice =>
+        _type.BaseType is VoucherBaseType.Sales or VoucherBaseType.Purchase;
+
+    /// <summary>
+    /// The per-voucher <b>entry mode</b> (catalog §10; Tally "Change Mode", Ctrl+H) — the single source of truth for
+    /// which grid/render the screen shows: the classic Dr/Cr grid (<see cref="VoucherEntryMode.AsVoucher"/>), the
+    /// cash/bank <see cref="VoucherEntryMode.SingleEntry"/> re-render of those same lines, the stock-item Item Invoice
+    /// (<see cref="VoucherEntryMode.ItemInvoice"/>, Ctrl+I), or the service/accounting-ledger Accounting Invoice
+    /// (<see cref="VoucherEntryMode.AccountingInvoice"/>). All post ordinary balanced <c>Voucher</c> legs; the mode
+    /// is transient screen state, never persisted (inferred downstream from the posted legs — see the print/GSTR-1 paths).
+    ///
+    /// <para><b>This field initialiser is NOT the opening mode.</b> It is only the resting value the object holds
+    /// before the constructor runs. The mode a screen actually OPENS in is seeded per voucher type — see
+    /// <see cref="SeedOpeningMode"/> — because Payment, Receipt and Contra open in Single Entry.</para>
+    /// </summary>
+    [ObservableProperty] private VoucherEntryMode _mode = VoucherEntryMode.AsVoucher;
+
+    /// <summary>
+    /// Seeds the mode the screen OPENS in, per voucher type: <see cref="VoucherEntryMode.SingleEntry"/> on the three
+    /// cash/bank vouchers (<see cref="CanBeSingleEntry"/> — Contra F4, Payment F5, Receipt F6),
+    /// <see cref="VoucherEntryMode.AsVoucher"/> on the other twenty.
+    ///
+    /// <para><b>The evidence is inference from absence, so here is its exact shape.</b> Three separate walkthroughs in
+    /// <c>703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf</c> (<c>pdftotext -layout</c>) reach the Dr/Cr screen by turning
+    /// the single-entry setting <b>off</b>, and each then keys Cr and Dr fields — i.e. Double Entry:
+    /// <list type="bullet">
+    ///   <item>line 334 — "Use single entry mode for payment/receipt/contra vouchers? <b>NO</b>", followed at line 337
+    ///     onward by "In Credit field …", "In Debit field …";</item>
+    ///   <item>line 1634 — "Press F12 &amp; Activate Use Single Entry Mode for Pymt/Rcpt/Contra <b>set to No</b>",
+    ///     followed by "In the Cr field select …";</item>
+    ///   <item>line 1965 — "In F12: Configure 'Use single entry mode for pymt/Rect/Contra?' <b>set to No</b>",
+    ///     followed by "In Dr. field …".</item>
+    /// </list>
+    /// An instruction to turn a setting off is only meaningful if the shipped state is on. Layout corroboration:
+    /// <c>664311548-Tally-Prime-Book.pdf</c> pp.26-27, 29, 31-32; <c>696054070-TALLY-PRIME-STUDY-GUIDE.pdf</c> p.76.</para>
+    ///
+    /// <para><b>The one apparent counter-example, recorded rather than buried.</b> GSTN line 330 reads "4. Select
+    /// single entry mode for payment/receipt/contra vouchers", which in isolation looks like an instruction to switch
+    /// Single Entry ON. It is not: it names the setting being navigated to (steps 3-6 are a list of settings to visit),
+    /// and line 334 — four lines later, in the same numbered walkthrough — supplies its value, <b>NO</b>. Steps 7-12 of
+    /// that same walkthrough then key Credit and Debit fields. Reading line 330 as "turn it on" contradicts the twelve
+    /// steps beneath it. So the claim is not that the string never appears affirmatively; it is that <b>no walkthrough
+    /// in the corpus ever ends up in Single Entry by switching it on</b> — every one that mentions the setting is
+    /// switching it off.</para>
+    ///
+    /// <para><b>Residual uncertainty.</b> The corpus reaches Double Entry through an F12 flag, which is the ERP-9-era
+    /// control. That evidence establishes the <b>shipped state</b>, not which control changes it. We therefore seed the
+    /// state and leave Ctrl+H ("Change Voucher Mode", cited at GSTN line 328) as the way out; no F12 flag is invented,
+    /// and nothing here is persisted. Adding that F12 toggle later is a separate additive change — it would alter which
+    /// control reaches Double Entry, never which state the screen opens in.</para>
+    ///
+    /// <para><b>Assigns through the generated property, not the backing field.</b> The field-assignment form trips
+    /// analyzer MVVMTK0034, and more importantly it would skip <c>OnModeChanged</c> — whose
+    /// <see cref="SyncSingleEntrySides"/> call is what stamps the documented Dr/Cr polarity onto the starter lines.
+    /// Must therefore be called AFTER the two starter lines exist, or there is nothing to stamp.</para>
+    /// </summary>
+    private void SeedOpeningMode()
+    {
+        if (CanBeSingleEntry) Mode = VoucherEntryMode.SingleEntry;
+    }
+
+    /// <summary>
     /// Ctrl+I — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
     /// the user enters a party + inventory lines (Stock Item / Godown / Qty / Rate / Batch) and the VM
     /// auto-derives the two balancing accounting legs, so the pairing invariant always holds without any
     /// hand-balancing. When off, the plain Dr/Cr grid is used and the voucher behaves exactly as before.
-    /// Only ever true when <see cref="CanBeItemInvoice"/>.
+    /// Only ever true when <see cref="CanBeItemInvoice"/>. Now a <b>derived alias</b> of <see cref="Mode"/> so every
+    /// existing binding, test and code path is unchanged; the source of truth is <see cref="Mode"/>.
     /// </summary>
-    [ObservableProperty] private bool _isItemInvoice;
+    public bool IsItemInvoice => Mode == VoucherEntryMode.ItemInvoice;
+
+    /// <summary>
+    /// Whether this Purchase/Sales voucher is being entered <b>as an accounting (service) invoice</b>: the user enters
+    /// a party + service-income <b>ledger</b> lines under Particulars (no stock item) and the VM resolves auto SAC-based
+    /// GST from each ledger's GST block, splitting CGST/SGST (intra) vs IGST (inter). No stock/godown/valuation is ever
+    /// entered (<c>HasInventoryLines</c> stays false). Only ever true when <see cref="CanBeAccountingInvoice"/>.
+    /// <para>The <see cref="CanBeAccountingInvoice"/> conjunct is the <b>whole</b> deferral gate, deliberately placed
+    /// here rather than only in <see cref="ChangeMode"/>: every downstream consumer (the Accept routing, the
+    /// Recalculate routing, the GST gate, the grid gates) reads THIS property, so even forcing <see cref="Mode"/>
+    /// directly cannot arm the deferred purchase path.</para>
+    /// </summary>
+    public bool IsAccountingInvoice => Mode == VoucherEntryMode.AccountingInvoice && CanBeAccountingInvoice;
+
+    /// <summary>Whether this voucher is in the classic Dr/Cr "As Voucher" mode — the default, and the plain-grid gate.
+    /// Defined as the COMPLEMENT of the two invoice modes (not <c>Mode == AsVoucher</c>) so the three gates stay a
+    /// total, mutually-exclusive partition: a Purchase forced to <c>Mode == AccountingInvoice</c> renders — and posts
+    /// as — the plain Dr/Cr voucher rather than showing no grid at all.</summary>
+    public bool IsAsVoucherMode => !IsItemInvoice && !IsAccountingInvoice;
+
+    /// <summary>
+    /// Whether the classic <b>Dr/Cr grid</b> is the visible render. Single Entry (G-6) is a re-render of the SAME
+    /// lines, so it deliberately leaves <see cref="IsAsVoucherMode"/> true — that is what keeps Accept routing to the
+    /// unchanged plain-grid posting path — and only swaps which grid is on screen. Without this split gate the two
+    /// grids would render on top of each other.
+    /// </summary>
+    public bool ShowPlainDrCrGrid => IsAsVoucherMode && !IsSingleEntry;
+
+    /// <summary>Whether the invoice overlay (party header + line grid + GST band) is shown — true in Item OR
+    /// Accounting mode; the plain Dr/Cr grid shows in its complement (<see cref="IsAsVoucherMode"/>).</summary>
+    public bool ShowInvoiceOverlay => !IsAsVoucherMode;
+
+    /// <summary>The caption of the shared running-total figure beside the derived Dr/Cr summary. Mode-aware: an
+    /// accounting (service) invoice has no items, so reading "Items Total" on it was simply wrong.</summary>
+    public string LineTotalCaption => IsAccountingInvoice ? "Services Total ₹ " : "Items Total ₹ ";
 
     /// <summary>True for a Purchase item-invoice (stock inward; party = supplier; Dr Purchases / Cr Supplier).</summary>
     public bool IsPurchaseInvoice => _type.BaseType == VoucherBaseType.Purchase;
@@ -105,6 +216,489 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
     /// <summary>The editable item-invoice inventory lines (Stock Item / Godown / Qty / Rate / Batch).</summary>
     public ObservableCollection<InventoryVoucherLineViewModel> InventoryLines { get; } = new();
+
+    // ============================================ Bill-wise Details on the INVOICE modes (G-1; SG pp.79–82)
+
+    /// <summary>
+    /// The <b>Bill-wise Details</b> allocation rows for the party leg of an invoice-mode voucher (G-1).
+    ///
+    /// <para><b>Why this exists separately from <see cref="VoucherLineViewModel.BillAllocations"/>.</b> The plain
+    /// Dr/Cr grid hangs allocations off the <i>line</i>, because the party there IS a line. In the two invoice modes
+    /// there is no party line to hang them from — the party leg is <b>derived</b> at Accept from the running total —
+    /// so the allocations belong to the SCREEN and reconcile against <see cref="InvoicePartyTotal"/>.</para>
+    ///
+    /// <para><b>The gap this closes.</b> Both invoice Accept paths previously built the party <c>EntryLine</c> with
+    /// no allocations at all, while <c>Outstandings</c> only counts lines that HAVE them — so a company invoicing
+    /// normally had an empty Receivables report, empty ageing, no overdue tracking and nothing to settle against,
+    /// with no error and no warning. The corpus puts the sub-screen squarely on both modes: SG p.79 step 7 (Purchase
+    /// Item Invoice), p.80 step 6 (Purchase Accounting Invoice), p.81 step 6 (Sales Item Invoice), p.82 step 5
+    /// (Sales Accounting Invoice).</para>
+    /// </summary>
+    public ObservableCollection<BillAllocationRowViewModel> InvoiceBillAllocations { get; } = new();
+
+    /// <summary>
+    /// The amount the invoice bill split must foot to — the <b>party total</b> (taxable + additional cost + GST +
+    /// cess + TCS), i.e. exactly what the derived party leg will carry. Restamped by each mode's recalc, so the
+    /// running split summary tracks the invoice as it is typed.
+    /// </summary>
+    [ObservableProperty] private decimal _invoicePartyTotal;
+
+    /// <summary>The running "Allocated X of Y" summary for the invoice bill-wise panel.</summary>
+    [ObservableProperty] private string _invoiceBillSummary = string.Empty;
+
+    /// <summary>
+    /// The <b>four-layer gate</b> for the invoice Bill-wise panel, per the spec's four-layer config model — a field
+    /// appears only when every layer permits it:
+    /// <list type="number">
+    ///   <item><b>F11 capability</b> — no company-level "Enable Bill-wise entry" flag exists on
+    ///     <see cref="Company"/> yet (spec C-04: layers 1 and 3 are collapsed in this codebase), so this layer is
+    ///     permissive. Adding it is schema work and is deliberately NOT done here.</item>
+    ///   <item><b>F12 on the ledger master</b> — no layer-2 concept exists anywhere in this codebase (spec §1.1),
+    ///     so this layer is permissive too.</item>
+    ///   <item><b>The master's own field value</b> — <see cref="Ledger.MaintainBillByBill"/> on the SELECTED PARTY.
+    ///     This is the operative gate and is enforced here.</item>
+    ///   <item><b>F12 on the voucher screen</b> — <see cref="UseDefaultBillWiseAllocation"/> (spec C-41, "Use
+    ///     default Bill-wise details for Bill Allocation"): Yes (the SHIPPED default) ⇒ the screen does NOT appear
+    ///     and the allocation is derived silently. This layer governs <b>visibility only</b> — see
+    ///     <see cref="InvoiceBillWiseApplies"/>.</item>
+    /// </list>
+    /// Plus the structural precondition that we are actually in an invoice mode (the plain grid keeps its own
+    /// per-line panel).
+    /// </summary>
+    public bool ShowInvoiceBillWise => InvoiceBillWiseApplies && !UseDefaultBillWiseAllocation;
+
+    /// <summary>
+    /// Whether bill-wise allocation <b>applies</b> to this invoice at all — the structural precondition (an invoice
+    /// mode) plus the operative master gate (<see cref="Ledger.MaintainBillByBill"/> on the selected party).
+    ///
+    /// <para><b>Why this is separate from <see cref="ShowInvoiceBillWise"/>.</b> The allocation and the SUB-SCREEN are
+    /// different things. TallyPrime's default bill allocation posts a real bill-wise allocation while showing the
+    /// operator nothing: with "Use default Bill-wise details for Bill Allocation" set to Yes, "you will not see any
+    /// difference in the voucher … On saving the sales transaction, the bill gets linked to the party as default bill
+    /// allocation. The voucher number appears as the bill reference" (official TallyPrime, <i>How to Manage
+    /// Outstanding Receivables in TallyPrime</i> → Change Bill Allocation). So THIS property gates the allocation —
+    /// seeding, validation and posting — and <see cref="UseDefaultBillWiseAllocation"/> gates only whether the
+    /// operator gets to see and edit it. One seeding path serves both, which is why the revealed panel opens
+    /// pre-filled rather than blank.</para>
+    /// </summary>
+    public bool InvoiceBillWiseApplies =>
+        ShowInvoiceOverlay
+        && SelectedParty?.Ledger is { MaintainBillByBill: true };
+
+    /// <summary>
+    /// Voucher-screen F12 "Use default Bill-wise details for Bill Allocation" (spec C-41) — Yes ⇒ the allocation is
+    /// derived automatically and the Bill-wise screen never appears; No ⇒ the screen appears, pre-filled with that
+    /// same derivation, for the operator to change.
+    ///
+    /// <para><b>Default Yes, because that is what TallyPrime ships.</b> Official TallyPrime (Change Bill Allocation):
+    /// with it Yes "you will not see any difference in the voucher"; set it to No and "you can select the bill
+    /// references in the Bill-wise Details screen". The corpus shows the same default from the other side —
+    /// <c>719244897-Tally-Book.pdf</c> p.81 has the author explicitly set "F12: Use default bill-wise details for bill
+    /// allocation — No" precisely IN ORDER to make the sub-screen appear for teaching. This flag previously defaulted
+    /// to No with a comment claiming that matched TallyPrime; it was backwards, and the symptom was an extra column
+    /// demanding a bill reference that TallyPrime fills in silently.</para>
+    ///
+    /// <para>Transient screen state, never persisted. Switching it back ON abandons any hand-made split and returns
+    /// to the single derived allocation — "default" means default.</para>
+    /// </summary>
+    [ObservableProperty] private bool _useDefaultBillWiseAllocation = true;
+
+    partial void OnUseDefaultBillWiseAllocationChanged(bool value)
+    {
+        // Back to the DEFAULT allocation ⇒ discard whatever the operator built by hand, so the hidden state is always
+        // the derived one. Leaving a stale multi-row split behind would post a split the operator can no longer see.
+        if (value)
+        {
+            _invoiceBillDirty = false;
+            InvoiceBillAllocations.Clear();
+            _autoBillName = string.Empty;
+            _autoBillDueDateText = string.Empty;
+        }
+        OnPropertyChanged(nameof(ShowInvoiceBillWise));
+        Recalculate();
+    }
+
+    /// <summary>Σ of the invoice allocation row magnitudes.</summary>
+    public decimal InvoiceBillAllocatedTotal
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var a in InvoiceBillAllocations) sum += a.ParsedAmount;
+            return sum;
+        }
+    }
+
+    /// <summary>
+    /// True when the invoice bill split is valid: bill-wise does not apply (no constraint), or every touched row is
+    /// complete and the complete rows sum EXACTLY to <see cref="InvoicePartyTotal"/> — the same exact-sum rule the
+    /// plain grid and <c>VoucherValidator</c> already enforce (spec C-28, SG p.92).
+    ///
+    /// <para>The gate is deliberately keyed on <see cref="InvoiceBillWiseApplies"/>, not on panel visibility, so the
+    /// DEFAULT (hidden) allocation is held to the identical exact-sum rule. It is exact by construction there — the
+    /// row is stamped from the party total the Accept path just computed — but a silent path is exactly the kind that
+    /// must not be exempt from the invariant that stops a mis-footed allocation posting.</para>
+    /// </summary>
+    public bool InvoiceBillSplitOk
+    {
+        get
+        {
+            if (!InvoiceBillWiseApplies) return true;
+            if (InvoiceBillAllocations.Any(a => !a.IsBlank && !a.IsComplete)) return false;
+            var complete = InvoiceBillAllocations.Where(a => a.IsComplete).ToList();
+            if (complete.Count == 0) return false;
+            return complete.Sum(a => a.ParsedAmount) == InvoicePartyTotal && InvoicePartyTotal > 0m;
+        }
+    }
+
+    /// <summary>Set once the operator has touched the split themselves — after which the auto-fill stops restamping
+    /// the single seeded row from the running total, so a deliberate split is never silently overwritten.</summary>
+    private bool _invoiceBillDirty;
+
+    /// <summary>The bill reference this screen last auto-stamped. A row still carrying it is still OURS to restamp
+    /// (so capturing the Supplier Invoice No. after the party replaces the provisional voucher-number reference);
+    /// anything else was typed by the operator and is never clobbered.</summary>
+    private string _autoBillName = string.Empty;
+
+    /// <summary>The due date this screen last auto-stamped — same ownership rule as <see cref="_autoBillName"/>.</summary>
+    private string _autoBillDueDateText = string.Empty;
+
+    /// <summary>
+    /// The bill reference TallyPrime fills in for you (SG p.92 field spec; official TallyPrime "the voucher number
+    /// appears as the bill reference"). Per base type:
+    /// <list type="bullet">
+    ///   <item><b>Purchase</b> ⇒ the <b>Supplier Invoice No.</b> when one has been captured — the counterparty's own
+    ///     document number is the bill (<c>719244897-Tally-Book.pdf</c> p.81 works it end to end: Supplier Invoice No.
+    ///     311 ⇒ <c>New Ref | Name: 311 | 30 days | 25,000 Cr</c>).</item>
+    ///   <item><b>Sales</b> ⇒ our own <b>rendered</b> voucher number: a sale has no counterparty document number, and
+    ///     the number we render (prefix/pad/suffix and all, via <see cref="FormattedVoucherNumber"/>) IS the document
+    ///     number this app prints on the invoice, so the bill reference must be the same string.</item>
+    /// </list>
+    /// <para><b>INFERENCE (not sourced):</b> a Purchase whose Supplier Invoice No. was left blank falls back to our
+    /// own rendered voucher number. The corpus only covers the case where the number IS captured; the fallback is
+    /// this codebase's choice, made because the alternative — an unnamed New Ref — opens a payable that can never be
+    /// matched by a later Agst Ref.</para>
+    /// <para>The last resort (<see cref="VoucherNumber"/> as plain digits) exists only for a voucher type numbered
+    /// <see cref="NumberingMethod.None"/>, where the render is legitimately empty: without it the derived allocation
+    /// would be nameless, hence incomplete, and Accept would refuse behind a panel the operator cannot see.</para>
+    /// </summary>
+    private string AutoBillReferenceName()
+    {
+        if (IsPurchaseInvoice && !string.IsNullOrWhiteSpace(ReferenceNo))
+            return ReferenceNo.Trim();
+
+        var rendered = FormattedVoucherNumber;
+        if (!string.IsNullOrWhiteSpace(rendered)) return rendered;
+
+        return VoucherNumber > 0
+            ? VoucherNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// The due date TallyPrime fills in for you — SG p.92: "Due Date, or Credit Days: reflected automatically as per
+    /// the given credit period specified for the party ledger". Blank when the party specifies no credit period,
+    /// which is also what a blank field already means downstream
+    /// (<see cref="BillAllocation.EffectiveDueDate"/> derives it), so the two agree to the day.
+    /// </summary>
+    private string AutoBillDueDateText()
+        => SelectedParty?.Ledger?.DefaultCreditPeriodDays is { } days && days > 0
+            ? ApexDate.Format(Date.AddDays(days))
+            : string.Empty;
+
+    /// <summary>Re-entrancy guard: stamping a row's amount raises its change notification, which re-enters the sync.</summary>
+    private bool _syncingInvoiceBills;
+
+    /// <summary>Adds a Bill-wise row to the invoice panel and marks the split operator-owned.</summary>
+    public BillAllocationRowViewModel AddInvoiceBillAllocation(BillRefType refType = BillRefType.NewRef)
+    {
+        var row = new BillAllocationRowViewModel(OnInvoiceBillRowChanged, refType);
+        InvoiceBillAllocations.Add(row);
+        if (!_syncingInvoiceBills) _invoiceBillDirty = true;
+        RefreshInvoiceBillSummary();
+        return row;
+    }
+
+    /// <summary>Removes a Bill-wise row from the invoice panel (keeps at least one while the panel is on).</summary>
+    public void RemoveInvoiceBillAllocation(BillAllocationRowViewModel row)
+    {
+        if (InvoiceBillAllocations.Count <= 1) return;
+        InvoiceBillAllocations.Remove(row);
+        _invoiceBillDirty = true;
+        RefreshInvoiceBillSummary();
+        Recalculate();
+    }
+
+    private void OnInvoiceBillRowChanged()
+    {
+        if (_syncingInvoiceBills) return;
+
+        // Dirtiness is judged on the AMOUNTS, not on "the operator touched something". Typing the bill reference
+        // NAME into the auto-seeded row must NOT freeze the auto-fill — otherwise naming the bill first and adding
+        // an item line second leaves the allocation stuck at the old total, and the split silently stops footing.
+        if (InvoiceBillAllocations.Count != 1 || InvoiceBillAllocations[0].ParsedAmount != InvoicePartyTotal)
+            _invoiceBillDirty = true;
+
+        RefreshInvoiceBillSummary();
+        OnPropertyChanged(nameof(InvoiceBillSplitOk));
+        OnPropertyChanged(nameof(InvoiceBillAllocatedTotal));
+        // Re-derive the Accept gate: InvoiceBillSplitOk is a CanAccept conjunct, so without this the Accept button
+        // stayed greyed after the operator typed the bill name and only un-greyed on an unrelated field change.
+        Recalculate();
+    }
+
+    /// <summary>
+    /// Keeps the invoice Bill-wise allocation in step with the running party total. Called by BOTH invoice recalcs
+    /// with the total the party leg will carry. It runs whenever <see cref="InvoiceBillWiseApplies"/> — panel shown or
+    /// not — because the DEFAULT allocation is derived by exactly the same code that pre-fills the visible panel.
+    /// <list type="bullet">
+    ///   <item>Bill-wise does not apply ⇒ the rows are cleared, so switching party or mode never leaves stray
+    ///     allocations behind (the posted voucher is then byte-identical to one entered before this feature existed —
+    ///     ER-13).</item>
+    ///   <item>It applies and the operator has NOT touched the split ⇒ the single New-Ref row is stamped with the
+    ///     full party total, the derived reference (<see cref="AutoBillReferenceName"/>) and the derived due date
+    ///     (<see cref="AutoBillDueDateText"/>) — SG p.92's field spec, all three "captured automatically". With the
+    ///     panel hidden this IS TallyPrime's default bill allocation; with it shown it is the pre-fill the operator
+    ///     corrects.</item>
+    ///   <item>It applies and the operator HAS split it ⇒ nothing is restamped; only the summary refreshes.</item>
+    /// </list>
+    /// </summary>
+    private void SyncInvoiceBillWise(decimal partyTotal)
+    {
+        if (_syncingInvoiceBills) return;
+        _syncingInvoiceBills = true;
+        try
+        {
+            InvoicePartyTotal = partyTotal;
+            OnPropertyChanged(nameof(InvoiceBillWiseApplies));
+            OnPropertyChanged(nameof(ShowInvoiceBillWise));
+
+            if (!InvoiceBillWiseApplies)
+            {
+                if (InvoiceBillAllocations.Count > 0) InvoiceBillAllocations.Clear();
+                _invoiceBillDirty = false;
+                _autoBillName = string.Empty;
+                _autoBillDueDateText = string.Empty;
+                InvoiceBillSummary = string.Empty;
+                return;
+            }
+
+            if (InvoiceBillAllocations.Count == 0)
+            {
+                AddInvoiceBillAllocation(BillRefType.NewRef);
+                _invoiceBillDirty = false;
+            }
+
+            if (!_invoiceBillDirty && InvoiceBillAllocations.Count == 1)
+            {
+                var row = InvoiceBillAllocations[0];
+                row.AmountText = partyTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+                // Restamp only while the field is still ours: blank, or still carrying what we last put there. A value
+                // the operator typed is a deliberate override and outlives every later recalculation.
+                var autoName = AutoBillReferenceName();
+                if (row.NameRequired && (string.IsNullOrWhiteSpace(row.Name) || row.Name == _autoBillName))
+                {
+                    row.Name = autoName;
+                    _autoBillName = autoName;
+                }
+
+                var autoDue = AutoBillDueDateText();
+                if (string.IsNullOrWhiteSpace(row.DueDateText) || row.DueDateText == _autoBillDueDateText)
+                {
+                    row.DueDateText = autoDue;
+                    _autoBillDueDateText = autoDue;
+                }
+            }
+        }
+        finally
+        {
+            _syncingInvoiceBills = false;
+        }
+        RefreshInvoiceBillSummary();
+        OnPropertyChanged(nameof(InvoiceBillSplitOk));
+        OnPropertyChanged(nameof(InvoiceBillAllocatedTotal));
+    }
+
+    private void RefreshInvoiceBillSummary()
+    {
+        if (!ShowInvoiceBillWise) { InvoiceBillSummary = string.Empty; return; }
+        var allocated = InvoiceBillAllocatedTotal;
+        var target = InvoicePartyTotal;
+        var diff = target - allocated;
+        string F(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
+        InvoiceBillSummary = diff == 0m && target > 0m
+            ? $"Allocated {F(allocated)} of {F(target)}  —  fully allocated"
+            : diff > 0m
+                ? $"Allocated {F(allocated)} of {F(target)}  —  {F(diff)} unallocated"
+                : $"Allocated {F(allocated)} of {F(target)}  —  over-allocated by {F(-diff)}";
+    }
+
+    /// <summary>
+    /// The domain <see cref="BillAllocation"/>s to stamp on the derived party leg, or <c>null</c> when bill-wise does
+    /// not apply — <c>null</c> (not an empty list) so the built <see cref="EntryLine"/> is byte-identical to one built
+    /// before this feature existed (ER-13). Keyed on <see cref="InvoiceBillWiseApplies"/>, so the DEFAULT (hidden)
+    /// allocation posts exactly as the visible one does: "on saving … the bill gets linked to the party as default
+    /// bill allocation" (official TallyPrime).
+    /// </summary>
+    private IReadOnlyList<BillAllocation>? ToInvoiceBillAllocations()
+    {
+        if (!InvoiceBillWiseApplies) return null;
+        var rows = InvoiceBillAllocations.Where(a => a.IsComplete).Select(a => a.ToAllocation()).ToList();
+        return rows.Count > 0 ? rows : null;
+    }
+
+    /// <summary>
+    /// The first typed amount on the plain Dr/Cr grid that the INTEGER-paisa store could not carry — the line
+    /// amount itself, then its bill-wise and cost allocation rows — or <c>null</c> when every figure is storable
+    /// (W0-13 S2a).
+    ///
+    /// <para>Scoped exactly like the gates it precedes: blank rows are skipped (an untouched trailing row is not
+    /// an error), allocation rows are read only on a line whose panel is actually in play, and the FIRST offender
+    /// wins so the operator gets one specific message rather than a list.</para>
+    ///
+    /// <para>The line amount is checked before its allocations deliberately: a line that is itself unstorable will
+    /// have unstorable allocations too (they must sum to it), and naming the line is the more useful diagnosis.</para>
+    /// </summary>
+    private string? UnstorableGridAmountError()
+    {
+        foreach (var line in Lines)
+        {
+            if (!line.IsBlank && line.AmountError is { } lineError) return lineError;
+
+            // W0-13's fourth typed amount, added by finding L2-03: the FOREX magnitude. It is not reached through
+            // AmountError — the base is DERIVED (forex x rate, snapped to the paisa), so it is paisa-exact however
+            // fine the forex figure is — and a >2dp forex amount posted, validated and SAVED, after which the
+            // canonical export threw on a company the app itself had produced.
+            if (line.ForexAmountError is { } forexError) return forexError;
+
+            if (line.IsBillWise)
+                foreach (var bill in line.BillAllocations)
+                    if (!bill.IsBlank && bill.AmountError is { } billError) return billError;
+
+            if (line.IsCostApplicable)
+                foreach (var cost in line.CostAllocations)
+                    if (!cost.IsBlank && cost.AmountError is { } costError) return costError;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The shared Accept-time refusal for the invoice bill split, used by BOTH invoice Accept paths. Re-derives the
+    /// split against the party total the Accept path actually computed — never against a stale display figure — so a
+    /// tax or TCS change that moved the total after the last recalc cannot post a mis-footed allocation.
+    /// </summary>
+    private bool InvoiceBillAllocationsOk(decimal partyTotal)
+    {
+        if (!InvoiceBillWiseApplies) return true;
+        SyncInvoiceBillWise(partyTotal);
+        if (InvoiceBillSplitOk) return true;
+
+        // W0-13 S2a — an unstorable row amount is named for what it is, ABOVE the two generic branches below.
+        // This is the sharpest instance of the defect: the invoice Accept paths Post (which appends the voucher to
+        // the shared Company) and only then Save — so before this guard a sub-paisa split that footed to the party
+        // total EXACTLY left the refused invoice on the aggregate and made every later, unrelated save throw.
+        // That is the CAUSE; the missing rollback it relied on is closed separately, in the save guard both Accept
+        // paths now carry (S2b), so this is a front line over a closed site rather than over an open one.
+        var unstorable = InvoiceBillAllocations
+            .Where(a => !a.IsBlank)
+            .Select(a => a.AmountError)
+            .FirstOrDefault(e => e is not null);
+        if (unstorable is not null)
+        {
+            Message = unstorable;
+            return false;
+        }
+
+        Message = InvoiceBillAllocations.Any(a => !a.IsBlank && !a.IsComplete)
+            ? "Every bill-wise row needs a positive amount and (except On Account) a bill reference name."
+            : $"The bill-wise allocation must total {InvoicePartyTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)} " +
+              $"— the party's invoice total. Currently allocated {InvoiceBillAllocatedTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)}.";
+
+        // The derived allocation is exact by construction, so this branch means something upstream desynced. With the
+        // panel hidden the operator has nothing to correct, so name the switch that reveals it rather than stranding
+        // them behind a refusal with no visible cause.
+        if (!ShowInvoiceBillWise)
+            Message += " Clear \"Use default Bill-wise details for Bill Allocation\" to review the split.";
+        return false;
+    }
+
+    // =============================================================== batch allocation (G-5; BOOK pp.130–132)
+
+    /// <summary>
+    /// <b>Layer 4</b> of the batch gate — the voucher-screen knob "Use batch-wise details for item allocation".
+    /// TallyPrime abolished the single global "F12 &gt; Voucher Entry" page: configuration belongs to the screen
+    /// you are standing on (spec §2.6), so this is per-entry-screen state, defaulted <b>on</b> so a batch-enabled
+    /// company gets the corpus walkthrough (BOOK pp.131–132) without configuring anything. Turning it off
+    /// suppresses the batch sub-screen on THIS screen only; a value already committed to a line keeps acting
+    /// (C-15: a Yes feature that is then hidden stays Yes).
+    /// <para><b>Not bound to the F12 KEY.</b> Our entire F12 surface on a voucher screen is the voucher-numbering
+    /// config (spec §2.6 closing note; <c>MainWindowViewModel.IsVoucherNumberingContext</c>), so this knob is a
+    /// field on the invoice options panel beside its sibling company/type switches instead of stealing that
+    /// shipped screen.</para>
+    /// </summary>
+    [ObservableProperty] private bool _useBatchWiseDetails = true;
+
+    partial void OnUseBatchWiseDetailsChanged(bool value) => RecalculateItemInvoice();
+
+    /// <summary>True iff the layer-4 batch knob is worth showing at all — a Sales/Purchase item invoice on a
+    /// company that maintains batch-wise details (C-06). Off ⇒ the checkbox never appears (ER-13).</summary>
+    public bool CanUseBatchWiseDetails => CanBeItemInvoice && _company.MaintainBatchwiseDetails;
+
+    /// <summary>
+    /// Raised when the batch-allocation sub-screen should open for an item-invoice line whose item Maintains-in
+    /// Batches: item, godown, line quantity, whether the movement is OUTWARD (Sales — so the sub-screen seeds the
+    /// FEFO/FIFO issue plan, DP-1), and the callback that writes the committed allocations back to the line. The
+    /// shell (not this VM) owns opening the cascade column — the same contract the stock screens use.
+    /// </summary>
+    public event Action<StockItem, Godown, decimal, bool,
+        Action<IReadOnlyList<BatchAllocation>>>? BatchAllocationRequested;
+
+    /// <summary>
+    /// The full four-layer gate for the batch sub-screen on an item invoice (G-5, closing C-20):
+    /// <list type="number">
+    ///   <item><b>L1 — F11</b>: the company maintains batch-wise details (C-06);</item>
+    ///   <item><b>L2 — mode</b>: this is a Purchase/Sales entered <i>as an item invoice</i> (the only screens
+    ///     BOOK pp.131–132 walks);</item>
+    ///   <item><b>L3 — master</b>: the picked stock item has "Maintain in Batches" on, with a godown and a
+    ///     positive quantity known (the sub-screen allocates a real quantity, so it needs one);</item>
+    ///   <item><b>L4 — screen</b>: <see cref="UseBatchWiseDetails"/> permits the field here (spec §2.6).</item>
+    /// </list>
+    /// A stock item without batches fails L3 and the whole feature is invisible to it (ER-13).
+    /// </summary>
+    public bool LineWantsBatchAllocation(InventoryVoucherLineViewModel line) =>
+        _company.MaintainBatchwiseDetails
+        && UseBatchWiseDetails
+        && IsItemInvoice && CanBeItemInvoice
+        && line is { ShowsBatch: true, SelectedItem: { MaintainInBatches: true }, SelectedGodown: not null }
+        && line.ParsedQuantity > 0m;
+
+    /// <summary>
+    /// Alt+B / "⧉" on an item-invoice line — asks the shell for the batch-allocation sub-screen and writes the
+    /// accepted allocations back onto the line. Outward for a Sales invoice (stock leaves, so the sub-screen
+    /// seeds the FEFO/FIFO plan from existing batches), inward for a Purchase (nothing on hand to draw from, so
+    /// the operator types the received batch — BOOK p.131). A hard no-op unless
+    /// <see cref="LineWantsBatchAllocation"/>.
+    /// </summary>
+    public void RequestBatchAllocation(InventoryVoucherLineViewModel line)
+    {
+        if (line is null || !LineWantsBatchAllocation(line)) return;
+        BatchAllocationRequested?.Invoke(
+            line.SelectedItem!, line.SelectedGodown!, line.ParsedQuantity, !IsPurchaseInvoice,
+            line.SetBatchAllocations);
+    }
+
+    /// <summary>
+    /// Whole-screen Alt+B fallback (NFR-2): opens the sub-screen for the first line it applies to. Returns false
+    /// — a safe no-op — when no line currently qualifies.
+    /// </summary>
+    public bool RequestBatchAllocationForFirstEligibleLine()
+    {
+        var line = InventoryLines.FirstOrDefault(LineWantsBatchAllocation);
+        if (line is null) return false;
+        RequestBatchAllocation(line);
+        return true;
+    }
 
     // =============================================================== Price Levels (Book pp.34–35; catalog §11; slice 5)
 
@@ -152,6 +746,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// item-invoice (two accounting legs, no tax).
     /// </summary>
     public bool IsGstInvoice => IsItemInvoice && _company.GstEnabled;
+
+    /// <summary>
+    /// True when this Purchase/Sales <b>accounting (service) invoice</b> is GST-aware — accounting-invoice mode is on
+    /// AND the company has GST enabled. Only then does the screen resolve each Particulars line's SAC-based GST from
+    /// the ledger's GST block, DISPLAY the tax + party total, and POST the additive tax lines. The sibling of
+    /// <see cref="IsGstInvoice"/> for the accounting path; on a GST-off company it stays <c>false</c> and the invoice
+    /// posts the plain income + party legs with no tax (byte-identical to a hand-keyed ledger-only sale, ER-13).
+    /// </summary>
+    public bool IsAccountingGstInvoice => IsAccountingInvoice && _company.GstEnabled;
+
+    /// <summary>The shared gate for the GST totals band (CGST/SGST/IGST/Cess + party total): shown for a GST-aware
+    /// Item invoice OR a GST-aware Accounting invoice. Repoints the band that previously read <see cref="IsGstInvoice"/>
+    /// alone so the accounting path's computed tax is visible.</summary>
+    public bool ShowGstTotals => IsGstInvoice || IsAccountingGstInvoice;
+
+    /// <summary>The Particulars (service ledger + amount) grid is shown on an accounting invoice (Sales only — see
+    /// <see cref="CanBeAccountingInvoice"/>, which <see cref="IsAccountingInvoice"/> already folds in).</summary>
+    public bool ShowParticularsGrid => IsAccountingInvoice;
+
+    /// <summary>The editable Accounting-Invoice Particulars lines (service-income / expense ledger + amount).</summary>
+    public ObservableCollection<AccountingInvoiceLineViewModel> AccountingInvoiceLines { get; } = new();
+
+    /// <summary>
+    /// The service-income (Sales) / expense (Purchase) ledgers the Particulars line pickers choose from —
+    /// Income/Expense-nature ledgers that are not GST tax ledgers.
+    /// <para><b>An <see cref="ObservableCollection{T}"/>, rebuilt IN PLACE.</b> It used to be a ctor-built
+    /// <c>.ToList()</c> snapshot handed to every row, which <see cref="RefreshMasterPickers"/> never rebuilt — so
+    /// Alt+C create-on-the-fly was dead on the Particulars ledger field (measured: <c>AccountingInvoiceLedgers contains
+    /// new ledger = False</c> while Parties and StockLedgers both refreshed True), and on a company with no income
+    /// ledger the whole mode was unusable. Every row binds to THIS instance, so an in-place rebuild reaches all of them.</para>
+    /// </summary>
+    public ObservableCollection<DomainLedger> AccountingInvoiceLedgers { get; } = new();
 
     /// <summary>The invoice CGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
     [ObservableProperty] private string _gstCgstText = "0.00";
@@ -409,6 +1035,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     [ObservableProperty] private int _voucherNumber;
     [ObservableProperty] private string _narration = string.Empty;
 
+    /// <summary>The <b>rendered</b> preview of the number Accept will post (numbering-design-v2 §4) — the affixed/padded
+    /// "Voucher No." for the previewed <see cref="VoucherNumber"/> on the current <see cref="Date"/>. It is EQUAL to the
+    /// number the engine assigns and renders on Accept (both compute <c>max+1</c> for this type and render with the same
+    /// (type, Date)); it refreshes in <see cref="OnDateChanged"/> so crossing an affix-row boundary updates the previewed
+    /// prefix in lock-step. With an empty numbering config this is byte-identical to <c>VoucherNumber</c>.</summary>
+    public string FormattedVoucherNumber =>
+        Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
+
+    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+
     /// <summary>
     /// Ctrl+T — marks this voucher <b>post-dated</b> (catalog §8, post-dated cheques): the posted voucher
     /// is excluded from current balances until its date is reached (<see cref="Voucher.PostDated"/> ⇒ the
@@ -446,6 +1082,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// financial-year end; parsed on <see cref="Accept"/>. Ignored for every non-reversing voucher.
     /// </summary>
     [ObservableProperty] private string _applicableUptoText = string.Empty;
+
+    /// <summary>
+    /// True only for a Purchase or Sales voucher: the header exposes the <b>counterparty captured field</b>
+    /// (numbering-design-v2 §8) — "Supplier Invoice No." on a Purchase, "Reference No." on a Sales. Drives the
+    /// field's visibility.
+    /// </summary>
+    public bool ShowReferenceCapture =>
+        _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+
+    /// <summary>The label for the counterparty captured field, per base type: "Supplier Invoice No." on a Purchase
+    /// (the other party's number is the supplier's invoice number), "Reference No." on a Sales.</summary>
+    public string ReferenceNoCaption =>
+        _type.BaseType == VoucherBaseType.Purchase ? "Supplier Invoice No." : "Reference No.";
+
+    /// <summary>
+    /// The counterparty document number (numbering-design-v2 §8) — the OTHER party's number, captured as free text.
+    /// It receives NO auto prefix/suffix/numbering (that is our own <see cref="VoucherNumber"/>); flowed to
+    /// <see cref="Voucher.ReferenceNo"/> on Accept. Blank ⇒ null ⇒ byte-identical to a voucher without one (ER-13).
+    /// </summary>
+    [ObservableProperty] private string _referenceNo = string.Empty;
+
+    /// <summary>
+    /// The counterparty document's date as editable text (dd-MMM-yyyy); optional. Blank ⇒ no date. Parsed on
+    /// Accept and flowed to <see cref="Voucher.ReferenceDate"/>; unparseable non-blank input is rejected (never
+    /// silently discarded).
+    /// </summary>
+    [ObservableProperty] private string _referenceDateText = string.Empty;
 
     /// <summary>
     /// The voucher date as editable text, in the one canonical <see cref="ApexDate.Canonical"/> spelling
@@ -547,10 +1210,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Accounting-invoice (service) Particulars pickers — the service-income (Sales) / expense (Purchase) ledgers,
+        // Income/Expense-nature and never a GST tax ledger. Always populated so the Ctrl+H mode switch is cheap; inert
+        // on a type where the mode is unreachable. A ledger-only accounting invoice never touches any of the
+        // item-invoice stock machinery.
+        RebuildAccountingInvoiceLedgers();
+
         BuildItemInvoicePickers();
         BuildSection34Pickers(); // §34 note pickers (a no-op on any non-Credit/Debit-Note type)
         BuildAdvancePickers();   // outstanding-advance pickers (a no-op unless this type adjusts/refunds one)
         AddAdditionalCostRow(); // one blank trailing row ready to type into
+        AddAccountingInvoiceLine(); // one blank trailing Particulars row ready to type into
 
         // Default date: last voucher date, else books-begin (never before books, which Post rejects).
         var last = company.Vouchers.Count == 0
@@ -567,12 +1237,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
         AddLine(DrCr.Credit);
+
+        // …then seed the OPENING mode, which on Payment/Receipt/Contra is Single Entry (see SeedOpeningMode for the
+        // corpus evidence). Strictly after the two AddLine calls: entering the mode stamps the Account/Particulars
+        // polarity onto line 0 and line 1, so it needs them to exist. On a Payment this re-stamps the pair Cr/Dr,
+        // inverting the Dr/Cr default two lines above — which is the whole point (BOOK p.32).
+        SeedOpeningMode();
+
         Recalculate();
     }
 
     partial void OnDateChanged(DateOnly value)
     {
         OnPropertyChanged(nameof(DateText));
+        // numbering-design-v2 §4: the previewed number must track the date so an affix-row boundary crossing updates
+        // the previewed prefix in lock-step with what Accept posts.
+        OnPropertyChanged(nameof(FormattedVoucherNumber));
         // Push the new date to every line so a forex line can default its rate from the rate in force.
         foreach (var line in Lines) line.SetVoucherDate(value);
 
@@ -591,6 +1271,295 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         Lines.Add(line);
         return line;
     }
+
+    // =============================================================== Single Entry mode (G-6; BOOK pp.26,29,31-32)
+
+    /// <summary>
+    /// True for the three cash/bank vouchers the corpus teaches in Single Entry — Contra (F4), Payment (F5) and
+    /// Receipt (F6). Every other type has no Single Entry layout (Journal has no single cash side; Purchase/Sales
+    /// use the invoice modes instead).
+    /// </summary>
+    public bool CanBeSingleEntry =>
+        _type.BaseType is VoucherBaseType.Contra or VoucherBaseType.Payment or VoucherBaseType.Receipt;
+
+    /// <summary>
+    /// Whether this voucher is being entered in <b>Single Entry</b> mode: an <c>Account</c> field plus a
+    /// <c>Particulars</c> list, no Dr/Cr labels. Only ever true when <see cref="CanBeSingleEntry"/>, so forcing
+    /// <see cref="Mode"/> on a Journal cannot produce a screen with no grid.
+    /// </summary>
+    public bool IsSingleEntry => Mode == VoucherEntryMode.SingleEntry && CanBeSingleEntry;
+
+    /// <summary>
+    /// The side the <b>Account</b> field posts to — <b>and the single most dangerous value in this class</b>.
+    /// <para>The corpus states the inversion twice, in as many words: Receipt/Contra <i>"Dr means Account &amp; Cr
+    /// means Particulars"</i> (BOOK p.29); Payment <i>"Cr means Account &amp; Dr means Particulars"</i> (BOOK p.32).
+    /// Flipping this reverses every cash and bank entry in the books, silently and in bulk.</para>
+    /// </summary>
+    public DrCr SingleEntryAccountSide =>
+        _type.BaseType == VoucherBaseType.Payment ? DrCr.Credit : DrCr.Debit;
+
+    /// <summary>The side the Particulars lines post to — always the opposite of the Account side.</summary>
+    public DrCr SingleEntryParticularsSide =>
+        SingleEntryAccountSide == DrCr.Debit ? DrCr.Credit : DrCr.Debit;
+
+    /// <summary>
+    /// The Account line — the ONE cash/bank side. It is <see cref="Lines"/>[0] re-presented, not a separate object:
+    /// Single Entry is a view over the same collection the classic grid posts from, which is what keeps the posting
+    /// path, the validators and every sub-panel completely untouched (D5).
+    /// </summary>
+    public VoucherLineViewModel? SingleEntryAccountLine => Lines.Count > 0 ? Lines[0] : null;
+
+    /// <summary>The ledger picked in the <c>Account</c> field (the cash/bank side).</summary>
+    public DomainLedger? SingleEntryAccount
+    {
+        get => SingleEntryAccountLine?.SelectedLedger;
+        set
+        {
+            if (SingleEntryAccountLine is not { } line) return;
+            line.SelectedLedger = value;
+            SyncSingleEntrySides();
+            OnPropertyChanged();
+            Recalculate();
+        }
+    }
+
+    /// <summary>
+    /// The <c>Particulars</c> rows (the many side) — <see cref="Lines"/> from index 1 onward. A live projection, so
+    /// adding or removing a particular is an ordinary line operation and nothing has to be kept in step.
+    /// </summary>
+    public IReadOnlyList<VoucherLineViewModel> SingleEntryParticulars =>
+        Lines.Skip(1).ToList();
+
+    /// <summary>
+    /// The Account amount — <b>derived</b>, never typed: it is Σ of the Particulars amounts, which is what makes the
+    /// voucher balance by construction. (In Single Entry the operator states only the many side; Tally fills the one
+    /// side. Typing it would let the two disagree, and the balance rule would reject the voucher with no obvious
+    /// cause.)
+    /// </summary>
+    public decimal SingleEntryAccountTotal
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines.Skip(1)) sum += l.ParsedAmount;
+            return sum;
+        }
+    }
+
+    /// <summary>
+    /// The polarity reminder shown under the Single-Entry grid. The corpus states it in as many words on each
+    /// screen, because the inversion between Payment and Receipt/Contra is the documented trap.
+    /// </summary>
+    public string SingleEntryModeHint =>
+        SingleEntryAccountSide == DrCr.Debit
+            ? "Single Entry — Account is debited, Particulars are credited."
+            : "Single Entry — Account is credited, Particulars are debited.";
+
+    /// <summary>Adds a Particulars row on the correct (non-Account) side.</summary>
+    public VoucherLineViewModel AddSingleEntryParticular()
+    {
+        var line = AddLine(SingleEntryParticularsSide);
+        OnPropertyChanged(nameof(SingleEntryParticulars));
+        Recalculate();
+        return line;
+    }
+
+    // =============================================================== settlement pre-load (Phase 10.11 S2 / VL-4)
+
+    /// <summary>
+    /// The report as-of a settlement pre-load was validated against, or null on an ordinary voucher. Its presence
+    /// is what arms <see cref="SettlementAllocationError"/>; on every hand-keyed voucher this class behaves
+    /// exactly as before.
+    /// </summary>
+    private DateOnly? _settlementAsOf;
+
+    /// <summary>
+    /// Pre-loads the bills selected on the Outstandings report as Against-Reference allocations, so the operator
+    /// confirms the date, the cash/bank ledger and every per-bill amount and then Accepts — which is what
+    /// TallyPrime makes them do anyway [CORPUS-SG p.92 §5.5]. Replaces the deleted Ctrl+B path that posted the
+    /// whole thing unasked (register row IV-5).
+    ///
+    /// <para><b>The Account (cash/bank) side is deliberately left EMPTY.</b> Defaulting it to a ledger named
+    /// "Cash" is the defect this slice removes, wearing a new hat.</para>
+    ///
+    /// <para><b>Two orderings here are load-bearing, and getting either wrong fails silently.</b>
+    /// (1) The mode is forced to Single Entry BEFORE anything is stamped: <see cref="SyncSingleEntrySides"/> is
+    /// what derives the Account amount from Σ Particulars, and it returns immediately when
+    /// <see cref="IsSingleEntry"/> is false — so a pre-load onto the wrong mode leaves the Account line at zero,
+    /// Accept greyed, and no explanation on screen. (2) The party ledger is assigned BEFORE its allocations:
+    /// assignment fires <see cref="VoucherLineViewModel.SyncBillWise"/>, which seeds one blank New-Ref row on a
+    /// bill-wise ledger and CLEARS the collection on a non-bill-wise one, so allocations stamped first are
+    /// wiped.</para>
+    ///
+    /// <para>The blank starter rows are REUSED, never appended beside: the screen opens with one blank Particulars
+    /// line and the ledger assignment seeds one blank bill row. A leftover blank is <c>IsBlank</c>, so
+    /// <see cref="VoucherLineViewModel.BillSplitOk"/> ignores it silently — it would pass every test while
+    /// rendering on screen as an empty row that reads as a bug.</para>
+    /// </summary>
+    public void PreloadSettlement(SettlementPreload preload)
+    {
+        ArgumentNullException.ThrowIfNull(preload);
+        if (!CanBeSingleEntry)
+            throw new InvalidOperationException(
+                $"A settlement pre-load needs a Single-Entry cash/bank voucher; '{_type.Name}' has no such layout.");
+
+        Mode = VoucherEntryMode.SingleEntry;   // idempotent — guarantees the derived-Account stamp is live
+        _settlementAsOf = preload.AsOf;
+
+        foreach (var party in preload.Parties)
+        {
+            // A party with NO allocations describes nothing to settle. Skipping it is not just tidiness: the
+            // cleanup loop below cannot reach a target of zero (see the note there), and the line it would
+            // otherwise leave behind is a zero-amount party row the operator did not ask for.
+            if (party.Allocations.Count == 0) continue;
+
+            // Reuse the blank starter Particulars line for the FIRST party actually stamped, then add one per
+            // party after it. Keyed on the line still being blank, NOT on the loop index: a skipped empty party
+            // at index 0 would leave the starter unconsumed, so an index test would append beside it and strand
+            // exactly the stray empty row this reuse exists to prevent.
+            var line = Lines.Count > 1 && Lines[1].IsBlank ? Lines[1] : AddSingleEntryParticular();
+
+            line.SelectedLedger = party.Party;   // FIRST — see the ordering note above
+            var total = party.Allocations.Sum(a => a.Amount.Amount);
+            line.AmountText = MoneyText(total);
+
+            for (var i = 0; i < party.Allocations.Count; i++)
+            {
+                var allocation = party.Allocations[i];
+                var row = i < line.BillAllocations.Count
+                    ? line.BillAllocations[i]                                // reuse the seeded blank row
+                    : line.AddBillAllocation(BillRefType.AgstRef);
+                row.RefType = BillRefType.AgstRef;
+                row.Name = allocation.Name;
+                row.AmountText = MoneyText(allocation.Amount.Amount);
+            }
+
+            // Nothing should be left over, but a stale seed beside stamped rows is exactly the silent-blank-row
+            // failure described above — so drop any, rather than trust the arithmetic above.
+            //
+            // THE SECOND CONDITION IS NOT REDUNDANT. VoucherLineViewModel.RemoveBillAllocation enforces a floor:
+            // it RETURNS WITHOUT REMOVING when the line is down to one row. Without `Count > 1` the loop stops
+            // making progress the moment it reaches that floor and spins forever on the UI thread — the app would
+            // have to be killed. The `continue` above makes a target of zero unreachable today, but the floor is
+            // owned by another class and this loop must be safe on its own terms.
+            while (line.BillAllocations.Count > party.Allocations.Count && line.BillAllocations.Count > 1)
+                line.RemoveBillAllocation(line.BillAllocations[^1]);
+        }
+
+        Recalculate();
+    }
+
+    private static string MoneyText(decimal value)
+        => value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Re-validates every Against-Reference row of a PRE-LOADED settlement against the books, returning the
+    /// engine's own message on the first failure and null when all is well.
+    ///
+    /// <para><b>Why this exists at all.</b> <c>BillSettlementService.SettleAndPost</c> was the only caller of
+    /// <c>BuildSettlementAllocations</c>, i.e. the only path in the app that ever checked an Agst-Ref against a
+    /// genuinely open bill or capped a knock at its pending amount. The in-voucher Bill-wise panel binds the bill
+    /// name to a plain <c>TextBox</c> (register defect D5) and <c>VoucherValidator.EnsureBillAllocationsValid</c>
+    /// only checks that allocations sum to the line amount — so deleting the posting without this guard would
+    /// have made settlement strictly LESS safe than the defect being removed. One transposed character would post
+    /// a knock against a bill that does not exist, and <c>Outstandings</c> drops a non-positive pending, so the
+    /// real bill stays open while an orphan reference vanishes from the report entirely.</para>
+    ///
+    /// <para><b>Scope, stated so it is not mistaken for a D5 fix.</b> It arms only on a voucher this class
+    /// pre-loaded (<see cref="_settlementAsOf"/> is set). A hand-keyed Receipt with a typed Agst-Ref is validated
+    /// no more than before — that is D5's slice, and widening it needs
+    /// <c>VoucherValidator.EnsureBillAllocationsValid</c> to take the <c>Company</c> it currently does not.</para>
+    ///
+    /// <para>The as-of is the report's, captured at pre-load: it is the exact set of open bills the operator was
+    /// looking at when they chose. Re-deriving it from the (operator-editable) voucher date would refuse a
+    /// legitimate settlement back-dated before the bill was raised.</para>
+    /// </summary>
+    private string? SettlementAllocationError()
+    {
+        if (_settlementAsOf is not { } asOf) return null;
+
+        // POOLED PER PARTY, NOT PER LINE. BuildSettlementAllocations caps the knocks naming one bill by their
+        // running TOTAL, which only works if it sees them all at once. Validating line-by-line would hand it two
+        // separate single-knock batches whenever the operator adds a second Particulars row for the SAME party —
+        // each batch passes, and their sum over-settles the bill exactly as two rows on one line would.
+        var byParty = new Dictionary<Guid, (DomainLedger Ledger, List<BillSettlementService.Knock> Knocks)>();
+        foreach (var line in Lines)
+        {
+            if (line.SelectedLedger is not { } ledger || !line.IsBillWise) continue;
+
+            var knocks = line.BillAllocations
+                .Where(a => a.RefType == BillRefType.AgstRef && !a.IsBlank)
+                .Select(a => new BillSettlementService.Knock(
+                    (a.Name ?? string.Empty).Trim(), new Money(a.ParsedAmount)))
+                .ToList();
+            if (knocks.Count == 0) continue;
+
+            if (byParty.TryGetValue(ledger.Id, out var existing)) existing.Knocks.AddRange(knocks);
+            else byParty[ledger.Id] = (ledger, knocks);
+        }
+
+        var service = new BillSettlementService(_company);
+        foreach (var (ledger, knocks) in byParty.Values)
+        {
+            try { service.BuildSettlementAllocations(ledger, asOf, knocks); }
+            catch (InvalidOperationException ex) { return ex.Message; }
+        }
+        return null;
+    }
+
+    /// <summary>Removes a Particulars row (never the Account line, and never below the two-line minimum).</summary>
+    public void RemoveSingleEntryParticular(VoucherLineViewModel line)
+    {
+        if (Lines.Count <= 2 || ReferenceEquals(line, SingleEntryAccountLine)) return;
+        Lines.Remove(line);
+        OnPropertyChanged(nameof(SingleEntryParticulars));
+        Recalculate();
+    }
+
+    /// <summary>
+    /// Stamps the documented polarity onto the underlying lines and keeps the derived Account amount in step: line 0
+    /// takes <see cref="SingleEntryAccountSide"/>, every other line the opposite, and the Account amount becomes
+    /// Σ Particulars. A no-op outside Single Entry, so the classic grid keeps full manual control of both sides.
+    /// </summary>
+    private void SyncSingleEntrySides()
+    {
+        if (!IsSingleEntry) return;
+
+        // 🔴 NEVER ON AN ALTERING SCREEN THAT DID NOT OPEN IN SINGLE ENTRY (finding L1-02). This stamp is a no-op by
+        // construction on a voucher genuinely keyed in Single Entry — which is what SeedAlterationMode tests for —
+        // but on one keyed in the Dr/Cr grid it FLIPS every side and REWRITES line 0's amount. One Ctrl+H did
+        // exactly that: an expense became an income, cash went UP on a payment, and the replacement still balanced,
+        // so nothing downstream objected.
+        //
+        // The guard is here rather than only on the accept, because the damage is done on the way IN and Ctrl+H
+        // does not undo it: OnModeChanged's own comment records that "leaving it simply stops re-stamping, so the
+        // lines survive the flip intact" — so a gate that only refused while IsSingleEntry was true would be walked
+        // past by pressing Ctrl+H twice. Blocking the stamp itself makes the mode a pure view switch on an altering
+        // screen, and AcceptAlteration still refuses to POST from that view (it does not describe the voucher).
+        if (IsAltering && !_alteringPostedAsSingleEntry) return;
+
+        if (_syncingSingleEntry) return;
+        _syncingSingleEntry = true;
+        try
+        {
+            for (var i = 0; i < Lines.Count; i++)
+                Lines[i].Side = i == 0 ? SingleEntryAccountSide : SingleEntryParticularsSide;
+
+            if (SingleEntryAccountLine is { } account)
+            {
+                var total = SingleEntryAccountTotal;
+                var text = total.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                if (account.AmountText != text) account.AmountText = text;
+            }
+        }
+        finally
+        {
+            _syncingSingleEntry = false;
+        }
+    }
+
+    /// <summary>Re-entrancy guard: stamping a side/amount raises change notifications that re-enter Recalculate.</summary>
+    private bool _syncingSingleEntry;
 
     /// <summary>Removes a line (keeping a minimum of two); recomputes the balance.</summary>
     public void RemoveLine(VoucherLineViewModel line)
@@ -617,6 +1586,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>Recomputes Σ Dr, Σ Cr, the difference indicator, and whether Accept is allowed.</summary>
     public void Recalculate()
     {
+        // 🔴 S5b — inert while a posted voucher is being re-keyed line by line. In Single Entry this method stamps
+        // line 0's amount to Σ of the remaining lines, so running it against a half-built collection would zero the
+        // account line before the rest of the voucher existed. RehydrateFrom calls it once, at the end.
+        if (_rehydrating) return;
+
         // TDS withholding panel (Phase 7 slice 2): refresh first so it is cleared in item-invoice mode too (the
         // helper self-gates via TdsPossible, which is false when item-invoice is on). Cheap + pure.
         UpdateTdsPanel();
@@ -634,6 +1608,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // In item-invoice mode the plain Dr/Cr grid is not the Accept gate — the item-invoice indicators are
         // (a change to the always-present blank starter lines must not clobber that gate).
         if (IsItemInvoice) { RecalculateItemInvoice(); return; }
+
+        // Likewise in accounting-invoice (service) mode: the Particulars grid is the Accept gate, not the plain
+        // Dr/Cr grid. BLOCKER-1 — without this route Recalculate() falls through to the plain-grid branch and stomps
+        // CanAccept to false from the empty starter Lines, permanently disabling Accept in accounting mode.
+        if (IsAccountingInvoice) { RecalculateAccountingInvoice(); return; }
+
+        // G-6: Single Entry keeps posting through THIS branch (it is a re-render of the same Lines), so all it needs
+        // is the polarity + derived-Account stamp before the totals are summed. Ordering matters: the Account amount
+        // is Σ Particulars, so stamping it first is what makes the balance check below pass by construction.
+        SyncSingleEntrySides();
 
         decimal dr = 0m, cr = 0m;
         foreach (var l in Lines)
@@ -663,6 +1647,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var billSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.BillSplitOk);
         var costSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.CostSplitOk);
         CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk && costSplitsOk;
+
+        // On a PRE-LOADED settlement only, an Agst-Ref must still name a genuinely open bill and must not exceed
+        // its pending amount — the check SettleAndPost used to be the sole owner of (see SettlementAllocationError).
+        // A no-op on every hand-keyed voucher, so nothing else in the app changes shape.
+        if (CanAccept && SettlementAllocationError() is not null) CanAccept = false;
     }
 
     // =============================================================== TDS withholding (catalog §13; Phase 7 slice 2)
@@ -671,14 +1660,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// expense/purchase <b>debit</b> leg (which drives applicability AND the default section) plus a complete
     /// deductee-party <b>credit</b> line (positive amount = the gross obligation). When the shape holds the panel
     /// shows; the operator may still decline via the "Not Applicable" sentinel.</summary>
+    /// <param name="PartyLine">The plain-grid party line the carve-out replaces. <b>Null in accounting-invoice
+    /// mode</b> (G-7), where the party leg is DERIVED at Accept rather than typed — the accounting Accept path
+    /// applies the carve-out to the leg it builds instead of matching a grid row by reference.</param>
     private readonly record struct TdsShape(
-        VoucherLineViewModel PartyLine, DomainLedger Deductee, Money Gross, DomainLedger Expense);
+        VoucherLineViewModel? PartyLine, DomainLedger Deductee, Money Gross, DomainLedger Expense);
 
     /// <summary>The resolved context of a <b>firing</b> TDS withholding: the deductee party's Cr line, the deductee
     /// ledger, the gross obligation, and the Nature of Payment (section) — resolved from the EXPENSE ledger's default
     /// (or the operator's override), never the party's default.</summary>
     private readonly record struct TdsContext(
-        VoucherLineViewModel PartyLine, DomainLedger Deductee, Money Gross, NatureOfPayment Nature);
+        VoucherLineViewModel? PartyLine, DomainLedger Deductee, Money Gross, NatureOfPayment Nature);
 
     /// <summary>True when TDS could apply on this screen: TDS is enabled, this is a plain-grid Payment/Journal/
     /// Purchase (never item-invoice). The concrete applicability (an Is-TDS-Applicable expense Dr leg + a deductee
@@ -708,6 +1700,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         if (!TdsPossible) return null;
 
+        // G-7: in accounting-invoice mode the plain grid is EMPTY — the expense legs are the Particulars lines and
+        // the party is the header party. Reading Lines here is exactly what dropped the §194J carve-out.
+        if (IsAccountingInvoice) return DetectAccountingTdsShape();
+
         // The EXPENSE (Dr) leg drives applicability: a complete debit line whose ledger is *Is TDS Applicable*.
         var expenseLine = Lines.FirstOrDefault(l =>
             l.IsComplete && l.Side == DrCr.Debit && l.SelectedLedger is { TdsApplicable: true });
@@ -722,6 +1718,64 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (gross.Amount <= 0m) return null;
 
         return new TdsShape(partyLine, partyLine.SelectedLedger!, gross, expenseLine.SelectedLedger!);
+    }
+
+    /// <summary>
+    /// G-7 — the TDS shape on a <b>Purchase accounting invoice</b>, read from the Particulars lines instead of the
+    /// (empty) plain grid. The mapping is exact:
+    /// <list type="bullet">
+    ///   <item>the EXPENSE Dr legs are the complete Particulars lines — applicability and the default section come
+    ///     from the first one flagged <see cref="Ledger.TdsApplicable"/>, exactly as on the grid;</item>
+    ///   <item>the deductee party is the header party (it carries a <see cref="Ledger.DeducteeType"/>);</item>
+    ///   <item>the gross obligation is the party total the derived Cr leg will carry (taxable + GST + cess) — the
+    ///     party is obliged to be paid the tax-inclusive invoice, and the withholding is then assessed on the
+    ///     GST-EXCLUSIVE base separately (<see cref="AssessableExGst"/>, CBDT Circular 23/2017).</item>
+    /// </list>
+    /// A <b>Sales</b> accounting invoice returns null: withholding is the purchaser's obligation, never the
+    /// seller's, so the Sales arm of this mode is untouched by the rewire (ER-13).
+    /// </summary>
+    private TdsShape? DetectAccountingTdsShape()
+    {
+        if (!IsPurchaseInvoice) return null;
+        if (SelectedParty?.Ledger is not { } party || !IsDeducteeLedger(party)) return null;
+
+        var expense = AccountingInvoiceLines
+            .FirstOrDefault(l => l.IsComplete && l.SelectedLedger is { TdsApplicable: true })?.SelectedLedger;
+        if (expense is null) return null; // no Is-TDS-Applicable Particulars line ⇒ no withholding
+
+        var gross = AccountingInvoicePartyAmount();
+        if (gross.Amount <= 0m) return null;
+
+        return new TdsShape(PartyLine: null, party, gross, expense);
+    }
+
+    /// <summary>Σ of the complete Particulars lines — the accounting invoice's taxable (GST-exclusive) value.</summary>
+    private Money AccountingInvoiceTaxable()
+    {
+        var sum = 0m;
+        foreach (var l in AccountingInvoiceLines)
+            if (l.IsComplete && l.ParsedAmount is { } a) sum += a;
+        return new Money(sum);
+    }
+
+    /// <summary>
+    /// The amount the derived party leg of an accounting invoice will carry: taxable + GST + cess. Pure and
+    /// exception-safe — an unresolvable GST input falls back to the bare taxable value here and is refused with a
+    /// friendly message by the Accept path, which re-runs the same compute.
+    /// </summary>
+    private Money AccountingInvoicePartyAmount()
+    {
+        var taxable = AccountingInvoiceTaxable();
+        if (!IsAccountingGstInvoice) return taxable;
+        try
+        {
+            if (ComputeAccountingInvoiceGst() is not { HasUnresolved: false } gst) return taxable;
+            return new Money(taxable.Amount + gst.Tax.TotalTax.Amount + gst.Tax.TotalCess.Amount);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return taxable;
+        }
     }
 
     /// <summary>
@@ -762,6 +1816,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private Money AssessableExGst()
     {
+        // G-7: on an accounting invoice the Particulars lines are ALREADY GST-exclusive — the tax legs are derived
+        // additively and never appear as Particulars rows — so the taxable total IS the assessable base. Reading
+        // the empty plain grid here would have assessed TDS on ₹0.
+        if (IsAccountingInvoice) return AccountingInvoiceTaxable();
+
         var sum = 0m;
         foreach (var l in Lines.Where(l => l.IsComplete && l.Side == DrCr.Debit))
             if (l.SelectedLedger is { } led && !ClassificationRules.IsDutiesAndTaxesLedger(led, _company))
@@ -817,7 +1876,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             TdsService.CarveOut carve;
             try
             {
-                carve = _tds.BuildCarveOut(ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date);
+                // 🔴 ON AN ALTERING SCREEN THE PANEL MUST EXCLUDE THE VOUCHER'S OWN POSTED ASSESSMENT, exactly
+                // as the accept path does (ER-4: one engine, and one set of arguments to it). Without this the panel
+                // read the voucher back as its own "prior": a below-threshold 30,000.30 fee re-opened showing
+                // "TDS 194J(b) @ 10%: 3,000.00 withheld - Net payable 27,000.30" while AcceptAlteration posted the
+                // full gross and no payable leg at all. The figure was on screen before any keystroke, because
+                // RehydrateFrom ends in Recalculate().
+                carve = _tds.BuildCarveOut(
+                    ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
+                    postedRateBasisPoints: AlterationPostedTdsRateBasisPoints,
+                    postedAssessableValue: AlterationPostedTds?.AssessableValue,
+                    postedTdsAmount: AlterationPostedTds?.TdsAmount);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -843,6 +1912,67 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             _updatingTds = false;
         }
+    }
+
+    /// <summary>
+    /// The voucher whose POSTING MOMENT the cumulative-FY threshold projection must be taken at — the voucher being
+    /// altered, or <c>null</c> on a fresh entry screen (there is nothing to exclude: the voucher is not in the book
+    /// yet). Every <see cref="TdsService.BuildCarveOut"/> call on this screen passes it, so the panel, the bill-wise
+    /// preview and the accept path cannot disagree about which transactions count towards the threshold.
+    /// </summary>
+    private Guid? AlterationProjectionMarker => IsAltering ? _alteringVoucherId : null;
+
+    /// <summary>
+    /// 🔴 <b>The rate the voucher being altered was POSTED with</b> — read straight off its own stamped
+    /// <c>TdsLineTax.RateBasisPoints</c>; <c>null</c> on a fresh entry screen. Handed to every
+    /// <see cref="TdsService.BuildCarveOut"/> call on this screen so the advisory panel, the bill-wise net preview
+    /// and the accept path cannot disagree about a <b>grandfathered §194C rate</b> (ER-4: one engine, one set of
+    /// arguments to it). Without it the panel would read "§194C @ 2%" while Accept posted 1% — exactly the class
+    /// of defect <c>VoucherAlterDerivedLegDriftTests.The_withholding_panel_on_an_altering_screen_states_what_accept
+    /// _will_post</c> exists to catch.
+    /// <para>The ACCEPT path does not use this property: <see cref="ApplyReCarve"/> passes
+    /// <c>pin.RateBasisPoints</c>, which <c>VoucherAlterationDerivedLegs.Invert</c> already read off the posted
+    /// voucher and validated on the way in. Both are the same number by construction; the pin is the stronger
+    /// source, so the path that moves money uses it.</para>
+    /// </summary>
+    private int? AlterationPostedTdsRateBasisPoints => AlterationPostedTds?.RateBasisPoints;
+
+    /// <summary>
+    /// 🔴 <b>The withholding detail the voucher being altered was POSTED with</b> — its stamped
+    /// <see cref="TdsLineTax"/>, or <c>null</c> on a fresh entry screen. It carries three facts about the voucher
+    /// that the engine needs and cannot recover for itself: the rate it was posted at (the <b>§194C</b>
+    /// grandfathering carrier) and the assessable base and TDS amount it was posted with (together the
+    /// <b>§194-I</b> one — see <c>TdsService.GrandfatheredLiability</c>). Every
+    /// <see cref="TdsService.BuildCarveOut"/> call on this screen feeds all three, so the advisory panel, the
+    /// bill-wise net preview and the accept path cannot disagree (ER-4: one engine, one set of arguments).
+    /// </summary>
+    private TdsLineTax? AlterationPostedTds =>
+        IsAltering ? PostedTdsDetail(_company.FindVoucher(_alteringVoucherId)) : null;
+
+    /// <summary>The one <see cref="TdsLineTax"/> a posted voucher carries (on the TDS-Payable leg when it
+    /// withheld, on the party leg when it was assessed below threshold); <c>null</c> when it carries none.</summary>
+    private static TdsLineTax? PostedTdsDetail(Voucher? posted) =>
+        posted?.Lines.Select(l => l.Tds).FirstOrDefault(t => t is not null);
+
+    /// <summary>
+    /// The deductee's grid row as an <see cref="EntryLine"/> — ledger, amount, side and every keyed child. Handed to
+    /// <see cref="TdsService.BuildCarveOut"/> so the derived party leg keeps the bill-wise / cost-centre / bank /
+    /// forex detail instead of the carve destroying it (both accept paths SPLICE the derived leg over this whole
+    /// row, so anything the builder does not put back is gone).
+    /// </summary>
+    private static EntryLine? KeyedPartyTemplate(VoucherLineViewModel? line)
+    {
+        // Null on the accounting-invoice path, where the party leg is BUILT rather than keyed on a grid row (its
+        // bill-wise panel is already targeted at the net, so there is nothing to carry and nothing to re-derive).
+        if (line?.SelectedLedger is null) return null;
+        var bills = line.ToBillAllocations();
+        var costs = line.ToCostAllocations();
+        return new EntryLine(
+            line.SelectedLedger.Id, new Money(line.ParsedAmount), line.Side,
+            bills.Count > 0 ? bills : null,
+            costs.Count > 0 ? costs : null,
+            line.ToBankAllocation(),
+            line.ToForexInfo());
     }
 
     /// <summary>The operator changing the TDS section re-computes the deduction (unless the change came from the
@@ -948,8 +2078,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// @18% + GTA @5%), and each attracts its own dual leg at its own rate. Taking only the first silently
     /// under-collected the cash-only §49(4) liability on the rest.
     /// </para></summary>
+    /// <param name="PartyLine">The plain-grid supplier line. <b>Null in accounting-invoice mode</b> (G-7), where the
+    /// supplier is the header party and no grid row exists.</param>
     private readonly record struct RcmShape(
-        IReadOnlyList<RcmLeg> Legs, VoucherLineViewModel PartyLine, DomainLedger Party)
+        IReadOnlyList<RcmLeg> Legs, VoucherLineViewModel? PartyLine, DomainLedger Party)
     {
         /// <summary>The total assessable value across every reverse-charge leg (the panel's headline base).</summary>
         public Money Taxable => Legs.Aggregate(Money.Zero, (a, l) => a + l.Taxable);
@@ -996,6 +2128,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         if (!RcmPossible) return null;
 
+        // G-7: same rewire as TDS — in accounting-invoice mode the expense legs are the Particulars lines and the
+        // supplier is the header party. Reading Lines here made RCM mis-evaluate to "no shape" on every service
+        // purchase, silently under-collecting the cash-only §49(4) liability.
+        if (IsAccountingInvoice) return DetectAccountingRcmShape();
+
         // The EXPENSE (Dr) legs drive applicability, the rate and the category — their GST block is what Resolve reads.
         // Grouped by ledger so one head booked across several lines is ONE dual leg on the summed value, while distinct
         // heads (each with its own notified rate) keep their own.
@@ -1017,6 +2154,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (partyLine is null) return null;
 
         return new RcmShape(legs, partyLine, partyLine.SelectedLedger!);
+    }
+
+    /// <summary>
+    /// G-7 — the reverse-charge shape on a <b>Purchase accounting invoice</b>, read from the Particulars lines.
+    /// Mirrors the plain-grid detector clause for clause: RCM-flagged expense ledgers grouped by ledger (so one head
+    /// booked across several rows is ONE dual leg on the summed value, while distinct notified heads keep their own
+    /// rates), plus a genuine supplier — here the header party. A Sales accounting invoice returns null: reverse
+    /// charge is an inward-supply mechanism.
+    /// </summary>
+    private RcmShape? DetectAccountingRcmShape()
+    {
+        if (!IsPurchaseInvoice) return null;
+        if (SelectedParty?.Ledger is not { } party || !IsSupplierLedger(party)) return null;
+
+        var legs = AccountingInvoiceLines
+            .Where(l => l.IsComplete && l.SelectedLedger is { SalesPurchaseGst.ReverseChargeApplicable: true })
+            .GroupBy(l => l.SelectedLedger!.Id)
+            .Select(g => new RcmLeg(g.First().SelectedLedger!, new Money(g.Sum(l => l.ParsedAmount ?? 0m))))
+            .Where(leg => leg.Taxable.Amount > 0m)
+            .ToList();
+        if (legs.Count == 0) return null;
+
+        return new RcmShape(legs, PartyLine: null, party);
     }
 
     /// <summary>Resolves reverse-charge applicability for ONE leg of a shape through the engine (pure; no posting, no
@@ -1269,9 +2429,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             IsConsolidated = true,
             Display = "◦ Consolidated / unregistered — enter the reference",
         });
+        // 🔴 Phase 10.11 S3 — `!v.Cancelled` IS LOAD-BEARING, and it went in with the slice that made Alt+X
+        // reachable. This picker offers the ORIGINAL SUPPLY a §34 credit/debit note adjusts, and the filter was
+        // base type ALONE. A cancelled invoice has zero effect on the books, so choosing one as the original
+        // would write a GstCreditDebitNoteLink pointing at a supply that never happened — a note adjusting
+        // nothing, carried into GSTR-1 against a document the recipient can never match. The leak was latent only
+        // because nothing in the UI could cancel a voucher; it goes live the moment this slice ships, which is
+        // why it is closed HERE and not deferred.
         foreach (var v in _company.Vouchers
-                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType
-                         is VoucherBaseType.Sales or VoucherBaseType.Purchase)
+                     .Where(v => !v.Cancelled
+                         && _company.FindVoucherType(v.TypeId)?.BaseType
+                             is VoucherBaseType.Sales or VoucherBaseType.Purchase)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
@@ -1298,7 +2466,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name : null;
         var total = v.Lines.Where(l => l.Side == DrCr.Debit).Aggregate(Money.Zero, (a, l) => a + l.Amount);
         var partyPart = string.IsNullOrWhiteSpace(party) ? string.Empty : $" · {party}";
-        return $"{typeName} No. {v.Number} · {v.Date:dd-MMM-yyyy}{partyPart} · ₹{IndianFormat.AmountAlways(total.Amount)}";
+        return $"{typeName} No. {_company.FormatVoucherNumber(v)} · {v.Date:dd-MMM-yyyy}{partyPart} · ₹{IndianFormat.AmountAlways(total.Amount)}";
     }
 
     /// <summary>
@@ -1311,7 +2479,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (SelectedCdnOriginalInvoice is not { } opt || opt.IsNone) return (null, null, null);
 
         if (opt.Invoice is { } invoice)
-            return (invoice.Id, invoice.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), invoice.Date);
+            return (invoice.Id, _company.FormatVoucherNumber(invoice), invoice.Date);
 
         var number = string.IsNullOrWhiteSpace(CdnOriginalInvoiceNumber) ? null : CdnOriginalInvoiceNumber.Trim();
         // WI-5: the shared lenient day-first parser, so a typed original-invoice date accepts the same
@@ -1560,15 +2728,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         OutstandingAdvances.Clear();
         OutstandingAdvances.Add(new AdvanceReceiptOption { Display = "◦ (none selected)" });
+        // 🔴 Phase 10.11 S3 — THE THIRD PICKER LEAK, and it is inside the same method as the second. This method
+        // builds TWO lists and only the invoice list below originally got the cancelled filter. `LedgerService.Cancel`
+        // sets the voucher's flag and touches nothing else, so the `GstAdvanceReceipt` survives a cancelled booking
+        // receipt untouched and this list went on offering it — on BOTH routes, adjust (Journal) and refund
+        // (Payment). Harm is the mirror image of the invoice leak: once the receipt is cancelled its
+        // `Cr Output {head}` / `Dr Output Tax on Advances` pair is off the books, so adjusting or refunding against
+        // it releases suspense that was never recognised and marks the advance settled from a voucher with zero
+        // effect. Filtering on the RECEIPT VOUCHER rather than on the record, because the record has no flag.
         foreach (var a in _company.AdvanceReceipts
-                     .Where(a => a.AdjustedAgainstInvoiceVoucherId is null && a.RefundVoucherId is null))
+                     .Where(a => a.AdjustedAgainstInvoiceVoucherId is null && a.RefundVoucherId is null
+                         && _company.FindVoucher(a.ReceiptVoucherId) is { Cancelled: false }))
             OutstandingAdvances.Add(new AdvanceReceiptOption { Receipt = a, Display = AdvanceDisplay(a) });
         SelectedOutstandingAdvance = OutstandingAdvances.FirstOrDefault();
 
         AdvanceInvoices.Clear();
         AdvanceInvoices.Add(new AdvanceInvoiceOption { Display = "◦ (none selected)" });
+        // 🔴 Phase 10.11 S3 — the SECOND of the two picker leaks, closed for the same reason as the §34 one
+        // above: this list offers the invoice an outstanding advance is ADJUSTED AGAINST, and it filtered on base
+        // type alone. Adjusting an advance against a cancelled sale would retire real advance tax against a
+        // supply with no value, and the advance would be marked settled by an invoice that is not on the books.
         foreach (var v in _company.Vouchers
-                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
+                     .Where(v => !v.Cancelled
+                         && _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             AdvanceInvoices.Add(new AdvanceInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedAdvanceInvoice = AdvanceInvoices.FirstOrDefault();
@@ -1580,7 +2762,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Kept compact: this string is shown inside a ComboBox, which ellipsizes — a longer label pushed the tax figure
         // out of sight. The full consequence is spelled out in AdvanceActionSummary underneath.
         var receipt = _company.FindVoucher(a.ReceiptVoucherId);
-        var receiptPart = receipt is null ? "Advance" : $"Receipt {receipt.Number} · {receipt.Date:dd-MMM-yy}";
+        var receiptPart = receipt is null ? "Advance" : $"Receipt {_company.FormatVoucherNumber(receipt)} · {receipt.Date:dd-MMM-yy}";
         var kind = a.IsService ? "service" : "goods";
         return $"{receiptPart} · {kind} · net ₹{IndianFormat.AmountAlways(a.AdvanceAmount.Amount)} · "
                + $"tax ₹{IndianFormat.AmountAlways(a.AdvanceTax.Amount)}";
@@ -1739,66 +2921,1329 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return notes.Count == 0 ? string.Empty : " " + string.Join(" ", notes);
     }
 
+    // =============================================================== Phase 10.11 S5b — ALTER a posted voucher
+
+    /// <summary>The posted voucher this screen was opened to ALTER, or <see cref="Guid.Empty"/> for a fresh entry.</summary>
+    private Guid _alteringVoucherId;
+
+    /// <summary>
+    /// Suppresses <see cref="Recalculate"/> while <see cref="RehydrateFrom(Voucher)"/> is mid-flight.
+    ///
+    /// <para>🔴 <b>Not an optimisation — a correctness guard.</b> In Single Entry, <c>Recalculate</c> calls
+    /// <c>SyncSingleEntrySides</c>, which OVERWRITES line 0's amount with Σ of the remaining lines. Rehydration adds
+    /// the posted lines one at a time, so the very first of those calls would see a single line, compute Σ of
+    /// nothing, and stamp the account line's amount to <b>zero</b> — silently, before any of the other lines
+    /// existed. One <c>Recalculate</c> runs at the end instead, when the collection is whole.</para>
+    /// </summary>
+    private bool _rehydrating;
+
+    /// <summary>
+    /// Whether the voucher being altered was POSTED in the Single-Entry shape — captured once by
+    /// <see cref="RehydrateFrom(Voucher)"/> from the same predicate <see cref="SeedAlterationMode"/> used, and read
+    /// by <see cref="SyncSingleEntrySides"/> so a Ctrl+H on a grid-keyed voucher cannot re-stamp its sides
+    /// (finding L1-02). It is re-derived from the POSTED voucher rather than read off screen state, because screen
+    /// state is precisely what a stray mode change has already corrupted.
+    /// </summary>
+    private bool _alteringPostedAsSingleEntry;
+
+    /// <summary>
+    /// Whether the voucher being altered was POSTED as an ITEM INVOICE — captured once by
+    /// <see cref="RehydrateFrom(Voucher)"/> from <c>Voucher.HasInventoryLines</c>, which is PERSISTED, and read by
+    /// <see cref="AcceptAlterationCore"/> to decide which accept verb runs. Re-derived from the POSTED voucher
+    /// rather than read off <see cref="Mode"/> for the same reason <see cref="_alteringPostedAsSingleEntry"/> is:
+    /// screen state is precisely what a stray Ctrl+H has already corrupted.
+    /// </summary>
+    private bool _alteringPostedAsItemInvoice;
+
+    /// <summary>True when this screen is altering a POSTED voucher rather than entering a new one.</summary>
+    public bool IsAltering => _alteringVoucherId != Guid.Empty;
+
+    /// <summary>The posted voucher being altered, or <see cref="Guid.Empty"/> for a fresh entry.</summary>
+    public Guid AlteringVoucherId => _alteringVoucherId;
+
+    /// <summary>
+    /// 🔴 <b>True while this screen holds keying that discarding it would DESTROY</b> — the predicate the shell's
+    /// type F-keys (F4–F9) consult before they replace this screen with another voucher type.
+    ///
+    /// <para><b>The defect it closes (S5d/S5e review, C9 — MAJOR).</b> The F4–F9 button-bar rows were enabled on
+    /// <c>hasCompany</c> alone, and <c>OpenVoucher</c> → <c>OpenPageColumn</c> → <c>ClearSubScreens</c> sets
+    /// <c>VoucherEntry = null</c> unconditionally, so ONE plain F8 replaced a half-keyed entry with a blank Sales
+    /// one — measured: <c>Line0 amount now = ''</c>, <c>Narration now = ''</c>, <c>Notice</c> and <c>Message</c>
+    /// both empty. No prompt, no notice, nothing.</para>
+    ///
+    /// <para>🔴 <b>WHY IT IS NOT WRITTEN ON <see cref="IsAltering"/>, and this is the load-bearing decision.</b>
+    /// The review's completeness critic SPLIT this finding for exactly this reason: the silent discard is a
+    /// voucher-ENTRY-screen defect, not an alteration-screen one. A guard written on <c>IsAltering</c> would have
+    /// closed the alteration half and left a half-keyed NEW entry destroyed by the same keystroke — the more
+    /// common case of the two. The alteration case is the worse half only because it ADDITIONALLY tears down the
+    /// report column beneath it, which the new-entry case has none of. <c>IsAltering</c> appears below as one
+    /// DISJUNCT (a rehydrated screen always holds work, whether or not the operator has typed into it yet), never
+    /// as the gate.</para>
+    ///
+    /// <para><b>An UNTOUCHED fresh screen is deliberately not "work".</b> F4–F9 switching voucher type on a blank
+    /// entry is useful, shipped and unchanged (ER-13) — narrowing that would be a behaviour change dressed as a
+    /// defect fix. The four grids are asked with the SAME <c>IsBlank</c> predicate each row already exposes to its
+    /// own validation, so this cannot drift from what the screen calls empty.</para>
+    ///
+    /// <para><b>What this deliberately does NOT decide.</b> What the type F-key ought to do INSTEAD on an
+    /// alteration screen is a separate, corpus-scoped question: the corpus attests exactly one conversion —
+    /// memorandum → payment via F5 on the memorandum alteration screen (Book 664311548) — and
+    /// <c>MainWindowViewModel.ConvertMemorandum</c> exists with zero production callers and no key route. That
+    /// limb is NOT built here.</para>
+    /// </summary>
+    public bool HasUnsavedWork =>
+        IsAltering
+        || Lines.Any(l => !l.IsBlank)
+        || InventoryLines.Any(l => !l.IsBlank)
+        || AccountingInvoiceLines.Any(l => !l.IsBlank)
+        || AdditionalCosts.Any(r => !r.IsBlank)
+        || !string.IsNullOrWhiteSpace(Narration);
+
+    /// <summary>
+    /// 🔴 <b>S5b's entry door — opens this screen on a POSTED voucher, pre-filled, or refuses BY NAME.</b>
+    ///
+    /// <para>The result is never a bare <c>null</c> and never a silent no-op: it holds either a rehydrated view
+    /// model or a family-specific sentence saying why this voucher's posted shape cannot be rebuilt from the entry
+    /// screen. See <see cref="VoucherAlterationEligibility"/> for the thirty-row enumeration behind those refusals,
+    /// and design §6.6a for their derivation.</para>
+    ///
+    /// <para><b>Accepting an alteration is <see cref="AcceptAlteration"/>, NOT <see cref="Accept"/></b>, and
+    /// <see cref="Accept"/> hard-refuses on an altering screen. <c>Accept</c> is build + <c>Post</c> + REGISTRATION
+    /// SIDE EFFECTS: it re-runs <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and <c>BuildAdvanceLines</c> against
+    /// <b>today's</b> masters, so a voucher that carried no withholding carve at posting could ACQUIRE one on a
+    /// narration-only alteration — and one that carried a carve could lose it. It would also mint a fresh
+    /// <see cref="Guid"/> and post a SECOND voucher, leaving the original standing (§6.6a.6, fourth thing).</para>
+    /// </summary>
+    public static VoucherAlterationOpen ForAlter(
+        Company company,
+        Guid voucherId,
+        CompanyStorage storage,
+        Action onSaved,
+        Action onCancelled)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        if (VoucherAlterationEligibility.RefusalFor(company, voucherId) is { } refusal)
+            return VoucherAlterationOpen.Refused(refusal);
+
+        // Both are non-null: RefusalFor returned null, which it only does after resolving each of them.
+        var voucher = company.FindVoucher(voucherId)!;
+        var type = company.FindVoucherType(voucher.TypeId)!;
+
+        // The date is deliberately NOT passed to the constructor: RehydrateFrom sets it, and having exactly one
+        // writer is what makes that assignment falsifiable by a test (a voucher that is not the latest in the book
+        // would otherwise open on the constructor's default and no assertion could tell).
+        var entry = new VoucherEntryViewModel(company, type, storage, onSaved, onCancelled);
+        return entry.RehydrateFrom(voucher) is { } lineRefusal
+            ? VoucherAlterationOpen.Refused(lineRefusal)
+            : VoucherAlterationOpen.Opened(entry);
+    }
+
+    /// <summary>
+    /// Re-keys this freshly-constructed screen from <paramref name="voucher"/>. Returns <c>null</c> on success, or a
+    /// named refusal when a line cannot be re-keyed (the master-drift and forex cases
+    /// <see cref="VoucherLineViewModel.RehydrateFrom"/> owns, which need the REAL panel gates and so cannot be
+    /// decided from the posted voucher alone).
+    ///
+    /// <para>🔴 <b>The provisional-state vector is carried onto the live header properties, not into a frozen
+    /// snapshot</b> (design §12.8 consequence 2). <c>Replace</c> REFUSES a change to <c>Optional</c>,
+    /// <c>PostDated</c> or <c>ApplicableUpto</c>, so a rehydration that dropped one would turn a silent balance
+    /// move into a loud failure — which is exactly why that refusal exists. Carrying them onto the live properties
+    /// (rather than freezing them and rebuilding from the frozen copy) keeps the OTHER half honest too: an operator
+    /// who really does press Ctrl+L gets the engine's refusal naming the verb they should have used, instead of
+    /// having their keystroke silently ignored.</para>
+    /// </summary>
+    private string? RehydrateFrom(Voucher voucher)
+    {
+        // 🔴 S5e — WHICH GRID re-keys this voucher is decided ONCE, here, off the POSTED voucher, and every
+        // branch below reads this local rather than the screen's live Mode: Mode is what a stray Ctrl+H has
+        // already moved by the time an operator can press anything, which is exactly the class of hole
+        // AcceptAlterationCore's Single-Entry gate was added for.
+        _alteringPostedAsItemInvoice = voucher.HasInventoryLines;
+
+        // 🔴 S5c — INVERT the engine's own legs FIRST, so the grid holds what the operator KEYED. On a
+        // TDS-carved voucher the posted party leg is the DERIVED net and a separate TDS-Payable leg sits beside it;
+        // filling the grid from the posted lines would show the operator a net they never typed and, on accept,
+        // re-carve THAT net — drifting the party credit by exactly the withholding. The refusal returned here is
+        // the same one VoucherAlterationEligibility.DerivedLegRefusal already made, so this cannot open a shape the
+        // predicate refuses; it is repeated because the two must never diverge and there is only one implementation.
+        //
+        // 🔴 AND IT IS SKIPPED ON AN ITEM INVOICE, for the reason VoucherAlterationEligibility.DerivedLegRefusal
+        // states in full: Invert refuses any GST stamp that is not half of a reverse-charge pair, which is correct
+        // for the Dr/Cr grid (nothing on that screen writes one) and WRONG for the item grid, whose own
+        // ComputeItemInvoiceGst stamped it and re-derives it on accept. Running it here would refuse every
+        // GST-bearing purchase invoice for a reason that does not apply to the screen re-keying it. The two must
+        // not diverge, so BOTH the predicate and this method route on the same one property.
+        VoucherAlterationDerivedLegs.Inversion? inverted = null;
+        if (!_alteringPostedAsItemInvoice
+            && VoucherAlterationDerivedLegs.Invert(_company, voucher, out inverted) is { } inversionRefusal)
+            return inversionRefusal;
+
+        _alteringVoucherId = voucher.Id;
+        _rehydrating = true;
+        try
+        {
+            SeedAlterationMode(voucher);
+
+            // The voucher's OWN number, not the NextNumber preview the constructor computed — this screen is not
+            // adding to the sequence. Replace accepts a replacement carrying the voucher's own number by name.
+            VoucherNumber = voucher.Number;
+            Date = voucher.Date;
+            Narration = voucher.Narration ?? string.Empty;
+
+            // 🔴 the provisional-state vector — see this method's summary.
+            IsOptional = voucher.Optional;
+            IsPostDated = voucher.PostDated;
+            if (voucher.ApplicableUpto is { } upto) ApplicableUptoText = ApexDate.Format(upto);
+
+            // The counterparty capture is only keyed on a Purchase/Sales; on every other type AcceptAlteration
+            // carries the posted values straight through instead (TryResolveReferenceCapture hands back null/null
+            // off those two natures, which would DROP a reference an import had put there).
+            if (ShowReferenceCapture)
+            {
+                ReferenceNo = voucher.ReferenceNo ?? string.Empty;
+                ReferenceDateText = voucher.ReferenceDate is { } refDate ? ApexDate.Format(refDate) : string.Empty;
+            }
+
+            if (_alteringPostedAsItemInvoice)
+            {
+                if (RehydrateItemInvoiceFrom(voucher) is { } itemRefusal)
+                    return "This voucher cannot be re-opened for alteration: " + itemRefusal;
+            }
+            else
+            {
+                Lines.Clear();
+                foreach (var posted in inverted!.KeyedLines)
+                {
+                    var line = AddLine(posted.Side);
+                    if (line.RehydrateFrom(posted) is { } refusal)
+                        return "This voucher cannot be re-opened for alteration: " + refusal;
+                }
+
+                // 🔴 The withholding panel opens on the section that was POSTED, not on the expense ledger's
+                // default. Without this the panel would default through DefaultNatureFor(expense) — and if that
+                // master default has moved since posting, the operator would be shown a section the voucher never
+                // carried and AcceptAlteration's pin check would refuse an alteration nobody had changed.
+                if (inverted!.Tds is { } tdsPin && _company.FindNatureOfPayment(tdsPin.NatureId) is { } postedNature)
+                    SelectedTdsNature = postedNature;
+            }
+        }
+        finally
+        {
+            _rehydrating = false;
+        }
+
+        Recalculate();
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Seeds the entry mode from the VOUCHER, never from the voucher type's opening default</b> (design
+    /// §6.6a.6 answer 2). <c>HasInventoryLines</c> and <c>IsAccountingInvoice</c> are both PERSISTED, and
+    /// <c>Replace</c> refuses a change to the latter by name — so a Sales type whose opening default is an item
+    /// invoice would otherwise re-open a plain Dr/Cr Sales in the wrong grid and post a different voucher.
+    ///
+    /// <para><b>Single Entry is seeded only when the posted shape actually IS one, and that condition is not
+    /// cosmetic.</b> Single Entry is not persisted — it is a re-render of the same lines — so it can only be
+    /// inferred. <c>SyncSingleEntrySides</c> stamps line 0 to the account side, every other line to the opposite,
+    /// and rewrites line 0's amount to Σ of the rest. On a voucher that genuinely was keyed in Single Entry those
+    /// are all no-ops by construction; on a Payment keyed in the double-entry grid with two bank credits, they
+    /// would silently FLIP a side and REWRITE an amount. So the shape is tested, and a voucher that does not match
+    /// it re-opens in the plain Dr/Cr grid — which posts through the identical path.</para>
+    /// </summary>
+    private void SeedAlterationMode(Voucher voucher)
+    {
+        // 🔴 S5e — THE ITEM-INVOICE BRANCH IS NOW LIVE. It shipped stubbed and documented as unreachable
+        // (finding L2-10) because EntryModeRefusal refused the whole family at the door; that refusal is now
+        // narrowed to SALES, so a PURCHASE item invoice reaches this line and it is the landing site the stub was
+        // kept for. Deleting it no longer reddens nothing: the screen would open a stock-bearing purchase on the
+        // plain Dr/Cr grid, show the derived legs as editable rows, and AcceptAlterationCore's mode gate would then
+        // refuse an alteration the operator could not fix.
+        if (voucher.HasInventoryLines) { Mode = VoucherEntryMode.ItemInvoice; return; }
+
+        // The service-invoice branch IS still unreachable, and that is stated rather than implied: EntryModeRefusal
+        // refuses IsAccountingInvoice on both natures, so ForAlter never reaches this method with that shape and
+        // deleting the line below reddens nothing. It is kept for the same reason the item branch was — the branch
+        // that must exist on the day the family is served is cheaper to keep than to remember.
+        if (voucher.IsAccountingInvoice) { Mode = VoucherEntryMode.AccountingInvoice; return; }
+
+        _alteringPostedAsSingleEntry = IsPostedAsSingleEntry(voucher);
+        Mode = _alteringPostedAsSingleEntry ? VoucherEntryMode.SingleEntry : VoucherEntryMode.AsVoucher;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="voucher"/>'s posted lines are exactly the shape Single Entry produces — one
+    /// account-side line FIRST, every other line on the opposite side. A balanced voucher of that shape has line
+    /// 0's amount equal to Σ of the rest, so <c>SyncSingleEntrySides</c>'s stamp is provably a no-op on it.
+    ///
+    /// <para><b>One clause, deliberately, and here is why the obvious second one is not here.</b> The natural
+    /// spelling adds <c>voucher.Lines[0].Side == SingleEntryAccountSide</c> — but for a POSTED voucher that is
+    /// IMPLIED: the voucher is balanced, so if every line from index 1 onward sits on the particulars side, line 0
+    /// must sit on the account side or Σ Dr ≠ Σ Cr. A mutation run confirmed it: deleting that clause reddened
+    /// nothing, because no reachable voucher can fail it while passing the clause below. A guard no test can fail
+    /// is dead code wearing the costume of safety, so it is stated in prose instead.</para>
+    /// </summary>
+    private bool IsPostedAsSingleEntry(Voucher voucher) =>
+        CanBeSingleEntry
+        && voucher.Lines.Skip(1).All(l => l.Side == SingleEntryParticularsSide);
+
+    /// <summary>
+    /// 🔴 <b>Accepts an ALTERATION — the same keying as <see cref="Accept"/>, with no registration side effect, and
+    /// ending in <c>LedgerService.Replace</c>.</b> Returns <c>false</c> with <see cref="Message"/> set on any
+    /// refusal.
+    ///
+    /// <para><b>Why it ends in <c>Replace</c> and never in <c>Post</c> (design §3.4, binding).</b>
+    /// <c>BankAllocation.BankDate</c> is written onto a POSTED voucher by a later human action
+    /// (<c>BankReconciliation.SetBankDate</c>) and exists NOWHERE on this screen, so
+    /// <see cref="VoucherLineViewModel.ToBankAllocation"/> never writes one. A <c>Post</c> would therefore destroy
+    /// every bank reconciliation date on the voucher, silently, with no test failing.
+    /// <c>Replace.CarryBankDatesForward</c> is what compensates — including its ECHO rule, which exists precisely
+    /// because this caller hands back the posted date it read.</para>
+    ///
+    /// <para><b>Why it re-runs eligibility.</b> The screen may have been open while a master moved. Eligibility is
+    /// cheap and the alternative is a refusal from the engine phrased in terms the operator never saw.</para>
+    ///
+    /// <para><b>Line tax is not echoed, and cannot be.</b> Finding L3-07 binds this caller to RE-DERIVE line tax
+    /// rather than carry a stale stamp, because GSTR-1 and GSTR-3B read the STAMPED taxable value, not the posted
+    /// amounts — so an echo makes a return declare a figure the book does not hold. <see cref="BuildPlainEntryLines()"/>
+    /// is constructed WITHOUT any <c>gst</c>/<c>tds</c>/<c>tcs</c> argument, so there is no code path here that could
+    /// carry one forward; every derived leg on the replacement is built fresh by
+    /// <see cref="ReDeriveEngineLegs"/> through the same engine that posted it.</para>
+    ///
+    /// <para>🔴 <b>S5c — and the DETECTION problem S5b left behind.</b> This method still runs NO detection of
+    /// its own: the POSTED voucher decides WHETHER a leg is derived, the amended content decides HOW MUCH, and any
+    /// disagreement is refused by name. That is why a narration-only alteration cannot ACQUIRE a withholding
+    /// because a party master gained a <c>DeducteeType</c> after posting, and cannot LOSE one because a master
+    /// lost it. See <see cref="VoucherAlterationDerivedLegs"/> for the rule in full.</para>
+    /// </summary>
+    public bool AcceptAlteration()
+    {
+        Message = null;
+
+        // 🔴 THE SAME WHOLE-WINDOW ROLLBACK Accept HAS (see the `undo` stack there), and for the same measured
+        // reason. ApplyReStamp calls the IMPURE RcmService.BuildReverseCharge — which calls
+        // GstService.EnsureRcmOutputLedger — BEFORE the shape-drift check can refuse, so a REFUSED alteration was
+        // leaving new tax ledgers on the company: measured, "RCM Output CGST" and "RCM Output SGST" added by a
+        // refusal, the in-memory canonical export no longer identical, and then PERSISTED by the next unrelated
+        // save. It reproduced on two unrelated fixtures — a supplier state moved after posting, and an
+        // import-of-services voucher with NO master drift at all — so it is generic to any refusal whose
+        // re-resolution reaches a tax head the book does not yet have.
+        //
+        // A LEDGER SNAPSHOT rather than a per-engine undo, on purpose: it catches every ledger any engine on this
+        // path creates, including the ones a future family will add, without each engine having to report what it
+        // made. And a WHOLE-WINDOW guard rather than a patch at each refusal exit, because this method has nine of
+        // them and PostAndSave's own history is that a per-exit rollback leaks from the exits nobody thought of.
+        var ledgersBefore = _company.Ledgers.Select(l => l.Id).ToHashSet();
+        var committed = false;
+        try
+        {
+            committed = AcceptAlterationCore();
+            return committed;
+        }
+        finally
+        {
+            if (!committed) UnwindLedgersCreatedSince(ledgersBefore);
+        }
+    }
+
+    /// <summary>
+    /// The body of <see cref="AcceptAlteration"/>, run inside that method's rollback window. Returns false ⇒ refused
+    /// with <see cref="Message"/> set, and every ledger the engines created on the way is unwound by the caller.
+    /// </summary>
+    private bool AcceptAlterationCore()
+    {
+        if (!IsAltering)
+        {
+            Message = "This screen is entering a new voucher, not altering a posted one — use Accept.";
+            return false;
+        }
+
+        if (_company.FindVoucher(_alteringVoucherId) is not { } existing)
+        {
+            Message = "The voucher being altered is no longer in this company's books — it may have been deleted "
+                    + "meanwhile. Nothing was changed.";
+            return false;
+        }
+
+        // 🔴 S5e — AN ITEM INVOICE IS ACCEPTED BY ITS OWN VERB, and which verb runs is decided by the POSTED
+        // voucher, never by the live Mode. Both halves matter: a voucher posted as an item invoice must not be
+        // accepted from the plain grid (its inventory lines and derived legs are not in Lines at all, so the
+        // replacement would carry NO stock and a hand-keyed pair of rows), and a voucher posted on the plain grid
+        // must not be accepted from the item grid (which would invent inventory lines the voucher never had).
+        if (_alteringPostedAsItemInvoice)
+        {
+            if (!IsItemInvoice)
+            {
+                Message = "This voucher was entered as an ITEM INVOICE — its stock lines and its derived Dr/Cr "
+                        + "legs live on the item grid, not on the plain Dr/Cr grid you are looking at. Press "
+                        + "Ctrl+H to switch back to it before accepting, or the replacement would carry no stock "
+                        + "at all.";
+                return false;
+            }
+            return AcceptItemInvoiceAlteration(existing);
+        }
+
+        // 🔴 Ctrl+H is still live on an altering screen, and it must not become a back door into a family S5b
+        // refuses. Both invoice modes key their voucher from a DIFFERENT collection — InventoryLines and
+        // AccountingInvoiceLines — which this method does not read at all, so accepting in one of them would post
+        // the old plain-grid lines while the operator was looking at (and had possibly keyed) an invoice grid.
+        // The ITEM arm above is the one family that now has an inverse; the service invoice, and any plain-grid
+        // voucher flipped into an invoice mode by a stray Ctrl+H, are still refused here.
+        if (!IsAsVoucherMode)
+        {
+            Message = "This voucher is being altered on the plain Dr/Cr grid. Switch back to it before accepting — "
+                    + "it was not entered as an invoice, and the invoice grids are not what this alteration would "
+                    + "post.";
+            return false;
+        }
+
+        // 🔴 AND CTRL+H'S OTHER HALF — the one the gate above does NOT close (finding L1-02, a measured BLOCKER).
+        // Single Entry sits INSIDE IsAsVoucherMode by design (it is a re-render of the same lines, which is what
+        // keeps Accept routing to the plain path), so one ChangeMode() on an altering Payment/Receipt/Contra walked
+        // straight past the check above. Entering the mode runs SyncSingleEntrySides, which stamps line 0 to the
+        // account side, EVERY other line to the opposite side, and rewrites line 0's amount to Σ of the rest — on a
+        // voucher keyed in the Dr/Cr grid with two bank credits that silently FLIPS every side and REWRITES an
+        // amount. The replacement still balances, so Replace accepted it and the alteration reported success while
+        // an expense became an income and cash went UP on a payment.
+        //
+        // 🔴 THIS IS THE SECOND OF TWO HALVES, and on its own it is NOT enough — measured. OnModeChanged's own
+        // comment records that "leaving it simply stops re-stamping, so the lines survive the flip intact", so a
+        // gate that only fires while IsSingleEntry is true is walked past by pressing Ctrl+H TWICE: the sides are
+        // flipped on the way in and stay flipped on the way out. The stamp is therefore blocked at its source (see
+        // SyncSingleEntrySides), and this gate exists because accepting from a view that does not describe the
+        // voucher is wrong even when it is no longer destructive.
+        //
+        // The shape is re-derived from the POSTED voucher, not read off screen state, by the same predicate
+        // SeedAlterationMode used: on a voucher genuinely keyed in Single Entry the stamp is a no-op by
+        // construction, so that shape is still free to accept.
+        if (IsSingleEntry && !IsPostedAsSingleEntry(existing))
+        {
+            Message = "This voucher was keyed in the Dr/Cr grid, not in Single Entry. Accepting it here would "
+                    + "re-stamp every line's side and rewrite the first line's amount, so switch back to the "
+                    + "Dr/Cr grid before accepting.";
+            return false;
+        }
+
+        if (VoucherAlterationEligibility.RefusalFor(_company, _alteringVoucherId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
+
+        if (PlainGridRefusal() is { } gridRefusal)
+        {
+            Message = gridRefusal;
+            return false;
+        }
+
+        // 🔴 The engine's own legs, re-derived. Invert reads the POSTED voucher again (not screen state) so the
+        // pin is a fact about the book rather than about anything the operator may have moved since it opened.
+        if (VoucherAlterationDerivedLegs.Invert(_company, existing, out var inverted) is { } inversionRefusal)
+        {
+            Message = inversionRefusal;
+            return false;
+        }
+
+        var entryLines = BuildPlainEntryLines(out var sources);
+        if (ReDeriveEngineLegs(existing, inverted!, sources, entryLines) is { } deriveRefusal)
+        {
+            Message = deriveRefusal;
+            return false;
+        }
+
+        if (entryLines.Count < 2)
+        {
+            Message = "A voucher needs at least two lines.";
+            return false;
+        }
+
+        DateOnly? applicableUpto = null;
+        if (IsReversing)
+        {
+            if (!ApexDate.TryParse(ApplicableUptoText, Date, out var upto))
+            {
+                Message = ApexDate.ErrorFor(ApplicableUptoText);
+                return false;
+            }
+            if (upto < Date)
+            {
+                Message = "Applicable Upto must be on or after the voucher date.";
+                return false;
+            }
+            applicableUpto = upto;
+        }
+
+        // Off a Purchase/Sales the screen never captures a reference, so the POSTED values are carried rather than
+        // re-read as null — otherwise an imported Journal's reference would be dropped by the alteration.
+        var referenceNo = existing.ReferenceNo;
+        var referenceDate = existing.ReferenceDate;
+        if (ShowReferenceCapture && !TryResolveReferenceCapture(out referenceNo, out referenceDate)) return false;
+
+        var replacement = new Voucher(
+            existing.Id,                 // clause 2 — the Guid is every outside link's only handle
+            existing.TypeId,             // the preserved number belongs to THIS type's sequence
+            Date,
+            entryLines,
+            number: existing.Number,     // clause 3 — Replace accepts the voucher's own number by name
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: existing.PartyId,   // never keyed on the plain grid; dropping it would move the party analysis
+            cancelled: existing.Cancelled,          // Cancel's verb, not Alter's — Replace refuses a change
+            optional: IsOptional,                   // 🔴 the provisional-state vector, carried from the header
+            postDated: IsPostDated,                 //    properties RehydrateFrom seeded from the posted voucher
+            applicableUpto: applicableUpto,         //    (§12.8 — Replace refuses a change to any of the three)
+            referenceNo: referenceNo,
+            referenceDate: referenceDate,
+            isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
+
+        return CommitAlteration(
+            existing, replacement,
+            $"Voucher is out of balance (Dr {TotalDebitText} ≠ Cr {TotalCreditText}). Not altered.");
+    }
+
+    /// <summary>
+    /// The shared tail of every alteration verb: <c>Replace</c>, then save, then report. Extracted so the plain-grid
+    /// path and the item-invoice path cannot drift on the two things that are easy to get wrong here — that the
+    /// engine's warnings reach the operator, and that a FAILED SAVE rolls the in-memory swap back.
+    ///
+    /// <para>🔴 <b>A FAILED SAVE ROLLS THE SWAP BACK</b>, exactly as the Alt+X arm rolls its flag back. The engine
+    /// mutates the in-memory aggregate and the save happens after it, so without this the books would hold the
+    /// amended voucher, the .db the original, and every later save would carry the divergence. Restoring is a
+    /// rollback of a transaction that did not commit — the second <c>Replace</c> is safe because
+    /// <c>CarryBankDatesForward</c> only ever WRITES to the replacement it is handed and never to the outgoing
+    /// voucher, so <paramref name="existing"/> still holds the reconcile ticks it was posted with.</para>
+    /// </summary>
+    private bool CommitAlteration(Voucher existing, Voucher replacement, string unbalancedMessage)
+    {
+        IReadOnlyList<VoucherAlterationWarning> warnings;
+        try
+        {
+            _service.Replace(existing.Id, replacement, out warnings);
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = unbalancedMessage;
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
+        {
+            Message = $"Cannot alter: {ex.Message}";
+            return false;
+        }
+
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            try
+            {
+                _service.Replace(existing.Id, existing, out _);
+
+                // 🔴 v52 — DISCARD BOTH EDIT-LOG ENTRIES, NEWEST FIRST. The failed alteration appended one and the
+                // rollback Replace immediately above appended a second; neither describes anything that reached
+                // disk, and leaving them would make the next successful save on any screen persist a pair of
+                // fictitious alterations. `DiscardUncommittedEditLogEntry` refuses anything but the most recent
+                // entry, so this LIFO order is the only order it accepts — which is exactly the bound that stops
+                // it being an audit-erasure API.
+                for (var i = 0; i < 2; i++)
+                    if (_company.LastVoucherEditLogEntry is { } appended)
+                        _service.DiscardUncommittedEditLogEntry(appended);
+
+                Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
+                        + "changed.";
+            }
+            catch (Exception rollbackFailure)
+            {
+                Message = $"Could not save the company: {ex.Message} Putting the original voucher back ALSO "
+                        + $"failed ({rollbackFailure.Message}), so this company is now ahead of its file — close "
+                        + "it without saving.";
+            }
+            return false;
+        }
+
+        SavedNumber = replacement.Number;
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered."
+                + WarningNote(warnings);
+        _onSaved();
+        return true;
+    }
+
+    // =============================================================== Phase 10.11 S5e — the ITEM INVOICE inverse
+
+    /// <summary>
+    /// 🔴 <b>Re-keys the ITEM-INVOICE screen from a posted voucher — the inverse of
+    /// <see cref="BuildItemInvoice"/>.</b> Returns <c>null</c> on success, or a named refusal.
+    ///
+    /// <para><b>Every posted leg is CLASSIFIED, and an unclassified one is refused.</b> The build writes exactly
+    /// four kinds of accounting leg — the value (stock) leg, the derived party leg, the additional-cost debits and
+    /// the engine's tax lines — so the inverse partitions the posted lines into those four and refuses anything
+    /// left over BY NAME. A partition that silently ignored a leg it did not recognise would drop it from the
+    /// replacement, which is the one outcome that must not be available: the voucher would still balance (the
+    /// party leg is derived from the item rows, so it re-foots without it) and nothing downstream would notice.</para>
+    ///
+    /// <para>🔴 <b>The tax legs are deliberately NOT re-keyed — they are re-derived at accept.</b> Design finding
+    /// L3-07 binds every alteration caller to RE-DERIVE a stamped GST figure rather than echo it, because GSTR-1
+    /// and GSTR-3B read the STAMPED taxable value and not the posted amounts. <see cref="BuildItemInvoice"/> runs
+    /// <c>ComputeItemInvoiceGst</c> from the amended item rows, and
+    /// <see cref="AcceptItemInvoiceAlteration"/> pins the resulting SHAPE against the posted one, so a moved rate
+    /// master is refused by name instead of silently restating a filed figure.</para>
+    ///
+    /// <para>🔴 <b>The additional-cost legs are recoverable BY PREDICATE, and that is what makes this a true
+    /// inverse rather than a guess.</b> <c>AdditionalCostApportionment.ForPurchase</c> classifies them with no
+    /// stored marker at all — a Purchase type with <c>TrackAdditionalCosts</c> on, a <c>Dr</c> line, and a ledger
+    /// whose <c>MethodOfAppropriation</c> is non-null — and the valuation engine re-runs that predicate on every
+    /// read. Rehydrating into <see cref="AdditionalCosts"/> rows over the same ledger set therefore reproduces the
+    /// engine's own classification by construction; a ledger that has since LOST its method is refused, because
+    /// re-accepting it would move the item landed rates without touching a figure on screen.</para>
+    /// </summary>
+    private string? RehydrateItemInvoiceFrom(Voucher voucher)
+    {
+        if (voucher.PartyId is not { } partyId)
+            return "it was posted as an item invoice with no party ledger recorded on it. The party leg is DERIVED "
+                 + "from that field, so the screen has nothing to derive it from.";
+
+        if (Parties.FirstOrDefault(o => o.Ledger?.Id == partyId) is not { } partyOption)
+            return "the party it was raised on is no longer in this company, so the derived party leg cannot be "
+                 + "rebuilt.";
+        SelectedParty = partyOption;
+
+        var valueSide = IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit;
+        var partySide = IsPurchaseInvoice ? DrCr.Credit : DrCr.Debit;
+
+        var partyLegs = voucher.Lines.Where(l => l.LedgerId == partyId && l.Side == partySide).ToList();
+        if (partyLegs.Count != 1)
+            return partyLegs.Count == 0
+                ? $"its party ('{partyOption.Ledger!.Name}') carries no {partySide} leg on the posted voucher, so "
+                + "the derived party total cannot be identified."
+                : $"its party ('{partyOption.Ledger!.Name}') is on {partyLegs.Count} separate legs. An item "
+                + "invoice derives exactly one party leg, so this shape can only have arrived from an import.";
+        var partyLeg = partyLegs[0];
+
+        var valueLegs = voucher.Lines
+            .Where(l => !ReferenceEquals(l, partyLeg) && l.Side == valueSide && !l.HasGst
+                        && StockLedgers.Any(sl => sl.Id == l.LedgerId))
+            .ToList();
+        if (valueLegs.Count != 1)
+            return valueLegs.Count == 0
+                ? $"no {StockLedgerCaption} leg on it points at a ledger this screen offers for the value leg, so "
+                + "the item total has nothing to post against."
+                : $"it carries {valueLegs.Count} separate {StockLedgerCaption} legs. An item invoice derives "
+                + "exactly one, so this shape can only have arrived from an import.";
+        var valueLeg = valueLegs[0];
+        SelectedStockLedger = StockLedgers.First(sl => sl.Id == valueLeg.LedgerId);
+
+        var costLegs = new List<EntryLine>();
+        foreach (var line in voucher.Lines)
+        {
+            if (ReferenceEquals(line, partyLeg) || ReferenceEquals(line, valueLeg)) continue;
+            if (line.HasGst) continue;                       // re-derived at accept — see this method's summary
+            if (line.Side != valueSide)
+                return $"it carries a leg on '{_company.FindLedger(line.LedgerId)?.Name ?? "an unknown ledger"}' "
+                     + "that is none of the four an item invoice builds (the value leg, the party leg, an "
+                     + "additional cost or an engine tax line), so the screen cannot re-key it and re-accepting "
+                     + "would drop it.";
+            costLegs.Add(line);
+        }
+
+        if (RehydrateAdditionalCosts(costLegs) is { } costRefusal) return costRefusal;
+
+        // 🔴 THE CHILD COLLECTIONS ARE CAPTURED HERE, WHERE THE PARTITION ALREADY KNOWS WHICH LEG IS WHICH.
+        // Classifying a leg is not the same as reading it: the partition above resolves each posted line to a ROLE
+        // and then reads only LedgerId and Amount out of it, so every optional collection hanging off it was left
+        // behind and BuildItemInvoice rebuilt the leg bare. See CaptureDerivedLegChildren for what is carried and
+        // what is (still) not.
+        CaptureDerivedLegChildren(partyLeg, valueLeg, costLegs);
+
+        InventoryLines.Clear();
+        foreach (var posted in voucher.InventoryLines)
+        {
+            var row = AddInventoryLine();
+            if (row.RehydrateFrom(posted) is { } lineRefusal) return lineRefusal;
+        }
+        AddInventoryLine();   // one blank trailing row, so the grid is ready to type into (as a fresh entry is)
+
+        return RehydrateInvoiceBillWise(partyLeg, partyOption.Ledger!);
+    }
+
+    // ------------------------------------------- the OPTIONAL PAYLOAD on the three DERIVED legs (review item 3)
+
+    /// <summary>
+    /// 🔴 <b>What one POSTED derived leg carried besides its ledger and its amount</b>, captured at rehydration so
+    /// <see cref="BuildItemInvoice"/> can put it back instead of rebuilding the leg bare.
+    ///
+    /// <para><b>Why the AMOUNT is part of the record.</b> A cost allocation must foot its own leg exactly, per
+    /// category (<c>VoucherValidator.EnsureCostAllocationsValid</c>), and a forex pair must reproduce the leg's
+    /// base to the paisa (<c>EnsureForexValid</c>). So a carried child is sound only while the figure it was
+    /// stamped against has not moved — carrying it blindly onto an amended leg would either be refused by the
+    /// engine in words the operator never saw, or (for a split that happens still to foot) restate an attribution
+    /// nobody re-cut. The amount is what makes "carry" and "refuse by name" separable.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS CARRIED, AND WHAT IS STILL NOT.</b> <c>EntryLine</c>'s optional payload is
+    /// <c>BillAllocations · CostAllocations · BankAllocation · Forex · Gst · Tds · Tcs · Payroll</c>.
+    /// The bill-wise split is RE-KEYED (the screen has a panel for it — <see cref="RehydrateInvoiceBillWise"/>);
+    /// <c>Gst</c> is deliberately RE-DERIVED and its shape pinned; a <c>Tds</c>, a non-below-threshold <c>Tcs</c>
+    /// or a <c>Payroll</c> detail on any leg is refused at the door by
+    /// <see cref="RehydrateItemInvoiceFrom"/>'s own arms or by the derived-leg refusals beside them.
+    /// <c>CostAllocations</c> and <c>Forex</c> are what this record carries. <c>BankAllocation</c> is NOT carried:
+    /// it cannot exist on the value leg (that ledger is restricted to Purchase/Sales Accounts and Stock-in-Hand,
+    /// and <c>EnsureBankAllocationValid</c> demands a bank ledger), and on the party leg it is an unexamined
+    /// limb — if one is ever proved reachable it belongs here, beside these two, not in a fourth mechanism.</para>
+    /// </summary>
+    private sealed record CarriedLegChildren(
+        Guid LedgerId, Money Amount, IReadOnlyList<CostAllocation> CostAllocations, ForexInfo? Forex)
+    {
+        /// <summary>Nothing to carry — the ordinary invoice, which therefore posts byte-identically (ER-13).</summary>
+        public bool IsEmpty => CostAllocations.Count == 0 && Forex is null;
+    }
+
+    private CarriedLegChildren? _carriedValueLegChildren;
+    private CarriedLegChildren? _carriedPartyLegChildren;
+    private List<CarriedLegChildren>? _carriedCostLegChildren;
+
+    /// <summary>
+    /// Takes the child collections off the three kinds of posted derived leg the partition has just classified.
+    /// Called ONLY from <see cref="RehydrateItemInvoiceFrom"/>, so every field stays null on a fresh entry and
+    /// <see cref="BuildItemInvoice"/>'s Post caller is untouched.
+    /// </summary>
+    private void CaptureDerivedLegChildren(EntryLine partyLeg, EntryLine valueLeg, List<EntryLine> costLegs)
+    {
+        _carriedPartyLegChildren = Capture(partyLeg);
+        _carriedValueLegChildren = Capture(valueLeg);
+        _carriedCostLegChildren = costLegs.Select(Capture).ToList();
+
+        // Copied, not aliased: the posted lines are replaced wholesale by the build, and a captured reference to
+        // a collection on a discarded object is the kind of thing that survives a review and not a refactor.
+        static CarriedLegChildren Capture(EntryLine leg) =>
+            new(leg.LedgerId, leg.Amount, leg.CostAllocations.ToList(), leg.Forex);
+    }
+
+    /// <summary>
+    /// Hands back the children <paramref name="carried"/> holds so the rebuilt leg can be stamped with them — or
+    /// sets <see cref="Message"/> and returns <c>false</c> when the leg has moved out from under them.
+    ///
+    /// <para>The rule is one line: <b>carry while the leg is the same ledger at the same amount; otherwise refuse
+    /// BY NAME.</b> An ordinary amendment is still free to move a figure — that is what amending is — but on an
+    /// invoice whose derived legs carry an attribution this screen cannot re-cut, moving it is refused rather than
+    /// silently dropped, which is the whole finding. Both directions are covered: a fresh entry (nothing captured)
+    /// and a leg that carried nothing both fall straight through, so an ordinary invoice is unchanged.</para>
+    /// </summary>
+    private bool TryCarryDerivedLegChildren(
+        CarriedLegChildren? carried, string legCaption, Guid rebuiltLedgerId, Money rebuiltAmount,
+        out IReadOnlyList<CostAllocation>? costAllocations, out ForexInfo? forex)
+    {
+        costAllocations = null;
+        forex = null;
+        if (carried is null || carried.IsEmpty) return true;
+
+        var postedName = _company.FindLedger(carried.LedgerId)?.Name ?? "a ledger no longer in this company";
+
+        if (carried.LedgerId != rebuiltLedgerId)
+        {
+            var rebuiltName = _company.FindLedger(rebuiltLedgerId)?.Name ?? "another ledger";
+            Message = $"The {legCaption} was posted on '{postedName}' carrying {CarriedChildrenCaption(carried)}, "
+                    + $"and this alteration re-points it to '{rebuiltName}'. Those belong to the ledger they were "
+                    + "posted against, and this screen has no panel to re-key them on, so accepting would "
+                    + "silently drop them. Put the posted ledger back, or cancel this invoice and raise a fresh "
+                    + "one.";
+            return false;
+        }
+
+        if (carried.Amount != rebuiltAmount)
+        {
+            Message = $"The {legCaption} on '{postedName}' carries {CarriedChildrenCaption(carried)} stated "
+                    + $"against {carried.Amount}, and this alteration moves that leg to {rebuiltAmount}. A cost "
+                    + "allocation must foot its own leg and a forex amount must reproduce it to the paisa, and "
+                    + "this screen has no panel to re-cut either on, so accepting would silently drop them. "
+                    + "Restore the posted total, or cancel this invoice and raise a fresh one.";
+            return false;
+        }
+
+        costAllocations = carried.CostAllocations.Count > 0 ? carried.CostAllocations : null;
+        forex = carried.Forex;
+        return true;
+    }
+
+    /// <summary>Names what a leg carries, in the operator's terms, for the two refusals above.</summary>
+    private static string CarriedChildrenCaption(CarriedLegChildren carried) =>
+        carried switch
+        {
+            { CostAllocations.Count: 0 } => "a foreign-currency amount and rate",
+            { Forex: null } => $"{carried.CostAllocations.Count} cost-centre allocation(s)",
+            _ => $"{carried.CostAllocations.Count} cost-centre allocation(s) and a foreign-currency amount and rate",
+        };
+
+    /// <summary>
+    /// Re-keys the additional-cost rows from the posted debits that are neither the value leg, the party leg nor an
+    /// engine tax line. Both directions of the tracking drift are refused: legs with the panel switched off would
+    /// vanish, and no legs with the panel on is legitimate (the panel is optional, exactly as the plain grid's cost
+    /// panel is, so only the OFF direction destroys posted data).
+    /// </summary>
+    private string? RehydrateAdditionalCosts(List<EntryLine> costLegs)
+    {
+        if (costLegs.Count == 0) return null;
+
+        if (!ShowAdditionalCosts)
+            return $"it carries {costLegs.Count} additional-cost leg(s), and 'Track Additional Costs' is no longer "
+                 + "on for this voucher type — the panel would not open, so re-accepting would drop them from the "
+                 + "supplier's total and from the item landed rates.";
+
+        AdditionalCosts.Clear();
+        foreach (var leg in costLegs)
+        {
+            if (AdditionalCostLedgers.FirstOrDefault(l => l.Id == leg.LedgerId) is not { } ledger)
+                return $"one of its additional-cost legs posts to "
+                     + $"'{_company.FindLedger(leg.LedgerId)?.Name ?? "a ledger not in this company"}', which no "
+                     + "longer carries a Method of Appropriation — the row cannot be re-keyed, and the valuation "
+                     + "engine would stop loading it onto the item rates.";
+
+            // Reuse the blank row OnAdditionalCostChanged has just appended rather than adding a second one, or
+            // the panel comes back with a blank row between every pair of real ones.
+            var row = AdditionalCosts.Count > 0 && AdditionalCosts[^1].IsBlank
+                ? AdditionalCosts[^1]
+                : AddAdditionalCostRow();
+            row.SelectedLedger = ledger;
+            row.AmountText = ExactDecimalText(leg.Amount.Amount);
+        }
+
+        if (AdditionalCosts.Count == 0 || !AdditionalCosts[^1].IsBlank) AddAdditionalCostRow();
+        return null;
+    }
+
+    /// <summary>
+    /// Re-keys the invoice Bill-wise panel from the DERIVED party leg. The gate is
+    /// <see cref="InvoiceBillWiseApplies"/> — the live <c>MaintainBillByBill</c> flag on the selected party — and
+    /// it is compared against the posted shape in BOTH directions, exactly as
+    /// <c>VoucherLineViewModel.RehydrateBillAllocations</c> does on the plain grid and for the same measured
+    /// reason: turn the flag off after posting and the panel silently stops writing, so the allocations vanish on
+    /// re-accept with no message at all.
+    /// </summary>
+    private string? RehydrateInvoiceBillWise(EntryLine partyLeg, DomainLedger party)
+    {
+        if (InvoiceBillWiseApplies != partyLeg.HasBillAllocations)
+            return partyLeg.HasBillAllocations
+                ? $"'{party.Name}' no longer maintains balances bill-by-bill, so the invoice Bill-wise panel would "
+                + $"not open and the {partyLeg.BillAllocations.Count} allocation(s) posted on the party leg would "
+                + "silently vanish on re-accept."
+                : $"'{party.Name}' now maintains balances bill-by-bill but the posted party leg carries no "
+                + "allocation, so re-accepting would link a bill reference the invoice never had.";
+
+        if (!partyLeg.HasBillAllocations) return null;
+
+        // The screen's own writer never states CreditPeriodDays (BillAllocationRowViewModel.ToAllocation passes
+        // only an explicit due date), so an allocation carrying one cannot be re-keyed — dropping it would move
+        // the bill's ageing silently.
+        if (partyLeg.BillAllocations.FirstOrDefault(a => a.CreditPeriodDays is not null) is { } withPeriod)
+            return $"a bill-wise allocation on '{party.Name}' ('{withPeriod.Name}') carries an explicit credit "
+                 + "period, which this screen states as a due date rather than a number of days — re-accepting "
+                 + "would drop it and move the bill's ageing.";
+
+        InvoiceBillAllocations.Clear();
+        foreach (var a in partyLeg.BillAllocations)
+        {
+            var row = AddInvoiceBillAllocation(a.RefType);
+            row.Name = a.Name;
+            row.DueDateText = a.DueDate is { } due ? ApexDate.Format(due) : string.Empty;
+            row.AmountText = ExactDecimalText(a.Amount.Amount);
+        }
+
+        // 🔴 DIRTINESS IS JUDGED EXACTLY AS OnInvoiceBillRowChanged JUDGES IT — one row footing to the party
+        // total is the AUTO-DERIVED shape, anything else is the operator's own split — and getting this wrong is a
+        // MEASURED defect, not a nicety. Forcing it dirty (the obvious "the posted split is the operator's,
+        // whatever produced it") froze the default single New-Ref row at the total the invoice had WHEN IT WAS
+        // POSTED, so amending any quantity, or re-deriving under a moved tax master, was then refused with
+        // "the bill-wise allocation must total X … currently allocated Y" — a refusal about a split the operator
+        // had never touched and, with the panel hidden by default, could not even see. Two of this file's own
+        // tests reddened on it.
+        //
+        // AddInvoiceBillAllocation has already set the flag on every row it added, so it is RE-DECIDED here rather
+        // than merely left alone. The comparison is against the POSTED party leg, because InvoicePartyTotal is not
+        // computed yet: RecalculateItemInvoice is suppressed while the rehydration is mid-flight.
+        //
+        // 🔴 ONLY ONE HALF OF THIS EXPRESSION IS FALSIFIABLE TODAY, and saying so beats implying otherwise.
+        // Forcing it TRUE reddens two tests (above). Forcing it FALSE reddens none - because a POSTED one-row split
+        // necessarily equals the party total (Accept refuses a split that does not foot), so the second clause can
+        // never be the one that fires; and SyncInvoiceBillWise restamps only when Count == 1, so the first clause
+        // changes nothing either. The expression is nevertheless written as the SAME rule OnInvoiceBillRowChanged
+        // applies, in the same words, because the alternative is two spellings of one concept that a later change
+        // to either restamp rule would silently pull apart.
+        _invoiceBillDirty =
+            InvoiceBillAllocations.Count != 1
+            || InvoiceBillAllocations[0].ParsedAmount != partyLeg.Amount.Amount;
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Accepts an alteration of an ITEM INVOICE.</b> The same build the fresh Accept runs
+    /// (<see cref="BuildItemInvoice"/>, so GST, TCS, the additional-cost pool, the batch split and the bill-wise
+    /// allocation are derived by ONE implementation), ending in <c>LedgerService.Replace</c> and never in
+    /// <c>Post</c> — for the reason <see cref="AcceptAlteration"/> states in full: <c>Post</c> would mint a fresh
+    /// <see cref="Guid"/> and leave the original standing, and only <c>Replace</c> carries the bank reconciliation
+    /// dates forward.
+    ///
+    /// <para><b>The provisional-state vector is CARRIED, not re-stated.</b> <c>Replace</c> refuses a change to
+    /// <c>Optional</c> / <c>PostDated</c> / <c>ApplicableUpto</c> by name, so the replacement is built from the
+    /// header properties <see cref="RehydrateFrom(Voucher)"/> seeded off the posted voucher, and from the posted
+    /// <c>ApplicableUpto</c> (which an item invoice's screen cannot express at all).</para>
+    /// </summary>
+    private bool AcceptItemInvoiceAlteration(Voucher existing)
+    {
+        // Re-run eligibility: the screen may have been open while a master moved, and a refusal phrased in the
+        // predicate's own words beats one phrased by the engine in terms the operator never saw.
+        if (VoucherAlterationEligibility.RefusalFor(_company, _alteringVoucherId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
+
+        if (BuildItemInvoice() is not { } built) return false;
+
+        // 🔴 THE COMPENSATION-CESS MAGNITUDE IS PINNED SEPARATELY, AND FIRST — because the shape signature below
+        // structurally cannot see it. A Cess leg's stamped rate is a SENTINEL 0 for a Specific (per-unit) cess, an
+        // RSP-factor cess and any mixed ad-valorem group, so a cess master moved from one per-unit figure to
+        // another leaves the signature identical while the re-derived cess, and the party's balance with it, moves
+        // by the difference. FIRST, so the operator is told it was the CESS: on this drift the tax heads and their
+        // rates are exactly what did NOT move, and the shape sentence below would say otherwise.
+        if (ReDerivedCessOnPostedRows(existing) is { } reDerivedCess
+            && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
+                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), reDerivedCess, "invoice")
+               is { } cessRefusal)
+        {
+            Message = cessRefusal;
+            return false;
+        }
+
+        // 🔴 THE SHAPE OF THE ENGINE'S TAX LEGS IS PINNED — the amounts are not. An alteration is ALLOWED to move
+        // a tax figure (that is what amending a quantity does); what it must never do is silently restate the tax
+        // because a MASTER moved under a voucher nobody touched. A rate master edited, an item repointed to another
+        // HSN, a party's state changed from intra to inter — each of those changes which heads at which rates the
+        // re-derivation produces, and each is refused here by name rather than written into a filed return.
+        var postedShape = VoucherAlterationDerivedLegs.TaxHeadSignature(existing.Lines);
+        var rebuiltShape = VoucherAlterationDerivedLegs.TaxHeadSignature(built.EntryLines);
+        if (!postedShape.SequenceEqual(rebuiltShape))
+        {
+            Message = "The GST this invoice would now be taxed under is not the shape it was posted with — the "
+                    + "tax heads or their rates have moved since (a rate master, an item's HSN, or the place of "
+                    + "supply). Alter re-computes the AMOUNT of a posted tax leg, never which legs there are, "
+                    + "because GSTR-1 and GSTR-3B read the stamped figures. Correct the master, or raise a "
+                    + "credit note and a fresh invoice.";
+            return false;
+        }
+
+        var replacement = new Voucher(
+            existing.Id,                 // clause 2 — the Guid is every outside link's only handle
+            existing.TypeId,             // the preserved number belongs to THIS type's sequence
+            Date,
+            built.EntryLines,
+            number: existing.Number,     // clause 3 — Replace accepts the voucher's own number by name
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: built.PartyId,      // KEYED on this screen (unlike the plain grid), so it is the built value
+            cancelled: existing.Cancelled,          // Cancel's verb, not Alter's — Replace refuses a change
+            optional: IsOptional,                   // 🔴 the provisional-state vector, carried from the header
+            postDated: IsPostDated,                 //    properties RehydrateFrom seeded from the posted voucher
+            applicableUpto: existing.ApplicableUpto,//    (the item screen cannot state one at all)
+            inventoryLines: built.InventoryLines,
+            // Carried, not dropped: this screen never keys a tender and an item invoice never carries one, but a
+            // metadata list silently emptied by a screen that does not know about it is the exact defect class the
+            // provisional-vector rule exists to stop. If one were ever present, EnsurePosTendersValid refuses the
+            // replacement loudly instead of the tender split vanishing.
+            posTenders: existing.PosTenders,
+            referenceNo: built.ReferenceNo,
+            referenceDate: built.ReferenceDate,
+            isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
+
+        return CommitAlteration(
+            existing, replacement,
+            "The altered item invoice is out of balance. Not altered.");
+    }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> so that parsing it back yields the SAME decimal — the lossless-render
+    /// discipline the plain grid's inverse already follows, here for the rehydrated additional-cost and bill-wise
+    /// amounts.
+    /// </summary>
+    private static string ExactDecimalText(decimal value) =>
+        value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Removes every ledger that appeared on the company since <paramref name="before"/> was taken — the
+    /// compensating undo for the impure engines <see cref="ReDeriveEngineLegs"/> runs. A refused alteration has to
+    /// leave the book exactly as it found it; a successful one keeps what it created, which is the point of
+    /// creating it.
+    /// </summary>
+    private void UnwindLedgersCreatedSince(HashSet<Guid> before)
+    {
+        foreach (var created in _company.Ledgers.Where(l => !before.Contains(l.Id)).ToList())
+            _company.RemoveLedger(created);
+    }
+
+    /// <summary>The operator-facing tail of the alteration message: the warnings <c>Replace</c> raised (a cleared
+    /// bank reconciliation, a moved date, a diverged statutory record). Empty when it raised none, so an ordinary
+    /// alteration reads exactly as a plain success.</summary>
+    private static string WarningNote(IReadOnlyList<VoucherAlterationWarning> warnings) =>
+        warnings.Count == 0 ? string.Empty : " " + string.Join(" ", warnings.Select(w => w.Message));
+
+    // =============================================================== Phase 10.11 S5c — the RE-DERIVATION
+
+    /// <summary>
+    /// 🔴 <b>Rebuilds the engine-derived legs of an alteration — the whole point of S5c.</b> Nothing is copied
+    /// forward: the withholding carve-out is re-computed from the RESTORED GROSS and the reverse-charge pair is
+    /// re-stamped from the amended taxable value, both through the same engines that posted them (ER-4).
+    ///
+    /// <para><b>The detection rule, stated where it is enforced.</b> Detection is consulted <b>only for a family the
+    /// POSTED voucher already carries</b> — <paramref name="inverted"/>'s pins are read off the book, never off
+    /// today's masters. So a voucher posted with no carve never meets a detector at all (it cannot ACQUIRE one when
+    /// a party master gains a <c>DeducteeType</c> after posting), and a voucher posted WITH one re-derives it and is
+    /// refused by name if today's masters would produce a different SHAPE (it cannot silently LOSE one). The only
+    /// thing an alteration may move is the AMOUNT.</para>
+    /// </summary>
+    private string? ReDeriveEngineLegs(
+        Voucher existing,
+        VoucherAlterationDerivedLegs.Inversion inverted,
+        List<VoucherLineViewModel> sources,
+        List<EntryLine> entryLines)
+    {
+        if (inverted.Tds is { } tdsPin && ApplyReCarve(existing, tdsPin, sources, entryLines) is { } carveRefusal)
+            return carveRefusal;
+
+        if (inverted.Rcm is { } rcmPin && ApplyReStamp(rcmPin, entryLines) is { } stampRefusal)
+            return stampRefusal;
+
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Re-carves the withholding FROM THE RESTORED GROSS.</b> The rehydration put the withheld amount back
+    /// onto the deductee's leg, so <c>DetectTdsContext</c> reads the gross the operator keyed (or the gross they
+    /// have just amended it to) — exactly the figure the original posting carved from. Re-applying the stored carve
+    /// to a new base instead would move the party credit by exactly the withholding, which is the single worst
+    /// outcome available in this phase (design §3.2).
+    ///
+    /// <para>🔴 <b>And the cumulative-FY threshold is projected at this voucher's POSTING MOMENT, through
+    /// <c>asPostedBefore</c>.</b> At posting the voucher was not in the book yet; at re-accept it is, carrying its
+    /// own <c>TdsLineTax</c> — and so is everything posted after it. Handing this voucher's id to
+    /// <c>TdsService.BuildCarveOut</c> as <c>asPostedBefore</c> makes <c>ProjectPriorCumulative</c> resolve that
+    /// marker to a <b>list index</b> and project over <c>vouchers[0..limit)</c> only, which is exactly the set that
+    /// stood in the book when this voucher was posted (<c>Company.Vouchers</c> is in posting order, and
+    /// <c>LedgerService.Replace</c> deliberately preserves it). Without it, on §194J (₹50,000 cumulative) a
+    /// ₹30,000 payment that was correctly BELOW threshold at posting reads 30,000 prior + 30,000 current =
+    /// 60,000 and ACQUIRES a withholding on a narration-only alteration.</para>
+    ///
+    /// <para>🔴 <b>Do not reintroduce the "exclude this voucher's own id" form — it shipped as a
+    /// blocker.</b> That earlier argument dropped only the named voucher and left the projection selecting by DATE,
+    /// so a sibling posted LATER but dated on or before this voucher still counted as "prior" although it was not in
+    /// the book at posting. Measured on §194J(b): two same-dated ₹30,000.30 journals, then a NARRATION-ONLY
+    /// alteration of the first moved the party credit ₹30,000.30 → ₹27,000.30 and created a
+    /// ₹3,000.00 TDS Payable leg — a statutory liability raised by editing a narration. The reachable
+    /// window was "posted later, dated on or before", i.e. every same-day batch and every back-dated correction.
+    /// Cutting the projection at the posting moment closes that window; excluding an id cannot, because what it
+    /// leaves behind is still a date test.</para>
+    /// </summary>
+    private string? ApplyReCarve(
+        Voucher existing,
+        VoucherAlterationDerivedLegs.TdsPin pin,
+        List<VoucherLineViewModel> sources,
+        List<EntryLine> entryLines)
+    {
+        if (DetectTdsContext() is not { } ctx)
+            return $"This voucher was posted with a {pin.SectionCode} TDS withholding, and the entry screen no "
+                 + "longer finds one on it — the expense ledger's 'Is TDS Applicable' flag, the party's deductee "
+                 + "status or the section may have been changed since it was posted, or TDS has been switched off. "
+                 + "Accepting would drop the withholding and credit the party the full gross, so it is refused.";
+
+        if (ctx.Deductee.Id != pin.DeducteeLedgerId)
+            return $"This voucher withheld {pin.SectionCode} TDS from a different party than the one the grid now "
+                 + $"shows as the deductee ('{ctx.Deductee.Name}'). Alter does not move a posted withholding to "
+                 + "another party.";
+
+        if (ctx.Nature.Id != pin.NatureId)
+            return $"This voucher was posted under section {pin.SectionCode} and the withholding panel now shows "
+                 + $"{ctx.Nature.SectionCode}. Alter re-computes the AMOUNT of a posted withholding, never its "
+                 + "section — a re-sectioned deduction belongs to a different challan and a different return line.";
+
+        TdsService.CarveOut carve;
+        try
+        {
+            carve = _tds.BuildCarveOut(
+                ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date,
+                asPostedBefore: existing.Id,
+                keyedPartyLine: KeyedPartyTemplate(ctx.PartyLine),
+                // 🔴 GRANDFATHERING, AND IT IS THE PIN ITSELF THAT CARRIES IT. A §194C voucher posted before the
+                // deductee-type branch existed carries 100 bp although its deductee is a company or a firm; without
+                // this argument the re-carve would resolve 200 bp, the rate pin four lines below would disagree, and
+                // EVERY already-posted non-Ind/HUF §194C voucher would become unalterable — a rate defect turned into
+                // a data-migration problem. The value is the POSTED voucher's own stamped RateBasisPoints, read back
+                // by VoucherAlterationDerivedLegs.InvertWithholding, so the rule is a fact about this voucher and
+                // never a date comparison. TdsService.GrandfatheredRate absorbs exactly one disagreement (posted on
+                // the section's Ind/HUF arm, now resolving its other-than-individual arm) and refuses the rest, so
+                // a moved rate master and a PAN added or removed since posting still reach the pin below.
+                postedRateBasisPoints: pin.RateBasisPoints,
+                // 🔴 THE SECOND GRANDFATHERING, AND IT IS NOT A RATE. §194-I's threshold is a PER-MONTH limb
+                // (first proviso: rent "for a month or part of a month" against ₹50,000, and no annual limb at
+                // all); the engine used to test an annualised ₹6,00,000 FY aggregate instead. So on §194-I the
+                // drift a re-carve can meet is not "the percentage moved" but "the threshold was crossed at all":
+                // a ₹60,000 rent bill posted under the old rule withheld NOTHING where the statute takes
+                // ₹6,000.00, and twelve ₹40,000 months withheld ₹4,000 in the eleventh where the statute takes
+                // nothing. Either way the refusal below would fire on a voucher nobody touched — a narration fix
+                // or a cost-centre correction on any §194-I voucher in any existing book would be REFUSED. The
+                // posted ASSESSABLE and the posted TDS travel together and pin the posted OUTCOME, so the
+                // re-carve reproduces the posted figure and the voucher stays alterable. Facts about this
+                // voucher, read off its own stamped TdsLineTax; never a date comparison. The pin releases the
+                // moment the operator amends the base, which is the one case where the statutory answer for the
+                // AMENDED figure is the right one — see TdsService.GrandfatheredLiability.
+                postedAssessableValue: PostedTdsDetail(existing)?.AssessableValue,
+                postedTdsAmount: PostedTdsDetail(existing)?.TdsAmount);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return $"Cannot re-compute the TDS withholding: {ex.Message}";
+        }
+
+        if (carve.Withholding.RateBasisPoints != pin.RateBasisPoints)
+            return $"This voucher withheld {pin.SectionCode} TDS at {pin.RateBasisPoints / 100m:0.##}% and the same "
+                 + $"section now resolves to {carve.Withholding.RateBasisPoints / 100m:0.##}% — the section's rate, "
+                 + "or the deductee's PAN (which decides whether the §206AA no-PAN rate applies), has changed since "
+                 + "this voucher was posted. Re-computing at the new rate would restate a deduction that has already "
+                 + "been reported, so it is refused.";
+
+        // 🔴 NOTHING THE OPERATOR TYPED MOVED, BUT THE ANSWER DID — refused, in BOTH directions.
+        //
+        // The three refusals above compare the deductee, the section and the rate. None of them compared whether
+        // the voucher WITHHELD AT ALL, and none of them compared the assessable base, so the applies/not-applies
+        // transition and every input to that base were unguarded. Measured, each on an alteration that changed
+        // nothing but the narration (or, in the third, nothing but the date) of a voucher that had withheld
+        // 3,000.00 under 194J(b):
+        //   * cancel a sibling voucher in the same FY  => party 27,000.30 / TDS Payable 3,000.00 / 3 lines became
+        //     party 30,000.30 / no payable leg / 2 lines, AcceptAlteration true, and no warning of any kind;
+        //   * delete that sibling                      => identical;
+        //   * move the voucher's own DATE into the next FY (which S5a's contract makes warn-and-proceed) =>
+        //     identical, and the success message reported the date change while saying nothing about the statutory
+        //     liability it had just removed;
+        //   * re-classify an ordinary debit ledger under Duties & Taxes, which shrinks AssessableExGst => a filed
+        //     12,000.00 deduction restated to 10,000.00 with 2,000 moved back to the party.
+        // The contract this breaks is stated in bold on VoucherAlterationDerivedLegs: a voucher posted WITH a
+        // derived leg "can never silently LOSE it ... Silence is the one outcome that is not available."
+        //
+        // The rule is deliberately stated on the OPERATOR'S input rather than on any one master: while the restored
+        // gross is unchanged the re-carve MUST reproduce the posted withholding, whatever moved underneath it. An
+        // amendment that does move the gross is a legitimate re-carve and is not touched by this.
+        if (ctx.Gross == pin.RestoredGross && carve.TdsAmount != pin.PostedTdsAmount)
+            return $"This voucher withheld {pin.PostedTdsAmount} of {pin.SectionCode} TDS. Nothing on this grid has "
+                 + $"moved the party's gross of {pin.RestoredGross}, and yet the same section now computes "
+                 + $"{carve.TdsAmount} — a voucher cancelled, deleted or re-dated since posting has changed the "
+                 + "year's aggregate for this deductee, or a master edit has moved the assessable base. "
+                 + "Re-computing would restate a deduction that has already been reported, so it is refused. Amend "
+                 + "the gross if the supply itself changed.";
+
+        // The deductee's leg becomes the DERIVED net (or the full gross carrying the assessment detail, below
+        // threshold) and the TDS-Payable leg is appended — the identical splice PostAndSave makes, over the same
+        // ordered source rows, so no index can drift out of step with the builder.
+        var index = sources.FindIndex(l => ReferenceEquals(l, ctx.PartyLine));
+        if (index < 0)
+            return "The deductee's line is no longer complete on this grid, so the withholding cannot be re-carved "
+                 + "onto it.";
+
+        entryLines[index] = carve.PartyLine;
+        if (carve.TdsPayableLine is { } payableLine) entryLines.Add(payableLine);
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Re-stamps the reverse-charge pair — RECOMPUTED, never echoed</b> (design finding L3-07). GSTR-1 and
+    /// GSTR-3B read the STAMPED <c>GstLineTax.TaxableValue</c>, not the posted amounts, so a replacement that
+    /// carried the posted pair forward would let a filed return declare a figure the book no longer holds. The pair
+    /// is therefore rebuilt from the amended expense legs through <see cref="RcmService.BuildReverseCharge"/>, the
+    /// same call <c>PostAndSave</c> makes.
+    ///
+    /// <para><b>The drift guard is a SHAPE comparison, not an amount comparison.</b> The pin holds ledger, side,
+    /// head, rate and ITC scheme; amounts and taxable values are excluded because they are exactly what an
+    /// alteration moves. So an amended expense re-stamps cleanly, while a notified rate that moved, a supplier
+    /// whose registration changed, a place of supply that flipped the intra/inter split, or an operator-only input
+    /// this screen cannot recover from the posted voucher (the supply KIND, the promoter and body-corporate
+    /// qualifiers — none of which is persisted anywhere) all change the shape and are refused by name.</para>
+    /// </summary>
+    private string? ApplyReStamp(VoucherAlterationDerivedLegs.RcmPin pin, List<EntryLine> entryLines)
+    {
+        if (IsRcmDeclined)
+            return "This voucher self-accounts reverse charge, and the reverse-charge panel is now set to 'Not "
+                 + "Applicable'. Accepting would drop the §49(4) liability and its matching input credit, so it is "
+                 + "refused — Alter re-computes a posted reverse charge, it does not withdraw one.";
+
+        if (DetectRcmShape() is not { } shape)
+            return "This voucher self-accounts reverse charge, and the entry screen no longer finds a "
+                 + "reverse-charge shape on it — the expense ledger's 'reverse charge applicable' flag or the "
+                 + "supplier's identity may have changed since it was posted. Accepting would drop the §49(4) "
+                 + "liability and its matching input credit, so it is refused.";
+
+        var rebuilt = new List<EntryLine>();
+        foreach (var leg in shape.Legs)
+        {
+            if (!ResolveRcm(shape, leg).Applies) continue;
+            try
+            {
+                rebuilt.AddRange(_rcm.BuildReverseCharge(
+                    leg.Taxable, item: null, leg.Expense, shape.Party.PartyGst, Date,
+                    SelectedRcmSupplyKind?.Kind ?? RcmService.SupplyKind.Domestic,
+                    RcmRecipientIsPromoter, RcmRecipientIsBodyCorporate).Lines);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                return $"Cannot re-compute reverse charge on '{leg.Expense.Name}': {ex.Message}";
+            }
+        }
+
+        if (!pin.Matches(rebuilt))
+            return "The reverse-charge tax this voucher self-accounted no longer re-computes to the same shape: "
+                 + "the heads, the notified rate or the input-credit scheme have moved since it was posted, or it "
+                 + "was posted under a supply routing this screen cannot read back from the voucher (the supply "
+                 + "kind, and the promoter / body-corporate qualifiers, are keyed at entry and are not stored on "
+                 + "the voucher). Restating an already-reported §49(4) liability is refused.";
+
+        entryLines.AddRange(rebuilt);
+        return null;
+    }
+
+    /// <summary>
+    /// The up-front, plain-grid refusals made before the engine is touched — <b>the single copy</b> that both
+    /// <see cref="Accept"/> and <see cref="AcceptAlteration"/> call. Returns the message, or <c>null</c> when the
+    /// grid is fit to post.
+    ///
+    /// <para>🔴 <b>It says "the single copy" because it was not one</b> (finding L3-06). This method's previous
+    /// summary said the checks had been "factored out so <c>AcceptAlteration</c> makes exactly the same ones";
+    /// <c>Accept</c> in fact still carried its own inline re-implementation of all eight, in the same order with
+    /// character-identical messages, and never called this at all. Identical-by-coincidence is exactly the state
+    /// from which two lists drift silently, so <c>Accept</c> now calls this.</para>
+    /// </summary>
+    private string? PlainGridRefusal()
+    {
+        // W0-13 S2a — an amount the INTEGER-paisa store cannot carry is refused HERE, naming the field, before any
+        // of the gates below. It has to come first: a sub-paisa line amount also reads as "half-filled" (the
+        // storability test is folded into IsComplete), and a sub-paisa ALLOCATION reads as a bad split even though
+        // the split foots exactly — so without this, the operator would be told to fix the one thing that is
+        // already right. Left unguarded the figure reached Paisa.FromMoney and came back as a raw persistence
+        // exception; see UnstorableGridAmountError.
+        if (UnstorableGridAmountError() is { } unstorable) return unstorable;
+
+        // Reject half-filled rows up front with a clear message (before touching the engine).
+        if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
+            return "Every entered line needs a ledger and a positive amount.";
+
+        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
+        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and dropping it
+        // would post a voucher whose dates disagree with what the operator typed.
+        if (Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate) is { } badLineDate)
+            return ApexDate.ErrorFor(badLineDate.InstrumentDateText);
+
+        if (Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate) is { } badDueDate)
+            return ApexDate.ErrorFor(badDueDate.DueDateText);
+
+        // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
+        if (Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk) is { } badBill)
+            return $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount "
+                 + $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
+
+        // Reject an Agst-Ref that no longer names an open bill of the party, or that over-settles one, on a
+        // PRE-LOADED settlement (register row IV-5 + D5). The bill name is a free TextBox, so the operator can edit
+        // the pre-loaded reference into something that is not a bill; nothing else in the app would catch it.
+        // Deliberately AFTER the bill-split check, so the commoner "allocations must sum to the line amount"
+        // message still wins when both are wrong.
+        if (SettlementAllocationError() is { } settlementError) return settlementError;
+
+        // 🔴 THE MESSAGE NAMES THE SHORT AXIS (finding L3-03). The old sentence stated the SUPERSEDED partition
+        // rule — "must sum to the line amount (5,000.00)" — and a legacy cross-category voucher, the exact
+        // population CostAllocationStrictness.Legacy admits through Load and import, arrives here with allocations
+        // that sum to exactly 5,000.00 and still cannot be accepted, because Replace validates with Strict. The
+        // operator was told to satisfy a rule the voucher already satisfied. This wording mirrors
+        // VoucherValidator's own C-27 text, so the screen and the engine now say the same thing.
+        if (Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk) is { } badCost)
+            return badCost.ShortCostAxis is { } shortAxis
+                ? $"Cost allocations for '{badCost.SelectedLedger!.Name}' total "
+                + $"{IndianFormat.AmountAlways(shortAxis.Allocated)} under cost category "
+                + $"'{shortAxis.Category.Name}' but the line amount is "
+                + $"{IndianFormat.AmountAlways(badCost.ParsedAmount)}; each cost category must be allocated in "
+                + "full (categories are parallel axes, not a split of the line)."
+                : $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount "
+                + $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
+
+        if (Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk) is { } badForex)
+            return $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in "
+                 + $"{badForex.ForexCurrencyCode} and a rate of exchange.";
+
+        return null;
+    }
+
+    /// <summary>
+    /// The plain-grid <see cref="EntryLine"/> set — the four line writers run over every complete row, and
+    /// <b>nothing else</b>. No withholding carve, no reverse-charge pair, no advance pair, and no stamped
+    /// <c>Gst</c>/<c>Tds</c>/<c>Tcs</c> argument anywhere: those are the arguments an alteration must never echo,
+    /// and the way to guarantee that is for this builder to have no way to supply one.
+    /// </summary>
+    private List<EntryLine> BuildPlainEntryLines() => BuildPlainEntryLines(out _);
+
+    /// <summary>
+    /// The same builder, also handing back the ROW VIEW MODELS it built from, in the same order. S5c's re-carve
+    /// needs to splice the deductee's carved leg into the built list, and matching by index against a separately
+    /// re-evaluated <c>Where(IsComplete)</c> would be a silent alignment bug waiting for the day the predicate
+    /// changes. One enumeration, one order, no matching.
+    /// </summary>
+    private List<EntryLine> BuildPlainEntryLines(out List<VoucherLineViewModel> sources)
+    {
+        sources = Lines.Where(l => l.IsComplete).ToList();
+        return sources
+            .Select(l =>
+            {
+                var billAllocs = l.ToBillAllocations();
+                var costAllocs = l.ToCostAllocations();
+                return new EntryLine(
+                    l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
+                    billAllocs.Count > 0 ? billAllocs : null,
+                    costAllocs.Count > 0 ? costAllocs : null,
+                    l.ToBankAllocation(),
+                    l.ToForexInfo());
+            })
+            .ToList();
+    }
+
     /// <summary>
     /// Ctrl+A accept: builds the voucher from the non-blank lines, posts it (engine rejects an
     /// unbalanced/invalid voucher — nothing persists on failure), then saves the company to its
     /// <c>.db</c>. On success surfaces the assigned number and returns to the Gateway.
+    ///
+    /// <para>🔴 <b>Hard-refuses on an ALTERING screen</b> (design §6.6a.6, fourth thing). This method is
+    /// build + <c>Post</c> + REGISTRATION SIDE EFFECTS: it mints a fresh <see cref="Guid"/> and posts a SECOND
+    /// voucher — leaving the original standing, so the book would hold the entry twice — and it re-runs
+    /// <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and <c>BuildAdvanceLines</c> against TODAY'S masters, so a
+    /// narration-only alteration could acquire or lose a withholding carve. <see cref="AcceptAlteration"/> is the
+    /// alteration verb.</para>
     /// </summary>
     public bool Accept()
     {
         Message = null;
 
+        if (IsAltering)
+        {
+            Message = "This screen is altering a posted voucher — accepting it as a new entry would post a second "
+                    + "voucher and re-run withholding and reverse-charge detection against today's masters. Use "
+                    + "the alteration accept instead.";
+            return false;
+        }
+
+
         // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
         if (IsItemInvoice) return AcceptItemInvoice();
 
-        // Reject half-filled rows up front with a clear message (before touching the engine).
-        if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
-        {
-            Message = "Every entered line needs a ledger and a positive amount.";
-            return false;
-        }
+        // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
+        if (IsAccountingInvoice) return AcceptAccountingInvoice();
 
-        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
-        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and
-        // dropping it would post a voucher whose dates disagree with what the operator typed.
-        var badLineDate = Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate);
-        if (badLineDate is not null)
+        // 🔴 ONE COPY, NOT TWO (finding L3-06). This block used to be re-implemented inline here, eight checks
+        // deep, character-identical to PlainGridRefusal — which AcceptAlteration calls and whose own doc comment
+        // claimed the checks had been "factored out so AcceptAlteration makes exactly the same ones". They had not
+        // been; they had been DUPLICATED, and the two lists agreed only by coincidence. That is not academic: the
+        // cost message in one of them stated the superseded partition rule, and fixing it in one copy would have
+        // left the other quoting the abolished rule at the operator.
+        if (PlainGridRefusal() is { } gridRefusal)
         {
-            Message = ApexDate.ErrorFor(badLineDate.InstrumentDateText);
-            return false;
-        }
-
-        var badDueDate = Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate);
-        if (badDueDate is not null)
-        {
-            Message = ApexDate.ErrorFor(badDueDate.DueDateText);
-            return false;
-        }
-
-        // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
-        var badBill = Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk);
-        if (badBill is not null)
-        {
-            Message = $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount " +
-                      $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
-            return false;
-        }
-
-        // Reject an invalid cost split up front (once touched, allocations must sum to the line amount).
-        var badCost = Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk);
-        if (badCost is not null)
-        {
-            Message = $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount " +
-                      $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
-            return false;
-        }
-
-        // Reject a half-filled forex pair up front (a forex line needs both a forex amount and a rate).
-        var badForex = Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk);
-        if (badForex is not null)
-        {
-            Message = $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in " +
-                      $"{badForex.ForexCurrencyCode} and a rate of exchange.";
+            Message = gridRefusal;
             return false;
         }
 
@@ -1857,6 +4302,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// whole window on ANY non-success exit. Returns false ⇒ refused with <see cref="Message"/> set; may throw
     /// <see cref="UnbalancedVoucherException"/> / <see cref="InvalidVoucherException"/> (the caller relays both).
     /// </summary>
+    /// <summary>
+    /// Resolves the counterparty captured field (numbering-design-v2 §8) for the post: the free-text
+    /// <see cref="ReferenceNo"/> (blank ⇒ null) and the optional <see cref="ReferenceDateText"/> (blank ⇒ null,
+    /// unparseable ⇒ rejected with a message). Captured only on a Purchase/Sales voucher — every other type gets
+    /// null/null so the posted voucher is byte-identical to today (ER-13). Returns false (and sets
+    /// <see cref="Message"/>) only when a non-blank reference date fails to parse.
+    /// </summary>
+    private bool TryResolveReferenceCapture(out string? referenceNo, out DateOnly? referenceDate)
+    {
+        referenceNo = null;
+        referenceDate = null;
+        if (!ShowReferenceCapture) return true; // never captured off a Purchase/Sales voucher
+
+        referenceNo = string.IsNullOrWhiteSpace(ReferenceNo) ? null : ReferenceNo.Trim();
+
+        if (!string.IsNullOrWhiteSpace(ReferenceDateText))
+        {
+            if (!ApexDate.TryParse(ReferenceDateText, Date, out var refDate))
+            {
+                Message = ApexDate.ErrorFor(ReferenceDateText);
+                return false;
+            }
+            referenceDate = refDate;
+        }
+        return true;
+    }
+
     private bool PostAndSave(Guid voucherId, Stack<Action> undo)
     {
         // GST on advances (RQ-25). All three actions come from the SAME engine the panel previewed (ER-4), and all three
@@ -1875,7 +4347,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             try
             {
-                carve = _tds.BuildCarveOut(tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date);
+                // The keyed party row goes IN so its bill-wise / cost / bank / forex children come back OUT on the
+                // derived leg. Without it the splice below dropped every child the operator had keyed, silently: a
+                // bill-by-bill creditor's New Ref vanished at posting and Outstandings then reported NO open bill at
+                // all for a vendor the company owed 1,08,000.30, on BOTH the withheld and the below-threshold arm.
+                carve = _tds.BuildCarveOut(
+                    tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date,
+                    keyedPartyLine: KeyedPartyTemplate(tctx.PartyLine));
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -1973,6 +4451,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             applicableUpto = upto;
         }
 
+        // Counterparty captured field (numbering-design-v2 §8) — "Supplier Invoice No." / "Reference No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return false;
+
         var voucher = new Voucher(
             voucherId,
             _type.Id,
@@ -1984,7 +4465,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // toggle only applies to real voucher types.
             optional: !IsProvisionalType && IsOptional,
             postDated: IsPostDated,
-            applicableUpto: applicableUpto);
+            applicableUpto: applicableUpto,
+            referenceNo: referenceNo,
+            referenceDate: referenceDate);
 
         var posted = _service.Post(voucher); // throws on unbalanced/invalid — never persisted
         undo.Push(() => _company.RemoveVoucher(posted));
@@ -2015,7 +4498,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
 
         SavedNumber = posted.Number;
-        Message = $"{_type.Name} No. {posted.Number} accepted.{rcmDocNote}";
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.{rcmDocNote}";
         _onSaved();
         return true;
     }
@@ -2131,7 +4614,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         IsOptional = !IsOptional;
     }
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress voucher and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 
     // =============================================================== item-invoice mode (catalog §10; slice 3.4c)
@@ -2199,6 +4683,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             StockLedgers.Add(l);
         SelectedStockLedger = StockLedgers.FirstOrDefault(l => l.Id == stockLedgerId)
                               ?? StockLedgers.FirstOrDefault();
+
+        // The accounting-invoice Particulars picker refreshes with the others. Omitting it left Alt+C DEAD on that
+        // field: the ledger was created and the operator returned to a blank ComboBox, because the row's option list
+        // was a ctor-built snapshot that predated the new master.
+        RebuildAccountingInvoiceLedgers();
     }
 
     /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
@@ -2293,33 +4782,189 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 : null;
             SelectedPriceLevel = match ?? PriceLevelOptions.FirstOrDefault(o => o.IsNotApplicable);
         }
-        RecalculateItemInvoice();
+        // G-1: the party drives the Bill-wise gate (layer 3 — Maintain balances bill-by-bill), so the ACCOUNTING
+        // path must recalc through its own routine too. Previously this always ran the item recalc, which in
+        // accounting mode returns before the Accept gate and would have stamped the panel from an item total of ₹0.
+        if (IsAccountingInvoice) RecalculateAccountingInvoice();
+        else RecalculateItemInvoice();
     }
     partial void OnSelectedStockLedgerChanged(DomainLedger? value) => RecalculateItemInvoice();
 
     /// <summary>
-    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type). Recomputes the
-    /// items total / derived summary so the Accept gate reflects the new mode immediately.
+    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type), redefined over the
+    /// 3-value <see cref="Mode"/> as a 2-way As-Voucher↔Item-Invoice flip so its exact current behaviour (and all its
+    /// tests) are preserved. Recomputes so the Accept gate reflects the new mode immediately.
     /// </summary>
     public void ToggleItemInvoice()
     {
         if (!CanBeItemInvoice) return;
-        IsItemInvoice = !IsItemInvoice;
+        Mode = IsItemInvoice ? VoucherEntryMode.AsVoucher : VoucherEntryMode.ItemInvoice;
     }
 
-    partial void OnIsItemInvoiceChanged(bool value)
+    /// <summary>
+    /// Ctrl+H "Change Mode" — cycles a Purchase/Sales voucher through the entry modes
+    /// As Voucher → Item Invoice → Accounting Invoice → As Voucher (a no-op on any other type). Faithful to Tally's
+    /// per-voucher mode switch on the same Sales/Purchase voucher type (NOT an F12 flag).
+    /// <para>On a <b>Purchase</b> the Accounting arm is skipped entirely (<see cref="CanBeAccountingInvoice"/>), so the
+    /// cycle degrades to the 2-way As Voucher ↔ Item Invoice flip: the purchase-side accounting invoice is DEFERRED
+    /// scope and silently dropped §194J TDS.</para>
+    /// </summary>
+    public void ChangeMode()
     {
-        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking / the
-        // Actual-Billed columns are wired in; recompute all.
+        // G-6: Ctrl+H is TallyPrime's ONE "Change Mode" picker — the same key on every voucher, with a different
+        // mode list per type. On the cash/bank family it flips Single ⟷ Double Entry (BOOK pp.29, 32; SG p.76).
+        if (CanBeSingleEntry)
+        {
+            Mode = IsSingleEntry ? VoucherEntryMode.AsVoucher : VoucherEntryMode.SingleEntry;
+            return;
+        }
+
+        if (!CanBeItemInvoice) return;
+        Mode = Mode switch
+        {
+            VoucherEntryMode.AsVoucher => VoucherEntryMode.ItemInvoice,
+            VoucherEntryMode.ItemInvoice when CanBeAccountingInvoice => VoucherEntryMode.AccountingInvoice,
+            _ => VoucherEntryMode.AsVoucher,
+        };
+    }
+
+    /// <summary>The Accounting-Invoice checkbox affordance — flips As-Voucher↔Accounting, the direct-select sibling of
+    /// <see cref="ToggleItemInvoice"/>. A no-op wherever the mode is unavailable, which includes every Purchase
+    /// (<see cref="CanBeAccountingInvoice"/>).</summary>
+    public void ToggleAccountingInvoice()
+    {
+        if (!CanBeAccountingInvoice) return;
+        Mode = IsAccountingInvoice ? VoucherEntryMode.AsVoucher : VoucherEntryMode.AccountingInvoice;
+    }
+
+    partial void OnModeChanged(VoucherEntryMode value)
+    {
+        // Leaving accounting mode must not leave its band behind. ItemsTotalText / the GST texts / PartyTotalText /
+        // DerivedSummary are SHARED with the item path, and the plain As-Voucher branch of Recalculate() writes none
+        // of them — so without this the service invoice's CGST 450.00 and "Cr Services …" summary survived a Ctrl+H
+        // into a mode that has no such figures. Cleared BEFORE the Recalculate() below, which then repopulates
+        // whatever the new mode owns.
+        if (value != VoucherEntryMode.AccountingInvoice) ResetAccountingDisplayState();
+
+        // Switching mode changes which grid gates Accept AND whether GST / additional-cost tracking / the
+        // Actual-Billed columns are wired in; notify every derived flag and re-derive. Carries the full old
+        // OnIsItemInvoiceChanged notification set PLUS the new accounting-mode flags (dropping any leaves a stale band).
+        OnPropertyChanged(nameof(IsItemInvoice));
+        OnPropertyChanged(nameof(IsAccountingInvoice));
+        OnPropertyChanged(nameof(IsAsVoucherMode));
+        OnPropertyChanged(nameof(ShowInvoiceOverlay));
         OnPropertyChanged(nameof(IsGstInvoice));
+        OnPropertyChanged(nameof(IsAccountingGstInvoice));
+        OnPropertyChanged(nameof(ShowGstTotals));
+        OnPropertyChanged(nameof(ShowParticularsGrid));
         OnPropertyChanged(nameof(IsTcsSalesInvoice));
         OnPropertyChanged(nameof(ShowAdditionalCosts));
         OnPropertyChanged(nameof(ShowActualBilledColumns));
         OnPropertyChanged(nameof(QuantityHeader));
         OnPropertyChanged(nameof(ShowPriceLevelSelector));
+        OnPropertyChanged(nameof(LineTotalCaption));
+        // G-6: the Single-Entry render gates + its projections. Entering the mode stamps the documented polarity on
+        // the existing lines; leaving it simply stops re-stamping, so the lines (and their now-visible Dr/Cr labels)
+        // survive the flip intact — Ctrl+H is a view switch, never data loss.
+        OnPropertyChanged(nameof(IsSingleEntry));
+        OnPropertyChanged(nameof(ShowPlainDrCrGrid));
+        OnPropertyChanged(nameof(SingleEntryAccount));
+        OnPropertyChanged(nameof(SingleEntryParticulars));
+        OnPropertyChanged(nameof(SingleEntryAccountTotal));
+        SyncSingleEntrySides();
         SyncActualBilledOnLines();
-        RecalculateItemInvoice();
+        // Recalculate() dispatches to the correct per-mode recalc (item / accounting / plain) and refreshes the
+        // advisory panels — so the Accept gate is correct for the mode just entered.
         Recalculate();
+    }
+
+    /// <summary>Clears the display fields the accounting-invoice recalc owns, so none of them can outlive the mode
+    /// (see <see cref="OnModeChanged"/>). Deliberately does NOT touch <c>CanAccept</c> — the Recalculate() that
+    /// immediately follows re-derives the gate for the mode being entered.</summary>
+    private void ResetAccountingDisplayState()
+    {
+        ItemsTotalText = "0.00";
+        GstCgstText = "0.00";
+        GstSgstText = "0.00";
+        GstIgstText = "0.00";
+        GstCessText = "0.00";
+        PartyTotalText = "0.00";
+        DerivedSummary = string.Empty;
+    }
+
+    /// <summary>Whether a ledger is a valid Particulars-line target on this nature — a service-income (Sales) /
+    /// expense (Purchase) ledger by primary-ancestor nature, never a GST tax ledger, and never a ledger that declares
+    /// a <b>GOODS</b> supply. Deliberately broad otherwise, so any user-defined service ledger (Sales Accounts /
+    /// Direct or Indirect Income) is offered; a taxable ledger with no resolvable SAC/rate still fails fast at Accept
+    /// (never a silent ₹0).
+    ///
+    /// <para><b>The goods exclusion is a Rule-46 validity guard, not a nicety.</b> An Accounting Invoice prints its
+    /// lines with a BLANK Quantity and a BLANK Rate — a service has neither. Rule 46(f) requires the quantity <i>and</i>
+    /// unit for a supply of GOODS, so billing a goods ledger here produces a tax invoice that is invalid on its face
+    /// (measured before this guard: a Goods-supply ledger was offered, Accept succeeded, and the document printed
+    /// <c>hsn/sac=847130 qty="" rate=""</c>). Goods belong on an item invoice, which carries real quantities.</para>
+    ///
+    /// <para>The test is "declares Goods", not "declares Services": a ledger with <b>no</b> <c>SalesPurchaseGst</c>
+    /// block at all declares no supply type — that is every ledger in a GST-off company, and every ledger just created
+    /// on the fly with Alt+C — and excluding those would empty the picker and break the feature. Only an explicit
+    /// <see cref="GstSupplyType.Goods"/> declaration is refused.</para></summary>
+    private bool IsAccountingLineLedger(DomainLedger ledger)
+    {
+        if (ledger.GstClassification is not null) return false; // never a GST tax (Duties &amp; Taxes) ledger
+        if (ledger.SalesPurchaseGst is { SupplyType: GstSupplyType.Goods }) return false; // goods ⇒ item invoice
+        var group = _company.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        var nature = ClassificationRules.PrimaryNatureOf(group, _company);
+        return IsPurchaseInvoice ? nature == GroupNature.Expense : nature == GroupNature.Income;
+    }
+
+    /// <summary>
+    /// Rebuilds the Particulars ledger picker IN PLACE (the rows bind to the live collection instance, so a
+    /// re-assignment would not reach them). Called from the ctor and from <see cref="RefreshMasterPickers"/>, which is
+    /// what makes Alt+C create-on-the-fly work on the Particulars ledger field.
+    /// <para>Each row's already-picked ledger is captured and restored across the rebuild: a bound <c>ComboBox</c>
+    /// nulls its <c>SelectedItem</c> when its <c>ItemsSource</c> is cleared, and that write would flow back through the
+    /// TwoWay binding and silently blank a half-typed invoice. Restoring the SAME instance raises no change
+    /// notification, so this costs nothing on the common path.</para>
+    /// </summary>
+    private void RebuildAccountingInvoiceLedgers()
+    {
+        var picked = AccountingInvoiceLines.Select(l => (Line: l, Id: l.SelectedLedger?.Id)).ToList();
+
+        AccountingInvoiceLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsAccountingLineLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            AccountingInvoiceLedgers.Add(l);
+
+        foreach (var (line, id) in picked)
+            if (id is { } ledgerId)
+                line.SelectedLedger = AccountingInvoiceLedgers.FirstOrDefault(l => l.Id == ledgerId) ?? line.SelectedLedger;
+    }
+
+    /// <summary>Adds a Particulars line (service ledger + amount); mirrors <see cref="AddAdditionalCostRow"/> and keeps
+    /// a single trailing blank row via <see cref="OnAccountingInvoiceLineChanged"/>.</summary>
+    public AccountingInvoiceLineViewModel AddAccountingInvoiceLine()
+    {
+        var row = new AccountingInvoiceLineViewModel(AccountingInvoiceLedgers, OnAccountingInvoiceLineChanged);
+        AccountingInvoiceLines.Add(row);
+        return row;
+    }
+
+    /// <summary>Removes a Particulars line (keeping at least one); recomputes the invoice.</summary>
+    public void RemoveAccountingInvoiceLine(AccountingInvoiceLineViewModel line)
+    {
+        if (AccountingInvoiceLines.Count <= 1) return;
+        AccountingInvoiceLines.Remove(line);
+        RecalculateAccountingInvoice();
+    }
+
+    private void OnAccountingInvoiceLineChanged()
+    {
+        // Keep exactly one trailing blank row so there is always a fresh line to type into (mirrors additional costs).
+        if (AccountingInvoiceLines.Count == 0 || !AccountingInvoiceLines[^1].IsBlank)
+            AddAccountingInvoiceLine();
+        RecalculateAccountingInvoice();
     }
 
     /// <summary>Adds a blank additional-cost row (ledger + amount); keeps one trailing blank row.</summary>
@@ -2372,9 +5017,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             var sum = 0m;
             foreach (var l in InventoryLines)
                 // Value derives from the NET (after Price-Level discount) rate — equals the raw rate when no
-                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13).
-                if (l.IsComplete && l.EffectiveRate is { } rate)
-                    sum += Money.ForexBase(rate, l.ParsedBilledQuantity).Amount;
+                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13). LineValue is the
+                // ONE definition of a line's figure (ER-4) — rate × BILLED qty, whether or not the line is split
+                // across batches, because a split re-attributes the quantity and never revalues the line.
+                if (l.IsComplete && l.EffectiveRate is not null)
+                    sum += l.LineValue.Amount;
             return sum;
         }
     }
@@ -2416,7 +5063,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // GST taxable value derives from Billed, NOT Actual (RQ-23) — a short-billed line taxes only the
             // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST. The
             // value uses the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
-            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
+            // ER-4: the SAME LineValue the totals and the posting use, so a batch-split line's tax base is the
+            // Σ of its posted batch rows rather than a separately-rounded figure.
+            var lineValue = l.LineValue;
 
             // Phase 9 slice 1: resolve the rate AS OF the voucher Date so a supply before 22-Sep-2025 resolves the
             // legacy rate and one on/after resolves the GST 2.0 rate (the dated override only fires when the item's
@@ -2435,12 +5084,627 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
     }
 
+    /// <summary>
+    /// 🔴 The Compensation Cess today's masters put on the <b>POSTED</b> item rows — the figure the alteration
+    /// compares the STAMPED cess against (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>).
+    ///
+    /// <para><b>The posted rows, deliberately, and that is the whole design.</b> Re-deriving over the AMENDED rows
+    /// would refuse every real amendment, because moving a quantity moves the cess — which alter is allowed to do.
+    /// Holding the rows at what was posted removes them as a variable, so the only thing that can make the two
+    /// figures disagree is a master that moved underneath: the item's own cess block, a dated HSN cess row, or the
+    /// voucher date the two are resolved as of. That is the same rule <see cref="ComputeItemInvoiceGst"/> follows —
+    /// SAME resolver, SAME engine, SAME rounding — so an unchanged book compares equal to the paisa rather than
+    /// approximately.</para>
+    ///
+    /// <para>Returns <c>null</c> — "do not compare" — when the posted rows cannot be re-priced at all: an item that
+    /// is no longer a master, or a taxable item with no resolvable rate. Both are refused by name in their own
+    /// words elsewhere on this path (the rehydration for the missing item, <c>BuildItemInvoice</c>'s unresolved-rate
+    /// message for the rate), and a cess sentence about a book that cannot be priced at all would be the wrong
+    /// sentence.</para>
+    /// </summary>
+    private Money? ReDerivedCessOnPostedRows(Voucher existing)
+    {
+        if (!IsGstInvoice) return Money.Zero;
+
+        var valueLedger = SelectedStockLedger;
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>(existing.InventoryLines.Count);
+        foreach (var posted in existing.InventoryLines)
+        {
+            if (posted.Rate.Amount <= 0m) continue;   // a zero-valued free line bears no tax and no cess
+            if (StockItems.FirstOrDefault(i => i.Id == posted.StockItemId) is not { } item) return null;
+
+            var res = _gst.ResolveRate(item, valueLedger, Date);
+            if (GstService.IsUnresolved(res)) return null;
+            if (!res.IsTaxable) continue;            // Exempt/Nil/Non-GST ⇒ no cess either (ResolveCess agrees)
+
+            var cess = _gst.ResolveCess(item, valueLedger, Date, posted.BilledQuantity);
+            taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
+        }
+
+        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection).TotalCess;
+    }
+
+    // =============================================================== batch allocation → posted lines (G-5)
+
+    /// <summary>
+    /// Expands ONE batch-split item line into one <see cref="VoucherInventoryLine"/> per batch (BOOK pp.130–132
+    /// <b>[verified-A1]</b>), so the stock genuinely moves lot by lot instead of hiding behind a "Multi (N)"
+    /// label. Returns false — with a friendly <see cref="Message"/> and nothing appended — when the split cannot
+    /// be posted safely:
+    /// <list type="bullet">
+    ///   <item>Σ batch qty ≠ the line's Actual qty (a stale split: the operator changed the quantity after
+    ///     allocating). Refusing beats posting a quantity that is not the one on screen.</item>
+    ///   <item>the Actual/Billed split is in play AND Billed ≠ Actual. TallyPrime carries Actual <i>and</i>
+    ///     Billed inside the batch grid; ours captures one quantity per batch, so there is no defensible way to
+    ///     decide WHICH lot was short-billed. Blocked explicitly rather than guessed at.</item>
+    ///   <item>the per-batch rows cannot foot to the line's own value
+    ///     (<see cref="InventoryVoucherLineViewModel.LineValue"/>) because each row snaps to the paisa
+    ///     separately. A split re-attributes the quantity; it must never change what the line is worth.</item>
+    /// </list>
+    /// </summary>
+    private bool TryAppendSplitBatchLines(
+        InventoryVoucherLineViewModel line, Money rate, StockDirection direction,
+        List<VoucherInventoryLine> into)
+    {
+        var itemName = line.SelectedItem!.Name;
+        var allocated = line.BatchAllocations.Sum(a => a.Quantity);
+        if (allocated != line.ParsedActualQuantity)
+        {
+            Message = $"Item '{itemName}': the batch allocation totals {allocated} but the line quantity is " +
+                      $"{line.ParsedActualQuantity}. Re-open the batch allocation (Alt+B) and re-balance it.";
+            return false;
+        }
+
+        if (line.ParsedBilledQuantity != line.ParsedActualQuantity)
+        {
+            Message = $"Item '{itemName}': a line split across several batches cannot also carry a Billed " +
+                      "quantity different from the Actual one — allocate it on separate lines instead.";
+            return false;
+        }
+
+        // A split RE-ATTRIBUTES the quantity across lots; it must never REVALUE the line (ER-4). Each posted row
+        // is valued independently — VoucherInventoryLine.Value = ForexBase(Rate, BilledQuantity) — so N rows snap
+        // to the paisa N times where the unsplit line snaps once, and Σ-of-rounded ≠ rounded-of-Σ as soon as a
+        // batch quantity is fractional (1.5 × ₹19.75 = ₹29.625 twice ⇒ ₹59.26 against the line's ₹59.25).
+        //
+        // There is no way to absorb that residual inside the posted shape: Value is DERIVED from Rate ×
+        // BilledQuantity, the rate is shared and must stay paisa-exact, and nudging a row's billed quantity would
+        // move StockValuationUnitRate — i.e. it would change what the units COST, which batch selection must
+        // never do. So the drift is refused here instead: posting it would either bill the customer a paisa they
+        // do not owe (the stock leg is Σ of the posted rows, which is what the pairing invariant enforces) or
+        // leave the screen's total, the GST base and the ledger disagreeing. The operator can re-cut the batch
+        // quantities, or enter the lots on separate lines — where two lines genuinely are two line values.
+        var lineValue = Money.ForexBase(rate, line.ParsedBilledQuantity);
+        var splitValue = Money.Zero;
+        foreach (var a in line.BatchAllocations) splitValue += Money.ForexBase(rate, a.Quantity);
+        if (splitValue != lineValue)
+        {
+            Message = $"Item '{itemName}': splitting this line across {line.BatchAllocations.Count} batches " +
+                      $"would value it at ₹{splitValue.Amount:0.00} instead of ₹{lineValue.Amount:0.00} — a " +
+                      "batch split may re-attribute the quantity but must never change what the line is worth. " +
+                      "Re-cut the batch quantities, or enter the lots on separate lines.";
+            return false;
+        }
+
+        foreach (var a in line.BatchAllocations)
+            into.Add(new VoucherInventoryLine(
+                line.SelectedItem!.Id, line.SelectedGodown!.Id, a.Quantity, rate,
+                direction: direction,
+                batchLabel: a.BatchNumber,
+                // Billed ≡ Actual here, and the foot-to-LineValue guard above has already PROVED that Σ of these
+                // rows is precisely LineValue — the figure the screen showed and GST taxed (ER-4).
+                billedQuantity: a.Quantity,
+                unitId: line.UnitId));
+
+        return true;
+    }
+
+    /// <summary>
+    /// Creates the <see cref="BatchMaster"/> for every batch the operator raised inline on the sub-screen
+    /// ("New Number" + Mfg Dt. + Expiry Date; BOOK p.131 <b>[verified-A1]</b>) that does not exist yet. A batch
+    /// number is unique WITHIN an item (RQ-1), so an inline number that already exists is simply reused — the
+    /// voucher stamps the existing lot rather than failing. Returns false with a friendly message if the master
+    /// cannot be created, so the voucher is never posted against a batch that was rejected.
+    /// </summary>
+    private bool TryCreateInlineBatchMasters(IReadOnlyList<InventoryVoucherLineViewModel> lines)
+    {
+        var service = new BatchService(_company);
+        var created = false;
+
+        foreach (var line in lines)
+        {
+            if (line.SelectedItem is not { MaintainInBatches: true } item) continue;
+            foreach (var a in line.BatchAllocations)
+            {
+                if (!a.IsNewBatch) continue;
+                if (_company.FindBatchByNumber(item.Id, a.BatchNumber) is not null) continue;
+                try
+                {
+                    service.CreateBatch(item.Id, a.BatchNumber,
+                        manufacturingDate: a.ManufacturingDate,
+                        expiryDate: a.ExpiryDate,
+                        godownId: line.SelectedGodown?.Id);
+                    created = true;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Message = ex.Message;
+                    return false;
+                }
+            }
+        }
+
+        if (created) _storage.Save(_company);
+        return true;
+    }
+
     /// <summary>An empty (no-tax) <see cref="GstService.InvoiceTax"/> used when a line is unresolved.</summary>
     private static GstService.InvoiceTax EmptyInvoiceTax() => new()
     {
         TaxLines = Array.Empty<EntryLine>(),
         LineBreakdown = Array.Empty<GstService.LineTax>(),
     };
+
+    // =============================================================== GST on the ACCOUNTING (service) invoice
+
+    /// <summary>The outcome of computing GST over the current complete Particulars (service-income) lines — the
+    /// sibling of <see cref="ItemInvoiceGst"/> for the accounting-invoice path. Carries the unresolved <b>ledger</b>
+    /// (a taxable Particulars ledger with no resolvable SAC/rate) so the caller fails fast with a friendly message —
+    /// never a silent ₹0.</summary>
+    private readonly record struct AccountingInvoiceGst(
+        GstService.InvoiceTax Tax, bool InterState, DomainLedger? UnresolvedLedger)
+    {
+        public bool HasUnresolved => UnresolvedLedger is not null;
+    }
+
+    /// <summary>
+    /// Resolves each complete Particulars line's GST rate + taxability from the <b>ledger's SAC</b>
+    /// (<see cref="GstService.ResolveRate"/> called with <c>item: null</c> ⇒ the ledger <c>SalesPurchaseGst</c> path),
+    /// routes intra CGST/SGST vs inter IGST from the party's recorded State vs the company home State, and computes the
+    /// additive per-(head,rate) tax via the SAME <see cref="GstService.ComputeInvoiceTax"/> the item path uses — so it
+    /// inherits paisa-exact compute-then-split parity, per-rate grouping, Composition suppression and the ring-fenced
+    /// Cess treatment for free. The line amount IS the taxable value (no qty×rate). Exempt/Nil/Non-GST ledgers contribute
+    /// no taxable value (zero tax). A taxable ledger with no resolvable rate is flagged in
+    /// <see cref="AccountingInvoiceGst.UnresolvedLedger"/> so the caller fails fast. Returns <c>null</c> when GST is not
+    /// wired in (<see cref="IsAccountingGstInvoice"/> false).
+    /// <para>
+    /// <b>Reverse-charge lines are excluded</b> (see <see cref="FiringReverseChargeLedgerIds"/>). On a reverse-charge
+    /// inward supply the SUPPLIER charges no tax — that is the entire mechanism — and
+    /// <see cref="AcceptAccountingInvoice"/> already appends the self-accounting dual pair for it. Resolving an
+    /// ordinary forward-charge rate here as well credited the supplier the tax it never charged AND debited Input tax
+    /// twice against a single liability, on a voucher that still balanced. That combination first became reachable
+    /// when <see cref="CanBeAccountingInvoice"/> widened to Purchase.
+    /// </para>
+    /// </summary>
+    private AccountingInvoiceGst? ComputeAccountingInvoiceGst()
+    {
+        if (!IsAccountingGstInvoice) return null;
+
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+        var reverseCharge = FiringReverseChargeLedgerIds();
+
+        var taxable = new List<GstService.TaxableLine>();
+        foreach (var l in AccountingInvoiceLines.Where(l => l.IsComplete))
+        {
+            if (l.ParsedAmount is not { } amt || amt <= 0m) continue;
+
+            // Reverse charge ⇒ no forward-charge leg at all: the tax movement is the dual pair Accept appends, and the
+            // party is owed the BARE taxable value. Per LINE, never per voucher — one invoice routinely carries a
+            // notified head alongside ordinary forward-charge services, and those keep their Input tax.
+            if (l.SelectedLedger is { } led && reverseCharge.Contains(led.Id)) continue;
+
+            var value = new Money(amt); // the line amount IS the taxable value (a service carries no qty×rate)
+
+            // Resolve the rate AS OF the voucher Date from the LEDGER's SAC (item: null ⇒ ResolveBase step-2). A rate
+            // history override only fires when the ledger's HSN/SAC matches a dated row — else byte-identical.
+            var res = _gst.ResolveRate(item: null, l.SelectedLedger, Date);
+            if (GstService.IsUnresolved(res))
+                return new AccountingInvoiceGst(EmptyInvoiceTax(), interState, l.SelectedLedger);
+            if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST service ⇒ no tax
+
+            // Compensation Cess for a service is ad-valorem only (no quantity) — pass quantity 0. null ⇒ no cess.
+            var cess = _gst.ResolveCess(item: null, l.SelectedLedger, Date, quantity: 0m);
+            taxable.Add(new GstService.TaxableLine(value, res.RateBasisPoints, cess));
+        }
+
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        return new AccountingInvoiceGst(tax, interState, UnresolvedLedger: null);
+    }
+
+    /// <summary>
+    /// The Particulars ledgers on which reverse charge <b>actually fires</b> on this voucher — the exact set
+    /// <see cref="AcceptAccountingInvoice"/> will build a dual pair for, resolved through the SAME
+    /// <see cref="ResolveRcm"/> (ER-4: one resolver, never a second opinion).
+    /// <para>
+    /// Deliberately narrower than "the ledger carries <c>ReverseChargeApplicable</c>". The master flag only makes the
+    /// panel visible; whether the supply IS reverse charge is the engine's call against the notified category, the
+    /// supplier/recipient qualifiers and the date — a Sponsorship fee billed to a non-body-corporate, or any supply on
+    /// which the operator has ticked "Not Applicable", is an ordinary forward-charge purchase and MUST keep its Input
+    /// tax leg. Skipping on the flag alone would under-credit those suppliers by the whole tax.
+    /// </para>
+    /// Empty (and cheap) on every voucher with no reverse-charge shape, so the ordinary service invoice is
+    /// byte-identical (ER-13). Pure — <see cref="ResolveRcm"/> resolves, it never builds, so no RCM ledger is conjured.
+    /// </summary>
+    private HashSet<Guid> FiringReverseChargeLedgerIds()
+    {
+        var ids = new HashSet<Guid>();
+        if (IsRcmDeclined) return ids;
+        if (DetectRcmShape() is not { } shape) return ids;
+        foreach (var leg in shape.Legs)
+            if (ResolveRcm(shape, leg).Applies) ids.Add(leg.Expense.Id);
+        return ids;
+    }
+
+    /// <summary>
+    /// Recomputes the accounting-invoice indicators: the running Particulars total (shown in the shared
+    /// <see cref="LineTotalCaption"/>/"Taxable Value" band), the live CGST/SGST/IGST/Cess + party total, the derived
+    /// Dr/Cr summary, and whether Accept is allowed (a party picked, ≥ 1 complete Particulars line, no half-filled
+    /// row, positive total, and no unresolved taxable ledger). Mirrors <see cref="RecalculateItemInvoice"/> over the
+    /// Particulars lines; never touches <c>InventoryLines</c> or <see cref="ComputeItemInvoiceGst"/>.
+    /// <para>A NO-OP outside accounting mode. The display fields it writes are SHARED with the item path, so writing
+    /// them from a Particulars-line change while another mode is live cross-contaminated that mode's band; and on a
+    /// Purchase (where the mode is deferred) it must not run at all.</para>
+    /// </summary>
+    public void RecalculateAccountingInvoice()
+    {
+        if (!IsAccountingInvoice) return;
+
+        // G-7: a Particulars-line change routes STRAIGHT here (OnAccountingInvoiceLineChanged), not through
+        // Recalculate(), so without these the TDS/RCM advisory panels never appeared in accounting mode at all —
+        // the operator would have had no warning that a §194J withholding was about to be applied. Both self-gate
+        // and are re-entrancy-guarded, so this is a no-op wherever they do not apply.
+        UpdateTdsPanel();
+        UpdateRcmPanel();
+
+        var total = 0m;
+        foreach (var l in AccountingInvoiceLines)
+            if (l.IsComplete && l.ParsedAmount is { } a) total += a;
+        ItemsTotalText = IndianFormat.AmountAlways(total);
+
+        var party = SelectedParty?.Ledger?.Name ?? "party";
+
+        // Mirror the item recalc's fail-fast guard: an unresolvable-cess input (e.g. an RSP-factor cess service with
+        // no declared price) must surface a message and clear the gate rather than propagate out of the change handler.
+        AccountingInvoiceGst? gst;
+        try
+        {
+            gst = ComputeAccountingInvoiceGst();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            GstCgstText = "0.00";
+            GstSgstText = "0.00";
+            GstIgstText = "0.00";
+            GstCessText = "0.00";
+            PartyTotalText = IndianFormat.AmountAlways(total);
+            DerivedSummary = BuildAccountingDerivedSummary(party, total, 0m, 0m, 0m, 0m, total);
+            CanAccept = false;
+            return;
+        }
+
+        var cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
+        var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
+        var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
+        var cess = gst?.Tax.TotalCess.Amount ?? 0m; // ring-fenced out of the tax total, still added to the party total
+        var taxTotal = cgst + sgst + igst;
+        var partyTotal = total + taxTotal + cess;
+
+        GstCgstText = IndianFormat.AmountAlways(cgst);
+        GstSgstText = IndianFormat.AmountAlways(sgst);
+        GstIgstText = IndianFormat.AmountAlways(igst);
+        GstCessText = IndianFormat.AmountAlways(cess);
+        PartyTotalText = IndianFormat.AmountAlways(partyTotal);
+        DerivedSummary = BuildAccountingDerivedSummary(party, total, cgst, sgst, igst, cess, partyTotal);
+
+        // G-1: the accounting invoice carries the SAME Bill-wise sub-screen (SG p.80 step 6 / p.82 step 5).
+        // The target is the NET the party will actually be owed after any previewed TDS withholding — Accept
+        // reconciles the allocations against that same NET, and a panel demanding the GROSS reported a split as
+        // "fully allocated" that Accept then refused against a figure the operator was never shown (ER-4).
+        SyncInvoiceBillWise(PreviewNetPartyAmount(partyTotal));
+
+        var completeLines = AccountingInvoiceLines.Count(l => l.IsComplete);
+        var hasHalfFilled = AccountingInvoiceLines.Any(l => !l.IsBlank && !l.IsComplete);
+        var hasUnresolved = gst?.HasUnresolved ?? false; // a taxable ledger with no SAC/rate blocks Accept (no silent ₹0)
+        CanAccept =
+            SelectedParty?.Ledger is not null
+            && completeLines >= 1
+            && !hasHalfFilled
+            && !hasUnresolved
+            && total > 0m
+            && InvoiceBillSplitOk;
+    }
+
+    /// <summary>
+    /// The party's <b>net</b> obligation after the TDS withholding this screen has previewed — i.e. exactly the
+    /// <c>carve.NetPartyAmount</c> <see cref="AcceptAccountingInvoice"/> will stamp on the derived party leg, resolved
+    /// through the SAME <see cref="TdsService.BuildCarveOut"/> the advisory panel uses (ER-4: one engine, never a
+    /// second opinion). Returns <paramref name="partyTotal"/> unchanged whenever no withholding fires — no deductee,
+    /// no Is-TDS-Applicable Particulars line, the operator declined, below threshold (a zero carve nets to the gross),
+    /// or the carve-out itself refuses — so a non-TDS invoice is byte-identical (ER-13).
+    /// <para>Used to target the Bill-wise panel, because what the operator is told to allocate must be what Accept
+    /// demands: the bill is opened for the amount actually payable to the party, not the pre-withholding gross.</para>
+    /// </summary>
+    private decimal PreviewNetPartyAmount(decimal partyTotal)
+    {
+        if (DetectTdsContext() is not { } ctx) return partyTotal;
+        try
+        {
+            // Same argument as UpdateTdsPanel: one engine, one set of arguments (ER-4). Today's alter path refuses
+            // the accounting-invoice family before this is reachable, but the day that family is lifted a preview
+            // that projected the voucher against itself would target the bill-wise panel at a net Accept does not
+            // post.
+            return _tds.BuildCarveOut(
+                           ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date, AlterationProjectionMarker,
+                           postedRateBasisPoints: AlterationPostedTdsRateBasisPoints,
+                           postedAssessableValue: AlterationPostedTds?.AssessableValue,
+                           postedTdsAmount: AlterationPostedTds?.TdsAmount)
+                       .NetPartyAmount.Amount;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return partyTotal; // mirrors UpdateTdsPanel's guard — never crash out of a keystroke handler
+        }
+    }
+
+    /// <summary>
+    /// Builds the accounting-invoice derived Dr/Cr summary. Sales ⇒ "Dr Party (taxable+tax) · Cr Services (taxable)
+    /// [· Cr Output CGST/SGST or IGST · Cr Output Cess]"; Purchase ⇒ the mirror (Dr Services / Dr Input tax / Cr Party).
+    /// The income legs are collapsed to a single "Services"/"Purchases" caption for the one-line summary — the posted
+    /// voucher still carries one leg per Particulars line.
+    /// </summary>
+    private string BuildAccountingDerivedSummary(string party, decimal taxable, decimal cgst, decimal sgst, decimal igst, decimal cess, decimal partyTotal)
+    {
+        string A(decimal v) => IndianFormat.AmountAlways(v);
+        var caption = IsPurchaseInvoice ? "Purchases" : "Services";
+        var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the income leg's side (Input Dr / Output Cr)
+        var head = IsPurchaseInvoice ? "Input" : "Output";
+
+        var extraLegs = new List<string>();
+        if (igst != 0m) extraLegs.Add($"{side} {head} IGST {A(igst)}");
+        else
+        {
+            if (cgst != 0m) extraLegs.Add($"{side} {head} CGST {A(cgst)}");
+            if (sgst != 0m) extraLegs.Add($"{side} {head} SGST {A(sgst)}");
+        }
+        if (cess != 0m) extraLegs.Add($"{side} {head} Cess {A(cess)}");
+        var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
+
+        return IsPurchaseInvoice
+            ? $"Dr {caption} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
+            : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {caption} {A(taxable)}";
+    }
+
+    /// <summary>
+    /// Ctrl+A accept for accounting-invoice (service) mode: pre-validates (friendly message, before the engine),
+    /// builds one income/expense leg per Particulars line + the auto SAC-based GST tax legs + the party leg (so the
+    /// pairing invariant holds by construction), and posts it through <see cref="LedgerService.Post"/> — with
+    /// <b>no inventory lines</b>, so <c>HasInventoryLines</c> stays false and the stock/godown/valuation machinery is
+    /// never entered. Any domain error is surfaced to <see cref="Message"/> without crashing. Mirrors
+    /// <see cref="AcceptItemInvoice"/>.
+    /// </summary>
+    private bool AcceptAccountingInvoice()
+    {
+        Message = null;
+
+        // Belt-and-braces on the deferral gate: Accept() only routes here when IsAccountingInvoice (which folds in
+        // CanBeAccountingInvoice), so this is unreachable today — it exists so that re-enabling the purchase side can
+        // only ever be done deliberately, by flipping CanBeAccountingInvoice after wiring TDS/RCM to the Particulars
+        // lines. Without those, a professional-fee purchase posts with NO §194J carve-out.
+        if (!CanBeAccountingInvoice)
+        {
+            Message = "Accounting-invoice mode is available on Sales vouchers only.";
+            return false;
+        }
+
+        if (SelectedParty?.Ledger is not { } party)
+        {
+            Message = $"Select the {PartyCaption.ToLowerInvariant()} for this accounting invoice.";
+            return false;
+        }
+
+        // Reject half-filled (touched-but-incomplete) Particulars rows up front with a clear message.
+        if (AccountingInvoiceLines.Any(l => !l.IsBlank && !l.IsComplete))
+        {
+            Message = "Every particulars line needs a ledger and a paisa-exact amount greater than zero.";
+            return false;
+        }
+
+        var complete = AccountingInvoiceLines.Where(l => l.IsComplete).ToList();
+        if (complete.Count == 0)
+        {
+            Message = "Enter at least one particulars line before accepting.";
+            return false;
+        }
+
+        // One income (Sales ⇒ Cr) / expense (Purchase ⇒ Dr) leg per Particulars line — never a single collapsed leg,
+        // so a Consultancy-Income row and a Freight-Income row post two separate legs (the correct accounting shape).
+        var incomeLines = new List<EntryLine>(complete.Count);
+        var taxable = Money.Zero;
+        foreach (var l in complete)
+        {
+            var amt = new Money(l.ParsedAmount!.Value);
+            taxable += amt;
+            incomeLines.Add(new EntryLine(l.SelectedLedger!.Id, amt, IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit));
+        }
+
+        // GST (only when enabled): resolve each line's SAC rate, split intra CGST/SGST vs inter IGST, and build the
+        // additive tax lines (posted to the correct Output/Input tax ledgers, carrying GstLineTax so the invoice flows
+        // into GSTR-1/3B). A taxable ledger with no resolvable rate fails fast (never a silent ₹0).
+        var taxLines = new List<EntryLine>();
+        var partyAmount = taxable;
+        if (IsAccountingGstInvoice)
+        {
+            AccountingInvoiceGst gst;
+            try
+            {
+                gst = ComputeAccountingInvoiceGst()!.Value;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot accept: {ex.Message}";
+                return false;
+            }
+            if (gst.HasUnresolved)
+            {
+                Message = $"Ledger '{gst.UnresolvedLedger!.Name}' is taxable but no GST rate/SAC is set on the ledger " +
+                          "or the company. Set a rate before accepting.";
+                return false;
+            }
+            taxLines.AddRange(gst.Tax.TaxLines);
+            // party = taxable + tax + cess. TotalTax excludes the ring-fenced Cess, so add TotalCess explicitly or a
+            // cess-bearing service voucher would be out of balance. TotalCess is 0 when off (ER-13).
+            partyAmount = new Money(taxable.Amount + gst.Tax.TotalTax.Amount + gst.Tax.TotalCess.Amount);
+        }
+
+        // ---------------------------------------------------------------- G-7: TDS withholding on the purchase side
+        //
+        // THE defect this mode was disabled for. The carve-out is computed from the SAME engine the advisory panel
+        // previewed (ER-4), on the party's gross obligation, assessed on the GST-EXCLUSIVE base (Circular 23/2017 —
+        // AssessableExGst returns the Particulars total in this mode). Null ⇒ no withholding ⇒ the party is credited
+        // in full and the voucher is byte-identical to one posted before this rewire (ER-13).
+        TdsService.CarveOut? carve = null;
+        if (DetectTdsContext() is { } tctx)
+        {
+            try
+            {
+                carve = _tds.BuildCarveOut(tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot compute TDS: {ex.Message}";
+                return false;
+            }
+        }
+
+        // ---------------------------------------------------------------- G-7: reverse charge on the purchase side
+        //
+        // One self-balancing dual pair PER notified head (never just the first — a single supplier invoice routinely
+        // carries two, and taking only the first under-collects the §49(4) liability on the rest). Resolution is
+        // checked first because it is pure; the builder lazily creates the RCM ledgers, so it is never touched on a
+        // supply that does not attract reverse charge (ER-13).
+        var rcmPostings = new List<RcmService.RcmPosting>();
+        var rcmShape = DetectRcmShape();
+        if (rcmShape is { } rs && !IsRcmDeclined)
+        {
+            foreach (var leg in rs.Legs)
+            {
+                if (!ResolveRcm(rs, leg).Applies) continue;
+                try
+                {
+                    rcmPostings.Add(_rcm.BuildReverseCharge(
+                        leg.Taxable, item: null, leg.Expense, rs.Party.PartyGst, Date,
+                        SelectedRcmSupplyKind?.Kind ?? RcmService.SupplyKind.Domestic,
+                        RcmRecipientIsPromoter, RcmRecipientIsBodyCorporate));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+                {
+                    Message = $"Cannot compute reverse charge on '{leg.Expense.Name}': {ex.Message}";
+                    return false;
+                }
+            }
+        }
+
+        // Party leg: Sales ⇒ Dr Party (taxable + tax); Purchase ⇒ Cr Party. Pairing holds by construction
+        // (Σ income + Σ tax == party). G-1: the Bill-wise allocation rides on it exactly as on the item invoice
+        // (SG p.80 step 6 / p.82 step 5); null when the panel is off ⇒ byte-identical leg (ER-13).
+        //
+        // When TDS fires the party leg is carved to the NET obligation and carries the withholding detail, so the
+        // bill-wise split must foot to that NET figure — it is the amount actually payable to the party, and it is
+        // what VoucherValidator reconciles the allocations against.
+        var effectivePartyAmount = carve?.NetPartyAmount ?? partyAmount;
+        if (!InvoiceBillAllocationsOk(effectivePartyAmount.Amount)) return false;
+        var invoiceBills = ToInvoiceBillAllocations();
+
+        var partyLine = IsPurchaseInvoice
+            ? new EntryLine(party.Id, effectivePartyAmount, DrCr.Credit,
+                            billAllocations: invoiceBills, tds: carve?.Detail)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills);
+
+        var entryLines = new List<EntryLine>(1 + incomeLines.Count + taxLines.Count) { partyLine };
+        entryLines.AddRange(incomeLines);
+        entryLines.AddRange(taxLines);
+
+        // The TDS-Payable credit leg — appended only when the threshold was actually crossed. Its absence on a
+        // withholding purchase WAS the money defect.
+        if (carve is { TdsPayableLine: { } payableLine })
+            entryLines.Add(payableLine);
+
+        // Every reverse-charge self-accounting pair (each is Cr RCM Output + Dr Input for the same amount, so the
+        // voucher's own balance is untouched).
+        foreach (var rcmPosting in rcmPostings)
+            entryLines.AddRange(rcmPosting.Lines);
+
+        // Counterparty captured field (numbering-design-v2 §8) — "Reference No." (Sales) / "Supplier Invoice No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return false;
+
+        var voucher = new Voucher(
+            Guid.NewGuid(),
+            _type.Id,
+            Date,
+            entryLines,
+            number: 0,
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: party.Id,
+            optional: IsOptional,
+            postDated: IsPostDated,
+            // No inventory lines — HasInventoryLines stays false; no stock is entered.
+            referenceNo: referenceNo,
+            referenceDate: referenceDate,
+            // v49: stamp the ACCOUNTING-INVOICE fact on the voucher. This — not an inference from the posted GST
+            // legs — is what makes the print path call it a tax invoice, so a zero-rated (LUT/export) or a
+            // wholly-exempt service invoice, both of which post NO tax leg, still print as the Rule-46 tax invoices
+            // they are; and a hand-keyed As-Voucher sale is excluded structurally (it never sets this).
+            isAccountingInvoice: true);
+
+        try
+        {
+            var posted = _service.Post(voucher); // enforces pairing/atomicity — never persisted on failure
+
+            // W0-13 S2b — THE SAVE GETS ITS OWN GUARD, and the restore runs FIRST and UNCONDITIONALLY. This is the
+            // shape PostAndSave already had; the two invoice Accepts never got it. Post has appended the voucher to
+            // the shared Company, Save is transactional, and the narrow filter below matches neither a
+            // SqliteException (SQLITE_BUSY / READONLY / FULL) nor an OverflowException — so an ordinary locked-file
+            // failure escaped Accept UNHANDLED with the refused invoice still on the aggregate, and every LATER
+            // save diverged from the .db. A type filter must never be what decides whether the rollback runs.
+            try
+            {
+                _storage.Save(_company);
+            }
+            catch (Exception ex)
+            {
+                _company.RemoveVoucher(posted);
+                if (!SaveFailure.IsReportable(ex)) throw;
+                Message = $"Could not save the company: {ex.Message} " +
+                          "The voucher was not kept — nothing was changed.";
+                return false;
+            }
+
+            SavedNumber = posted.Number;
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
+            _onSaved();
+            return true;
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = "The accounting invoice is out of balance. Not saved.";
+            return false;
+        }
+        catch (InvalidVoucherException ex)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+    }
 
     // =============================================================== TCS additive collection (catalog §13; Phase 7 slice 5)
 
@@ -2485,7 +5749,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             if (nature is null || !nature.IsSelectableOn(Date)) continue; // non-TCS line / legacy year-gated ⇒ skip
 
             if (!value.ContainsKey(nature.Id)) { order.Add(nature); value[nature.Id] = 0m; taxable[nature.Id] = new(); }
-            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
+            // ER-4: the same LineValue the totals / GST / posting use (see ComputeItemInvoiceGst).
+            var lineValue = l.LineValue;
             value[nature.Id] += lineValue.Amount;
 
             // The GST attributable to this line (for the base-incl-GST natures) — only for a GST-taxable line.
@@ -2565,11 +5830,30 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     public void RecalculateItemInvoice()
     {
+        // 🔴 S5e — the same mid-flight suppression Recalculate() carries, and for the same class of reason. The
+        // rehydration fills the party, the value ledger, the item rows, the additional-cost rows and the bill-wise
+        // split one assignment at a time, and EVERY one of those raises a change notification that re-enters here.
+        // SyncInvoiceBillWise would then reconcile a half-built invoice against a party total computed from the
+        // rows that happen to exist so far. One pass runs at the end instead, when the screen is whole.
+        //
+        // 🔴 MUTATION RESULT: deleting this line reddens NOTHING, and the reason is worth stating rather than
+        // leaving for someone to rediscover. Every field a mid-flight pass could write - the bill-wise rows, the
+        // landed-rate columns, the totals - is overwritten by the single pass that runs when the rehydration
+        // finishes, and the one pass that could do real damage (RefreshPriceLevelDefaults, which stamps a Rate onto
+        // an un-dirtied line) self-gates on ShowPriceLevelSelector, which is false on every screen that can reach
+        // this method. It is kept as a suppression, not claimed as a live safeguard.
+        if (_rehydrating) return;
+
         // Price Levels (slice 5; RQ-30): keep the per-line Discount column gate in sync, then auto-fill each
         // un-dirtied line's Rate/Discount from the resolver BEFORE the totals are computed (so they reflect the
         // stamped values). Both are no-ops when the feature is off, so a non-price-level screen is unchanged.
         SyncPriceLevelOnLines();
         RefreshPriceLevelDefaults();
+
+        // G-5: keep each line's "⧉ Allocate batches" affordance in sync with the full four-layer gate, so it is
+        // shown only where it actually does something (the RQ-52 UI-leak discipline the stock screens already use).
+        foreach (var l in InventoryLines)
+            l.WantsBatchAllocation = LineWantsBatchAllocation(l);
 
         var total = ItemsTotal;
         ItemsTotalText = IndianFormat.AmountAlways(total);
@@ -2637,6 +5921,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, cgst, sgst, igst, cess, partyTotal);
 
+        // G-1: keep the Bill-wise panel footing against the SAME party total the derived party leg will carry.
+        SyncInvoiceBillWise(partyTotal);
+
         if (!IsItemInvoice) return; // plain-mode Accept is governed by Recalculate()
 
         var completeLines = InventoryLines.Count(l => l.IsComplete);
@@ -2656,7 +5943,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             && !hasHalfFilled
             && everyLineRateOk
             // A zero-valued invoice may total ₹0 (all lines free); otherwise the value must be positive.
-            && (total > 0m || allowZero);
+            && (total > 0m || allowZero)
+            // G-1: a bill-wise party's split must foot to the party total (spec C-28).
+            && InvoiceBillSplitOk;
     }
 
     /// <summary>
@@ -2780,19 +6069,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// persists on failure), then saves the company. Any domain error is surfaced to <see cref="Message"/>
     /// without crashing.
     /// </summary>
-    private bool AcceptItemInvoice()
+    /// <summary>
+    /// One built item invoice: the balanced accounting legs, the stock lines, and the two fields the header
+    /// captures. <b>Everything that decides a FIGURE is in here</b>, so the Post caller and the Replace caller
+    /// cannot drift apart on what an item invoice IS — which is the whole reason this record exists rather than a
+    /// second, parallel accept path (design finding L3-07's mirror obligation: one derivation, two verbs).
+    /// </summary>
+    private sealed record ItemInvoiceBuild(
+        List<EntryLine> EntryLines,
+        List<VoucherInventoryLine> InventoryLines,
+        Guid PartyId,
+        string? ReferenceNo,
+        DateOnly? ReferenceDate);
+
+    /// <summary>
+    /// Builds an item invoice's accounting legs + stock lines from the screen, or returns <c>null</c> with
+    /// <see cref="Message"/> set on any refusal. Shared verbatim by <see cref="AcceptItemInvoice"/> (which Posts a
+    /// new voucher) and <see cref="AcceptItemInvoiceAlteration"/> (which Replaces a posted one), so GST, TCS, the
+    /// additional-cost pool, the batch split and the bill-wise allocation are derived ONCE.
+    /// </summary>
+    private ItemInvoiceBuild? BuildItemInvoice()
     {
         Message = null;
 
         if (SelectedParty?.Ledger is not { } party)
         {
             Message = $"Select the {PartyCaption.ToLowerInvariant()} for this item invoice.";
-            return false;
+            return null;
         }
         if (SelectedStockLedger is not { } valueLedger)
         {
             Message = $"No {StockLedgerCaption} ledger is configured to post the value leg to.";
-            return false;
+            return null;
         }
 
         // Reject half-filled (touched-but-incomplete) rows up front with a clear message.
@@ -2800,15 +6108,21 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             Message = "Every item line needs a stock item, a godown, a positive quantity (≤ 6 dp) and a " +
                       "positive rate (≤ 2 dp / to the paisa).";
-            return false;
+            return null;
         }
 
         var complete = InventoryLines.Where(l => l.IsComplete).ToList();
         if (complete.Count == 0)
         {
             Message = "Enter at least one item line before accepting.";
-            return false;
+            return null;
         }
+
+        // G-5: raise the batch masters the operator created inline on the sub-screen ("New Number", BOOK p.131)
+        // BEFORE the lines are built, so the Mfg Dt. / Expiry Date typed beside the number are actually recorded
+        // and the batch is a first-class master rather than a bare label. Done here — not when the sub-screen is
+        // accepted — so abandoning the voucher leaves no orphan masters behind.
+        if (!TryCreateInlineBatchMasters(complete)) return null;
 
         // Build the item-invoice stock lines. Each line normally needs a positive rate; a ₹0 rate is accepted only
         // when the voucher type allows zero-valued transactions (RQ-21) — a legitimate free-goods line that moves
@@ -2821,15 +6135,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             {
                 Message = $"Item '{l.SelectedItem!.Name}' needs a rate greater than zero " +
                           "(enable 'Allow zero-valued transactions' to enter a free-goods line at ₹0).";
-                return false;
+                return null;
             }
+            var direction = IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward;
+            var postedRate = l.EffectiveRate ?? new Money(rate);
+
+            // G-5 — a line ALLOCATED ACROSS SEVERAL BATCHES posts as one item line PER BATCH, each carrying its
+            // own batch number and quantity, so the stock genuinely moves in and out of the right lots (BOOK
+            // pp.130–132). The sub-screen has already proved Σ batch qty = the line qty (C-29); this re-checks it
+            // at the boundary rather than trusting a stale split, and refuses instead of silently posting a
+            // different quantity from the one on screen.
+            if (l.HasBatchSplit)
+            {
+                if (!TryAppendSplitBatchLines(l, postedRate, direction, inventoryLines)) return null;
+                continue;
+            }
+
             // Actual (ParsedActualQuantity) moves stock; Billed (ParsedBilledQuantity) drives value + GST (RQ-23).
             // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13). The
             // posted rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             inventoryLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, postedRate,
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
-                direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
+                direction: direction,
                 batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity,
                 // WI-10 Gap 2: the unit the typed quantity AND rate are stated in. l.UnitId is the gated field —
                 // it returns null unless the picker is actually shown AND a non-base unit is chosen, so a hidden
@@ -2850,6 +6178,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // the item landed rates by the valuation engine — a valuation adjustment, not a second GL posting.
         var additionalCostLines = new List<EntryLine>();
         var additionalTotal = Money.Zero;
+        // 🔴 The posted additional-cost legs that carried children (see CarriedLegChildren), matched off one at a
+        // time by LEDGER AND AMOUNT rather than positionally — the panel's rows can be added, cleared or
+        // re-ordered between the rehydration and this accept, so position proves nothing. Whatever is still
+        // unmatched when the loop ends is a leg whose children this build would have dropped: it is refused below
+        // by name rather than posted bare. Null on a fresh entry ⇒ this whole limb is inert (ER-13).
+        var unmatchedCostChildren = _carriedCostLegChildren?.Where(ch => !ch.IsEmpty).ToList();
         if (ShowAdditionalCosts)
         {
             foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
@@ -2857,11 +6191,35 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 if (!r.IsComplete || r.SelectedLedger is not { } led || r.ParsedAmount is not { } amt)
                 {
                     Message = "Every additional-cost line needs a ledger and a paisa-exact amount greater than zero.";
-                    return false;
+                    return null;
                 }
-                additionalCostLines.Add(new EntryLine(led.Id, new Money(amt), DrCr.Debit));
-                additionalTotal += new Money(amt);
+                var costAmount = new Money(amt);
+                IReadOnlyList<CostAllocation>? carriedCostAllocations = null;
+                ForexInfo? carriedCostForex = null;
+                if (unmatchedCostChildren?.FirstOrDefault(ch => ch.LedgerId == led.Id && ch.Amount == costAmount)
+                    is { } matched)
+                {
+                    carriedCostAllocations = matched.CostAllocations.Count > 0 ? matched.CostAllocations : null;
+                    carriedCostForex = matched.Forex;
+                    unmatchedCostChildren.Remove(matched);
+                }
+                additionalCostLines.Add(new EntryLine(
+                    led.Id, costAmount, DrCr.Debit,
+                    costAllocations: carriedCostAllocations, forex: carriedCostForex));
+                additionalTotal += costAmount;
             }
+        }
+
+        if (unmatchedCostChildren is { Count: > 0 })
+        {
+            var orphan = unmatchedCostChildren[0];
+            var orphanName = _company.FindLedger(orphan.LedgerId)?.Name ?? "a ledger no longer in this company";
+            Message = $"The additional-cost leg on '{orphanName}' carries {CarriedChildrenCaption(orphan)} stated "
+                    + $"against {orphan.Amount}, and this alteration no longer posts that leg at that amount. A "
+                    + "cost allocation must foot its own leg, and this screen has no cost-centre panel to re-cut "
+                    + "it on, so accepting would silently drop it. Restore the posted amount, or cancel this "
+                    + "invoice and raise a fresh one.";
+            return null;
         }
 
         // GST (only when enabled): resolve each line's rate + taxability, split intra CGST/SGST vs inter IGST, and
@@ -2879,13 +6237,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
                 Message = $"Cannot accept: {ex.Message}";
-                return false;
+                return null;
             }
             if (gst.HasUnresolved)
             {
                 Message = $"Item '{gst.UnresolvedItem!.Name}' is taxable but no GST rate is set on the item, " +
                           $"the {StockLedgerCaption} ledger, or the company. Set a rate before accepting.";
-                return false;
+                return null;
             }
             taxLines.AddRange(gst.Tax.TaxLines);
             // party = taxable + additional cost + tax + cess. The engine's TaxLines already INCLUDE the ring-fenced
@@ -2918,12 +6276,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // stock/value leg carries taxable only; the additional-cost + tax + TCS-payable lines are additive. Purchase →
         // Dr Purchases (taxable) / Dr Additional Costs / Dr Input tax / Cr Supplier. Sales → Dr Customer / Cr Sales /
         // Cr Output tax / Cr TCS Payable.
+        //
+        // G-1: the Bill-wise allocation is stamped ON the derived party leg — this is the whole fix. Validated
+        // against the party total computed RIGHT HERE (not a stale display figure), so a GST/TCS change that moved
+        // the total since the last recalc cannot post a mis-footed allocation. Null when the panel is off, so a
+        // non-bill-wise party posts a byte-identical leg (ER-13).
+        if (!InvoiceBillAllocationsOk(partyAmount.Amount)) return null;
+        var invoiceBills = ToInvoiceBillAllocations();
+
+        // 🔴 THE CHILD COLLECTIONS THE POSTED VALUE AND PARTY LEGS CARRIED GO BACK ON — or the alteration is
+        // refused BY NAME. These two constructions are where the loss happened: the partition upstream classifies
+        // every posted leg but reads only LedgerId and Amount out of it, so a bare `new EntryLine(...)` here
+        // destroyed the cost-centre attribution and the forex stamp on save, under the message "altered."
+        // TryCarryDerivedLegChildren states the carry-or-refuse rule. The VALUE leg is tested FIRST because it is
+        // the leg the operator's own edit moves, so its sentence is the one that explains what they just did; the
+        // party leg moves with it and would otherwise report the same amendment in the supplier's terms.
+        if (!TryCarryDerivedLegChildren(
+                _carriedValueLegChildren, "value leg", valueLedger.Id, taxable,
+                out var valueCostAllocations, out var valueForex)) return null;
+        if (!TryCarryDerivedLegChildren(
+                _carriedPartyLegChildren, "party leg", party.Id, partyAmount,
+                out var partyCostAllocations, out var partyForex)) return null;
+
         var partyLine = IsPurchaseInvoice
-            ? new EntryLine(party.Id, partyAmount, DrCr.Credit)
-            : new EntryLine(party.Id, partyAmount, DrCr.Debit, tcs: belowThresholdDetail);
+            ? new EntryLine(party.Id, partyAmount, DrCr.Credit, billAllocations: invoiceBills,
+                            costAllocations: partyCostAllocations, forex: partyForex)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills,
+                            costAllocations: partyCostAllocations, forex: partyForex, tcs: belowThresholdDetail);
         var stockLine = IsPurchaseInvoice
-            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit)
-            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit);
+            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit,
+                            costAllocations: valueCostAllocations, forex: valueForex)
+            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit,
+                            costAllocations: valueCostAllocations, forex: valueForex);
 
         var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count + tcsPayableLines.Count)
             { stockLine, partyLine };
@@ -2931,24 +6315,57 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         entryLines.AddRange(taxLines);
         entryLines.AddRange(tcsPayableLines);
 
+        // Counterparty captured field (numbering-design-v2 §8) — "Supplier Invoice No." / "Reference No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return null;
+
+        return new ItemInvoiceBuild(entryLines, inventoryLines, party.Id, referenceNo, referenceDate);
+    }
+
+    /// <summary>
+    /// Ctrl+A accept for item-invoice mode: builds the invoice (see <see cref="BuildItemInvoice"/>) and posts it
+    /// through <see cref="LedgerService.Post"/> (which enforces pairing + atomicity — nothing persists on
+    /// failure), then saves the company. Any domain error is surfaced to <see cref="Message"/> without crashing.
+    /// </summary>
+    private bool AcceptItemInvoice()
+    {
+        if (BuildItemInvoice() is not { } built) return false;
+
         var voucher = new Voucher(
             Guid.NewGuid(),
             _type.Id,
             Date,
-            entryLines,
+            built.EntryLines,
             number: 0,
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
-            partyId: party.Id,
+            partyId: built.PartyId,
             optional: IsOptional,
             postDated: IsPostDated,
-            inventoryLines: inventoryLines);
+            inventoryLines: built.InventoryLines,
+            referenceNo: built.ReferenceNo,
+            referenceDate: built.ReferenceDate);
 
         try
         {
             var posted = _service.Post(voucher); // enforces pairing + atomic stock + no-negative — never persisted on failure
-            _storage.Save(_company);
+
+            // W0-13 S2b — the same save guard as AcceptAccountingInvoice and PostAndSave: restore FIRST and
+            // UNCONDITIONALLY, and only then let SaveFailure.IsReportable decide message-vs-rethrow. See the note
+            // there; on this path Post has also applied the stock movement, which RemoveVoucher reverses with it.
+            try
+            {
+                _storage.Save(_company);
+            }
+            catch (Exception ex)
+            {
+                _company.RemoveVoucher(posted);
+                if (!SaveFailure.IsReportable(ex)) throw;
+                Message = $"Could not save the company: {ex.Message} " +
+                          "The voucher was not kept — nothing was changed.";
+                return false;
+            }
+
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
         }

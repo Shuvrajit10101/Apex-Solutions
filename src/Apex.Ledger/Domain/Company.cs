@@ -11,6 +11,7 @@ public sealed class Company
     private readonly List<Ledger> _ledgers = new();
     private readonly List<VoucherType> _voucherTypes = new();
     private readonly List<Voucher> _vouchers = new();
+    private readonly List<VoucherEditLogEntry> _voucherEditLog = new();
     private readonly List<CostCategory> _costCategories = new();
     private readonly List<CostCentre> _costCentres = new();
     private readonly List<Budget> _budgets = new();
@@ -65,9 +66,62 @@ public sealed class Company
     public string MailingName { get; set; }
 
     public string? Address { get; set; }
+
+    /// <summary>
+    /// The company's postal country. <b>Note the default:</b> unlike <see cref="PartyMailingDetails.Country"/>,
+    /// which is nullable and unset until typed, this is <b>non-null and defaults to "India"</b> on every company
+    /// ever constructed. It is therefore <b>not evidence that anything was captured</b>, which is why the printed
+    /// supplier block keys off <see cref="Address"/> rather than off this field — see
+    /// <c>VoucherPrintProjector.SupplierPostalAddressText</c>.
+    /// </summary>
     public string Country { get; set; } = "India";
+
+    /// <summary>
+    /// The company's <b>postal</b> State, and the <b>source of truth</b> for the company's State. <b>No print
+    /// path reads this</b> — the printed supplier State is the GST home State
+    /// (<c>VoucherPrintProjector.SellerBlock</c>). It is <b>not</b> a dead column: the canonical
+    /// XML export/import round-trip carries it (<c>CanonicalMapper</c> → <c>CanonicalXml</c> → <c>ImportPlan</c>),
+    /// so books imported from canonical XML hold real values here.
+    /// <para><b>Its relationship to <see cref="GstConfig.HomeStateCode"/> is SETTLED (INHERIT).</b> The GST home
+    /// State takes its initial value from this one — as a DISPLAY default seeded when the statutory screen is
+    /// populated, never as a stamp written at creation — and then stays editable, because a registration in a
+    /// State other than the postal one is legal. When the two differ the operator is warned and nothing is
+    /// rewritten; both columns are kept. <b>Nothing here defaults or copies anything</b>: the seeding lives in
+    /// the desktop layer's statutory screen, and the advisory in <c>CompanyStateConsistency</c>. A creation-time
+    /// stamp would be silently discarded — the store persists <c>gst_home_state</c> whenever a config object
+    /// exists but rebuilds the config only when GST is enabled.</para>
+    /// </summary>
     public string? State { get; set; }
+
+    /// <summary>The company's postal PIN code; validated by <see cref="EnsureValid"/> against
+    /// <see cref="IndianPinCode"/>, the same rule the party mailing block uses.</summary>
     public string? Pin { get; set; }
+
+    /// <summary>
+    /// Validates the company header: a non-blank <see cref="Pin"/> must be a six-digit Indian PIN, and
+    /// <see cref="BooksBeginFrom"/> must not precede <see cref="FinancialYearStart"/>.
+    /// Throws <see cref="ArgumentException"/> on a bad value (fail-fast, ER-6). Everything else is free text.
+    /// <para>The PIN message names the <b>company</b> explicitly so it cannot be confused with the party-side
+    /// message from <see cref="PartyMailingDetails.EnsureValid"/>, which is worded differently on purpose.</para>
+    ///
+    /// <para><b>🔴 THE DATE RULE IS HERE BECAUSE THE CONSTRUCTOR ALONE COULD NOT HOLD IT.</b> Both dates are
+    /// plain settable properties, so any caller can assign a pair the constructor would have refused — and
+    /// <c>SqliteCompanyStore.Load</c> rebuilds the aggregate through <c>new Company(...)</c>. A company saved
+    /// with <see cref="BooksBeginFrom"/> before <see cref="FinancialYearStart"/> therefore threw on the way
+    /// back IN: the write succeeded and the book was permanently unopenable, with no UI recovery.
+    /// <b>Save and Load now refuse the same states</b>, which is the only arrangement under which a successful
+    /// save is a promise that the book can be reopened.</para>
+    /// </summary>
+    public void EnsureValid()
+    {
+        if (!IndianPinCode.IsValidOrBlank(Pin))
+            throw new ArgumentException($"Company PIN code '{Pin}' is not a valid 6-digit Indian PIN code.");
+
+        if (BooksBeginFrom < FinancialYearStart)
+            throw new ArgumentException(
+                $"Company books-begin date {BooksBeginFrom:dd-MMM-yyyy} is earlier than the financial-year "
+                + $"start {FinancialYearStart:dd-MMM-yyyy}; a company in that state cannot be reopened.");
+    }
 
     /// <summary>Default 1-Apr of the working year.</summary>
     public DateOnly FinancialYearStart { get; set; }
@@ -247,6 +301,27 @@ public sealed class Company
     public bool EnableJobOrderProcessing { get; set; }
 
     /// <summary>
+    /// Company configuration <b>"Warn on Negative Stock Balance"</b> (plan.md NS-4; schema v50). When on, a posting
+    /// that leaves an (item, godown, batch) on-hand below zero produces an operator WARNING — it never rejects the
+    /// posting. Negative stock itself is always permitted: TallyPrime has no built-in block anywhere, and its own
+    /// F12 option is advisory only ("a warning message of negative stock with quantity details will be displayed",
+    /// after which the voucher still saves — official TallyHelp, <i>Configuring an Invoice</i> and the Sales FAQ;
+    /// <b>the licensed corpus is silent — 0 hits across all ten PDFs</b>, so this is docs-sourced, not
+    /// corpus-sourced). The engine's <see cref="Services.InventoryPostingService.DetectNegativeStock"/> is
+    /// unconditional; only <see cref="Services.InventoryPostingService.NegativeStockWarnings"/> consults this flag.
+    ///
+    /// <para><b>⚠️ THIS FLAG DEFAULTS TRUE — the only company flag that does.</b> Every other one defaults false, so
+    /// "column absent" and "default" coincide and a missing value is harmless. Here they do NOT coincide: the
+    /// <c>companies.warn_on_negative_stock</c> column is <c>INTEGER NOT NULL <b>DEFAULT 1</b></c>, and every read
+    /// path that could see a pre-v50 document must yield <c>true</c> rather than <c>default(bool)</c> — the
+    /// canonical-XML attribute read, the JSON DTO's own initialiser, the SQLite migration backfill and the
+    /// downgrade round-trip. Getting any one of them wrong silently switches warnings OFF on every upgraded book,
+    /// which is invisible until someone oversells. <c>NegativeStockDefaultTrueTests</c> (Io) and
+    /// <c>NegativeStockFlagSchemaTests</c> (Sqlite) fail if any path regresses.</para>
+    /// </summary>
+    public bool WarnOnNegativeStock { get; set; } = true;
+
+    /// <summary>
     /// Company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). Master gate
     /// for the whole Payroll module: the employee/pay-head masters, the Attendance/Payroll voucher types and the
     /// payroll reports are all hidden/inert when it is off.
@@ -344,6 +419,55 @@ public sealed class Company
     public IReadOnlyList<Ledger> Ledgers => _ledgers;
     public IReadOnlyList<VoucherType> VoucherTypes => _voucherTypes;
     public IReadOnlyList<Voucher> Vouchers => _vouchers;
+
+    /// <summary>
+    /// The <b>voucher edit log</b> (schema v52): one <see cref="VoucherEditLogEntry"/> per Cancel / Delete /
+    /// Alter applied to a posted voucher, in the order the verbs ran. Empty on every book that has never used
+    /// one of the three, which is why this addition moves no figure anywhere (ER-13).
+    ///
+    /// <para><b>Append-only, and the persistence layer enforces it independently of this list.</b>
+    /// <c>SqliteCompanyStore.Save</c> is a delete-all + full re-insert snapshot of the aggregate, and a log that
+    /// went through that cycle could be erased by a single save from a stale in-memory company. So the store does
+    /// NOT delete this table in <c>DeleteCompanyRows</c> and inserts with <c>INSERT OR IGNORE</c> on the entry's
+    /// own primary key: rows already written stay written, and re-saving the same entry is a no-op. The
+    /// precedent is <c>saved_views</c>, the other table <c>Save</c> deliberately does not own.</para>
+    /// </summary>
+    public IReadOnlyList<VoucherEditLogEntry> VoucherEditLog => _voucherEditLog;
+
+    /// <summary>The most recent <see cref="VoucherEditLog"/> entry, or <c>null</c> when nothing has been
+    /// cancelled, deleted or altered. This is how a caller gets hold of the entry a verb just appended, so it can
+    /// hand it back to <c>LedgerService.DiscardUncommittedEditLogEntry</c> when its save does not commit.</summary>
+    public VoucherEditLogEntry? LastVoucherEditLogEntry =>
+        _voucherEditLog.Count == 0 ? null : _voucherEditLog[^1];
+
+    /// <summary>
+    /// Appends <paramref name="entry"/> to the edit log. <b>Public because the two REHYDRATION paths need it</b>
+    /// — <c>SqliteCompanyStore.Load</c> replaying stored rows, and any future importer — exactly as
+    /// <see cref="AddInventoryVoucher"/> is public for the same reason. The verbs themselves go through
+    /// <see cref="AddVoucherEditLogEntryInternal"/>; there is no correctness difference, only intent.
+    /// </summary>
+    public void AddVoucherEditLogEntry(VoucherEditLogEntry entry) =>
+        _voucherEditLog.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+
+    internal void AddVoucherEditLogEntryInternal(VoucherEditLogEntry entry) => _voucherEditLog.Add(entry);
+
+    /// <summary>
+    /// Removes <paramref name="entry"/> — and refuses unless it is the <b>last</b> entry in the log.
+    ///
+    /// <para>🔴 <b>The last-only bound is the whole point.</b> An audit log with an unbounded delete is not an
+    /// audit log. This one can only drop the entry that was just appended, which is precisely the compensating
+    /// undo a verb needs when the save that would have made it durable did not commit — and is structurally
+    /// unable to reach anything older. See <c>LedgerService.DiscardUncommittedEditLogEntry</c> for why that
+    /// undo has to exist in an application whose persistence is a whole-aggregate snapshot with no transaction
+    /// spanning the engine and the store.</para>
+    /// </summary>
+    internal bool RemoveLastVoucherEditLogEntryInternal(VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (_voucherEditLog.Count == 0 || !ReferenceEquals(_voucherEditLog[^1], entry)) return false;
+        _voucherEditLog.RemoveAt(_voucherEditLog.Count - 1);
+        return true;
+    }
 
     /// <summary>Cost categories (catalog §6); includes the seeded "Primary Cost Category".</summary>
     public IReadOnlyList<CostCategory> CostCategories => _costCategories;
@@ -653,10 +777,12 @@ public sealed class Company
     /// <summary>The e-invoice IRP artefact for a given source voucher (at most one per covered voucher), or <c>null</c>.</summary>
     public EInvoiceRecord? FindEInvoiceRecordForVoucher(Guid sourceVoucherId) =>
         _eInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId);
-    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given uppercased document number — a
-    /// cancelled/used doc-no is NEVER reusable (§2.5), so <c>EInvoiceService.PrepareRecord</c> refuses a second record.</summary>
-    public bool HasEInvoiceDocumentNumber(string documentNumberUpper) =>
-        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumberUpper, StringComparison.Ordinal));
+    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given document number, compared
+    /// <b>case-insensitively</b> — a cancelled/used doc-no is NEVER reusable (§2.5; IRP is case-insensitive), so
+    /// <c>EInvoiceService.PrepareRecord</c> refuses a second record even when it differs only in case. The stored value is
+    /// the AS-TYPED rendered doc-no (case preserved for display/emission); only this reuse COMPARISON folds case.</summary>
+    public bool HasEInvoiceDocumentNumber(string documentNumber) =>
+        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumber, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Adds an e-Way Bill artefact (Phase 9 slice 5; also used by the store/import rehydration).</summary>
     public void AddEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
@@ -881,6 +1007,40 @@ public sealed class Company
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
+    /// <summary>
+    /// Swaps <paramref name="existing"/> for <paramref name="replacement"/> <b>at its own index</b> — the
+    /// aggregate half of <c>LedgerService.Replace</c> (phase-10-11 design §6.5 clause 4).
+    ///
+    /// <para><b>Why this exists rather than Remove + Add.</b> <see cref="List{T}.Remove"/> followed by
+    /// <see cref="List{T}.Add"/> moves the voucher to the END of the book, and that position is not an
+    /// implementation detail: <c>SqliteCompanyStore.ReadVouchers</c> selects <c>ORDER BY rowid</c> and
+    /// <c>Load</c> re-posts in that order, so the in-memory list position SURVIVES save→load and IS the
+    /// <b>rehydration order</b> — which <c>Outstandings</c> then reads, walking <c>Vouchers</c> in list order
+    /// <i>"preserving first-seen order"</i> to decide the order open bills are listed in. An index-preserving
+    /// assignment is therefore the only correct primitive.
+    /// <para>⚠️ <b>CORRECTED (S5a review):</b> this used to say the index IS "the Day Book order of same-dated
+    /// vouchers". It is not — <c>DayBook.Build</c> sorts by (Date, Number) and never reads the list index. The
+    /// index is still worth preserving; the reason above is the true one.</para></para>
+    ///
+    /// <para><b>Internal, deliberately.</b> <see cref="Vouchers"/> hands out the live backing list, so
+    /// <c>((List&lt;Voucher&gt;)company.Vouchers)[i] = v</c> already compiles and would bypass every posting
+    /// guard. This method is not that shortcut made public: it is the one seam the validating service uses,
+    /// and it stays <c>internal</c> so no caller outside the domain assembly can reach an unvalidated swap.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="existing"/> is not in this company's book.</exception>
+    internal void ReplaceVoucherInternal(Voucher existing, Voucher replacement)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var index = _vouchers.IndexOf(existing);
+        if (index < 0)
+            throw new InvalidOperationException(
+                $"Voucher {existing.Id} is not posted in this company; nothing to replace.");
+
+        _vouchers[index] = replacement;
+    }
+
     // ---- Master removal (used by the import roll-back so a rejected batch leaves no partial masters, RQ-23).
     //      Delete-guards for interactive Alter/Delete live in the services; these are the raw list removals the
     //      transactional importer needs to undo what it added within a single failed apply. ----
@@ -891,7 +1051,20 @@ public sealed class Company
     public bool RemoveLedger(Ledger ledger) => _ledgers.Remove(ledger);
     /// <summary>Removes a voucher type (used by the transactional import roll-back).</summary>
     public bool RemoveVoucherType(VoucherType type) => _voucherTypes.Remove(type);
-    /// <summary>Removes a posted voucher (used by the transactional import roll-back).</summary>
+    /// <summary>
+    /// Removes a posted voucher (used by the transactional import roll-back).
+    ///
+    /// <para>🔴 <b>THIS DELIBERATELY WRITES NO EDIT-LOG ENTRY, and the absence is a decision.</b> Every caller of
+    /// this method — <c>ApplyJournal.Rollback</c> and the three view-model undo stacks
+    /// (<c>PosBillingViewModel</c>, <c>VoucherEntryViewModel</c>) — is undoing a voucher that IT posted moments
+    /// earlier within an operation that then failed. Nothing was ever saved, so there is no edited book to record;
+    /// a log entry here would assert that an operator deleted a voucher when in fact one was never accepted. The
+    /// verb that removes an ALREADY-POSTED voucher is <c>LedgerService.Delete</c>, and that one logs.</para>
+    ///
+    /// <para>The line that separates the two is "was this voucher ever part of a committed book?" — not "is a
+    /// voucher being removed?". A future caller that uses this method to remove a voucher the operator had
+    /// previously accepted would be on the wrong side of it and must go through <c>LedgerService.Delete</c>.</para>
+    /// </summary>
     public bool RemoveVoucher(Voucher voucher) => _vouchers.Remove(voucher);
     /// <summary>Removes a currency (used by the transactional import roll-back).</summary>
     public bool RemoveCurrency(Currency currency) => _currencies.Remove(currency);
@@ -916,6 +1089,33 @@ public sealed class Company
     public Ledger? FindLedger(Guid id) => _ledgers.FirstOrDefault(l => l.Id == id);
     public VoucherType? FindVoucherType(Guid id) => _voucherTypes.FirstOrDefault(t => t.Id == id);
     public Voucher? FindVoucher(Guid id) => _vouchers.FirstOrDefault(v => v.Id == id);
+
+    /// <summary>
+    /// The ONE rendered "Voucher No." policy (numbering-design-v2 §2.1): the human document number for
+    /// <paramref name="voucher"/> — <c>Prefix ++ leftPad(Number, Width) ++ Suffix</c> using the date-selected
+    /// affix rows of the voucher's type (<see cref="Services.VoucherNumberFormatter.Render"/>). Every render
+    /// site (print, statutory, registers, toasts) routes through here so the number is identical everywhere.
+    /// With an empty numbering config this is byte-identical to <c>Number.ToString()</c> (ER-13). Falls back to
+    /// the bare int only when the type cannot be resolved (referential integrity normally guarantees it can).
+    /// </summary>
+    public string FormatVoucherNumber(Voucher voucher)
+    {
+        var type = FindVoucherType(voucher.TypeId);
+        return type is null
+            ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : Services.VoucherNumberFormatter.Render(type, voucher.Number, voucher.Date);
+    }
+
+    /// <summary>The rendered "Voucher No." for a stock/order voucher — the second (inventory) engine's analogue of
+    /// <see cref="FormatVoucherNumber(Voucher)"/>, so an inventory register/toast reads the same affixed number the
+    /// accounting side does (numbering-design-v2 §3).</summary>
+    public string FormatVoucherNumber(InventoryVoucher voucher)
+    {
+        var type = FindVoucherType(voucher.TypeId);
+        return type is null
+            ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : Services.VoucherNumberFormatter.Render(type, voucher.Number, voucher.Date);
+    }
     public CostCategory? FindCostCategory(Guid id) => _costCategories.FirstOrDefault(c => c.Id == id);
     public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);

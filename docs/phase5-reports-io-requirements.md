@@ -214,14 +214,93 @@ Stated so the Phase-5 boundary is unambiguous:
 - **RQ-10 — Print/preview a voucher.** The system SHALL render **a single voucher** (accounting or item) to a
   printable document showing its type, number, date, party, entry lines (Dr/Cr), narration, and totals.
   *(catalog §17 "voucher print")*
-- **RQ-11 — Print an invoice (tax-invoice format).** For a **sales / purchase item-invoice** the system SHALL
+- **RQ-11 — Print a TAX INVOICE — SALES ONLY.** **▶ 🔴 AMENDED 2026-08-20 (T0-11 slice S0); the original
+  scope phrase is quoted and struck, never deleted — the reasoning is the correction block under RQ-11b.**
+  It read ~~*"For a **sales / purchase item-invoice** the system SHALL render a **tax-invoice** document"*~~,
+  and on its purchase half that commanded **a document we have no right to issue**.
+  For a **SALES item-invoice or SALES accounting-(service)-invoice** the system SHALL
   render a **tax-invoice** document with: **(a)** a header block — company **name / address / GSTIN**;
   **(b)** the **party** block — name / address / **GSTIN** + place of supply; **(c)** an **items table** —
   serial, description, **HSN/SAC**, quantity + unit, rate, discount, **taxable value**; **(d)** a **GST
   breakup** — **CGST + SGST** (intra-state) or **IGST** (inter-state), rate-wise, from the Phase-4 tax
   computation; **(e)** totals — **total taxable, total tax, invoice grand total**; **(f)** the **amount in
   words**; and **(g)** a **declaration + signature** block. Every figure SHALL tie to the posted voucher to
-  the paisa (ER-4). *(catalog §17 "invoice print format"; grounded in a real trading tax-invoice)*
+  the paisa (ER-4). The system SHALL **NOT** title a **Purchase** voucher a tax invoice under any shape —
+  RQ-11a is that document. *(catalog §17 "invoice print format"; grounded in a real trading tax-invoice;
+  **CGST Act §31(1)/(2)**, which puts the duty on "a registered person **supplying**")*
+- **RQ-11a — Print a recipient-side RECORD document (purchase). NEW 2026-08-20 (T0-11 slice S0).** For a
+  **PURCHASE item-invoice or purchase accounting-(service)-invoice** the system SHALL render the voucher as a
+  **RECORD of the supplier’s document**, not as a document of ours. It SHALL carry the same item detail
+  RQ-11(c) requires — serial, description, HSN/SAC, quantity + unit, rate, discount, taxable value — and it
+  SHALL **NOT** be titled *Tax Invoice*, **NOR** *Bill of Supply*: **CGST Rule 49 puts a bill of supply on
+  the SUPPLIER too**, so widening the outward title to a purchase would swap one false statement for another.
+  It SHALL be headed by the **SUPPLIER’s** identity — supplier name / address / GSTIN in the supplier block
+  and **our** name / address / GSTIN in the recipient block — and it SHALL suppress every particular that is
+  the supplier’s to state: **place of supply**, **our declaration** and **our signature** (CGST **Rule 46**,
+  whose place-of-supply, delivery-address, reverse-charge and signature particulars are all *supplier*
+  particulars). The supplier’s own document number SHALL be carried in the existing **ReferenceNo /
+  ReferenceCaption** pair, whose helper already returns *"Supplier Invoice No."* for a Purchase
+  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962`); **our** voucher number SHALL carry a caption
+  of its own reading *"Our Record Ref."* and SHALL **NEVER** appear under a caption reading *"Invoice No."* —
+  under the supplier’s identity that caption is a **false statement**, not a cosmetic label. Every figure
+  SHALL tie to the posted voucher to the paisa (ER-4). *(CGST Act §31(1) — the duty attaches to the supplier,
+  so on this document we issue nothing; CGST Rules 46 and 49)*
+  **▶ TITLE — OURS, RULING 9, AND IT CAN NEVER JOIN THE VERIFIED SET.** The title strings this requirement and
+  RQ-11b ship — **PURCHASE RECORD** and **PURCHASE RETURN RECORD** — are a **documented divergence labelled as
+  OURS**. The corpus names no title for a purchase print, shows no specimen, and evidences no law-driven title
+  derivation at all; the only title mechanism it attests is a free-text per-voucher-type default. The word
+  "Tally" appears in none of them (ER-11 / RQ-13). See `docs/adr/0002-printed-document-three-axis-split.md`.
+  **▶ ONE EXCEPTION, DEFERRED AND RECORDED RATHER THAN LEFT SILENT.** CGST **§31(3)(f)** read with **Rule 47A**
+  makes the **RECIPIENT** the statutory issuer of a tax invoice on a reverse-charge inward supply from an
+  **UNREGISTERED** supplier. That document is **NOT built**; the gap is recorded in `plan.md` (Phase 10.13 S5)
+  together with the reason deferring it costs nothing today. The system SHALL **refuse** to title any purchase
+  a self-invoice on facts it does not persist.
+- **RQ-11b — Print a CREDIT / DEBIT NOTE (CGST Rule 53). NEW 2026-08-20 (T0-11 slice S0).** For a **Credit
+  Note** or a **Debit Note** the system SHALL render a note document carrying, at **value level**: the
+  **nature of the document**, the **serial number and date of the corresponding tax invoice**, and the
+  **value of the taxable supply, the rate of tax, and the amount credited or debited** — projected from the
+  voucher’s accounting lines and the persisted original-invoice link, with **no HSN, no quantity and no
+  per-item table required**. The reference caption SHALL read **"Original Invoice No."** on a note; today it
+  reads *"Reference No."*, because the caption helper is Purchase-vs-everything-else
+  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962`).
+  **▶ ENTITLEMENT IS NOT THE BASE TYPE OF THE NOTE.** CGST **§34** puts the note on *"the registered person
+  who has supplied"*. A Debit Note raised for a **purchase return** is therefore a document our SUPPLIER
+  issues (as his credit note) and ours is a **RECORD**; a Debit Note raised for an **upward revision of our
+  OWN sale** is a document we are obliged to issue. The system SHALL discriminate on the **ORIGINAL
+  voucher’s base type**, resolved through the persisted credit/debit-note link — **never** on the base type
+  of the note itself, and never on the adjustment direction.
+  **▶ ⚠️ CITATION LIMIT, STATED RATHER THAN IMPLIED — READ THIS BEFORE QUOTING THE REQUIREMENT.** The
+  **SUBSTANCE** of the Rule 53(1A) particulars listed above is verified at primary source. **The CLAUSE
+  LETTERING IS UNREACHED:** `taxinformation.cbic.gov.in` fails TLS chain verification, and
+  `cbic-gst.gov.in/pdf/CGST-Rules-2017-Part-A.pdf` returns 404. **No clause letter is written into this
+  requirement, into any test name, or into any code comment**, and a second reader must re-verify the
+  lettering before any of it is quoted anywhere. This project has already had to strip mis-attributed
+  citations out of shipped code once. *(CGST Act §34(1)/(3)/(4); CGST Rule 53)*
+  **▶ THIS REQUIREMENT HAS NO DEPENDENCY ON CENSUS T0-10.** A note cannot carry inventory lines **at all** —
+  `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws *"Item-invoice stock lines are only valid on a
+  Purchase or Sales voucher"* on every post — so the value-level shape above **is** the statutory minimum and
+  is fully reachable today. Any per-item table on a note would sit **above** that minimum and is labelled OURS.
+
+> **▶ 🔴 WHY RQ-11 WAS AMENDED, RECORDED IN PLACE — AND THE CENSUS INHERITED THIS ERROR.**
+> **RQ-11 as shipped commanded a document we have no right to issue.** Its scope phrase read *"For a **sales
+> / purchase item-invoice** … render a **tax-invoice** document"*. **CGST Act §31(1) puts the tax invoice on
+> "a registered person SUPPLYING"** — the supplier. On a Purchase we are the RECIPIENT and we issue nothing.
+> 1. **THE CODE WAS RIGHT AND THE REQUIREMENT WAS WRONG.** `GstReportSupport.IsTaxInvoice`
+>    (`src/Apex.Ledger/Reports/GstReportSupport.cs:1346`) returns false unless the base type is Sales, and
+>    **Sales-only is the CORRECT answer to the question that predicate is named for** — *"are we entitled to
+>    issue a Rule-46 tax invoice?"*. It is not the defect, and it is not edited.
+> 2. **`docs/full-clone-census.md` T0-11 INHERITED THE ERROR.** Its evidence cell reads *"Contradicts
+>    `docs/phase5-reports-io-requirements.md:217` RQ-11"* and treats RQ-11 as the authority the code violates.
+>    It is the other way round: **the requirement contradicted the Act**. The census is corrected in place.
+> 3. **WHAT IS ACTUALLY BROKEN IS A DIFFERENT DEFECT AT A DIFFERENT ADDRESS.** Not the predicate, but the
+>    **CALL SITE** that used it to answer a second, unrelated question — *"should this render with item
+>    detail?"* — at `src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`. A purchase item-invoice
+>    therefore falls to the plain Dr/Cr voucher projection and prints with **zero item detail**, which is the
+>    user-visible symptom the census named while naming the wrong cause.
+> 4. **THE RESOLUTION IS AN ADR, NOT A REQUIREMENT CLAUSE** —
+>    `docs/adr/0002-printed-document-three-axis-split.md` separates **entitlement** (may we ISSUE this?) from
+>    **rendering** (does it show ITEM DETAIL?) from **orientation** (WHOSE identity heads it?). RQ-11, RQ-11a
+>    and RQ-11b are the three requirement-level consequences of that split.
 - **RQ-12 — Print configuration (F12).** The invoice/report print SHALL offer an **F12 print configuration**:
   **title override**, **include/exclude company logo**, show/hide narration/declaration, and — for invoices —
   a **copy type** marking of **Original for Recipient / Duplicate for Transporter / Triplicate for Supplier**

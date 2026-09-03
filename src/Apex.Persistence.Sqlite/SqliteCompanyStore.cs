@@ -55,9 +55,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         }.ToString();
 
         _connection = new SqliteConnection(connStr);
-        _connection.Open();
-        Exec("PRAGMA foreign_keys = ON;");
-        EnsureSchema();
+
+        // If anything after Open() throws, the caller never receives this object and can never dispose it — and
+        // SqliteConnection has no finaliser, so the file handle would stay open for the life of the PROCESS.
+        // That matters most in the one case where this constructor is most likely to throw: a corrupt or
+        // truncated company file, where EnsureSchema fails. The user's next move is to restore a backup over
+        // that very file, and a leaked handle would make the restore impossible.
+        try
+        {
+            _connection.Open();
+            Exec("PRAGMA foreign_keys = ON;");
+            EnsureSchema();
+        }
+        catch
+        {
+            _connection.Dispose();
+            throw;
+        }
     }
 
     // ------------------------------------------------------------------ schema / migrations
@@ -1123,6 +1137,160 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 46;
         }
 
+        // v46 → v47: add the voucher-numbering config (numbering-design-v2 §6) — three additive columns on
+        // voucher_types (prevent_duplicate / number_width / prefill_with_zero) plus the two date-keyed affix child
+        // tables (voucher_type_prefix / _suffix) and their indexes, then bump the marker. Purely additive — existing
+        // v46 rows read the three DEFAULT 0 columns and the two tables start empty, so a company that never
+        // configures numbering is byte-identical to a v46 company (ER-13).
+        if (version == 46)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV46ToV47;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 47);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 47;
+        }
+
+        // v47 → v48: apply the numbering-S5 counterparty captured field (two nullable columns on vouchers,
+        // reference_no/reference_date), then bump the marker. Existing v47 data survives untouched (ALTER … ADD
+        // COLUMN only; no new tables, no row rewrites). ER-13 byte-identical when no voucher carries a reference
+        // (both columns read NULL).
+        if (version == 47)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV47ToV48;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 48);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 48;
+        }
+
+        // v48 → v49: add the accounting-invoice flag (is_accounting_invoice INTEGER NOT NULL DEFAULT 0 on vouchers),
+        // then bump the marker. Existing v48 data survives untouched (ALTER … ADD COLUMN only; no new tables, no row
+        // rewrites) and every existing row reads the DEFAULT 0 = "not an accounting invoice" — exactly how v48 read
+        // every row, so an existing company prints and serialises byte-identically (ER-13).
+        if (version == 48)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV48ToV49;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 49);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 49;
+        }
+
+        // v49 → v50: add the negative-stock warning toggle (warn_on_negative_stock INTEGER NOT NULL DEFAULT 1 on
+        // companies), then bump the marker. ⚠️ The DEFAULT is 1, not 0 — unlike every other flag column in this
+        // schema. ALTER … ADD COLUMN back-fills every existing v49 company row with 1, so an upgraded book comes up
+        // with negative-stock warnings ON, exactly as a freshly created company does. That IS the intended upgrade:
+        // the flag is advisory (it changes nothing about what posts), and defaulting it off would silently take the
+        // warning away from every existing user without them ever having asked for that.
+        if (version == 49)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV49ToV50;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 50);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 50;
+        }
+
+        // v50 → v51: add the GST five-level hierarchy columns (the four-column MasterGstDetails block on groups and
+        // on stock_groups, the same block prefixed gst_default_ on companies, and the two source-order options), then
+        // bump the marker. Existing v50 data survives untouched (ALTER … ADD COLUMN only; no new tables) and the
+        // twelve master-GST columns read NULL = "no GST block", exactly what a v50 master was.
+        // ⚠️ MigrateV50ToV51 ALSO carries a back-fill UPDATE, and it is load-bearing: every existing company row is
+        // moved to gst_source_* = 1 (StockItemFirst), because item-first is how this application has always resolved
+        // GST. A fresh company gets the column DEFAULT 0 (LedgerFirst) instead — the two paths deliberately differ,
+        // and they can only differ because the back-fill is a statement rather than the default. Do not "tidy" the
+        // UPDATE away; a fresh database never reaches this code, so it cannot be caught by it.
+        if (version == 50)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV50ToV51;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 51);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 51;
+        }
+
+        // v51 → v52: create the voucher_edit_log table + its index, then bump the marker. Existing v51 data
+        // survives untouched - this migration adds NO column to any existing table, so it carries no DEFAULT and
+        // no back-fill UPDATE at all, and nothing it creates is read by any figure-producing code. The upgraded
+        // book simply gains an empty log, which is the truth: this application kept no record of cancellations,
+        // deletions or alterations before v52, so there is nothing to reconstruct and any row written here for a
+        // pre-v52 edit would be fabricated.
+        if (version == 51)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV51ToV52;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 52);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 52;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1157,7 +1325,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                    gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                    eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
-                   recon_value_tolerance_paisa, recon_date_window_days
+                   recon_value_tolerance_paisa, recon_date_window_days,
+                   warn_on_negative_stock,
+                   gst_source_of_hsn_sac, gst_source_of_rate,
+                   gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1193,6 +1364,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v30 (Phase 8 slice 1): Payroll F11 toggles — plain persisted flags, read verbatim (default 0 — ER-13).
                 PayrollEnabled = r.GetInt64(38) != 0,
                 PayrollStatutoryEnabled = r.GetInt64(39) != 0,
+                // v50 (NS-4): "Warn on Negative Stock Balance" — a plain persisted toggle, read verbatim. ⚠️ Unlike
+                // every flag above it, this one DEFAULTS TRUE: the column is NOT NULL DEFAULT 1, so a pre-v50 book
+                // that the migration back-filled reads 1 here and comes up with warnings ON. Reading it as
+                // "!= 0" is only safe BECAUSE the column can never be NULL — do not relax that NOT NULL.
+                WarnOnNegativeStock = r.GetInt64(82) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -1236,6 +1412,22 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     // byte-identical when off, ER-13; a matching parameter only, ER-14; finding #5).
                     ReconValueTolerance = Paisa.ToMoney(r.GetInt64(80)),
                     ReconDateWindowDays = (int)r.GetInt64(81),
+                    // v51 (WF-1): the two source-order options. Both columns are NOT NULL, so they are read verbatim
+                    // — a fresh company stored 0 (LedgerFirst) and a migrated book stored 1 (StockItemFirst) from the
+                    // back-fill. Do NOT substitute an enum default for a missing value here: the two paths hold
+                    // deliberately DIFFERENT values, so falling back to default(GstDetailSource) would silently move
+                    // every migrated book onto the shipped order and change the rate on its next invoice.
+                    SourceOfHsnSacDetails = (GstDetailSource)(int)r.GetInt64(83),
+                    SourceOfGstRate = (GstDetailSource)(int)r.GetInt64(84),
+                    // v51 (WF-1): the company-level default GST block — the last level of both orders. NULL
+                    // taxability = no block (ER-13: a company that never set one reads exactly as it did on v50).
+                    DefaultGst = r.IsDBNull(86) ? null : new MasterGstDetails
+                    {
+                        HsnSac = r.IsDBNull(85) ? null : r.GetString(85),
+                        Taxability = (GstTaxability)(int)r.GetInt64(86),
+                        RateBasisPoints = r.IsDBNull(87) ? (int?)null : (int)r.GetInt64(87),
+                        SupplyType = r.IsDBNull(88) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(88),
+                    },
                 };
                 foreach (var t in ReadEWayStateThresholds(companyId))
                     company.Gst.AddEWayStateThreshold(t);
@@ -1422,9 +1614,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         // Vouchers: re-post through the engine (real posting path). The stored number is preserved
         // because Post only assigns a number when the voucher's number is unset (≤ 0).
+        // G-2 migration: cost allocations are validated with LEGACY strictness HERE AND ON IMPORT ONLY.
+        // This project first shipped the wrong (partition) cost-allocation rule, so a company saved before
+        // that fix can hold a line whose axes foot only when added together. Re-posting is what OPENS a
+        // company — under the strict rule such a file would throw and the whole company would be
+        // unopenable. Legacy keeps it loading, byte-for-byte as stored (nothing is rescaled or dropped);
+        // CostAllocationDiagnostics.FindLegacyCrossCategoryLines lists what needs a human to re-allocate.
         var service = new LedgerService(company);
         foreach (var v in ReadVouchers(companyId))
-            service.Post(v);
+            service.Post(v, CostAllocationStrictness.Legacy);
 
         // Budgets (catalog §7): masters that reference groups/ledgers already loaded above.
         foreach (var b in ReadBudgets(companyId))
@@ -1509,6 +1707,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Attendance entries (Phase 8 slice 3): recorded attendance/production values, FK employees + attendance types.
         foreach (var a in ReadAttendanceEntries(companyId))
             company.AddAttendanceEntry(a);
+
+        // The voucher edit log (v52). Loaded LAST and deliberately NOT keyed against the vouchers just rehydrated:
+        // an entry whose verb was Delete names a voucher that is no longer on the book, and that dangling id is
+        // the record, not a fault. Empty on every book that has never cancelled, deleted or altered (ER-13).
+        foreach (var entry in ReadVoucherEditLog(companyId))
+            company.AddVoucherEditLogEntry(entry);
 
         return company;
     }
@@ -1621,12 +1825,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         using var tx = _connection.BeginTransaction();
 
+        // v51 (WF-1) — ⚠️ READ BEFORE THE DELETE. The two source-order columns are NOT NULL columns on
+        // `companies`, but they are carried in memory on GstConfig, which is null for a book whose GST is OFF
+        // (the loader only builds it when gst_enabled = 1, `:1351`). Save is DELETE + re-INSERT, so without
+        // this the re-INSERT had no in-memory source and fabricated LedgerFirst — silently erasing
+        // MigrateV50ToV51's StockItemFirst back-fill on the FIRST ordinary save of any migrated non-GST book
+        // (owed-review lens 1 finding 1; measured: stored 1|1 → saved → 0|0). Preserve what is stored instead.
+        var storedSourceOrders = ReadStoredSourceOrders(tx, company.Id);
+
         DeleteCompanyRows(tx, company.Id);
 
         // Company row is written after its groups so the profit_and_loss_head_id FK resolves; but the
         // groups reference companies(id), so insert the company row first WITHOUT the head fk, then
         // patch the head id once the head group row exists.
-        InsertCompany(tx, company);
+        InsertCompany(tx, company, storedSourceOrders);
+        // v52 - the voucher edit log. Written here rather than beside the vouchers because it is NOT part of the
+        // aggregate snapshot: DeleteCompanyRows deliberately leaves this table alone (see the note there) and the
+        // writer only ever appends. Nothing below it depends on it, and it depends on nothing below.
+        InsertVoucherEditLog(tx, company);
         InsertGroups(tx, company);
         SetProfitAndLossHead(tx, company);
         // Currencies + rates before ledgers (ledgers.currency_id FK currencies) and before vouchers
@@ -1637,6 +1853,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertPriceLevels(tx, company);
         InsertLedgers(tx, company);
         InsertVoucherTypes(tx, company);
+        // v47 (numbering S3): the date-keyed Prefix/Suffix affix rows FK voucher_types(id) — insert after the types.
+        InsertVoucherTypeNumberingRows(tx, company);
         // Cost categories before centres (centres FK categories); both before vouchers (cost allocations
         // FK both).
         InsertCostCategories(tx, company);
@@ -1734,6 +1952,40 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 🔴 <b>DO NOT USE — INCOMPLETE. Voucher deletion goes through <see cref="Save"/>, not through here.</b>
+    /// (Phase 10.11 S4; plan.md §5, decision D-7 — this method is FENCED, deliberately NOT FIXED.)
+    ///
+    /// <para><b>What it misses.</b> It deletes <c>bill_allocations</c> → <c>cost_allocations</c> →
+    /// <c>bank_allocations</c> → <c>entry_lines</c> → <c>vouchers</c>, and leaves <b>FIVE</b> child tables that
+    /// also hang off a voucher untouched: <c>tds_lines</c>, <c>tcs_lines</c>, <c>payroll_lines</c>,
+    /// <c>voucher_inventory_lines</c> and <c>pos_tender_allocations</c>. Compare
+    /// <see cref="DeleteCompanyRows"/>, which handles all five.</para>
+    ///
+    /// <para><b>What that means in practice.</b> <c>PRAGMA foreign_keys</c> is ON for every connection this class
+    /// opens and each of those five tables declares <c>voucher_id … REFERENCES vouchers(id)</c> with no
+    /// <c>ON DELETE</c> action, so on a voucher that carries any of them this method does not silently orphan
+    /// rows — it <b>throws a FOREIGN KEY constraint failure</b> and rolls its transaction back. A TDS-deducted
+    /// payment, a TCS invoice, a payroll voucher, an item-invoice and a POS bill are therefore all
+    /// undeletable through this path.</para>
+    ///
+    /// <para>🔴 <b>WHY IT IS FENCED RATHER THAN FIXED.</b> It is off the live path today, which is why the gap has
+    /// never bitten — and it is exactly the method a "delete a voucher" feature is tempted to reach for. A
+    /// working-looking <c>Remove</c> would <b>invite routing voucher deletion through it</b> instead of through
+    /// whole-company <see cref="Save"/>, which is the only path the entire aggregate round-trips on (Save is a
+    /// delete-all + full re-insert snapshot inside one transaction). Making this method look safe is what would
+    /// put it on the live path. The Phase 10.11 delete verb removes the voucher from the in-memory aggregate and
+    /// calls <c>Save</c>; it never calls this.</para>
+    ///
+    /// <para>Pinned by <c>VoucherRemoveFenceTests</c> in the Sqlite suite, which asserts the FK failure on an
+    /// item-invoice voucher so that "fixing" this method without removing the fence goes red and lands the reader
+    /// on decision D-7.</para>
+    ///
+    /// <para>🔴 <b>v52 adds a SECOND reason the fence must hold.</b> This method deletes a voucher's rows straight
+    /// out of the database, so it bypasses <c>LedgerService.Delete</c> and therefore writes no
+    /// <c>voucher_edit_log</c> entry. A deletion routed through here would be exactly the thing the edit log
+    /// exists to make impossible: a voucher gone from the books with nothing anywhere recording that it went.</para>
+    /// </remarks>
     public void Remove(Guid companyId, Guid voucherId)
     {
         using var tx = _connection.BeginTransaction();
@@ -1800,11 +2052,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = includePlHead
             ? """
-              SELECT id, name, nature, parent_id, alias, is_predefined
+              SELECT id, name, nature, parent_id, alias, is_predefined,
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
               FROM groups WHERE company_id = $cid ORDER BY rowid;
               """
             : """
-              SELECT id, name, nature, parent_id, alias, is_predefined
+              SELECT id, name, nature, parent_id, alias, is_predefined,
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
               FROM groups WHERE company_id = $cid AND is_pl_head = 0 ORDER BY rowid;
               """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1819,7 +2073,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (GroupNature)(int)r.GetInt64(2),
                 parentId: parent,
                 alias: r.IsDBNull(4) ? null : r.GetString(4),
-                isPredefined: r.GetInt64(5) != 0));
+                isPredefined: r.GetInt64(5) != 0)
+            {
+                // v51 (WF-1): the Group level of the GST hierarchy. Columns 6–9; NULL taxability = no block, so every
+                // pre-v51 group reads back exactly as it did (ER-13).
+                Gst = ReadMasterGst(r, firstOrdinal: 6),
+            });
         }
         return list;
     }
@@ -1989,12 +2248,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     private IEnumerable<VoucherType> ReadVoucherTypes(Guid companyId)
     {
+        // v47 (numbering S3; numbering-design-v2 §6.5): Prefixes/Suffixes are get-only and ctor-injected on
+        // VoucherType, so the child rows MUST be in hand BEFORE the type is constructed — a POS-style second-pass
+        // attach is impossible. Pre-query both affix child tables for the whole company into by-type dictionaries
+        // FIRST (each fully materialised before the voucher_types reader opens — one open reader per connection),
+        // then pass the rows into the ctor in the single construction pass below.
+        var prefixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_prefix");
+        var suffixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_suffix");
+
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
-                   is_rcm_payment_voucher, is_gst_stat_adjustment
+                   is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2002,9 +2269,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var list = new List<VoucherType>();
         while (r.Read())
         {
+            var id = Guid.Parse(r.GetString(0));
             var useForPos = r.GetInt64(13) != 0;
             var type = new VoucherType(
-                Guid.Parse(r.GetString(0)),
+                id,
                 r.GetString(1),
                 (VoucherBaseType)(int)r.GetInt64(2),
                 numbering: (NumberingMethod)(int)r.GetInt64(4),
@@ -2030,7 +2298,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v39 (Phase 9 slice 2): "Use for RCM Payment Voucher" flag, read verbatim.
                 isRcmPaymentVoucher: r.GetInt64(17) != 0,
                 // v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" flag, read verbatim.
-                isGstStatAdjustment: r.GetInt64(18) != 0);
+                isGstStatAdjustment: r.GetInt64(18) != 0,
+                // v47 (numbering S3): the three scalar numbering settings + the ctor-injected date-keyed affix rows.
+                preventDuplicate: r.GetInt64(19) != 0,
+                numberWidth: (int)r.GetInt64(20),
+                prefillWithZero: r.GetInt64(21) != 0,
+                prefixes: prefixByType.GetValueOrDefault(id),
+                suffixes: suffixByType.GetValueOrDefault(id));
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -2039,6 +2313,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             if (type.UseForPos)
                 type.PosConfig = ReadPosVoucherTypeConfig(type.Id);
         return list;
+    }
+
+    /// <summary>Pre-queries one affix child table (<c>voucher_type_prefix</c> or <c>voucher_type_suffix</c>) for a
+    /// whole company into a by-voucher-type dictionary, ordered by <c>(applicable_from, id)</c> — the same total
+    /// order the renderer selects on (v47; numbering-design-v2 §6.5). Fully materialised so the caller can open the
+    /// <c>voucher_types</c> reader afterwards (one open reader per connection).</summary>
+    private Dictionary<Guid, List<VoucherNumberAffix>> ReadVoucherTypeAffixes(Guid companyId, string table)
+    {
+        var byType = new Dictionary<Guid, List<VoucherNumberAffix>>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT a.voucher_type_id, a.id, a.applicable_from, a.particulars
+            FROM {table} a
+            JOIN voucher_types vt ON vt.id = a.voucher_type_id
+            WHERE vt.company_id = $cid
+            ORDER BY a.voucher_type_id, a.applicable_from, a.id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var typeId = Guid.Parse(r.GetString(0));
+            var affix = new VoucherNumberAffix(Guid.Parse(r.GetString(1)), ParseDate(r.GetString(2)), r.GetString(3));
+            if (!byType.TryGetValue(typeId, out var rows))
+                byType[typeId] = rows = new List<VoucherNumberAffix>();
+            rows.Add(affix);
+        }
+        return byType;
     }
 
     /// <summary>Reads the POS retail-till config (v23; RQ-38/DP-4) for one voucher type — its
@@ -2676,7 +2978,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (overrides.Count == 0) return string.Empty;
         return string.Join(';', overrides.Select(o =>
             $"{o.Month.ToString(System.Globalization.CultureInfo.InvariantCulture)}:" +
-            $"{((long)(o.Amount.Amount * 100m)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+            $"{(Paisa.FromDecimal(o.Amount.Amount)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
     }
 
     /// <summary>v25: a threshold stored as rupees × 1,000,000 ("micros") → exact <see cref="Money"/> (rupees).</summary>
@@ -3130,7 +3432,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, parent_id, alias, add_quantities
+            SELECT id, name, parent_id, alias, add_quantities,
+                   gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
             FROM stock_groups WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3143,7 +3446,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetString(1),
                 parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
                 alias: r.IsDBNull(3) ? null : r.GetString(3),
-                addQuantities: r.GetInt64(4) != 0));
+                addQuantities: r.GetInt64(4) != 0)
+            {
+                // v51 (WF-1): the Stock Group level of the GST hierarchy. Columns 5–8; NULL taxability = no block, so
+                // every pre-v51 stock group reads back exactly as it did (ER-13).
+                Gst = ReadMasterGst(r, firstOrdinal: 5),
+            });
         }
         return list;
     }
@@ -3422,6 +3730,51 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 slabs: slabsByList.TryGetValue(id, out var slabs) ? slabs : new List<PriceListSlab>()));
         }
         return lists;
+    }
+
+    /// <summary>
+    /// Binds the four <c>$gsthsn</c>/<c>$gsttax</c>/<c>$gstrate</c>/<c>$gstsupply</c> parameters a <c>groups</c> or
+    /// <c>stock_groups</c> INSERT carries for its v51 <see cref="MasterGstDetails"/> block. A <c>null</c> block binds
+    /// all four NULL — the "no GST block" marker — so a master that never used the hierarchy stores exactly the row a
+    /// v50 database held (ER-13). The inverse of <see cref="ReadMasterGst"/>.
+    /// </summary>
+    private static void BindMasterGst(SqliteCommand cmd, MasterGstDetails? gst)
+    {
+        cmd.Parameters.AddWithValue("$gsthsn", (object?)gst?.HsnSac ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gsttax", gst is null ? DBNull.Value : (int)gst.Taxability);
+        cmd.Parameters.AddWithValue("$gstrate", gst?.RateBasisPoints is { } bp ? bp : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstsupply", gst is null ? DBNull.Value : (int)gst.SupplyType);
+    }
+
+    /// <summary>
+    /// Reads the narrow v51 <see cref="MasterGstDetails"/> block a <c>groups</c> or <c>stock_groups</c> row carries,
+    /// or <c>null</c> when its <c>gst_taxability</c> is NULL — the same "no GST block" marker
+    /// <see cref="ReadStockItemGst"/> uses. <paramref name="firstOrdinal"/> is the position of <c>gst_hsn_sac</c>;
+    /// the four columns are always selected consecutively in that order (hsn, taxability, rate_bp, supply_type), so
+    /// one helper serves both master tables.
+    ///
+    /// <para>⚠️ <b>THE MARKER IS ONE COLUMN AND THE BLOCK IS FOUR — recorded, not fixed (owed-review lens 1
+    /// finding 5).</b> A row holding a real <c>gst_hsn_sac</c> / <c>gst_rate_bp</c> / <c>gst_supply_type</c> but a
+    /// NULL <c>gst_taxability</c> reads back as "no block", and the HSN and the rate vanish from the domain while
+    /// still sitting in the row. <b>No <c>CHECK</c> constraint enforces the invariant</b> — the only thing keeping it
+    /// is <see cref="BindMasterGst"/>, which writes all four together or none. That makes this latent rather than
+    /// reachable today: neither the store nor <c>CanonicalXml</c> (which defaults a missing taxability to
+    /// <c>Taxable</c>) can produce the mixed row. Anything that later writes these columns outside
+    /// <see cref="BindMasterGst"/> — hand SQL, a repair tool, a future partial UPDATE — must write the taxability
+    /// too, or add the CHECK.</para>
+    /// </summary>
+    private static MasterGstDetails? ReadMasterGst(SqliteDataReader r, int firstOrdinal)
+    {
+        if (r.IsDBNull(firstOrdinal + 1)) return null; // gst_taxability NULL = no GST block
+        return new MasterGstDetails
+        {
+            HsnSac = r.IsDBNull(firstOrdinal) ? null : r.GetString(firstOrdinal),
+            Taxability = (GstTaxability)(int)r.GetInt64(firstOrdinal + 1),
+            RateBasisPoints = r.IsDBNull(firstOrdinal + 2) ? (int?)null : (int)r.GetInt64(firstOrdinal + 2),
+            SupplyType = r.IsDBNull(firstOrdinal + 3)
+                ? GstSupplyType.Goods
+                : (GstSupplyType)(int)r.GetInt64(firstOrdinal + 3),
+        };
     }
 
     /// <summary>Reads the item GST block (columns 12–15), or <c>null</c> when gst_taxability is NULL.</summary>
@@ -3788,13 +4141,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
-            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto)>();
+            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto,
+            string? ReferenceNo, DateOnly? ReferenceDate, bool IsAccountingInvoice)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                       applicable_upto
+                       applicable_upto, reference_no, reference_date, is_accounting_invoice
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3811,7 +4165,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.GetInt64(6) != 0,
                     r.GetInt64(7) != 0,
                     r.GetInt64(8) != 0,
-                    r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9))));
+                    r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9)),
+                    r.IsDBNull(10) ? null : r.GetString(10),
+                    r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11)),
+                    // v49: NOT NULL DEFAULT 0, so every pre-v49 row reads false = "not an accounting invoice".
+                    r.GetInt64(12) != 0));
             }
         }
 
@@ -3831,7 +4189,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 postDated: h.PostDated,
                 applicableUpto: h.ApplicableUpto,
                 inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null,
-                posTenders: posTenders.Count > 0 ? posTenders : null));
+                posTenders: posTenders.Count > 0 ? posTenders : null,
+                referenceNo: h.ReferenceNo,
+                referenceDate: h.ReferenceDate,
+                isAccountingInvoice: h.IsAccountingInvoice));
         }
         return result;
     }
@@ -4068,8 +4429,93 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     // ------------------------------------------------------------------ writers
 
+    /// <summary>
+    /// Appends the company's <c>voucher_edit_log</c> rows (v52). <b><c>INSERT OR IGNORE</c> on the entry's own
+    /// primary key, and no matching DELETE anywhere</b> — this table is the one part of a company that
+    /// <see cref="Save"/> does not own.
+    ///
+    /// <para>🔴 <b>WHY IT IS APPEND-ONLY RATHER THAN SNAPSHOTTED LIKE EVERYTHING ELSE.</b> <see cref="Save"/> is
+    /// delete-all + full re-insert, so every other table is exactly as complete as the in-memory aggregate that
+    /// was handed to it. For an audit log that is the wrong contract in the one direction that matters: a single
+    /// save from a <see cref="Company"/> that never loaded the log — a stale instance, a screen that built its own,
+    /// a future code path that forgets — would silently erase every recorded edit, and no invariant in this
+    /// repository would see it. With no DELETE and an ignoring INSERT, the worst such a save can do is add
+    /// nothing. Re-saving the same company repeatedly is a no-op after the first write because the entry's
+    /// <see cref="VoucherEditLogEntry.Id"/> is the primary key.</para>
+    ///
+    /// <para><c>recorded_at</c> is written round-trip (<c>"o"</c>), which keeps the offset, so a log read back in
+    /// another time zone still says when the edit happened rather than what o'clock it looked like.</para>
+    /// </summary>
+    private void InsertVoucherEditLog(SqliteTransaction tx, Company company)
+    {
+        if (company.VoucherEditLog.Count == 0) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO voucher_edit_log
+                (id, company_id, voucher_id, verb, recorded_at, before_snapshot)
+            VALUES ($id, $cid, $vid, $verb, $at, $snap);
+            """;
+        var pId = cmd.Parameters.Add("$id", SqliteType.Text);
+        var pCid = cmd.Parameters.Add("$cid", SqliteType.Text);
+        var pVid = cmd.Parameters.Add("$vid", SqliteType.Text);
+        var pVerb = cmd.Parameters.Add("$verb", SqliteType.Integer);
+        var pAt = cmd.Parameters.Add("$at", SqliteType.Text);
+        var pSnap = cmd.Parameters.Add("$snap", SqliteType.Text);
+
+        foreach (var e in company.VoucherEditLog)
+        {
+            pId.Value = e.Id.ToString("D");
+            pCid.Value = company.Id.ToString("D");
+            pVid.Value = e.VoucherId.ToString("D");
+            pVerb.Value = (int)e.Verb;
+            pAt.Value = e.RecordedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+            pSnap.Value = e.BeforeSnapshot;
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Reads the company's <c>voucher_edit_log</c> rows back in the order they were written (v52). Ordered by
+    /// <c>rowid</c> — the same idiom <c>ReadVouchers</c> uses — which here really is insertion order, because
+    /// unlike every other table these rows are never deleted and re-inserted.
+    /// </summary>
+    private IEnumerable<VoucherEditLogEntry> ReadVoucherEditLog(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, voucher_id, verb, recorded_at, before_snapshot
+            FROM voucher_edit_log WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<VoucherEditLogEntry>();
+        while (r.Read())
+        {
+            list.Add(new VoucherEditLogEntry(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                (VoucherEditVerb)(int)r.GetInt64(2),
+                DateTimeOffset.Parse(
+                    r.GetString(3),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind),
+                r.GetString(4)));
+        }
+        return list;
+    }
+
     private void DeleteCompanyRows(SqliteTransaction tx, Guid companyId)
     {
+        // 🔴 `voucher_edit_log` (v52) IS DELIBERATELY ABSENT FROM THIS METHOD, and this note is here so its
+        // absence reads as a decision rather than an omission. Save is a whole-aggregate snapshot: delete every
+        // row this company owns, then re-insert from memory. Putting the edit log through that cycle would mean a
+        // single save from a Company instance that never loaded it erases every recorded cancellation, deletion
+        // and alteration — and nothing in this repository would notice. The log is append-only in the store
+        // instead (InsertVoucherEditLog is INSERT OR IGNORE), following `saved_views`, the other table Save does
+        // not own. Anything added here for `voucher_edit_log` is a regression, not a tidy-up.
+        //
         // Child-first so foreign keys are satisfied. Break the company→head fk before deleting groups.
         var cid = companyId.ToString("D");
         ExecTx(tx, "UPDATE companies SET profit_and_loss_head_id = NULL WHERE id = $cid;", ("$cid", cid));
@@ -4251,6 +4697,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Exchange rates FK currencies; ledgers + entry-line forex FK currencies → after those are gone.
         ExecTx(tx, "DELETE FROM exchange_rates WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM currencies WHERE company_id = $cid;", ("$cid", cid));
+        // v47 numbering affix child rows FK voucher_types(id) → clear before the voucher_types delete below,
+        // mirroring the POS child-clear (a second Save of a numbering-configured company FK-breaks without this).
+        ExecTx(tx, """
+            DELETE FROM voucher_type_prefix WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM voucher_type_suffix WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
         // Cost centres reference cost categories → delete centres first.
         ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
@@ -4301,7 +4757,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
 
-    private void InsertCompany(SqliteTransaction tx, Company c)
+    /// <summary>
+    /// The two v51 source-order values currently stored for <paramref name="companyId"/>, or <c>null</c> when no
+    /// row exists yet (a brand-new company — nothing to preserve, so the fresh <c>LedgerFirst</c> is correct).
+    ///
+    /// <para>⚠️ <b>Why this exists.</b> <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c> are NOT NULL
+    /// <c>companies</c> columns, but the domain carries them on <see cref="GstConfig"/> — which is <c>null</c> for a
+    /// book with GST switched off. That combination makes the writer's <c>?? LedgerFirst</c> a <b>fabrication</b>
+    /// rather than a default, and the fabrication overwrites <see cref="Schema.MigrateV50ToV51"/>'s
+    /// <c>StockItemFirst</c> back-fill. Reading the stored value first is what keeps the R12 decision-1 guarantee
+    /// true for a non-GST book (owed-review lens 1 finding 1).</para>
+    /// </summary>
+    private (GstDetailSource Hsn, GstDetailSource Rate)? ReadStoredSourceOrders(SqliteTransaction tx, Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            "SELECT gst_source_of_hsn_sac, gst_source_of_rate FROM companies WHERE id = $cid;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return ((GstDetailSource)(int)r.GetInt64(0), (GstDetailSource)(int)r.GetInt64(1));
+    }
+
+    private void InsertCompany(
+        SqliteTransaction tx, Company c, (GstDetailSource Hsn, GstDetailSource Rate)? storedSourceOrders = null)
     {
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
@@ -4328,7 +4808,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                  gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                  eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
-                 recon_value_tolerance_paisa, recon_date_window_days)
+                 recon_value_tolerance_paisa, recon_date_window_days,
+                 warn_on_negative_stock,
+                 gst_source_of_hsn_sac, gst_source_of_rate,
+                 gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -4347,7 +4830,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $eien, $eifrom, $eiaato, $eioverride, $eiexempt, $eiage,
                  $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee,
                  $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra,
-                 $reconval, $recondays);
+                 $reconval, $recondays,
+                 $warnnegstock,
+                 $gstsrchsn, $gstsrcrate,
+                 $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -4428,15 +4914,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v37 (Phase 8 slice 9): the establishment Gratuity config. NULL/defaults for a company not provisioning (ER-13).
         var gratuity = c.GratuityConfig;
         cmd.Parameters.AddWithValue("$graten", gratuity is not null ? 1 : 0);
-        cmd.Parameters.AddWithValue("$gratcap", (long)((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount) * 100m));
+        cmd.Parameters.AddWithValue("$gratcap", Paisa.FromDecimal((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount)));
         cmd.Parameters.AddWithValue("$gratbasis", (int)(gratuity?.WageBasis ?? GratuityWageBasis.BasicAndDearnessAllowance));
         cmd.Parameters.AddWithValue("$gratpop", (int)(gratuity?.Population ?? GratuityProvisionPopulation.AllActiveEmployees));
         // v37 (Phase 8 slice 9): the establishment statutory-Bonus config. NULL/defaults for a company not enrolled (ER-13).
         var bonus = c.BonusConfig;
         cmd.Parameters.AddWithValue("$bonusen", bonus is not null ? 1 : 0);
         cmd.Parameters.AddWithValue("$bonusrate", bonus?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints);
-        cmd.Parameters.AddWithValue("$bonusceil", (long)((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling) * 100m));
-        cmd.Parameters.AddWithValue("$bonusminwage", (long)((bonus?.MinimumWage.Amount ?? 0m) * 100m));
+        cmd.Parameters.AddWithValue("$bonusceil", Paisa.FromDecimal((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling)));
+        cmd.Parameters.AddWithValue("$bonusminwage", Paisa.FromDecimal((bonus?.MinimumWage.Amount ?? 0m)));
         cmd.Parameters.AddWithValue("$bonusprorate", (bonus?.Prorate ?? true) ? 1 : 0);
         // v40 (Phase 9 slice 3): the composition-scheme config. NULL for a non-composition company (ER-13).
         cmd.Parameters.AddWithValue("$compsub", gst?.CompositionSubType is { } st ? (int)st : (object)DBNull.Value);
@@ -4467,6 +4953,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // company that never sets it (ER-13). A matching parameter only — never a posted figure (ER-14; finding #5).
         cmd.Parameters.AddWithValue("$reconval", Paisa.FromMoney(gst?.ReconValueTolerance ?? Money.Zero));
         cmd.Parameters.AddWithValue("$recondays", gst?.ReconDateWindowDays ?? 0);
+        // v50 (NS-4): the negative-stock warning toggle, written verbatim. ⚠️ The DOMAIN default is TRUE, so a
+        // company nobody has configured writes 1 here — matching the column's own DEFAULT 1 and the value a
+        // migrated pre-v50 book gets. There is no "unset" state to encode.
+        cmd.Parameters.AddWithValue("$warnnegstock", c.WarnOnNegativeStock ? 1 : 0);
+        // v51 (WF-1): the two source-order options + the company-level default GST block, written verbatim when the
+        // aggregate carries a GST config. The default block writes all four NULL when absent, which is the "no GST
+        // block" marker every other GST block already uses.
+        // ⚠️ THE THREE-WAY FALLBACK IS LOAD-BEARING, DO NOT COLLAPSE IT TO `?? LedgerFirst`. When `gst` is null the
+        // aggregate holds NO value for these two NOT NULL columns (they live on GstConfig, which the loader builds
+        // only for gst_enabled = 1) — so the previously stored value is the truth, and LedgerFirst is a fabrication
+        // that erases MigrateV50ToV51's StockItemFirst back-fill on the first ordinary save of a migrated non-GST
+        // book. LedgerFirst applies only to a company with no stored row at all, i.e. a genuinely fresh one, which is
+        // the value it already had (ER-13). See ReadStoredSourceOrders; owed-review lens 1 finding 1.
+        cmd.Parameters.AddWithValue("$gstsrchsn",
+            (int)(gst?.SourceOfHsnSacDetails ?? storedSourceOrders?.Hsn ?? GstDetailSource.LedgerFirst));
+        cmd.Parameters.AddWithValue("$gstsrcrate",
+            (int)(gst?.SourceOfGstRate ?? storedSourceOrders?.Rate ?? GstDetailSource.LedgerFirst));
+        var defaultGst = gst?.DefaultGst;
+        cmd.Parameters.AddWithValue("$gstdefhsn", (object?)defaultGst?.HsnSac ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstdeftax", defaultGst is null ? DBNull.Value : (int)defaultGst.Taxability);
+        cmd.Parameters.AddWithValue("$gstdefrate",
+            defaultGst?.RateBasisPoints is { } dbp ? dbp : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstdefsupply", defaultGst is null ? DBNull.Value : (int)defaultGst.SupplyType);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -4503,15 +5012,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 """;
             s.Parameters.AddWithValue("$eid", declaration.EmployeeId.ToString("D"));
             s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
-            s.Parameters.AddWithValue("$c80", (long)(declaration.Section80C.Amount * 100m));
-            s.Parameters.AddWithValue("$d80", (long)(declaration.Section80D.Amount * 100m));
-            s.Parameters.AddWithValue("$ccd1b", (long)(declaration.Section80CCD1B.Amount * 100m));
-            s.Parameters.AddWithValue("$ccd2", (long)(declaration.Section80CCD2Employer.Amount * 100m));
-            s.Parameters.AddWithValue("$hra", (long)(declaration.HouseRentAllowanceExempt.Amount * 100m));
-            s.Parameters.AddWithValue("$loan", (long)(declaration.HomeLoanInterest24b.Amount * 100m));
-            s.Parameters.AddWithValue("$other", (long)(declaration.OtherIncome.Amount * 100m));
-            s.Parameters.AddWithValue("$prevsal", (long)(declaration.PreviousEmployerSalary.Amount * 100m));
-            s.Parameters.AddWithValue("$prevtds", (long)(declaration.PreviousEmployerTds.Amount * 100m));
+            s.Parameters.AddWithValue("$c80", Paisa.FromDecimal(declaration.Section80C.Amount));
+            s.Parameters.AddWithValue("$d80", Paisa.FromDecimal(declaration.Section80D.Amount));
+            s.Parameters.AddWithValue("$ccd1b", Paisa.FromDecimal(declaration.Section80CCD1B.Amount));
+            s.Parameters.AddWithValue("$ccd2", Paisa.FromDecimal(declaration.Section80CCD2Employer.Amount));
+            s.Parameters.AddWithValue("$hra", Paisa.FromDecimal(declaration.HouseRentAllowanceExempt.Amount));
+            s.Parameters.AddWithValue("$loan", Paisa.FromDecimal(declaration.HomeLoanInterest24b.Amount));
+            s.Parameters.AddWithValue("$other", Paisa.FromDecimal(declaration.OtherIncome.Amount));
+            s.Parameters.AddWithValue("$prevsal", Paisa.FromDecimal(declaration.PreviousEmployerSalary.Amount));
+            s.Parameters.AddWithValue("$prevtds", Paisa.FromDecimal(declaration.PreviousEmployerTds.Amount));
             s.ExecuteNonQuery();
         }
 
@@ -4537,9 +5046,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     s.Parameters.AddWithValue("$state", slab.StateCode);
                     s.Parameters.AddWithValue("$scope", (int)slab.GenderScope);
                     s.Parameters.AddWithValue("$ord", bandOrder++);
-                    s.Parameters.AddWithValue("$from", (long)(band.FromWage.Amount * 100m));
-                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? (long)(tw.Amount * 100m) : (object)DBNull.Value);
-                    s.Parameters.AddWithValue("$amt", (long)(band.MonthlyAmount.Amount * 100m));
+                    s.Parameters.AddWithValue("$from", Paisa.FromDecimal(band.FromWage.Amount));
+                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? Paisa.FromDecimal(tw.Amount) : (object)DBNull.Value);
+                    s.Parameters.AddWithValue("$amt", Paisa.FromDecimal(band.MonthlyAmount.Amount));
                     s.Parameters.AddWithValue("$ovr", FormatPtMonthOverrides(band.MonthOverrides));
                     s.ExecuteNonQuery();
                 }
@@ -4713,8 +5222,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO groups (id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head)
-            VALUES ($id, $cid, $name, $nature, $parent, $alias, $pre, $plhead);
+            INSERT INTO groups (id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head,
+                                gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+            VALUES ($id, $cid, $name, $nature, $parent, $alias, $pre, $plhead,
+                    $gsthsn, $gsttax, $gstrate, $gstsupply);
             """;
         cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4724,6 +5235,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$pre", g.IsPredefined ? 1 : 0);
         cmd.Parameters.AddWithValue("$plhead", isPlHead ? 1 : 0);
+        // v51 (WF-1): the Group level of the GST hierarchy — all four NULL when the group carries no block, which is
+        // every group on a book that has not used the hierarchy (ER-13).
+        BindMasterGst(cmd, g.Gst);
         cmd.ExecuteNonQuery();
     }
 
@@ -4921,8 +5435,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
                      use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
-                     is_gst_stat_adjustment)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj);
+                     is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4944,8 +5458,40 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$stat", t.IsStatPayment ? 1 : 0);             // v27 (Phase 7 slice 3)
             cmd.Parameters.AddWithValue("$rcmpv", t.IsRcmPaymentVoucher ? 1 : 0);      // v39 (Phase 9 slice 2)
             cmd.Parameters.AddWithValue("$gstadj", t.IsGstStatAdjustment ? 1 : 0);     // v44 (Phase 9 slice 7)
+            cmd.Parameters.AddWithValue("$pd", t.PreventDuplicate ? 1 : 0);            // v47 (numbering S3)
+            cmd.Parameters.AddWithValue("$nw", t.NumberWidth);                         // v47 (numbering S3)
+            cmd.Parameters.AddWithValue("$pfz", t.PrefillWithZero ? 1 : 0);            // v47 (numbering S3)
             cmd.ExecuteNonQuery();
         }
+    }
+
+    /// <summary>
+    /// Persists the date-keyed Prefix / Suffix affix rows (v47; numbering-design-v2 §1.2/§6.5) for every voucher
+    /// type into <c>voucher_type_prefix</c> / <c>voucher_type_suffix</c>. A type with no affix rows writes nothing —
+    /// byte-identical (ER-13). Mirrors the POS child-insert precedent (<see cref="InsertPosVoucherTypeConfig"/>).
+    /// </summary>
+    private void InsertVoucherTypeNumberingRows(SqliteTransaction tx, Company c)
+    {
+        foreach (var t in c.VoucherTypes)
+        {
+            foreach (var p in t.Prefixes) InsertAffixRow(tx, "voucher_type_prefix", t.Id, p);
+            foreach (var s in t.Suffixes) InsertAffixRow(tx, "voucher_type_suffix", t.Id, s);
+        }
+    }
+
+    private void InsertAffixRow(SqliteTransaction tx, string table, Guid voucherTypeId, VoucherNumberAffix a)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"""
+            INSERT INTO {table} (id, voucher_type_id, applicable_from, particulars)
+            VALUES ($id, $vt, $from, $part);
+            """;
+        cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$from", FormatDate(a.ApplicableFrom));
+        cmd.Parameters.AddWithValue("$part", a.Particulars);
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -5826,8 +6372,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO stock_groups (id, company_id, name, parent_id, alias, add_quantities)
-                VALUES ($id, $cid, $name, $parent, $alias, $addq);
+                INSERT INTO stock_groups (id, company_id, name, parent_id, alias, add_quantities,
+                                          gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+                VALUES ($id, $cid, $name, $parent, $alias, $addq,
+                        $gsthsn, $gsttax, $gstrate, $gstsupply);
                 """;
             cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5835,6 +6383,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$parent", (object?)g.ParentId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$addq", g.AddQuantities ? 1 : 0);
+            // v51 (WF-1): the Stock Group level of the GST hierarchy — all four NULL when the group carries no block.
+            BindMasterGst(cmd, g.Gst);
             cmd.ExecuteNonQuery();
         }
     }
@@ -6426,8 +6976,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO vouchers
                     (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                     applicable_upto)
-                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au);
+                     applicable_upto, reference_no, reference_date, is_accounting_invoice)
+                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate, $acctinv);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -6440,6 +6990,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$opt", v.Optional ? 1 : 0);
             cmd.Parameters.AddWithValue("$pd", v.PostDated ? 1 : 0);
             cmd.Parameters.AddWithValue("$au", (object?)(v.ApplicableUpto is { } au ? FormatDate(au) : null) ?? DBNull.Value);
+            // v48 (numbering S5): the counterparty reference number/date — free text, never auto-numbered; NULL absent.
+            cmd.Parameters.AddWithValue("$refno", (object?)v.ReferenceNo ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$refdate", (object?)(v.ReferenceDate is { } rd ? FormatDate(rd) : null) ?? DBNull.Value);
+            // v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher (ER-13).
+            cmd.Parameters.AddWithValue("$acctinv", v.IsAccountingInvoice ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
 

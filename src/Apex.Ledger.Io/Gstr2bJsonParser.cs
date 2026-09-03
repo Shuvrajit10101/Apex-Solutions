@@ -247,7 +247,9 @@ public static class Gstr2bJsonParser
             default:
                 return 0;
         }
-        return (long)Math.Round(rupees * 100m, MidpointRounding.AwayFromZero);
+        // ONE rupees→paisa rule (drift lock D3), ROUNDED: a portal-supplied figure is quantised on import rather
+        // than aborting the parse of an otherwise-valid GSTR-2B document.
+        return PaisaConversion.ToPaisaRounded(rupees);
     }
 
     /// <summary>Converts a "MMyyyy" return period to canonical "yyyy-MM".</summary>

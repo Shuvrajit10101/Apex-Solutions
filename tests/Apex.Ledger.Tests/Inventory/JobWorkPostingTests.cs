@@ -211,8 +211,16 @@ public sealed class JobWorkPostingTests
         Assert.Empty(f.Company.Vouchers);
     }
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Material_in_consuming_material_the_worker_site_never_received_is_rejected_no_phantom</c>.
+    /// Consuming material a Worker Site never received used to be REJECTED by the no-negative block. It now posts,
+    /// and every un-received component shows as a shortfall at the Worker Site — which is the honest picture: the
+    /// worker really did report a consumption we have no dispatch for, and hiding that behind a rejection just moved
+    /// the discrepancy off the books. Quantities and detector only; <b>no value assertion</b>, since valuing a
+    /// negative on-hand is unresolved (plan.md NS-1/NS-8) and <c>StockValuationService</c> is untouched here.
+    /// </summary>
     [Fact]
-    public void Material_in_consuming_material_the_worker_site_never_received_is_rejected_no_phantom()
+    public void Material_in_consuming_material_the_worker_site_never_received_now_posts_and_is_detected()
     {
         var f = Build();
         var order = PostOutOrder(f);
@@ -220,16 +228,24 @@ public sealed class JobWorkPostingTests
         var typeId = TypeId(f.Company, VoucherBaseType.MaterialIn);
         var before = f.Company.InventoryVouchers.Count;
 
-        var ex = Assert.Throws<InvalidOperationException>(() => f.Posting.Post(InventoryVoucher.MaterialMovement(
+        f.Posting.Post(InventoryVoucher.MaterialMovement(
             Guid.NewGuid(), typeId, D3,
             source: Enumerable.Range(0, Components.Length).Select(i => new InventoryAllocation(
                 f.ComponentIds[i], f.WorkerSiteId, OrderQty, StockDirection.Outward, Money.FromRupees(Components[i].Rate))).ToArray(),
             destination: new[] { new InventoryAllocation(f.FgItemId, f.MainId, OrderQty, StockDirection.Inward, Money.FromRupees(FgRate)) },
-            orderLinks: new[] { order.Id })));
+            orderLinks: new[] { order.Id }));
 
-        Assert.Contains("negative", ex.Message, StringComparison.OrdinalIgnoreCase);
-        // Nothing persisted — the rejected voucher rolled back.
-        Assert.Equal(before, f.Company.InventoryVouchers.Count);
+        Assert.Equal(before + 1, f.Company.InventoryVouchers.Count);
+        var ledger = new InventoryLedger(f.Company);
+        Assert.Equal(OrderQty, ledger.OnHand(f.FgItemId, f.MainId, D3));
+
+        // Every component is short at the Worker Site by the full consumed quantity.
+        var shortfalls = f.Posting.DetectNegativeStock();
+        foreach (var id in f.ComponentIds)
+        {
+            Assert.Equal(-OrderQty, ledger.OnHand(id, f.WorkerSiteId, D3));
+            Assert.Contains(shortfalls, s => s.StockItemId == id && s.GodownId == f.WorkerSiteId);
+        }
     }
 
     // ---------------------------------------------------------------- RQ-49 / ER-4 (FG valued from LIVE cost)

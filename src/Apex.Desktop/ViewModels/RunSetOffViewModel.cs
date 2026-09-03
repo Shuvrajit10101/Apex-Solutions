@@ -318,7 +318,7 @@ public sealed partial class RunSetOffViewModel : ViewModelBase
                     && g.TaxHead == head && g.RateBasisPoints == (int)GstMinorHead.Tax)
                     drawn += line.Amount.Amount;
         }
-        return (long)Math.Round(drawn * 100m, MidpointRounding.AwayFromZero);
+        return Apex.Ledger.PaisaConversion.ToPaisaRounded(drawn); // ONE rupees→paisa rule (D3), ROUNDED
     }
 
     private void AddCashCell(string name, GstTaxHead head, long requiredPaisa)
@@ -524,12 +524,13 @@ public sealed partial class RunSetOffViewModel : ViewModelBase
         if (!decimal.TryParse((text ?? string.Empty).Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var r))
             return false;
         if (r <= 0m) return false;
-        var scaled = r * 100m;
-        if (scaled != decimal.Truncate(scaled)) return false;
+        if (!Apex.Ledger.PaisaConversion.IsPaisaExact(r)) return false; // ONE sub-paisa test (drift lock D3)
         amount = new Money(r);
         return true;
     }
 
-    private static long P(Money m) => (long)Math.Round(m.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// <summary>Delegates to <see cref="Apex.Ledger.PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
+    /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a set-off run quantises, it does not abort.</summary>
+    private static long P(Money m) => Apex.Ledger.PaisaConversion.ToPaisaRounded(m);
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
 }

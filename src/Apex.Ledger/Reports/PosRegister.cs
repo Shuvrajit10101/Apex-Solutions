@@ -19,7 +19,8 @@ public sealed record PosRegisterRow(
     Money Card,
     Money Cheque,
     Money Cash,
-    Money BillTotal);
+    Money BillTotal,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The POS Register / Summary report (catalog §11; RQ-44; Study Guide pp.240–242; DP-6). Lists every non-cancelled
@@ -71,7 +72,8 @@ public sealed record PosRegister(
             // The party is informational on a POS bill (B2C walk-in when none) — surface its name or "(cash)".
             var party = v.PartyId is Guid pid ? company.FindLedger(pid)?.Name ?? "(cash)" : "(cash)";
 
-            rows.Add(new PosRegisterRow(v.Id, v.Date, v.Number, party, gift, card, cheque, cash, bill));
+            rows.Add(new PosRegisterRow(v.Id, v.Date, v.Number, party, gift, card, cheque, cash, bill,
+                company.FormatVoucherNumber(v)));
             tGift += gift; tCard += card; tCheque += cheque; tCash += cash; tBill += bill;
         }
 

@@ -48,12 +48,17 @@ public sealed class GatewayHierarchyTests : IDisposable
     {
         var vm = NewSeededCompany("Sections Co");
 
-        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there).
-        Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports" }, HeaderLabels(vm));
+        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there. "Data"
+        // is the backup/restore carve-out — a first-class section, because a safety net nobody can find is not
+        // a safety net). NO section was added for the company profile: `docs/invented-vs-cloned.md` IV-29
+        // records that this menu's fault is having GROWN A SECTION PER PHASE, and prescribes putting "Alter"
+        // under MASTERS — which is where "Alter Company" sits.
+        Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports", "Data" }, HeaderLabels(vm));
 
         // Each section's items are present and reachable as selectable rows.
         var items = ItemLabels(vm);
         Assert.Contains("Create", items);              // Masters
+        Assert.Contains("Alter Company", items);       // Masters — the company profile (W0-2b)
         Assert.Contains("Chart of Accounts", items);   // Masters
         Assert.Contains("GST & Taxation", items);      // Statutory (F11 config — GST + TDS/TCS + Payroll/§192 salary-TDS)
         Assert.Contains("Vouchers", items);            // Transactions
@@ -61,6 +66,7 @@ public sealed class GatewayHierarchyTests : IDisposable
         Assert.Contains("Balance Sheet", items);       // Reports
         Assert.Contains("Profit & Loss A/c", items);   // Reports
         Assert.Contains("Trial Balance", items);       // Reports
+        Assert.Contains("Backup / Restore", items);    // Data
     }
 
     [Fact]
@@ -68,7 +74,7 @@ public sealed class GatewayHierarchyTests : IDisposable
     {
         var vm = NewSeededCompany("Header Co");
 
-        // The first row is the MASTERS header — non-selectable — so selection lands below it.
+        // The first row is a section header — non-selectable — so selection lands below it.
         Assert.True(vm.Menu[0].IsHeader);
         Assert.False(vm.Menu[0].IsSelectable);
         Assert.True(vm.Menu[vm.SelectedIndex].IsSelectable);
@@ -101,7 +107,7 @@ public sealed class GatewayHierarchyTests : IDisposable
     // ---------------------------------------------------------------- Vouchers submenu
 
     [Fact]
-    public void Vouchers_leads_to_the_six_voucher_types()
+    public void Vouchers_leads_to_the_eight_accounting_voucher_types()
     {
         var vm = NewSeededCompany("Vouchers Co");
 
@@ -110,18 +116,21 @@ public sealed class GatewayHierarchyTests : IDisposable
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
         Assert.Equal(GatewayMenu.Vouchers, vm.CurrentGatewayMenu);
 
-        // The six accounting voucher types are listed under the VOUCHERS header, then an "Inventory"
-        // section with the Order/Inventory voucher groups, then an "Other Vouchers" group (Reversing
-        // Journal / Memorandum nest under it).
+        // The eight accounting voucher types are listed under the VOUCHERS header — Credit Note and Debit Note
+        // included, in the corpus's ordering (Book p.24 lists them at #11 and #12 of the 24) — then an
+        // "Inventory" section with the Order/Inventory voucher groups, then an "Other Vouchers" group
+        // (Reversing Journal / Memorandum nest under it).
         Assert.Equal(new[] { "Vouchers", "Inventory", "Other Vouchers" }, HeaderLabels(vm));
         Assert.Equal(
             new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase",
+                    "Credit Note", "Debit Note",
                     "Order Vouchers", "Inventory Vouchers", "Other Vouchers" },
             ItemLabels(vm));
 
-        // The six accounting types carry their F-key hint (F4..F9); each row is a submenu child.
-        var hints = vm.Menu.Where(m => m.IsSelectable).Take(6).Select(m => m.Hint).ToArray();
-        Assert.Equal(new[] { "F4", "F5", "F6", "F7", "F8", "F9" }, hints);
+        // The eight accounting types carry their key hint (F4..F9, then Alt+F6 / Alt+F5); each row is a
+        // submenu child.
+        var hints = vm.Menu.Where(m => m.IsSelectable).Take(8).Select(m => m.Hint).ToArray();
+        Assert.Equal(new[] { "F4", "F5", "F6", "F7", "F8", "F9", "Alt+F6", "Alt+F5" }, hints);
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
     }
 

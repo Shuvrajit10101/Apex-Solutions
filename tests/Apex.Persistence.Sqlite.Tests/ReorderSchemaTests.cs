@@ -212,10 +212,19 @@ public sealed class ReorderSchemaTests
         -- entry_lines is required because the chain now runs through the v38→v39 RCM migration, whose
         -- ALTER TABLE entry_lines ADD COLUMN gst_is_reverse_charge/gst_rcm_scheme needs the table to exist.
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         -- voucher_inventory_lines is required because the chain now runs through the v45 -> v46 item-invoice
         -- line-unit migration, whose ALTER TABLE voucher_inventory_lines ADD COLUMN unit_id needs the table to
         -- exist. A real database of this vintage always has it (created at v12); this fixture is a minimal
         -- hand-written subset, so the table is declared here for the ALTER to land on.
         CREATE TABLE voucher_inventory_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0, rate_paisa INTEGER NOT NULL DEFAULT 0);
+        -- groups and stock_groups are required because the chain now runs through the v50->v51 GST-hierarchy
+        -- migration, whose ALTER TABLE groups / stock_groups ADD COLUMN gst_hsn_sac/gst_taxability/gst_rate_bp/
+        -- gst_supply_type needs both tables to exist. A real database of this vintage always has them (groups at
+        -- v1, stock_groups at v9); this fixture is a minimal hand-written subset, so they are declared here for
+        -- the ALTERs to land on.
+        CREATE TABLE stock_groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 }

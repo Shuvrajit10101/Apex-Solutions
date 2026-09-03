@@ -172,7 +172,16 @@ public sealed class EntryLine
         }
     }
 
-    /// <summary>Σ of the cost-allocation magnitudes on this line.</summary>
+    /// <summary>
+    /// Σ of the cost-allocation magnitudes on this line, <b>across every cost category</b>.
+    /// <para><b>Read this before using it as a check.</b> Cost categories are parallel allocation axes, not
+    /// a partition (spec §4.2 rule C-27): the same amount is allocated in full under each category it is
+    /// classified by. So on a multi-category line this total is a multiple of the line amount and means
+    /// nothing on its own — the posting invariant is <see cref="CostAllocationTotalFor"/> ==
+    /// <see cref="Amount"/> for every category in <see cref="CostAllocationCategoryIds"/>. This property
+    /// remains because the superseded partition rule is still recognised on rehydration
+    /// (<c>CostAllocationStrictness.Legacy</c>).</para>
+    /// </summary>
     public Money CostAllocationTotal
     {
         get
@@ -180,6 +189,36 @@ public sealed class EntryLine
             var sum = 0m;
             foreach (var a in _costAllocations) sum += a.Amount.Amount;
             return new Money(sum);
+        }
+    }
+
+    /// <summary>
+    /// Σ of the cost-allocation magnitudes on this line that fall under <paramref name="categoryId"/> —
+    /// the total along <b>one</b> allocation axis. This is the quantity the posting invariant compares to
+    /// <see cref="Amount"/>. Zero for a category this line does not allocate along.
+    /// </summary>
+    public Money CostAllocationTotalFor(Guid categoryId)
+    {
+        var sum = 0m;
+        foreach (var a in _costAllocations)
+            if (a.CategoryId == categoryId)
+                sum += a.Amount.Amount;
+        return new Money(sum);
+    }
+
+    /// <summary>
+    /// The distinct cost categories this line allocates along, in first-appearance order — i.e. the
+    /// allocation axes actually used. Empty when the line carries no cost allocations.
+    /// </summary>
+    public IReadOnlyList<Guid> CostAllocationCategoryIds
+    {
+        get
+        {
+            var seen = new List<Guid>();
+            foreach (var a in _costAllocations)
+                if (!seen.Contains(a.CategoryId))
+                    seen.Add(a.CategoryId);
+            return seen;
         }
     }
 }

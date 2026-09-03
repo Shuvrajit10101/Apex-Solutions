@@ -252,7 +252,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             BillSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  over-allocated by {Fmt(-diff)}";
     }
 
-    private static string Fmt(decimal v) => v.ToString("#,##0.00", CultureInfo.InvariantCulture);
+    private static string Fmt(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
 
     /// <summary>
     /// The domain bill allocations for this line — the complete rows turned into <see cref="BillAllocation"/>.
@@ -327,21 +327,41 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         _onChanged();
     }
 
-    /// <summary>Σ of the cost-allocation row magnitudes on this line.</summary>
-    public decimal CostAllocatedTotal
+    // NOTE: there is deliberately no cross-category "CostAllocatedTotal" here. Summing the rows across
+    // categories is exactly the check rule C-27 forbids: on a parallel set it is a MULTIPLE of the line
+    // amount, and comparing it to the line is what made the corpus entry impossible. Use
+    // CostAllocatedTotalFor(categoryId) — one axis at a time. (The domain twin
+    // EntryLine.CostAllocationTotal survives only because rehydration still recognises the superseded
+    // partition rule via CostAllocationStrictness.Legacy; nothing in the UI has that excuse.)
+
+    /// <summary>Σ of the complete rows' magnitudes under one cost category — i.e. one allocation axis.</summary>
+    public decimal CostAllocatedTotalFor(Guid categoryId)
     {
-        get
-        {
-            var sum = 0m;
-            foreach (var a in CostAllocations) sum += a.ParsedAmount;
-            return sum;
-        }
+        var sum = 0m;
+        foreach (var a in CostAllocations)
+            if (a.IsComplete && a.SelectedCategory!.Id == categoryId)
+                sum += a.ParsedAmount;
+        return sum;
+    }
+
+    /// <summary>The distinct categories the complete rows use, in first-appearance order.</summary>
+    private List<CostCategory> UsedCostCategories()
+    {
+        var seen = new List<CostCategory>();
+        foreach (var a in CostAllocations)
+            if (a.IsComplete && !seen.Any(c => c.Id == a.SelectedCategory!.Id))
+                seen.Add(a.SelectedCategory!);
+        return seen;
     }
 
     /// <summary>
     /// True when the cost split is valid: not cost-applicable (no constraint), OR the user left it fully
-    /// blank (cost allocation is OPTIONAL), OR the touched rows are all complete and their amounts sum
-    /// EXACTLY to the line amount (the split, enforced by the engine too).
+    /// blank (cost allocation is OPTIONAL), OR the touched rows are all complete and — <b>within each cost
+    /// category independently</b> — their amounts sum EXACTLY to the line amount.
+    /// <para>Cost categories are parallel allocation axes, not a partition (spec §4.2 rule C-27): the
+    /// corpus allocates one ₹5,000 expense in full to Branch → Kolkata AND in full to Department →
+    /// Marketing. Requiring the cross-category sum to equal the line — which this used to do — makes that
+    /// entry impossible. The engine enforces the same per-axis rule, so this stays a faithful mirror.</para>
     /// </summary>
     public bool CostSplitOk
     {
@@ -351,9 +371,37 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             // Optional: an untouched panel (every row blank) posts no cost allocations — valid.
             if (CostAllocations.All(a => a.IsBlank)) return true;
             if (CostAllocations.Any(a => !a.IsBlank && !a.IsComplete)) return false;
-            var complete = CostAllocations.Where(a => a.IsComplete).ToList();
-            if (complete.Count == 0) return false;
-            return complete.Sum(a => a.ParsedAmount) == ParsedAmount && ParsedAmount > 0m;
+            var categories = UsedCostCategories();
+            if (categories.Count == 0) return false;
+            if (ParsedAmount <= 0m) return false;
+            return categories.All(cat => CostAllocatedTotalFor(cat.Id) == ParsedAmount);
+        }
+    }
+
+    /// <summary>
+    /// The first cost category (in first-appearance order) whose own axis does NOT total the line amount, with what
+    /// it does total — or <c>null</c> when every used axis foots (or the panel fails for some other reason).
+    ///
+    /// <para>🔴 <b>Exists so the refusal can state the rule the line actually breaks</b> (finding L3-03). A voucher
+    /// carrying LEGACY cross-category allocations — the population <c>CostAllocationStrictness.Legacy</c> exists
+    /// for, admitted by <c>SqliteCompanyStore.Load</c> and by the canonical import — reaches the alteration screen
+    /// with allocations that sum ACROSS axes to the line and foot under no single one. The refusal it used to get
+    /// said they "must sum to the line amount (5,000.00)" while they summed to exactly 5,000.00: the superseded
+    /// partition rule C-27 abolished, quoted back at the operator on the one screen that can remediate it. The
+    /// wording below mirrors <c>VoucherValidator</c>'s own C-27 text, and the first-short-axis-in-first-appearance
+    /// -order choice mirrors its determinism.</para>
+    /// </summary>
+    public (CostCategory Category, decimal Allocated)? ShortCostAxis
+    {
+        get
+        {
+            if (!IsCostApplicable || ParsedAmount <= 0m) return null;
+            foreach (var category in UsedCostCategories())
+            {
+                var allocated = CostAllocatedTotalFor(category.Id);
+                if (allocated != ParsedAmount) return (category, allocated);
+            }
+            return null;
         }
     }
 
@@ -363,19 +411,42 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
 
         if (CostAllocations.All(a => a.IsBlank))
         {
-            CostSummary = "Cost allocation is optional — leave blank or split the amount across centres.";
+            CostSummary = "Cost allocation is optional — leave blank, or allocate the amount in full under each cost category.";
             return;
         }
 
-        var allocated = CostAllocatedTotal;
         var line = ParsedAmount;
+        var categories = UsedCostCategories();
+        if (categories.Count == 0)
+        {
+            CostSummary = $"Allocated {Fmt(0m)} of {Fmt(line)}  —  {Fmt(line)} unallocated";
+            return;
+        }
+
+        // Single axis — the wording every existing book sees, unchanged.
+        if (categories.Count == 1)
+        {
+            CostSummary = $"Allocated {AxisState(categories[0].Id, line)}";
+            return;
+        }
+
+        // Parallel axes: report each on its own. They are never added together.
+        var parts = categories.Select(cat => $"{cat.Name}: {AxisState(cat.Id, line)}");
+        CostSummary = string.Join("   |   ", parts) +
+                      "   (each cost category is allocated in full — categories are parallel, not a split)";
+    }
+
+    /// <summary>"₹x of ₹y — fully allocated / n unallocated / over-allocated by n" for one axis.</summary>
+    private string AxisState(Guid categoryId, decimal line)
+    {
+        var allocated = CostAllocatedTotalFor(categoryId);
         var diff = line - allocated;
-        if (diff == 0m && line > 0m)
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  fully allocated";
-        else if (diff > 0m)
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  {Fmt(diff)} unallocated";
-        else
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  over-allocated by {Fmt(-diff)}";
+        var state = diff == 0m && line > 0m
+            ? "fully allocated"
+            : diff > 0m
+                ? $"{Fmt(diff)} unallocated"
+                : $"over-allocated by {Fmt(-diff)}";
+        return $"{Fmt(allocated)} of {Fmt(line)}  —  {state}";
     }
 
     /// <summary>
@@ -520,7 +591,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         // Snap to the paisa (the same rounding ForexInfo.BaseValue uses) so the base the engine sees is
         // paisa-exact even on a non-round rate — an unrounded sub-paisa base cannot persist (INTEGER paisa).
         var baseValue = Money.ForexBase(new Money(forex), rate).Amount;
-        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", CultureInfo.InvariantCulture)}";
+        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)}";
         // Drive the authoritative base amount (the engine enforces base == forex × rate rounded to the paisa).
         AmountText = baseValue.ToString(CultureInfo.InvariantCulture);
     }
@@ -550,6 +621,223 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         return new ForexInfo(currencyId, new Money(ParsedForexAmount), ParsedForexRate);
     }
 
+    // =============================================================== Phase 10.11 S5b — the rehydration INVERSE
+
+    /// <summary>
+    /// 🔴 <b>The inverse of the four line writers</b> (<see cref="ToBillAllocations"/>,
+    /// <see cref="ToCostAllocations"/>, <see cref="ToBankAllocation"/>, <see cref="ToForexInfo"/>): re-keys this
+    /// blank row from a POSTED <see cref="EntryLine"/> so that re-running the writers reproduces it exactly.
+    /// Returns <c>null</c> on success, or a <b>named refusal</b> when the posted line carries something this screen
+    /// cannot express today.
+    ///
+    /// <para>🔴 <b>MASTER DRIFT is the failure this method exists to catch</b> (design §6.6a.5). All three named
+    /// writers are lossless on CONTENT but lossy under drift, because each reads a <b>live master flag</b>:
+    /// <c>SyncBillWise</c> gates on <c>SelectedLedger.MaintainBillByBill</c>, <c>SyncCostApplicable</c> on
+    /// <c>ClassificationRules.CostCentresApplicableFor</c> plus the company having any centre at all, and
+    /// <c>SyncBankLine</c> on <c>ClassificationRules.IsBankLedger</c>. Turn one of those OFF after posting and the
+    /// rehydrated panel HIDES — so the writer returns empty and <b>the allocations vanish on re-accept with no
+    /// message at all</b>. The gates are therefore read off the REAL line after the ledger is picked, never
+    /// re-implemented here, so this check cannot drift out of step with the Sync methods it is policing.</para>
+    ///
+    /// <para><b>The drift is refused in BOTH directions, and they are not symmetrical.</b> Bill-wise turned ON after
+    /// posting seeds a blank New-Ref row that no longer sums to the line, so Accept would refuse with a message
+    /// about a split the operator never keyed; cost allocation is OPTIONAL, so an untouched panel is legitimate and
+    /// only the OFF direction is a loss.</para>
+    ///
+    /// <para>🔴 <b><see cref="BankAllocation.BankDate"/> is deliberately NOT rehydrated.</b> It is written onto a
+    /// posted voucher by a later human action (<c>BankReconciliation.SetBankDate</c>) and exists nowhere on this
+    /// screen, so there is nothing to re-key. Carrying it is <c>LedgerService.Replace</c>'s job
+    /// (<c>CarryBankDatesForward</c>, with its ECHO rule) — which is precisely why an alteration must end in
+    /// <c>Replace</c> and never in <c>Post</c>.</para>
+    /// </summary>
+    public string? RehydrateFrom(EntryLine posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        var ledger = Ledgers.FirstOrDefault(l => l.Id == posted.LedgerId);
+        if (ledger is null)
+            return "one of its lines posts to a ledger that is no longer in this company, so the entry screen "
+                 + "cannot show it.";
+
+        // Assigning the ledger is what fires SyncForexLine / SyncBillWise / SyncCostApplicable / SyncBankLine —
+        // i.e. it opens exactly the panels a fresh entry would open for this ledger TODAY. Everything below either
+        // fills those panels or refuses because they no longer match what was posted.
+        SelectedLedger = ledger;
+        Side = posted.Side;
+
+        if (RehydrateAmount(posted, ledger) is { } amountRefusal) return amountRefusal;
+        if (RehydrateBillAllocations(posted, ledger) is { } billRefusal) return billRefusal;
+        if (RehydrateCostAllocations(posted, ledger) is { } costRefusal) return costRefusal;
+        if (RehydrateBank(posted, ledger) is { } bankRefusal) return bankRefusal;
+
+        // The whole point of an inverse: what the writers will rebuild must be the amount that was posted. A forex
+        // line's amount is DERIVED (forex x rate, snapped to the paisa) rather than typed, so this is the one check
+        // that proves the derivation landed back on the posted figure.
+        if (ParsedAmount != posted.Amount.Amount)
+            return $"the amount on '{ledger.Name}' cannot be re-keyed exactly "
+                 + $"({posted.Amount.Amount} was posted, the screen rebuilds {ParsedAmount}).";
+
+        return null;
+    }
+
+    /// <summary>
+    /// Re-keys the line's amount — through the forex pair when the line was posted in a foreign currency, because
+    /// <c>RecomputeForexBase</c> DRIVES <see cref="AmountText"/> from forex x rate and would overwrite anything set
+    /// directly.
+    ///
+    /// <para>🔴 <b>The rate format is widened here, and that is the whole fix for the one writer that was not
+    /// losslessly invertible</b> (§6.6a.5). <c>ForexInfo.Rate</c> persists at <c>Schema.ForexScale</c> = 1,000,000
+    /// (six decimal places), while this screen's own rate formatter is <c>"0.####"</c> — FOUR. An inverse reusing
+    /// that format truncates a six-place rate, and because <c>Money.ForexBase</c> snaps forex x rate to the paisa,
+    /// the rebuilt base amount can then differ from the posted one — which <c>VoucherValidator</c> rejects. Six
+    /// places covers everything the store can hold; a rate carrying MORE (possible only in memory, before a save
+    /// rounds it) falls back to the decimal's own exact round-trip rendering rather than being truncated or
+    /// refused.</para>
+    /// </summary>
+    private string? RehydrateAmount(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsForexLine != posted.HasForex)
+            return posted.HasForex
+                ? $"'{ledger.Name}' was posted in a foreign currency, but it no longer holds one — the forex "
+                + "amount and rate on that line would be lost."
+                : $"'{ledger.Name}' now holds a foreign currency but was posted in base currency, so the screen "
+                + "would demand a forex amount and rate the posted line never carried.";
+
+        // 🔴 WHICH currency, not merely WHETHER there is one (finding L3-01). The check above asks only that the
+        // line still holds A foreign currency; ToForexInfo then rebuilds the ForexInfo from
+        // `SelectedLedger.CurrencyId` — the LIVE master — so a ledger repointed from USD to EUR after posting
+        // opened silently, accepted with a plain "altered." and restated the posted line in a currency it was never
+        // denominated in. Nothing else caught it: EnsureForexValid checks only that the currency EXISTS and that
+        // base ≈ forex × rate, both of which survive the swap, and LedgerMasterViewModel writes
+        // `target.CurrencyId = SelectedCurrency?.CurrencyId` unconditionally, with no transacted-ledger guard.
+        //
+        // This is the FOURTH master-drift reader, and the only one whose drift reaches a posted EntryLine as a
+        // VALUE rather than as a panel gate: the other three (SyncBillWise, SyncCostApplicable, SyncBankLine) are
+        // compared against the posted shape above and below, and BillAllocationRowViewModel.ToAllocation /
+        // ToBankAllocation read no live master at all.
+        if (posted.Forex is { } postedForex && ledger.CurrencyId is { } liveCurrencyId
+            && postedForex.CurrencyId != liveCurrencyId)
+        {
+            var postedCode = _company?.FindCurrency(postedForex.CurrencyId)?.FormalName ?? "another currency";
+            var liveCode = _company?.FindCurrency(liveCurrencyId)?.FormalName ?? "a different currency";
+            return $"'{ledger.Name}' was posted in {postedCode} but now holds {liveCode}, so re-accepting would "
+                 + "restate the line in a currency it was never denominated in.";
+        }
+
+        if (posted.Forex is { } forex)
+        {
+            ForexAmountText = ExactDecimalText(forex.ForexAmount.Amount);
+            ForexRateText = ExactDecimalText(forex.Rate, "0.######");
+            return null; // RecomputeForexBase has driven AmountText; the caller verifies it landed on the posted figure
+        }
+
+        AmountText = ExactDecimalText(posted.Amount.Amount);
+        return null;
+    }
+
+    /// <summary>
+    /// Renders <paramref name="value"/> so that parsing it back yields the SAME decimal. Prefers
+    /// <paramref name="preferred"/> (a tidy fixed-places form) and falls back to the decimal's own exact rendering
+    /// when that would lose a digit — so the output is always lossless and usually also readable.
+    /// </summary>
+    private static string ExactDecimalText(decimal value, string? preferred = null)
+    {
+        if (preferred is not null)
+        {
+            var tidy = value.ToString(preferred, CultureInfo.InvariantCulture);
+            if (decimal.TryParse(tidy, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var back)
+                && back == value)
+                return tidy;
+        }
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private string? RehydrateBillAllocations(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsBillWise != posted.HasBillAllocations)
+            return posted.HasBillAllocations
+                ? $"'{ledger.Name}' no longer maintains balances bill-by-bill, so the bill-wise panel would not "
+                + $"open and the {posted.BillAllocations.Count} allocation(s) posted on that line would silently "
+                + "vanish on re-accept."
+                : $"'{ledger.Name}' now maintains balances bill-by-bill but the posted line carries no allocation, "
+                + "so the screen would demand a bill-wise split that was never keyed.";
+
+        // The screen's own writer never states CreditPeriodDays (ToAllocation passes only an explicit due date), so
+        // an allocation carrying one — from a canonical-XML import, or a book older than this screen — cannot be
+        // re-keyed. Dropping it would move the ageing due date silently, which is exactly the class of loss this
+        // method exists to refuse.
+        if (posted.BillAllocations.FirstOrDefault(a => a.CreditPeriodDays is not null) is { } withPeriod)
+            return $"a bill-wise allocation on '{ledger.Name}' ('{withPeriod.Name}') carries an explicit credit "
+                 + "period, which this screen states as a due date rather than a number of days — re-accepting "
+                 + "would drop it and move the bill's ageing.";
+
+        BillAllocations.Clear();
+        foreach (var a in posted.BillAllocations)
+        {
+            var row = AddBillAllocation(a.RefType);
+            row.Name = a.Name;
+            row.DueDateText = a.DueDate is { } due ? ApexDate.Format(due) : string.Empty;
+            row.AmountText = ExactDecimalText(a.Amount.Amount);
+        }
+        RecomputeBillSummary();
+        return null;
+    }
+
+    private string? RehydrateCostAllocations(EntryLine posted, DomainLedger ledger)
+    {
+        // Cost allocation is OPTIONAL, so the ON direction is not a loss: a cost-applicable line that posted no
+        // allocation is a legitimate, round-tripping shape. Only the OFF direction destroys posted data.
+        if (posted.HasCostAllocations && !IsCostApplicable)
+            return $"cost centres no longer apply to '{ledger.Name}', so the cost panel would not open and the "
+                 + $"{posted.CostAllocations.Count} allocation(s) posted on that line would silently vanish on "
+                 + "re-accept.";
+
+        // Only clear when there is something to replace the seed row WITH. A cost-applicable line that posted no
+        // allocation keeps the blank starter row a fresh entry would show, and posts nothing (the panel is optional).
+        if (!posted.HasCostAllocations) return null;
+
+        CostAllocations.Clear();
+        foreach (var a in posted.CostAllocations)
+        {
+            var row = AddCostAllocation();
+            var category = _costCategories.FirstOrDefault(c => c.Id == a.CategoryId);
+            if (category is null)
+                return $"a cost allocation on '{ledger.Name}' names a cost category that is no longer in this "
+                     + "company, so it cannot be re-keyed.";
+            row.SelectedCategory = category;
+
+            var centre = _costCentres.FirstOrDefault(c => c.Id == a.CentreId);
+            if (centre is null || centre.CategoryId != category.Id)
+                return $"a cost allocation on '{ledger.Name}' names a cost centre that is no longer under its "
+                     + "category, so it cannot be re-keyed.";
+            row.SelectedCentre = centre;
+
+            row.AmountText = ExactDecimalText(a.Amount.Amount);
+        }
+
+        RecomputeCostSummary();
+        return null;
+    }
+
+    private string? RehydrateBank(EntryLine posted, DomainLedger ledger)
+    {
+        if (IsBankLine != posted.HasBankAllocation)
+            return posted.HasBankAllocation
+                ? $"'{ledger.Name}' is no longer a bank account, so the bank panel would not open and the "
+                + "instrument details posted on that line would be lost."
+                : $"'{ledger.Name}' is now a bank account but the posted line carries no bank allocation, so "
+                + "re-accepting would add banking detail the voucher never had.";
+
+        if (posted.BankAllocation is not { } bank) return null;
+
+        BankTransactionType = bank.TransactionType;
+        InstrumentNumber = bank.InstrumentNumber ?? string.Empty;
+        InstrumentDateText = bank.InstrumentDate is { } d ? ApexDate.Format(d) : string.Empty;
+        // BankDate is NOT copied — see this method group's summary. LedgerService.Replace carries the reconcile
+        // tick, and its ECHO rule exists precisely because a rehydration that DID copy it would defeat the guard.
+        return null;
+    }
+
     /// <summary>The parent voucher's current date, so a forex rate can be defaulted from the rate in force.</summary>
     private DateOnly? _voucherDate;
 
@@ -566,9 +854,56 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         }
     }
 
-    /// <summary>True when this line is fully specified: a ledger picked and a positive amount typed.</summary>
+    /// <summary>
+    /// True when this line is fully specified: a ledger picked and a positive, <b>storable</b> amount typed.
+    ///
+    /// <para>Storability is folded in (W0-13 S2a) because <c>VoucherEntryViewModel</c> builds its
+    /// <see cref="EntryLine"/> set from <c>Lines.Where(l =&gt; l.IsComplete)</c>, and the line amount persists
+    /// through <c>Paisa.FromMoney</c>. A touched-but-incomplete line is refused up front by the existing
+    /// <c>Lines.Any(l =&gt; !l.IsBlank &amp;&amp; !l.IsComplete)</c> gate, so this can never silently DROP a line —
+    /// which would be the far worse failure. <see cref="AmountError"/> supplies the discriminating message.</para>
+    /// </summary>
     public bool IsComplete => SelectedLedger is not null && TryParseAmount(out var amt) && amt > 0m
+        && StorableAmount.IsStorable(amt)
         && ForexOk;
+
+    /// <summary>
+    /// The field-level refusal for this line's own amount, or <c>null</c> when it can be stored.
+    ///
+    /// <para><b>Why the guard is here and NOT on the <see cref="EntryLine"/> constructor.</b> The three sibling
+    /// value objects this slice guards (<c>BillAllocation</c>, <c>CostAllocation</c>, <c>PosTender</c>) are leaf
+    /// records whose every non-screen caller — the canonical-XML import and the SQLite read path — builds from
+    /// INTEGER paisa, so a domain guard there cannot regress anything. <see cref="EntryLine"/> is not that: it is
+    /// the posting primitive, built at 62 sites across 17 engine services (GST, TDS, TCS, RCM, advance receipts,
+    /// payroll, set-off, reversals, deposits) plus <c>ForexGainLoss</c>, which synthesises report-only lines that
+    /// never persist. Moving the refusal into that constructor is a separate slice with its own engine sweep to
+    /// justify. The value an OPERATOR types enters at exactly one place — <see cref="AmountText"/> — and that is
+    /// what this guards.</para>
+    /// </summary>
+    public string? AmountError =>
+        TryParseAmount(out var amt) ? StorableAmount.ErrorFor(amt, AmountText, "the line amount") : null;
+
+    /// <summary>
+    /// The field-level refusal for the <b>forex magnitude</b> on this line, or <c>null</c> when it can be carried.
+    ///
+    /// <para>🔴 <b>The one typed amount on this screen that <see cref="AmountError"/> did NOT cover</b> (finding
+    /// L2-03). The line amount, the bill rows and the cost rows are all guarded; the forex amount was not, and
+    /// <see cref="ForexOk"/> only asks that it be positive. So a forex amount carrying three decimal places posted,
+    /// passed <c>VoucherValidator.EnsureForexValid</c> (which compares only base ≈ forex × rate) and SAVED — SQLite
+    /// stores the magnitude at 1,000,000 scale and holds it happily — and then <c>CanonicalXml.Export</c> THREW,
+    /// because the canonical model carries <c>ForexAmountPaisa</c> at two places. That is a company the app itself
+    /// produced and cannot export, and the Export Data → XML path is the only door out of it.</para>
+    ///
+    /// <para>The base amount cannot catch it: <c>RecomputeForexBase</c> snaps forex × rate to the paisa, so the
+    /// derived line amount is paisa-exact however fine the forex figure is.</para>
+    /// </summary>
+    public string? ForexAmountError =>
+        IsForexLine && TryParseDecimal(ForexAmountText, out var fx) && fx > 0m
+            ? StorableAmount.ErrorFor(
+                fx, ForexAmountText,
+                string.IsNullOrWhiteSpace(ForexCurrencyCode) ? "the amount in foreign currency"
+                                                             : $"the {ForexCurrencyCode} amount")
+            : null;
 
     /// <summary>True when the row has been touched at all (ledger or amount) — a blank row is ignored.</summary>
     public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText);

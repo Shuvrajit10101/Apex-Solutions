@@ -22,6 +22,26 @@ public static class VoucherValidator
     /// known-ledger references, date within books, and the balanced-voucher invariant.
     /// </summary>
     public static void EnsureValid(Voucher v, Company c)
+        => EnsureValid(v, c, CostAllocationStrictness.Strict);
+
+    /// <summary>
+    /// <see cref="EnsureValid(Voucher, Company)"/> with an explicit cost-allocation invariant (see
+    /// <see cref="CostAllocationStrictness"/>). Every other check is identical. Only the two rehydration
+    /// paths — <c>SqliteCompanyStore.Load</c> and company import — pass anything but
+    /// <see cref="CostAllocationStrictness.Strict"/>.
+    /// <para><b>The parameter now gates a SECOND entry-only rule</b> — the §10(4) "a composition dealer may not
+    /// collect tax" guard at the foot of this method — for the same reason and on the same two paths: a rule that
+    /// refuses to POST must not refuse to LOAD, or a book already containing the shape becomes unopenable. A
+    /// dedicated name for "entry vs rehydration" would read better than <see cref="CostAllocationStrictness"/>; that
+    /// rename touches every caller and is deliberately left to its own slice rather than folded in here.</para>
+    /// </summary>
+    /// <param name="replacing">
+    /// The voucher <c>LedgerService.Replace</c> is swapping OUT, when this validation is on the Alter path;
+    /// <c>null</c> on every Post path. It exists for exactly one rule — the Prevent-Duplicate scan below — and it
+    /// changes nothing else.
+    /// </param>
+    public static void EnsureValid(
+        Voucher v, Company c, CostAllocationStrictness costAllocationStrictness, Voucher? replacing = null)
     {
         ArgumentNullException.ThrowIfNull(v);
         ArgumentNullException.ThrowIfNull(c);
@@ -30,6 +50,58 @@ public static class VoucherValidator
         var voucherType = c.FindVoucherType(v.TypeId);
         if (voucherType is null)
             throw new InvalidVoucherException($"Unknown voucher type {v.TypeId}.");
+
+        // numbering-design-v2 §7 — Prevent Duplicate. When the type opts in, a voucher whose FULLY-RENDERED number
+        // collides (ordinal, case-sensitive) with an existing non-deleted voucher of the same type is rejected. The
+        // check lives here so the Io import path (which posts every voucher through LedgerService.Post ⇒ EnsureValid)
+        // inherits it and cannot bypass it. An Automatic voucher reaches EnsureValid with Number == 0 (assigned AFTER
+        // validation) ⇒ renders "" ⇒ never collides; the guard bites on a Manual/pre-set number. A colliding number
+        // renders the same string only when two vouchers share an int and the same date-selected affix — a genuine
+        // duplicate (restart is deferred, so there is no legitimate repeat), so there is no false-reject. The
+        // counterparty reference field is the OTHER party's number and is never run through this guard.
+        //
+        // 🔴 TWO EXEMPTIONS, both load-bearing for the ALTER path (phase-10-11 S5a), and both PINNED BY THEIR OWN
+        // TEST because each is invisible to every other test in the repository:
+        //
+        //   (a) `other.Id == v.Id` — the voucher BEING re-validated is still on the book while Replace validates
+        //       (clause 1 validates before it swaps), so without this skip a voucher would collide with ITSELF and
+        //       clause 3 — "the number is preserved" — could never be satisfied under Prevent Duplicates. Deleting
+        //       this line used to leave ALL FOUR test projects green (4,699 tests); the coupling is now pinned by
+        //       VoucherReplacePreventDuplicateTests.
+        //   (b) the pre-existing-collision exemption — a DIFFERENT voucher that ALREADY rendered the same string as
+        //       the voucher being replaced. A book can legitimately hold two same-numbered vouchers (posted with
+        //       Prevent Duplicates off, or under Manual numbering); flipping the setting on must not make BOTH of
+        //       them permanently unalterable, since Replace refuses a renumber and Delete+re-Post is the exact harm
+        //       S5a exists to remove. The alteration did not create that collision and is not the place to refuse
+        //       it. A collision the alteration DOES create — a date change that moves the rendered number onto a
+        //       live one — is still refused.
+        if (voucherType.PreventDuplicate)
+        {
+            var rendered = VoucherNumberFormatter.Render(voucherType, v.Number, v.Date);
+            var priorRendered = replacing is null
+                ? null
+                : VoucherNumberFormatter.Render(voucherType, replacing.Number, replacing.Date);
+
+            if (rendered.Length > 0)
+                foreach (var other in c.Vouchers)
+                {
+                    if (other.Id == v.Id) continue;                 // (a) re-validating an already-posted voucher
+                    if (other.TypeId != v.TypeId) continue;
+                    if (!string.Equals(
+                            VoucherNumberFormatter.Render(voucherType, other.Number, other.Date), rendered,
+                            StringComparison.Ordinal))
+                        continue;
+
+                    // (b) the collision predates this alteration — refusing it would trap the voucher forever.
+                    if (replacing is not null && other.Id != replacing.Id
+                        && string.Equals(priorRendered, rendered, StringComparison.Ordinal))
+                        continue;
+
+                    throw new InvalidVoucherException(
+                        $"Voucher number '{rendered}' already exists for '{voucherType.Name}' " +
+                        "(Prevent Duplicates is on).");
+                }
+        }
 
         // §11 zero-valued transactions (Phase 6 slice 4 RQ-21): "Allow zero-valued transactions" is a Sales/Purchase
         // feature only. A Journal / Stock-Journal (or any other base) type must never carry it — reject at post time
@@ -56,7 +128,7 @@ public static class VoucherValidator
                 EnsureBillAllocationsValid(line, ledger);
 
             if (line.HasCostAllocations)
-                EnsureCostAllocationsValid(line, ledger, c);
+                EnsureCostAllocationsValid(line, ledger, c, costAllocationStrictness);
 
             if (line.HasBankAllocation)
                 EnsureBankAllocationValid(line, ledger, c);
@@ -83,6 +155,27 @@ public static class VoucherValidator
         // the item-invoice pairing above are untouched; POS only changes the DEBIT side to a tender split.
         if (v.HasPosTenders)
             EnsurePosTendersValid(v, c);
+
+        // W0-1 follow-up (R12 user decision) — CGST Act §10(4): a composition dealer "shall not collect any tax from
+        // the recipient on supplies made by him". An outward supply of his that CARRIES posted forward GST is
+        // therefore not a document-classification problem to be explained at print time; it is an entry that should
+        // never have been accepted. Refused here so it cannot enter the books at all.
+        //
+        // ⚠️ ENTRY PATHS ONLY, and that is load-bearing. A guard that refuses to POST is not a guard that refuses to
+        // LOAD: SqliteCompanyStore.Load re-posts every stored voucher through this engine, so applying this rule
+        // unconditionally would make a book that ALREADY contains the shape unopenable — strictly worse than the
+        // print-path refusal it supplements. The two rehydration paths (SqliteCompanyStore.Load and company import)
+        // are exactly the two that pass CostAllocationStrictness.Legacy, and that enum's own contract already says so
+        // ("Rehydration only … never used when a user enters or alters a voucher"), so it is the discriminator here
+        // too. An already-posted anomalous voucher keeps loading, reading and printing — as the plain Dr/Cr voucher,
+        // which states every posted leg exactly (VoucherPrintProjector.IsTaxInvoice).
+        if (costAllocationStrictness == CostAllocationStrictness.Strict &&
+            GstReportSupport.IsCompositionSupplyCarryingForwardTax(c, v))
+            throw new InvalidVoucherException(
+                "A composition dealer may not collect GST. This outward supply posts forward Output CGST/SGST/IGST " +
+                "or Compensation Cess, which CGST Act section 10(4) forbids (\"shall not collect any tax from the " +
+                "recipient on supplies made by him\") and section 31(3)(c) answers by requiring a bill of supply " +
+                "instead of a tax invoice. Remove the tax legs, or change the Registration Type under F11 GST.");
     }
 
     /// <summary>
@@ -276,10 +369,25 @@ public static class VoucherValidator
     /// <summary>
     /// §6 cost-centre integrity for one line: cost allocations are only permitted on a ledger with cost
     /// centres applicable, every allocation must reference a known category and a known centre that
-    /// belongs to that category, and their magnitudes must <b>sum exactly to the line amount</b>
-    /// ("split across centres"). Throws otherwise.
+    /// belongs to that category, and — <b>within each cost category independently</b> — their magnitudes
+    /// must sum exactly to the line amount. Throws otherwise.
+    /// <para><b>Parallel sets, not a partition (spec §4.2 rule C-27; gap G-2).</b> Cost categories are
+    /// independent allocation <i>axes</i>. The corpus's worked example allocates one ₹5,000 travelling
+    /// expense in full to Branch → Kolkata <i>and</i> in full to Department → Marketing <i>and</i> in full
+    /// to Executive → Sales Executive 1 (TALLY PRIME STUDY GUIDE pp.101–102). Summing across categories and
+    /// comparing that to the line — which this validator used to do — rejects the reference product's own
+    /// example and makes multi-category cost accounting impossible. Within one axis the split behaviour is
+    /// unchanged: ₹5,000 may still be split ₹3,000 Kolkata + ₹2,000 Delhi.</para>
     /// </summary>
     public static void EnsureCostAllocationsValid(Domain.EntryLine line, Domain.Ledger ledger, Company c)
+        => EnsureCostAllocationsValid(line, ledger, c, CostAllocationStrictness.Strict);
+
+    /// <summary>
+    /// <see cref="EnsureCostAllocationsValid(Domain.EntryLine, Domain.Ledger, Company)"/> with an explicit
+    /// invariant (see <see cref="CostAllocationStrictness"/>).
+    /// </summary>
+    public static void EnsureCostAllocationsValid(
+        Domain.EntryLine line, Domain.Ledger ledger, Company c, CostAllocationStrictness strictness)
     {
         if (!ClassificationRules.CostCentresApplicableFor(ledger, c))
             throw new InvalidVoucherException(
@@ -298,10 +406,35 @@ public static class VoucherValidator
                     $"Cost centre '{centre.Name}' does not belong to category '{category.Name}'.");
         }
 
-        if (line.CostAllocationTotal != line.Amount)
-            throw new InvalidVoucherException(
-                $"Cost allocations on the line for '{ledger.Name}' sum to {line.CostAllocationTotal} " +
-                $"but the line amount is {line.Amount}; they must be equal (split across centres).");
+        // The per-category (per-axis) invariant: each category the line uses must itself total the line.
+        // Reported on the FIRST short axis in first-appearance order, so the message is deterministic.
+        Guid? shortCategoryId = null;
+        var shortAllocated = Money.Zero;
+        foreach (var categoryId in line.CostAllocationCategoryIds)
+        {
+            var allocated = line.CostAllocationTotalFor(categoryId);
+            if (allocated == line.Amount) continue;
+            shortCategoryId = categoryId;
+            shortAllocated = allocated;
+            break;
+        }
+
+        if (shortCategoryId is null) return;   // every axis foots — valid under both rules
+
+        // Rehydration tolerance: books written under the superseded partition rule "split" one amount
+        // ACROSS axes, so no single axis foots but the cross-axis sum does. Those vouchers were legitimately
+        // accepted once and must keep loading — SqliteCompanyStore.Load re-posts every stored voucher
+        // through this engine, so rejecting them would make the whole company unopenable. Never granted on
+        // an entry path; CostAllocationDiagnostics lists what a human still needs to re-allocate.
+        if (strictness == CostAllocationStrictness.Legacy && line.CostAllocationTotal == line.Amount)
+            return;
+
+        // C-27: the corpus's own failure text names the ledger AND the category.
+        var shortCategoryName = c.FindCostCategory(shortCategoryId.Value)?.Name ?? shortCategoryId.Value.ToString();
+        throw new InvalidVoucherException(
+            $"Cost allocations on the line for '{ledger.Name}' total {shortAllocated} under cost category " +
+            $"'{shortCategoryName}' but the line amount is {line.Amount}; each cost category must be " +
+            "allocated in full (categories are parallel axes, not a split of the line).");
     }
 
     /// <summary>

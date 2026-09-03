@@ -432,7 +432,7 @@ public sealed partial class ManufacturingJournalEntryViewModel : ViewModelBase, 
                 ConsumptionGodown!.Id, ProductionGodown!.Id, additionalCosts);
             _storage.Save(_company);
             SavedNumber = result.Voucher.Number;
-            Message = $"{_type.Name} No. {result.Voucher.Number} accepted — " +
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(result.Voucher)} accepted — " +
                       $"{qty.ToString("0.######", CultureInfo.InvariantCulture)} × {SelectedFinishedGood!.Name} " +
                       $"valued {Rupees(result.FinishedGoodValue)}.";
             _onSaved();
@@ -445,11 +445,12 @@ public sealed partial class ManufacturingJournalEntryViewModel : ViewModelBase, 
         }
     }
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress voucher and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 
     private static string Rupees(Money m) =>
-        "₹" + m.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
+        "₹" + m.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
 
     private static string CarveOutLabel(BomLineType type) => type switch
     {

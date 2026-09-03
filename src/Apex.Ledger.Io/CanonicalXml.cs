@@ -59,6 +59,10 @@ public static class CanonicalXml
             Attr("useSeparateActualBilledQuantity", c.UseSeparateActualBilledQuantity),
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
             Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing),
+            // v50 (NS-4). ALWAYS written, in both states — an "omit when default" optimisation would be a bug here,
+            // because the reader's default is TRUE and an omitted attribute would then be indistinguishable from
+            // "warnings on" for a company that deliberately turned them off.
+            Attr("warnOnNegativeStock", c.WarnOnNegativeStock),
             Attr("payrollEnabled", c.PayrollEnabled),
             Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled),
             Attr("salaryTdsEnabled", c.SalaryTdsEnabled));
@@ -245,9 +249,15 @@ public static class CanonicalXml
         return el;
     }
 
-    private static XElement BuildGroup(GroupDto g) => new("group",
-        Attr("id", g.Id), Attr("name", g.Name), Attr("nature", g.Nature),
-        OptId("parentId", g.ParentId), Opt("alias", g.Alias), Attr("isPredefined", g.IsPredefined));
+    private static XElement BuildGroup(GroupDto g)
+    {
+        var el = new XElement("group",
+            Attr("id", g.Id), Attr("name", g.Name), Attr("nature", g.Nature),
+            OptId("parentId", g.ParentId), Opt("alias", g.Alias), Attr("isPredefined", g.IsPredefined));
+        // v51 (WF-1): the Group level of the GST hierarchy — a child element only when a block exists (ER-13).
+        if (g.Gst is { } gst) el.Add(BuildMasterGst(gst));
+        return el;
+    }
 
     private static XElement BuildLedger(LedgerDto l)
     {
@@ -453,10 +463,21 @@ public static class CanonicalXml
             Attr("allowConsumption", t.AllowConsumption),
             Attr("isStatPayment", t.IsStatPayment),
             Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher),
-            Attr("isGstStatAdjustment", t.IsGstStatAdjustment));
+            Attr("isGstStatAdjustment", t.IsGstStatAdjustment),
+            // v47 (numbering S3): emit CONDITIONALLY (omit-at-default) so a never-configured type is byte-identical
+            // to the pre-feature golden (ER-13) — mirrors the unit_id / Opt precedent.
+            OptTrue("preventDuplicate", t.PreventDuplicate),
+            OptInt("numberWidth", t.NumberWidth == 0 ? null : t.NumberWidth),
+            OptTrue("prefillWithZero", t.PrefillWithZero));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
+        // v47: emit the affix child element lists ONLY when non-empty (byte-identical when absent, ER-13).
+        if (t.Prefixes is { Count: > 0 } pre) el.Add(List("prefixes", "prefix", pre, a => BuildAffix("prefix", a)));
+        if (t.Suffixes is { Count: > 0 } suf) el.Add(List("suffixes", "suffix", suf, a => BuildAffix("suffix", a)));
         return el;
     }
+
+    private static XElement BuildAffix(string name, VoucherNumberAffixDto a) => new(name,
+        Attr("applicableFrom", a.ApplicableFrom), Attr("particulars", a.Particulars));
 
     private static XElement BuildPosConfig(PosConfigDto c)
     {
@@ -477,9 +498,21 @@ public static class CanonicalXml
         Attr("decimalPlaces", u.DecimalPlaces), OptId("firstUnitId", u.FirstUnitId), OptId("tailUnitId", u.TailUnitId),
         OptInt("conversionNumerator", u.ConversionNumerator), OptInt("conversionDenominator", u.ConversionDenominator));
 
-    private static XElement BuildStockGroup(StockGroupDto g) => new("stockGroup",
-        Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId),
-        Opt("alias", g.Alias), Attr("addQuantities", g.AddQuantities));
+    private static XElement BuildStockGroup(StockGroupDto g)
+    {
+        var el = new XElement("stockGroup",
+            Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId),
+            Opt("alias", g.Alias), Attr("addQuantities", g.AddQuantities));
+        // v51 (WF-1): the Stock Group level of the GST hierarchy — a child element only when a block exists, so a
+        // stock group that carries none is byte-identical to its v50 form (ER-13).
+        if (g.Gst is { } gst) el.Add(BuildMasterGst(gst));
+        return el;
+    }
+
+    /// <summary>The narrow v51 <see cref="MasterGstDto"/> block as a <c>&lt;gst&gt;</c> child element (WF-1).</summary>
+    private static XElement BuildMasterGst(MasterGstDto g) => new("gst",
+        Opt("hsnSac", g.HsnSac), Attr("taxability", g.Taxability),
+        OptInt("rateBasisPoints", g.RateBasisPoints), Attr("supplyType", g.SupplyType));
 
     private static XElement BuildStockCategory(StockCategoryDto g) => new("stockCategory",
         Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId), Opt("alias", g.Alias));
@@ -557,7 +590,15 @@ public static class CanonicalXml
             Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable),
             // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (always emitted; defaults 0/0 ⇒ byte-stable, finding #5).
             Attr("reconValueTolerancePaisa", g.ReconValueTolerancePaisa),
-            Attr("reconDateWindowDays", g.ReconDateWindowDays));
+            Attr("reconDateWindowDays", g.ReconDateWindowDays),
+            // v51 (WF-1): the two source-order options, ALWAYS emitted — even when they equal the shipped default.
+            // Omitting them "because they match the default" would make a book that deliberately chose
+            // StockItemFirst indistinguishable from one that never chose, and the reader's fallback is LedgerFirst.
+            Attr("sourceOfHsnSacDetails", g.SourceOfHsnSacDetails),
+            Attr("sourceOfGstRate", g.SourceOfGstRate));
+        // v51 (WF-1): the company-level default block — a child element only when a block exists (ER-13). Named
+        // `defaultGst` rather than `gst`, which is this element's own name.
+        if (g.DefaultGst is { } dg) el.Add(new XElement("defaultGst", BuildMasterGst(dg).Attributes()));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -730,7 +771,11 @@ public static class CanonicalXml
             Attr("id", v.Id), Attr("typeId", v.TypeId), Attr("number", v.Number), Attr("date", v.Date),
             Opt("narration", v.Narration), OptId("partyId", v.PartyId),
             Attr("cancelled", v.Cancelled), Attr("optional", v.Optional), Attr("postDated", v.PostDated),
-            Opt("applicableUpto", v.ApplicableUpto));
+            Opt("applicableUpto", v.ApplicableUpto),
+            // v48 (numbering S5): counterparty reference — omitted when null so an unset voucher is byte-identical.
+            Opt("referenceNo", v.ReferenceNo), Opt("referenceDate", v.ReferenceDate),
+            // v49: the accounting-invoice (service-invoice) flag — omitted when false (ER-13).
+            OptTrue("isAccountingInvoice", v.IsAccountingInvoice));
         var lines = new XElement("lines");
         foreach (var l in v.Lines) lines.Add(BuildEntryLine(l));
         el.Add(lines);
@@ -990,6 +1035,11 @@ public static class CanonicalXml
             UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
             EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
+            // ⚠️ v50 (NS-4) — the ONE attribute here read with a TRUE default. A pre-v50 document carries no
+            // warnOnNegativeStock attribute at all, and the plain Bool(...) overload above would read that absence
+            // as false, silently switching negative-stock warnings off on every imported legacy book. Do not
+            // "simplify" this to the two-argument overload — NegativeStockDefaultTrueTests fails if you do.
+            WarnOnNegativeStock = Bool(e, "warnOnNegativeStock", whenAbsent: true),
             PayrollEnabled = Bool(e, "payrollEnabled"),
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
             SalaryTdsEnabled = Bool(e, "salaryTdsEnabled"),
@@ -1133,6 +1183,19 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, Nature = Str(e, "nature")!,
         ParentId = OptGuid(e, "parentId"), Alias = Str(e, "alias"), IsPredefined = Bool(e, "isPredefined"),
+        // v51 (WF-1): absent <gst> ⇒ no block, which is every group in a pre-v51 document (ER-13).
+        Gst = e.Element("gst") is { } g ? ReadMasterGst(g) : null,
+    };
+
+    /// <summary>Reads the narrow v51 <see cref="MasterGstDto"/> block from a <c>&lt;gst&gt;</c>/<c>&lt;defaultGst&gt;</c>
+    /// element. Taxability/supplyType fall back to the domain defaults so a hand-edited document missing them still
+    /// parses to the same block the domain would build (WF-1).</summary>
+    private static MasterGstDto ReadMasterGst(XElement e) => new()
+    {
+        HsnSac = Str(e, "hsnSac"),
+        Taxability = Str(e, "taxability") ?? "Taxable",
+        RateBasisPoints = OptInt(e, "rateBasisPoints"),
+        SupplyType = Str(e, "supplyType") ?? "Goods",
     };
 
     private static LedgerDto ReadLedger(XElement e) => new()
@@ -1368,8 +1431,31 @@ public static class CanonicalXml
         IsStatPayment = Bool(e, "isStatPayment"),
         IsRcmPaymentVoucher = Bool(e, "isRcmPaymentVoucher"),
         IsGstStatAdjustment = Bool(e, "isGstStatAdjustment"),
+        // v47 (numbering S3): absent attrs read false/0 (Bool/Int); absent child lists read null — so a pre-feature
+        // type is untouched AND a configured type round-trips losslessly.
+        PreventDuplicate = Bool(e, "preventDuplicate"),
+        NumberWidth = Int(e, "numberWidth"),
+        PrefillWithZero = Bool(e, "prefillWithZero"),
+        Prefixes = ReadAffixes(e, "prefixes", "prefix"),
+        Suffixes = ReadAffixes(e, "suffixes", "suffix"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
     };
+
+    /// <summary>Reads a voucher type's date-keyed affix list (v47; numbering S3), or <c>null</c> when the wrapper is
+    /// absent or empty — so a re-export of a never-configured type stays byte-identical (ER-13).</summary>
+    private static IReadOnlyList<VoucherNumberAffixDto>? ReadAffixes(XElement e, string wrapper, string item)
+    {
+        var wrap = e.Element(wrapper);
+        if (wrap is null) return null;
+        var list = wrap.Elements(item)
+            .Select(x => new VoucherNumberAffixDto
+            {
+                ApplicableFrom = Str(x, "applicableFrom") ?? string.Empty,
+                Particulars = Str(x, "particulars") ?? string.Empty,
+            })
+            .ToList();
+        return list.Count == 0 ? null : list;
+    }
 
     private static TdsChallanDto ReadTdsChallan(XElement e) => new()
     {
@@ -1529,6 +1615,8 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
         Alias = Str(e, "alias"), AddQuantities = Bool(e, "addQuantities"),
+        // v51 (WF-1): absent <gst> ⇒ no block, which is every stock group in a pre-v51 document (ER-13).
+        Gst = e.Element("gst") is { } g ? ReadMasterGst(g) : null,
     };
 
     private static StockCategoryDto ReadStockCategory(XElement e) => new()
@@ -1650,6 +1738,13 @@ public static class CanonicalXml
         // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (absent ⇒ 0/0 exact-match, ER-13; finding #5).
         ReconValueTolerancePaisa = OptLong(e, "reconValueTolerancePaisa") ?? 0L,
         ReconDateWindowDays = OptInt(e, "reconDateWindowDays") ?? 0,
+        // v51 (WF-1): the company default block + the two source orders. An absent attribute is a pre-v51 document,
+        // and the right reading of it is the SHIPPED order — LedgerFirst. It is deliberately NOT StockItemFirst:
+        // the item-first back-fill belongs to the SQL migration, which knows it is looking at a book that already
+        // existed on this installation. An imported document carries no such guarantee.
+        DefaultGst = e.Element("defaultGst") is { } dg ? ReadMasterGst(dg) : null,
+        SourceOfHsnSacDetails = Str(e, "sourceOfHsnSacDetails") ?? "LedgerFirst",
+        SourceOfGstRate = Str(e, "sourceOfGstRate") ?? "LedgerFirst",
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()
@@ -1730,6 +1825,8 @@ public static class CanonicalXml
         Narration = Str(e, "narration"), PartyId = OptGuid(e, "partyId"),
         Cancelled = Bool(e, "cancelled"), Optional = Bool(e, "optional"), PostDated = Bool(e, "postDated"),
         ApplicableUpto = Str(e, "applicableUpto"),
+        ReferenceNo = Str(e, "referenceNo"), ReferenceDate = Str(e, "referenceDate"),
+        IsAccountingInvoice = Bool(e, "isAccountingInvoice"),
         Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>()).Select(ReadEntryLine).ToList(),
         InventoryLines = (e.Element("inventoryLines")?.Elements("inventoryLine") ?? Enumerable.Empty<XElement>())
             .Select(ReadVoucherInventoryLine).ToList(),
@@ -1888,6 +1985,15 @@ public static class CanonicalXml
         int.TryParse(e.Attribute(name)?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private static bool Bool(XElement e, string name) => e.Attribute(name)?.Value == "true";
+
+    /// <summary>
+    /// <see cref="Bool(XElement,string)"/> with an explicit value for the ABSENT case. Needed only where a flag's
+    /// default is <c>true</c> (schema v50's <c>warnOnNegativeStock</c>), because there "attribute missing" and
+    /// "attribute false" mean opposite things — everywhere else the plain overload's implicit false is correct.
+    /// An attribute that IS present is read verbatim, so an explicit <c>"false"</c> always survives the round-trip.
+    /// </summary>
+    private static bool Bool(XElement e, string name, bool whenAbsent) =>
+        e.Attribute(name)?.Value is { } s ? s == "true" : whenAbsent;
 
     private static bool? OptBool(XElement e, string name) =>
         e.Attribute(name)?.Value is { } s ? s == "true" : null;

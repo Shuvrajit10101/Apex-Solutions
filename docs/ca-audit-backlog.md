@@ -239,7 +239,7 @@ only unrelated rate/discount auto-fill flags). **This is data loss, and it direc
 
 ### ⚠️ Verifier corrections (carry these; do not use the decoders' originals)
 
-1. **A second dispatch site was missed.** `MainWindowViewModel.cs:5265` binds the on-screen button **directly**,
+1. **A second dispatch site was missed.** `MainWindowViewModel.BuildButtonBar` binds the on-screen button **directly**,
    bypassing `CreateLedgerShortcut` entirely:
    `ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));`
    Consequences: **key and button already disagree today** (on ManufacturingJournalEntry/BomMaster the *key*
@@ -304,7 +304,7 @@ a voucher drops the shell to the Gateway with `VoucherEntry` null.
    `switch` to the existing factories (`ShowLedgerMaster` :2642, `ShowStockGroupMaster` :2725,
    `ShowStockCategoryMaster` :2735, `ShowUnitMaster` :2745, `ShowGodownMaster` :2755, `ShowStockItemMaster`
    :2765 — **all four of these line numbers verified exact**). Keep the screen-level fallback for a `null` kind
-   so untagged fields degrade to today's behaviour rather than breaking. **Fix the ButtonBar site at `:5265`
+   so untagged fields degrade to today's behaviour rather than breaking. **Fix the ButtonBar site in `MainWindowViewModel.BuildButtonBar`
    too.**
 5. **Open beside, not over.** Add `OpenOverlayPageColumn(...)` next to `OpenPageColumn` that stacks an extra
    column and does **not** call `ClearSubScreens()`. **Do not loosen `OpenPageColumn` itself** — its
@@ -1081,9 +1081,9 @@ specific batch" — and the distinct GST-challan "Cpin" — `GstChallan.cs:65`, 
   (each printed on its own line); may be empty").
 - **⚠️ Verifier addition — the sink is not merely declared, it genuinely RENDERS:** `InvoicePdf.cs:398`
   `foreach (var line in party.AddressLines)` and `:135` counts non-blank lines for layout. **So replacing
-  `VoucherPrintProjector.cs:214` flows straight to the PDF.** The "consumer is wired; only the source is
+  `VoucherPrintProjector.cs:217` flows straight to the PDF.** The "consumer is wired; only the source is
   missing" claim is **stronger** than the decoder stated.
-- **The formatter already exists:** `VoucherPrintProjector.cs:236` `SplitAddress(string?)` splits free-text into
+- **The formatter already exists:** `VoucherPrintProjector.cs:239` `SplitAddress(string?)` splits free-text into
   lines; already used for the **seller** at `:205`. Directly reusable for the buyer.
 - **The gate already exists and is already in use:** `src/Apex.Desktop/ViewModels/LedgerMasterViewModel.cs:
   421-433` `IsUnderParty(Group)` walks group ancestry (64-deep guard) to "Sundry Debtors"/"Sundry Creditors";
@@ -1124,7 +1124,7 @@ alteration exists.** A user who mistypes a PIN cannot fix it — **arguably wors
    member ⇒ nothing to save, and nothing for JSON/XML/CSV to round-trip.
 2. **UI:** no Mailing Details block. A user creating "Naresh Traders" under Sundry Debtors **physically cannot
    enter an address or PIN**.
-3. **Consumption:** every printed invoice emits a blank recipient address (`VoucherPrintProjector.cs:214`), and
+3. **Consumption:** every printed invoice emits a blank recipient address (`VoucherPrintProjector.cs:217`), and
    the e-invoice `BuyerDtls` cannot carry Addr/Loc/Pin.
 
 The gap is **shallow for its value**: the sink, the formatter, the gate, and the end-to-end precedent all exist.
@@ -1160,7 +1160,7 @@ which keeps every existing ledger **byte-identical** (the ER-13 discipline this 
 7. `MainWindow.axaml` — a new "Mailing Details" `<Border>` **immediately before `:3616`** (see correction 1),
    copying its `ColumnDefinitions="110,*"` row idiom; Address as a multi-line `TextBox` (`AcceptsReturn`,
    `TextWrapping`).
-8. **The payoff:** `VoucherPrintProjector.cs:211-217` — replace `AddressLines = Array.Empty<string>()` with
+8. **The payoff:** `VoucherPrintProjector.cs:214-220` — replace `AddressLines = Array.Empty<string>()` with
    `SplitAddress(party?.Mailing?.Address)` (reusing `:236`) and **delete the now-false comment at `:213`**.
 9. **Build the block as a reusable unit, not inline XAML** — the corpus citation for the party mailing block is
    *literally an Alt+C inline-creation instruction* (`703679456:754`), so **WI-1's inline form must expose the
@@ -2274,7 +2274,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
   (`:839`), `"F4–F9  ▸"` (`:843`), `"F3"` (`:877`). **Never a bare letter.**
 - **Two bare letters ARE live on the Gateway:** `Key.O` → Import (`MainWindow.axaml.cs:381-389`) and `Key.Y` →
   Export Data (`:391-402`), both gated `vm.CurrentScreen == Screen.Gateway`.
-- **The RQ-28 precedent is already recorded in code** — `MainWindowViewModel.cs:5269-5271`: *"\"Outs\" (not
+- **The RQ-28 precedent is already recorded in code** — `MainWindowViewModel.BuildButtonBar` (the "Outs" hint comment): *"\"Outs\" (not
   \"O\") — the bare-O key is bound to Import on the Gateway (**RQ-28: a hint's letter must map to the action that
   key actually triggers**), so the Outstandings quick-button uses a non-key mnemonic badge and is reached by
   click, never by a colliding \"O\" keystroke."* **The project has already ruled that an advertised letter must
@@ -2295,7 +2295,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
    or keep".** *(The decoder's HEADLINE claim — "dead **on the Gateway**", the load-bearing part for the collision
    analysis — is CORRECT and survives: `ShowGateway()` → `EnterCascade()` (`:814`) sets `IsGatewayCascade = true`
    (`:4219-4223`), and `IsMenuScreen` = `!IsGatewayCascade && …`, so `CanQuickJump` (`:564-565`) is false there.)*
-2. **Wrong line — RQ-28.** The comment is at **`MainWindowViewModel.cs:5269-5271`**, NOT `:1269-1272` (which is
+2. **Wrong line — RQ-28.** The comment is in **`MainWindowViewModel.BuildButtonBar`** (cited by member name after it drifted TWICE; line numbers into this file are not durable), NOT at the line first recorded (which is
    the unrelated `ShowInventoryBatchReportsMenu()` doc-comment). The wrong number appeared **four times** in the
    decode. *(Mitigation: `touches` already included `:5236-5292` (BuildButtonBar), so an implementer would
    stumble on it anyway.)*
@@ -2384,7 +2384,7 @@ see Q1/Q2/Q7.)*
   (`:391-402`) are gated **only** on `vm.CurrentScreen == Screen.Gateway` — and **`CurrentScreen` STAYS
   `Screen.Gateway` inside every submenu column** (`OpenGroupOf` sets it at `:4798`). **So O fires Import even
   while the Vouchers column is active** — colliding head-on with "Order Vouchers" (`:900`) and "Other Vouchers"
-  (`:905`), both natural O candidates. Needs an explicit precedence ruling consistent with RQ-28 (`:5269-5271`).
+  (`:905`), both natural O candidates. Needs an explicit precedence ruling consistent with RQ-28 (`MainWindowViewModel.BuildButtonBar`).
   **One of the two advertised meanings of O must change or be re-lettered.**
 - **🟠 Conditional menu items ⇒ uniqueness is PER-PERMUTATION, not per-column.** "GST Rate Setup" appears only
   when `Company is { GstEnabled: true }` (`:838`), "Payroll Reports" only when PayrollEnabled (`:862`),
@@ -2425,7 +2425,7 @@ see Q1/Q2/Q7.)*
 7. **Authored letters** (stable, hand-picked — **recommended**) **or auto-assigned** (reshuffles when an F11
    feature toggles)?
 8. **Precedence for bare O and Y on the Gateway** (`:381`/`:391`) vs a menu item's O — which wins, and does the
-   loser get re-lettered or re-bound? **Must honour RQ-28 (`:5269-5271`).**
+   loser get re-lettered or re-bound? **Must honour RQ-28 (`MainWindowViewModel.BuildButtonBar`).**
 9. **Fate of B/P/T/D** (`:541-544`) — **note the verifier correction: they are NOT dead code; they fire on
    Company Select once a company has been opened. Re-letter or keep — do not delete.** Decide inside this slice,
    or a future slice that "fixes" the quick letters creates four collisions at once (B=Banking/Balance Sheet,
@@ -3120,7 +3120,7 @@ if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifier
 ```
 *(Every earlier Alt handler was checked for a generic catch — `:129` ReorderLevelsMaster (S/V only), `:148`
 report-context (Key.C/Key.N only), `:347` Alt+K. **None catches A.**)*
-The button bar agrees — `MainWindowViewModel.cs:5260-5262`: `var onPos = CurrentScreen == Screen.PosBilling;` …
+The button bar agrees — `MainWindowViewModel.BuildButtonBar`: `var onPos = CurrentScreen == Screen.PosBilling;` …
 `new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos)`.
 
 **🔑 But voucher entry from the Day Book PARTLY works already — by accident of gating. This is the PARTIAL
@@ -3558,7 +3558,7 @@ waste a slice. Each is evidenced above.
 | **Engine unit conversion + its persistence and Io** | `InventoryAllocation.cs:43`, `Unit.cs:137-142`, **7** normalising call sites, `Schema.cs:1143`, `CanonicalModel.cs:1706` | Live engine code with **no UI entry point**. |
 | **Guarded, TESTED master delete / re-parent for ~15 master types** | `InventoryService` `:44`–`:295`, `PayrollService` `:277`–`:486`, `PayHeadService` `:91`–`:116` (incl. an **identity-preserving rename**), BomService/BatchService/PriceListService/ReorderLevelsService/SalaryStructureService | **Dead code from the UI.** WI-3's engine half is much cheaper than "NOT_IMPLEMENTED" suggests — **only Ledger and Group need new engine work.** |
 | **Custom accounting groups: schema, Io, and report classification all ready** | `Schema.cs:657-668`, `SqliteCompanyStore.cs:1307-1314`, `CanonicalModel.cs:640`/`CanonicalMapper.cs:397`/`CanonicalXml.cs:77`, `ClassificationRules.cs:14-31`, `BalanceSheet.cs:113`/`:125` | **WI-7 needs NO schema and NO Io fold-in.** |
-| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:236` | **WI-4's consumer is wired; only the source is missing.** |
+| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:239` | **WI-4's consumer is wired; only the source is missing.** |
 | **The party-group ancestry gate + conditional-block pattern** | `LedgerMasterViewModel.cs:421-433`/`:402`/`:236`/`:292` | Exactly the gate WI-4 needs, already written. |
 | **"Salary Payable" under Current Liabilities — Tally-faithful, already replicated** | `PayrollVoucherService.cs:31`/`:48`/`:355`, `PayHeadType.NotApplicable = 9` (`PayHeadType.cs:39-40`); Tally: Book "Process 1: Create Payable (Dues) Pay Heads" | **Not a defect.** Tally ships no "Salary" group either — we match its 28 (`SeedGroups.cs:64`). |
 | **Report-context Alt+C = New Column** | `MainWindow.axaml.cs:144-156` | **Correct Tally — preserve it.** *(But note its narrow gate: comparative reports only.)* |

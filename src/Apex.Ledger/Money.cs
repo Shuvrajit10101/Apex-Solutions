@@ -35,7 +35,7 @@ public readonly struct Money : IEquatable<Money>, IComparable<Money>
     /// INTEGER-paisa store without loss (NFR-3). A domain boundary uses this to reject a sub-paisa amount up
     /// front with a clean domain error, instead of letting the paisa store raise a raw persistence exception.
     /// </summary>
-    public bool IsPaisaExact => Amount * 100m == decimal.Truncate(Amount * 100m);
+    public bool IsPaisaExact => PaisaConversion.IsPaisaExact(Amount); // ONE sub-paisa test (drift lock D3)
 
     /// <summary>The paisa-exact base value of <paramref name="forexAmount"/> × <paramref name="rate"/>.</summary>
     public static Money ForexBase(Money forexAmount, decimal rate) =>

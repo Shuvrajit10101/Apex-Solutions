@@ -148,6 +148,73 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>"Default credit period (days)" (catalog §5), typed as text; blank ⇒ none.</summary>
     [ObservableProperty] private string _defaultCreditPeriodText = string.Empty;
 
+    // --------------------------------------------------------------- opening balance (Study Guide pp.65–66)
+
+    /// <summary>
+    /// "<b>Opening Balance</b>" (TallyPrime Study Guide pp.65–66; catalog §5) — the magnitude the ledger was
+    /// carrying on day one, typed as text; blank ⇒ nil. The Dr/Cr side lives in <see cref="OpeningIsDebit"/>,
+    /// exactly mirroring the domain's <see cref="DomainLedger.OpeningBalance"/> / <c>OpeningIsDebit</c> pair.
+    ///
+    /// <para>This is the field that lets a set of books be <b>opened</b>. Both the domain and the SQLite store have
+    /// carried an opening since v1 (<c>ledgers.opening_balance_paisa</c> / <c>opening_is_debit</c>) and the Balance
+    /// Sheet, Trial Balance and every closing balance already read it through <see cref="DomainLedger.SignedOpening"/>
+    /// — but the CREATION screen never captured one, hard-coding <see cref="Money.Zero"/>, so an accountant
+    /// migrating onto the app had no way to state day-one balances. Purely a UI gap; no schema change.</para>
+    ///
+    /// <para>Not feature-gated: Tally shows Opening Balance on every ledger screen unconditionally, so no F11
+    /// capability and no F12 visibility toggle stands between the operator and it.</para>
+    /// </summary>
+    [ObservableProperty] private string _openingBalanceText = string.Empty;
+
+    /// <summary>
+    /// The opening's <b>Dr/Cr side</b> (Study Guide p.66: "along with Dr/Cr depending on the nature"). Proposed from
+    /// the chosen group's nature (Asset/Expense ⇒ Dr, Liability/Income ⇒ Cr) and thereafter follows a re-pick of the
+    /// Under group — until the operator states it by hand, after which it stops tracking. That last clause is what
+    /// protects a deliberate CONTRA opening (an overdrawn bank; a debit balance sitting with a creditor) from being
+    /// silently flipped back by an unrelated change of group.
+    /// </summary>
+    /// <remarks>
+    /// Hand-written rather than <c>[ObservableProperty]</c> on purpose. The latch below must fire on ASSIGNMENT, and
+    /// the generated setter suppresses its callback whenever the assigned value equals the current one — so an
+    /// operator who picks the side that was already PROPOSED (picking "Cr" under Sundry Creditors) would never latch
+    /// it, and a later re-pick of the Under group would silently move a side the operator had explicitly stated.
+    /// Confirming a proposal is a statement, not a no-op.
+    /// </remarks>
+    public bool OpeningIsDebit
+    {
+        get => _openingIsDebit;
+        set
+        {
+            if (!_syncingOpeningSide) _openingSideTouched = true;
+            if (_openingIsDebit == value) return;
+            _openingIsDebit = value;
+            OnPropertyChanged();
+            // Keep the Dr/Cr picker's projection in step — notably for the nature proposal and the LoadFrom
+            // pre-fill, neither of which goes through the picker.
+            OnPropertyChanged(nameof(OpeningSide));
+        }
+    }
+
+    private bool _openingIsDebit = true;
+
+    /// <summary>True once the operator has set the Dr/Cr side by hand; after that it stops following the group.</summary>
+    private bool _openingSideTouched;
+
+    /// <summary>The two sides offered by the Dr/Cr picker — the same pair, in the same order, as a voucher line's.</summary>
+    public IReadOnlyList<DrCr> OpeningSides { get; } = new[] { DrCr.Debit, DrCr.Credit };
+
+    /// <summary>
+    /// The opening's side as a <see cref="DrCr"/>, for the picker. This is a PROJECTION over
+    /// <see cref="OpeningIsDebit"/>, not a second stored value: there is exactly one side in this view model and
+    /// both spellings of it read and write that one bool, so the picker and the domain can never disagree. Same
+    /// device as <c>MailingState</c> over <c>PartyState</c>, and for the same reason.
+    /// </summary>
+    public DrCr OpeningSide
+    {
+        get => OpeningIsDebit ? DrCr.Debit : DrCr.Credit;
+        set => OpeningIsDebit = value == DrCr.Debit;
+    }
+
     // --------------------------------------------------------------- interest (catalog §7)
 
     /// <summary>
@@ -494,6 +561,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     partial void OnSelectedGroupChanged(Group? value)
     {
         MaintainBillByBill = value is not null && IsUnderParty(value);
+        // The opening's Dr/Cr side is PROPOSED from the group's nature (Study Guide p.66) and keeps following a
+        // re-pick — but only until the operator states it by hand (see OnOpeningIsDebitChanged).
+        if (!_openingSideTouched)
+            SetOpeningSideFromNature(value);
         OnPropertyChanged(nameof(IsPartyGroup));
         OnPropertyChanged(nameof(ShowPartyGst));
         OnPropertyChanged(nameof(IsDirectExpensesGroup));
@@ -521,6 +592,18 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>WI-4: the party State is a single value shared by the Mailing and GST sub-forms — notify both
     /// bindings whenever it changes so the two views can never display different States.</summary>
     partial void OnPartyStateChanged(IndianStateOption? value) => OnPropertyChanged(nameof(MailingState));
+
+    /// <summary>True while the app is assigning the opening side itself — see <see cref="OpeningIsDebit"/>.</summary>
+    private bool _syncingOpeningSide;
+
+    /// <summary>Proposes the opening's Dr/Cr side from a group's nature: Asset/Expense ⇒ Dr, Liability/Income ⇒ Cr —
+    /// the conventional default, and the same rule <see cref="Create"/> used before the field was captured.</summary>
+    private void SetOpeningSideFromNature(Group? group)
+    {
+        _syncingOpeningSide = true;
+        try { OpeningIsDebit = group is not null && group.Nature is GroupNature.Asset or GroupNature.Expense; }
+        finally { _syncingOpeningSide = false; }
+    }
 
     partial void OnShowConfigurationChanged(bool value) => OnPropertyChanged(nameof(ShowAppropriation));
 
@@ -666,6 +749,22 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         SelectedGroup = Groups.FirstOrDefault(g => g.Id == ledger.GroupId) ?? SelectedGroup;
         Name = ledger.Name;
 
+        // Opening Balance. A nil opening shows as BLANK, not "0.00", so the round-trip is exact: the form re-writes
+        // the same Money.Zero and an untouched ledger persists byte-identically (ER-13).
+        //
+        // The side is loaded under the same suppression flag the nature-proposal uses, and then LATCHED. Latching is
+        // the load-direction half of the contra-opening guard: a stored side is a STATED FACT about day one, so
+        // re-picking the Under group on the alteration screen must never flip it. Without the latch, opening an
+        // overdrawn bank (Bank Accounts, Cr) and merely re-selecting its group would silently restate the opening
+        // by twice its magnitude — the exact class of silent data loss this method's header warns about.
+        OpeningBalanceText = ledger.OpeningBalance == Money.Zero
+            ? string.Empty
+            : ledger.OpeningBalance.Amount.ToString("0.00###", System.Globalization.CultureInfo.InvariantCulture);
+        _syncingOpeningSide = true;
+        try { OpeningIsDebit = ledger.OpeningIsDebit; }
+        finally { _syncingOpeningSide = false; }
+        _openingSideTouched = true;
+
         MaintainBillByBill = ledger.MaintainBillByBill;
         DefaultCreditPeriodText = ledger.DefaultCreditPeriodDays?.ToString() ?? string.Empty;
 
@@ -724,9 +823,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// everything FIRST (returning false with a <see cref="Message"/> and writing nothing), then writes every
     /// captured field onto <paramref name="target"/>.
     ///
-    /// <para>Opening balance and its Dr/Cr side are deliberately NOT written here: they are set once at creation
-    /// from the group's nature, and an alteration must not silently restate a prior period. They therefore survive
-    /// an alter untouched.</para>
+    /// <para>Opening balance and its Dr/Cr side ARE written here, through the same shared mapping as every other
+    /// captured field — see the write block for why this one is not under a hidden-sub-form guard.</para>
     /// </summary>
     private bool TryBuildInto(DomainLedger target)
     {
@@ -761,6 +859,38 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
                 return false;
             }
             creditDays = days;
+        }
+
+        // Opening Balance (Study Guide pp.65–66) — blank ⇒ nil, which is the norm and must stay byte-identical to
+        // the Money.Zero this screen hard-coded before the field existed (ER-13). Three refusals, all of which would
+        // otherwise corrupt a set of books at the moment it is opened:
+        //   • unparseable  — a typo must not silently become a nil opening;
+        //   • negative     — the magnitude is unsigned by construction (Ledger.OpeningBalance "always ≥ 0"); the
+        //                    direction is the Dr/Cr side, so "-5,000 Dr" is an ambiguity, not a credit;
+        //   • sub-paisa    — the store is INTEGER paisa (NFR-3), so 1234.567 cannot round-trip. Refused HERE with a
+        //                    readable message rather than surfacing as a raw persistence error three layers down.
+        var opening = Money.Zero;
+        var openingText = (OpeningBalanceText ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(openingText))
+        {
+            if (!decimal.TryParse(openingText, System.Globalization.NumberStyles.Number,
+                                  System.Globalization.CultureInfo.InvariantCulture, out var openingAmount))
+            {
+                Message = "Opening balance must be an amount (e.g. 41237.53), or blank for nil.";
+                return false;
+            }
+            if (openingAmount < 0m)
+            {
+                Message = "Opening balance cannot be negative — enter the amount and pick Cr for a credit balance.";
+                return false;
+            }
+
+            opening = Money.FromRupees(openingAmount);
+            if (!opening.IsPaisaExact)
+            {
+                Message = "Opening balance cannot be finer than a paisa (at most two decimal places).";
+                return false;
+            }
         }
 
         // Build the optional interest-parameter block when interest is activated.
@@ -910,6 +1040,19 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         target.Name = name;
         target.GroupId = SelectedGroup.Id;
+
+        // Opening Balance + its Dr/Cr side. Written UNCONDITIONALLY — deliberately NOT under a `if (Show…)` guard,
+        // because unlike every block below it this field is not feature-gated: the corpus puts Opening Balance on
+        // the ledger screen always (Study Guide p.66), so it always rendered and therefore always captured. The
+        // hidden-sub-form rule protects fields the operator could not see; this one is never hidden.
+        //
+        // On ALTER this is a real restatement of the opening — which is the point. An accountant's first opening is
+        // very often wrong and the corpus's alteration screen IS the creation screen, pre-filled, so the figure must
+        // be correctable from it. It is safe precisely because LoadFrom below pre-fills BOTH halves from the store:
+        // an alter that touches only a name writes the same values back, so nothing is restated by accident.
+        target.OpeningBalance = opening;
+        target.OpeningIsDebit = OpeningIsDebit;
+
         target.MaintainBillByBill = MaintainBillByBill;
         target.DefaultCreditPeriodDays = MaintainBillByBill ? creditDays : null;
         target.Interest = interest;
@@ -966,8 +1109,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             target.PartyPan = partyPanOrNull;
 
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they
-        // were: OpeningBalance / OpeningIsDebit (restating a prior period is not a side effect of editing a name),
-        // Alias, IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed tags).
+        // were: Alias, IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed
+        // tags). OpeningBalance / OpeningIsDebit USED to be on this list — the screen could not capture them, so
+        // leaving them alone was all it could do. It owns them now (see the write above).
         return true;
     }
 
@@ -976,6 +1120,13 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     private void ResetForNextEntry()
     {
         Name = string.Empty;
+        // The opening must NOT carry into the next ledger — leaving it on screen would silently give the following
+        // master the previous one's day-one balance. Clearing the latch re-arms the nature proposal, and because
+        // SelectedGroup deliberately survives a create (the operator usually enters a run of ledgers under one
+        // group), the side is re-proposed from the group still on screen rather than snapping to a bare Dr.
+        OpeningBalanceText = string.Empty;
+        _openingSideTouched = false;
+        SetOpeningSideFromNature(SelectedGroup);
         DefaultCreditPeriodText = string.Empty;
         EnableInterest = false;
         InterestRateText = string.Empty;

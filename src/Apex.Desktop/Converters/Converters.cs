@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Data.Converters;
+using Avalonia.Input;
 using Avalonia.Media;
 using Apex.Ledger;
 using Apex.Desktop.ViewModels;
@@ -127,6 +128,56 @@ public sealed class ColumnMinWidthConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>
+/// TAB CONTAINMENT — keeps Tab traversal inside the TERMINAL (rightmost) cascade column. Bound to
+/// <c>IsLast</c>.
+///
+/// <para><b>The defect this closes (measured, not inferred).</b> With Ledger Creation pushed over a Payment
+/// Voucher by Alt+C, a Tab sweep of 60 presses landed <b>20 of them in the Payment Voucher column behind</b> —
+/// the operator standing in the new column tabbed off the end of it and started editing fields of the voucher
+/// underneath, with no visual cue that focus had left the active column. That contradicts the Miller-column
+/// contract, where the terminal column is the active one and Left/Esc is the only way back.</para>
+///
+/// <para><b>Why <see cref="KeyboardNavigationMode.None"/> and not <c>Contained</c>.</b> Both were measured on
+/// the real window. <c>None</c> took the sweep to <c>outsideTerminal=0</c> while leaving the F-key button bar
+/// reachable (<c>noColumn=29</c> tabs still landed there) — the bar sits outside the columns, so scoping the
+/// columns does not strand it. <c>Contained</c> made it WORSE (<c>outsideTerminal=43</c>): it traps traversal
+/// inside whichever container already holds focus, which is the opposite of excluding the inactive ones.</para>
+///
+/// <para><b>THE FAILURE DIRECTION IS A DELIBERATE CHOICE — do not "simplify" it away.</b> A XAML binding can
+/// hand a converter <c>null</c>, <c>AvaloniaProperty.UnsetValue</c> (binding not yet resolved, or the path is
+/// wrong — Avalonia reports that on a debug channel and otherwise carries on silently), or a value of the wrong
+/// type if <c>IsLast</c> is ever retyped. Every one of those cases is routed EXPLICITLY to <c>None</c> below,
+/// rather than being allowed to fall off the end of a single <c>is true</c> test.</para>
+///
+/// <para><b>Why <c>None</c> is the safe failure and <c>Continue</c> is not.</b> Failing toward <c>Continue</c>
+/// silently restores the exact defect this converter exists to close: Tab walks out of the active column and
+/// the operator edits fields of an inactive one, believing they are typing into the screen in front of them —
+/// wrong data written to a real voucher, with no cue. Failing toward <c>None</c> costs Tab traversal in that
+/// column; it does not strand the operator (the F-key bar stays outside the columns and reachable, and
+/// arrows/Enter/Escape/Left are untouched by this binding), and a dead Tab key is noticed immediately.
+/// <b>A loud, non-destructive failure beats a silent, data-corrupting one</b>, so the fallback is <c>None</c>.
+/// <c>TerminalColumnTabNavigationConverterTests</c> pins each of these inputs.</para>
+/// </summary>
+public sealed class TerminalColumnTabNavigationConverter : IValueConverter
+{
+    public static readonly TerminalColumnTabNavigationConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value switch
+        {
+            // The only value that opens a column to Tab traversal: IsLast, genuinely true.
+            true => KeyboardNavigationMode.Continue,
+            false => KeyboardNavigationMode.None,
+
+            // Binding did not resolve (unset / null) or IsLast was retyped: fail CLOSED, per the note above.
+            _ => KeyboardNavigationMode.None,
+        };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>C4 — the cascade column's MaxWidth clamp: 380 px for a menu column (LOAD-BEARING — a
 /// content-sized column inside a horizontal StackPanel is measured at INFINITE width, so without this a
 /// very long ledger name would size its menu column arbitrarily wide, inflate the page column's own
@@ -219,7 +270,7 @@ public sealed class BillRefTypeLabelConverter : IValueConverter
 /// <summary>
 /// Maps (IsSelected, IsHighlighted) → an Outstandings bill-row background: amber for the row under the
 /// keyboard highlight, a pale-green tick tint for a spacebar-selected row, a blend when both, else white.
-/// Lets the user see at a glance which bills are picked for Ctrl+B settlement.
+/// Lets the user see at a glance which bills Alt+A will pre-load into a settlement voucher.
 /// </summary>
 public sealed class OutstandingRowBrushConverter : IMultiValueConverter
 {
@@ -460,6 +511,33 @@ public sealed class ExpiryRowToBrushConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Expired : Ink;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps a report row's <c>IsCancelled</c> flag to its foreground (Phase 10.11 S3): a muted grey for a CANCELLED
+/// voucher's row, the neutral ink otherwise — so a cancelled entry reads as present-but-void beside the live
+/// rows it keeps its place among.
+///
+/// <para><b>🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus describes no visual treatment
+/// for a cancelled voucher (it returns no hits for struck or strike-through), so the greying is our decision and
+/// is recorded as such rather than presented as fidelity (R7).</para>
+///
+/// <para>The grey is deliberately <c>#6E6E6E</c> and not lighter: against the white grid it holds a contrast
+/// ratio above 4.5:1, so the row stays READABLE. A cancelled voucher is evidence — the operator must be able to
+/// read what was voided, not merely notice that something was.</para>
+/// </summary>
+public sealed class CancelledRowToBrushConverter : IValueConverter
+{
+    public static readonly CancelledRowToBrushConverter Instance = new();
+
+    private static readonly IBrush Cancelled = new SolidColorBrush(Color.Parse("#6E6E6E"));
+    private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#1A1A1A"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Cancelled : Ink;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

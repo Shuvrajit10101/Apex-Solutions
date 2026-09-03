@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Data.Common;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -354,7 +356,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The §12 monthly calculation ceiling in whole rupees (default ₹7,000).</summary>
     [ObservableProperty] private string _bonusCalculationCeilingText = "7000";
 
-    /// <summary>The applicable state minimum wage per month (default ₹0 ⇒ the ceiling falls back to ₹7,000).</summary>
+    /// <summary>The applicable state minimum wage per month, in whole rupees (default ₹0 ⇒ the ceiling falls back
+    /// to ₹7,000). The whole-rupee constraint is the screen's, enforced in <see cref="TryStatutoryRupees"/>; the
+    /// domain's <see cref="BonusConfig.MinimumWage"/> itself validates only that the amount is non-negative.</summary>
     [ObservableProperty] private string _bonusMinimumWageText = "0";
 
     /// <summary>Whether a mid-year joiner's annual bonus is prorated by the months actually worked (default true).</summary>
@@ -557,6 +561,26 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         LoadBonusFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
+        // INHERIT — with no GST State recorded yet, DISPLAY the company's postal State as the default, which is
+        // what the reference product does ("by default SHOWS the State name as selected in the Company Creation
+        // screen"). Shows, not stores: nothing is persisted until the operator applies this screen.
+        //
+        // 🔴 THE SEED MUST NOT BE A CREATION-TIME STAMP, and the reason is a silent data loss in the store. The
+        // write binds gst_home_state whenever a GstConfig object exists, regardless of Enabled; the READ
+        // reconstructs GstConfig only when gst_enabled = 1. So a HomeStateCode stamped onto a GST-off company
+        // is discarded by the very next load, and then overwritten with NULL by the following save — the same
+        // shape as the migration back-fill that the ordinary save path was erasing, one column across. Seeding
+        // HERE, as a display default, means this slice adds NO new writer of gst_home_state: the single writer
+        // is still Apply, behind the GSTIN validation and the null-State refusal.
+        //
+        // `??=` and the placement after the two lines above are the precedence ladder, highest first:
+        //   1. a STORED HomeStateCode  — the company's recorded registration;
+        //   2. the GSTIN just typed    — its leading two digits ARE the registration State (OnGstinChanged
+        //                                fires from the Gstin assignment above, so it has already run);
+        //   3. the postal State        — this line, reached only when 1 and 2 left it null.
+        // Turning `??=` into `=` would make a postal field silently overwrite a statutory one, which flips
+        // intra- vs inter-state supply on every subsequent invoice.
+        HomeState ??= HomeStates.FirstOrDefault(o => o.Code == IndianState.FromName(_company.State)?.Code);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
                            ?? RegistrationTypes.First();
         Periodicity = Periodicities.FirstOrDefault(o => o.Value == (cfg?.Periodicity ?? GstReturnPeriodicity.Monthly))
@@ -624,8 +648,33 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The composition sub-type changed — refresh the advisory rate/threshold display.</summary>
     partial void OnSelectedCompositionSubTypeChanged(CompositionSubTypeOption? value) => RefreshCompositionAdvisory();
 
-    /// <summary>The home state changed — refresh the advisory threshold (the special-category states carry ₹75 L).</summary>
-    partial void OnHomeStateChanged(IndianStateOption? value) => RefreshCompositionAdvisory();
+    /// <summary>The home state changed — refresh the advisory threshold (the special-category states carry ₹75 L)
+    /// and the postal-State divergence advisory below.</summary>
+    partial void OnHomeStateChanged(IndianStateOption? value)
+    {
+        RefreshCompositionAdvisory();
+        OnPropertyChanged(nameof(PostalStateAdvisory));
+    }
+
+    /// <summary>
+    /// The postal-State / GST-registration-State advisory, or empty when there is nothing to say —
+    /// <b>the same computation the company profile screen shows, from the same shared helper</b>.
+    ///
+    /// <para><b>Why this half exists.</b> Either screen can create the divergence: the profile screen by moving
+    /// the postal State, this one by moving the Home State away from it. Warning on only one of them would
+    /// announce the divergence when it is created from the advisory side and stay silent when it is created
+    /// from the STATUTORY side — which is the side that decides the tax head. It is computed against the
+    /// picker's current value, not the stored config, so it appears while the operator is still choosing.</para>
+    ///
+    /// <para>Silent while the GST toggle is off, for the same reason the profile screen is silent on a GST-off
+    /// company: with no registration there is no second State to disagree with, and a warning on every book
+    /// that does not use GST would be noise on most of them.</para>
+    /// </summary>
+    public string PostalStateAdvisory =>
+        GstEnabled ? CompanyStateConsistency.Advisory(_company.State, HomeState?.Code) : string.Empty;
+
+    /// <summary>The GST toggle moved — the divergence advisory is scoped to GST being on.</summary>
+    partial void OnGstEnabledChanged(bool value) => OnPropertyChanged(nameof(PostalStateAdvisory));
 
     /// <summary>Raises change notifications for the advisory composition rate + threshold text.</summary>
     private void RefreshCompositionAdvisory()
@@ -642,13 +691,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnMaintainBatchwiseDetailsChanged(bool value)
     {
-        _company.MaintainBatchwiseDetails = value;
+        var previous = _company.MaintainBatchwiseDetails;
         try
         {
+            _company.MaintainBatchwiseDetails = value;
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST — see the note in OnPayrollEnabledChanged. The re-sync below compares the VM property
+            // against a company field that was just set to `value`, so without this it can never be true.
+            _company.MaintainBatchwiseDetails = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             // Reflect the company's real (persisted) state on failure.
             if (MaintainBatchwiseDetails != _company.MaintainBatchwiseDetails)
@@ -666,13 +720,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnSetComponentsBomChanged(bool value)
     {
-        _company.SetComponentsBom = value;
+        var previous = _company.SetComponentsBom;
         try
         {
+            _company.SetComponentsBom = value;
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            _company.SetComponentsBom = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (SetComponentsBom != _company.SetComponentsBom)
                 SetComponentsBom = _company.SetComponentsBom;
@@ -689,13 +746,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnEnableMultiplePriceLevelsChanged(bool value)
     {
-        _company.EnableMultiplePriceLevels = value;
+        var previous = _company.EnableMultiplePriceLevels;
         try
         {
+            _company.EnableMultiplePriceLevels = value;
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            _company.EnableMultiplePriceLevels = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (EnableMultiplePriceLevels != _company.EnableMultiplePriceLevels)
                 EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
@@ -713,13 +773,34 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnEnableJobOrderProcessingChanged(bool value)
     {
+        // Capture the WHOLE mutation, not just the company flag. JobWorkService.SetEnabled ALSO stamps IsActive on
+        // the four seeded Job-Work voucher types and UseForJobWork / AllowConsumption on the two Material types, so
+        // one bool is not the aggregate's state. And re-calling SetEnabled(previous) would not be a restore either:
+        // it rewrites all four types UNIFORMLY, so a type activated on its own would be silently switched off BY the
+        // rollback. The exact per-type triple is captured instead.
+        var previousFlag = _company.EnableJobOrderProcessing;
+        var previousTypes = _company.VoucherTypes
+            .Where(t => t.BaseType is VoucherBaseType.JobWorkInOrder or VoucherBaseType.MaterialIn
+                                   or VoucherBaseType.JobWorkOutOrder or VoucherBaseType.MaterialOut)
+            .Select(t => (Type: t, t.IsActive, t.UseForJobWork, t.AllowConsumption))
+            .ToList();
         try
         {
             new JobWorkService(_company).SetEnabled(value);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST — see the matching note in OnPayrollEnabledChanged: the re-sync below compares the VM
+            // property against the very field SetEnabled has just written, so without this it can never be true.
+            _company.EnableJobOrderProcessing = previousFlag;
+            foreach (var (type, isActive, useForJobWork, allowConsumption) in previousTypes)
+            {
+                type.IsActive = isActive;
+                type.UseForJobWork = useForJobWork;
+                type.AllowConsumption = allowConsumption;
+            }
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (EnableJobOrderProcessing != _company.EnableJobOrderProcessing)
                 EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
@@ -738,6 +819,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnPayrollEnabledChanged(bool value)
     {
+        // Capture BOTH fields: DisablePayroll clears PayrollStatutoryEnabled as well as PayrollEnabled.
+        var previousPayroll = _company.PayrollEnabled;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             var service = new PayrollService(_company);
@@ -745,9 +829,17 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             else service.DisablePayroll();
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST: the re-sync below compares the VM property against _company.PayrollEnabled, which the
+            // Enable/DisablePayroll call above has just set to `value` — so without this the comparison is
+            // guaranteed false, the revert is a guaranteed no-op, and memory keeps an unpersisted value.
+            _company.PayrollEnabled = previousPayroll;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
+            // Assigning the property re-enters this handler once with the restored value; that pass finds the two
+            // sides already equal and returns, so the re-entry is bounded at one level.
             if (PayrollEnabled != _company.PayrollEnabled)
                 PayrollEnabled = _company.PayrollEnabled;
             return;
@@ -771,13 +863,20 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnPayrollStatutoryEnabledChanged(bool value)
     {
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         _company.PayrollStatutoryEnabled = value;
         try
         {
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST — see the matching note in OnPayrollEnabledChanged. Without it the company field holds
+            // `value`, the VM property IS `value`, the comparison below can never be true, and the aggregate keeps
+            // a statutory flag the .db does not have — the same flag ApplyGratuity/ApplyBonus later capture as
+            // their own rollback baseline, so a divergence here quietly propagates into theirs.
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
                 PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
@@ -817,8 +916,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         if (!PfEnabled)
         {
+            var configBeforeClear = _company.PfConfig;
             _company.PfConfig = null; // enrolment cleared; per-employee PF details retained (harmless, inert)
-            if (!TrySave(m => PfMessage = m)) { RevertPfToggle(); return false; }
+            // Save is transactional, so a failure leaves the enrolment on disk — memory must not silently lose it,
+            // and the restore must land before RevertPfToggle re-derives the toggle from this very field.
+            if (!TrySave(m => PfMessage = m, () => _company.PfConfig = configBeforeClear))
+            { RevertPfToggle(); return false; }
             PfMessage = "Provident Fund is now OFF for this company. Employee PF details are unchanged.";
             _onChanged();
             return true;
@@ -826,13 +929,21 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         var rate = PfReducedRate ? PfConfig.ReducedEpfRateBasisPoints : PfConfig.DefaultEpfRateBasisPoints;
         var code = BlankToNull(PfEstablishmentCode);
+        var previousConfig = _company.PfConfig;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             new PayrollService(_company).EnableProvidentFund(rate, code, PfCapWagesAtCeiling);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // EnableProvidentFund writes PayrollStatutoryEnabled and PfConfig on the SHARED aggregate before the
+            // store is reached, so a failed save otherwise leaves memory holding an enrolment the rolled-back .db
+            // does not have — and RevertPfToggle, which reads PfConfig, would latch the toggle ON over it.
+            _company.PfConfig = previousConfig;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             PfMessage = ex.Message;
             RevertPfToggle();
             return false;
@@ -877,21 +988,30 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         if (!EsiEnabled)
         {
+            var configBeforeClear = _company.EsiConfig;
             _company.EsiConfig = null; // enrolment cleared; per-employee ESI details retained (harmless, inert)
-            if (!TrySave(m => EsiMessage = m)) { RevertEsiToggle(); return false; }
+            // Restore the cleared enrolment on a failed save — see the matching branch in ApplyPf.
+            if (!TrySave(m => EsiMessage = m, () => _company.EsiConfig = configBeforeClear))
+            { RevertEsiToggle(); return false; }
             EsiMessage = "Employees' State Insurance is now OFF for this company. Employee ESI details are unchanged.";
             _onChanged();
             return true;
         }
 
         var code = BlankToNull(EsiEmployerCode);
+        var previousConfig = _company.EsiConfig;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             new PayrollService(_company).EnableEsi(employerCode: code);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore the aggregate before reverting the toggle — see the matching catch in ApplyPf.
+            _company.EsiConfig = previousConfig;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             EsiMessage = ex.Message;
             RevertEsiToggle();
             return false;
@@ -944,8 +1064,11 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         if (!PtEnabled)
         {
+            var configBeforeClear = _company.PtConfig;
             _company.PtConfig = null; // enrolment cleared; the company is byte-identical to a pre-v35 company (ER-13)
-            if (!TrySave(m => PtMessage = m)) { RevertPtToggle(); return false; }
+            // Restore the cleared enrolment on a failed save — see the matching branch in ApplyPf.
+            if (!TrySave(m => PtMessage = m, () => _company.PtConfig = configBeforeClear))
+            { RevertPtToggle(); return false; }
             PtMessage = "Professional Tax is now OFF for this company.";
             RebuildSlabBands();
             _onChanged();
@@ -954,6 +1077,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         var stateCode = SelectedPtState?.Code;
         var registration = BlankToNull(PtRegistrationNumber);
+        var previousConfig = _company.PtConfig;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
+        // …and, for an ALREADY-ENROLLED company, the two fields the branch below edits IN PLACE on the existing
+        // config object. Putting the reference back is not enough when the object itself was mutated: PT's
+        // deduction slab is selected BY StateCode (PtConfig.ResolveSlab), so a state left switched in memory after
+        // a failed save computes Professional Tax off a state the persisted book does not have.
+        var previousStateCode = previousConfig?.StateCode;
+        var previousRegistration = previousConfig?.RegistrationNumber;
         try
         {
             if (_company.PtConfig is { } existing)
@@ -970,8 +1101,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             }
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            _company.PtConfig = previousConfig;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (previousConfig is not null)
+            {
+                previousConfig.StateCode = previousStateCode;               // SetProfessionalTaxState edits in place
+                previousConfig.RegistrationNumber = previousRegistration;   // …and so does the line beside it
+            }
+            if (!IsReportableSaveFailure(ex)) throw;
             PtMessage = ex.Message;
             RevertPtToggle();
             return false;
@@ -1057,6 +1196,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         SalaryTdsMessage = null;
 
+        var previousSalaryTds = _company.SalaryTdsEnabled;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             var service = new PayrollService(_company);
@@ -1064,8 +1205,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             else service.DisableSalaryTds();
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Enable/DisableSalaryTds write the SHARED aggregate before the store is reached, and
+            // RevertSalaryTdsToggle re-derives the toggle from Company.SalaryTdsEnabled — so the restore must
+            // land first or the revert reads the unpersisted value and is a no-op. See ApplyPf.
+            _company.SalaryTdsEnabled = previousSalaryTds;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             SalaryTdsMessage = ex.Message;
             RevertSalaryTdsToggle();
             return false;
@@ -1098,7 +1245,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var g = _company.GratuityConfig;
         GratuityEnabled = g is not null;
-        GratuityCapText = ((long)(g?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount)).ToString(CultureInfo.InvariantCulture);
+        // "0.##", NOT a (long) cast: the cast TRUNCATES, so a stored ₹7,000.55 (which the paisa store carries fine,
+        // and which import or a pre-guard book can leave behind) displayed as "7000" — and the next Ctrl+A accept
+        // re-applied that truncated figure over the real one, with no message. "0.##" is lossless for every amount
+        // the INTEGER-paisa store can hold (≤ 2 dp), renders a whole rupee with no ".00" tail, and lets the parser
+        // refuse the fractional legacy value out loud instead of silently rewriting it.
+        GratuityCapText = (g?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount).ToString("0.##", CultureInfo.InvariantCulture);
         var population = g?.Population ?? GratuityProvisionPopulation.AllActiveEmployees;
         SelectedGratuityPopulation = GratuityPopulations.FirstOrDefault(o => o.Value == population)
                                      ?? GratuityPopulations.FirstOrDefault();
@@ -1118,28 +1270,51 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         if (!GratuityEnabled)
         {
+            var configBeforeClear = _company.GratuityConfig;
             _company.GratuityConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
-            if (!TrySave(m => GratuityMessage = m)) { RevertGratuityToggle(); return false; }
+            // The mirror-image divergence: Save is transactional, so the .db still HAS the enrolment — memory must
+            // not silently lose it. The restore is passed to TrySave rather than written after it, so it runs on
+            // EVERY failure (a locked or read-only .db included), not only on the two types this screen reports;
+            // and it lands before RevertGratuityToggle, which re-derives the toggle from _company.GratuityConfig.
+            if (!TrySave(m => GratuityMessage = m, () => _company.GratuityConfig = configBeforeClear))
+            {
+                RevertGratuityToggle();
+                return false;
+            }
             GratuityMessage = "Gratuity provisioning is now OFF for this company.";
             _onChanged();
             return true;
         }
 
-        if (!TryParseWholeRupees(GratuityCapText, out var cap) || cap < 0m)
+        if (!TryStatutoryRupees(GratuityCapText, "the gratuity cap",
+                "The gratuity cap must be a non-negative whole-rupee amount (e.g. 2000000).",
+                out var cap, out var capError))
         {
-            GratuityMessage = "The gratuity cap must be a non-negative whole-rupee amount (e.g. 2000000).";
+            GratuityMessage = capError;
             RevertGratuityToggle();
             return false;
         }
         var population = SelectedGratuityPopulation?.Value ?? GratuityProvisionPopulation.AllActiveEmployees;
+        var previousConfig = _company.GratuityConfig;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             new PayrollService(_company).EnableGratuity(new Money(cap),
                 GratuityWageBasis.BasicAndDearnessAllowance, population);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // EnableGratuity mutates the SHARED aggregate before the store is reached, so a throw from Save (for
+            // ANY reason — an unrelated sub-paisa amount elsewhere in the company, an imported config, a .db locked
+            // by a second instance) would otherwise leave a config in memory that the rolled-back .db does not
+            // have, and every later save of this Company instance would throw — including from the ~99 save sites
+            // with no try/catch. The restore is therefore OUTSIDE any type filter (see IsReportableSaveFailure) and
+            // BEFORE RevertGratuityToggle(): that helper re-derives the toggle from _company.GratuityConfig, so
+            // reverting first would read the poisoned config and leave the toggle ON over it.
+            _company.GratuityConfig = previousConfig;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             GratuityMessage = ex.Message;
             RevertGratuityToggle();
             return false;
@@ -1172,8 +1347,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         BonusEnabled = b is not null;
         var bp = b?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints;
         BonusRatePercentText = (bp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
-        BonusCalculationCeilingText = ((long)(b?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling)).ToString(CultureInfo.InvariantCulture);
-        BonusMinimumWageText = ((long)(b?.MinimumWage.Amount ?? 0m)).ToString(CultureInfo.InvariantCulture);
+        // "0.##" rather than a truncating (long) cast — see the matching note in LoadGratuityFromCompany.
+        BonusCalculationCeilingText = (b?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling).ToString("0.##", CultureInfo.InvariantCulture);
+        BonusMinimumWageText = (b?.MinimumWage.Amount ?? 0m).ToString("0.##", CultureInfo.InvariantCulture);
         BonusProrate = b?.Prorate ?? true;
     }
 
@@ -1191,8 +1367,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         if (!BonusEnabled)
         {
+            var configBeforeClear = _company.BonusConfig;
             _company.BonusConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
-            if (!TrySave(m => BonusMessage = m)) { RevertBonusToggle(); return false; }
+            // The mirror-image divergence — see the matching branch in ApplyGratuity.
+            if (!TrySave(m => BonusMessage = m, () => _company.BonusConfig = configBeforeClear))
+            {
+                RevertBonusToggle();
+                return false;
+            }
             BonusMessage = "Statutory Bonus is now OFF for this company.";
             _onChanged();
             return true;
@@ -1204,28 +1386,38 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             RevertBonusToggle();
             return false;
         }
-        if (!TryParseWholeRupees(BonusCalculationCeilingText, out var ceiling) || ceiling < 0m)
+        if (!TryStatutoryRupees(BonusCalculationCeilingText, "the calculation ceiling",
+                "The calculation ceiling must be a non-negative whole-rupee amount (e.g. 7000).",
+                out var ceiling, out var ceilingError))
         {
-            BonusMessage = "The calculation ceiling must be a non-negative whole-rupee amount (e.g. 7000).";
+            BonusMessage = ceilingError;
             RevertBonusToggle();
             return false;
         }
-        if (!TryParseWholeRupees(BonusMinimumWageText, out var minWage) || minWage < 0m)
+        if (!TryStatutoryRupees(BonusMinimumWageText, "the minimum wage",
+                "The minimum wage must be a non-negative whole-rupee amount (0 ⇒ ceiling ₹7,000).",
+                out var minWage, out var minWageError))
         {
-            BonusMessage = "The minimum wage must be a non-negative whole-rupee amount (0 ⇒ ceiling ₹7,000).";
+            BonusMessage = minWageError;
             RevertBonusToggle();
             return false;
         }
 
         // Percent → basis points (100 bp = 1%); the engine clamps to the §10–§11 band on construction.
         var basisPoints = (int)Math.Round(percent * 100m, 0, MidpointRounding.AwayFromZero);
+        var previousConfig = _company.BonusConfig;
+        var previousStatutory = _company.PayrollStatutoryEnabled;
         try
         {
             new PayrollService(_company).EnableStatutoryBonus(basisPoints, new Money(ceiling), new Money(minWage), BonusProrate);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore the aggregate before reverting the toggle, outside any type filter — see ApplyGratuity.
+            _company.BonusConfig = previousConfig;
+            _company.PayrollStatutoryEnabled = previousStatutory;
+            if (!IsReportableSaveFailure(ex)) throw;
             BonusMessage = ex.Message;
             RevertBonusToggle();
             return false;
@@ -1250,10 +1442,110 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         if (BonusEnabled != real) BonusEnabled = real;
     }
 
-    /// <summary>Parses a whole-rupee amount (grouping commas tolerated); false on a non-numeric value.</summary>
-    private static bool TryParseWholeRupees(string? text, out decimal value) =>
-        decimal.TryParse((text ?? string.Empty).Replace(",", string.Empty).Trim(),
+    /// <summary>
+    /// The largest amount these three fields accept: <c>long.MaxValue</c> paisa is ₹92,23,37,20,36,85,47,758.07,
+    /// floored to the whole rupee this screen deals in. Anything above it cannot round-trip the INTEGER-paisa
+    /// store — and, worse, would make the CONVERSION itself throw rather than the store refuse politely.
+    ///
+    /// <para><b>DERIVED, never re-typed</b> (drift lock D3). This shipped as the hand-written literal
+    /// <c>92_233_720_368_547_758m</c>, which is <see cref="PaisaConversion.MaxStorableRupees"/> floored — the same
+    /// value, re-derived by hand, in the very file whose guard <see cref="StorableAmount"/> was extracted from. A
+    /// change to the store's carrier would move the shared constant and silently leave this screen behind. The
+    /// FLOOR is the part that is genuinely this screen's own: these three fields are whole rupees.
+    /// <c>static readonly</c> rather than <c>const</c> because the source is.</para>
+    /// </summary>
+    private static readonly decimal MaxStatutoryRupees = decimal.Floor(PaisaConversion.MaxStorableRupees);
+
+    /// <summary>
+    /// Parses one of the three establishment whole-rupee amounts — the gratuity cap, the bonus calculation ceiling
+    /// and the bonus minimum wage — and refuses anything the INTEGER-paisa store could not carry, BEFORE the value
+    /// reaches the shared <see cref="Company"/> aggregate. This is the front-line half of the division of labour
+    /// <see cref="Money.IsPaisaExact"/> documents: a domain boundary rejects a sub-paisa amount up front with a
+    /// clean message "instead of letting the paisa store raise a raw persistence exception" — the store writes all
+    /// three through the throwing <c>Paisa.FromDecimal</c>.
+    ///
+    /// <para><b>It also makes the name honest.</b> The two cap/ceiling property docs
+    /// (<see cref="GratuityCapText"/>, <see cref="BonusCalculationCeilingText"/>), the minimum-wage doc
+    /// (<see cref="BonusMinimumWageText"/>) and all three error messages say <b>whole rupees</b>; the three XAML
+    /// placeholders do NOT — they are example values ("2000000 (₹20,00,000 §4(3) default)" and friends), and the
+    /// domain counterpart <see cref="BonusConfig.MinimumWage"/> validates only <c>&lt; 0m</c>, so a fractional
+    /// minimum wage is domain-legal. The contract rests on the docs and the messages, not on the placeholders. A
+    /// fractional figure is refused here rather than accepted, truncated on the next load, and silently re-applied
+    /// at a different value by <see cref="AcceptStatutoryConfig"/>.</para>
+    ///
+    /// <para><paramref name="invalidMessage"/> is the field's own existing non-negative-whole-rupee message, reused
+    /// verbatim so the non-numeric / negative / fractional wording is one and the same; the sub-paisa and
+    /// too-large branches have their own text, naming the field the way the on-screen caption does.</para>
+    /// </summary>
+    private static bool TryStatutoryRupees(
+        string? text, string fieldLabel, string invalidMessage, out decimal value, out string? error)
+    {
+        error = null;
+        if (!TryParseWholeRupees(text, out value) || value < 0m)
+        {
+            error = invalidMessage;
+            value = 0m;
+            return false;
+        }
+        // MAGNITUDE FIRST, and above every other branch, because the branches below THEMSELVES throw on a big
+        // enough decimal: the paisa predicate scales by a hundred (which overflows past decimal.MaxValue ÷ 100),
+        // and the store's conversion then narrows to long (which overflows past long.MaxValue paisa — a 17-digit
+        // rupee figure is enough). Both raise OverflowException, an ArithmeticException that no filter here treats
+        // as a domain refusal, so without this branch a pasted 17-digit figure escaped the screen entirely: the
+        // aggregate kept the enrolment and the accept crashed. A refusal has to be a message.
+        if (value > MaxStatutoryRupees)
+        {
+            error = $"'{text}' is too large for {fieldLabel} (the most that can be stored is "
+                  + $"₹{IndianFormat.RupeesAlways(MaxStatutoryRupees)}).";
+            value = 0m;
+            return false;
+        }
+        if (!new Money(value).IsPaisaExact)
+        {
+            error = $"'{text}' is finer than a paisa for {fieldLabel} (enter at most two decimal places).";
+            value = 0m;
+            return false;
+        }
+        // …and it must be a WHOLE rupee, which the three property docs and the three messages reused above already
+        // say. A fractional-but-paisa-exact figure was accepted and stored, then rendered back through a truncating
+        // cast, so the next keyboard accept re-applied the truncated value and silently rewrote the establishment's
+        // own figure. NB this branch must stay BELOW the paisa branch: a sub-paisa amount deserves the specific
+        // "finer than a paisa" message, not this one. The whole-rupee test is `% 1m` and the sub-paisa test is
+        // Money.IsPaisaExact; do NOT re-implement either by scaling to paisa and testing for a truncation
+        // remainder, which is what OneRuleDriftLockTests.PaisaScalingAndTheSubPaisaTestNeverCoexistOutsideTheOneHome
+        // forbids outside PaisaConversion.cs — and this file already trips the first half of that lock.
+        if (value % 1m != 0m)
+        {
+            error = invalidMessage;
+            value = 0m;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a whole-rupee amount, tolerating <b>grouping</b> commas ("20,00,000"); false on a non-numeric value.
+    ///
+    /// <para><b>A comma that cannot be a grouping separator is REFUSED, not stripped.</b> Blanket-stripping every
+    /// comma read a decimal comma as a group separator and multiplied the figure by a hundred without a word:
+    /// "7000,55" became 700055 and the establishment's ₹7,000.55 was stored as ₹7,00,055.00. The group that
+    /// follows the LAST comma is exactly three digits in every convention this app renders — Indian 2-2-3 and the
+    /// invariant 3-3-3 alike — so a shorter trailing group is a decimal comma and the parse fails instead.</para>
+    /// </summary>
+    private static bool TryParseWholeRupees(string? text, out decimal value)
+    {
+        value = 0m;
+        var trimmed = (text ?? string.Empty).Trim();
+        var lastComma = trimmed.LastIndexOf(',');
+        if (lastComma >= 0)
+        {
+            var stop = trimmed.IndexOf('.', lastComma + 1);
+            var lastGroup = stop < 0 ? trimmed[(lastComma + 1)..] : trimmed[(lastComma + 1)..stop];
+            if (lastGroup.Length != 3 || !lastGroup.All(char.IsAsciiDigit)) return false;
+        }
+        return decimal.TryParse(trimmed.Replace(",", string.Empty),
             NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+    }
 
     /// <summary>Parses a percent value (e.g. "8.33"); false on a non-numeric value.</summary>
     private static bool TryParsePercent(string? text, out decimal value) =>
@@ -1266,13 +1558,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnDefineBomComponentTypeChanged(bool value)
     {
+        var previous = _company.DefineBomComponentType;
         _company.DefineBomComponentType = value;
         try
         {
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST — see the matching note in OnPayrollEnabledChanged; without it the comparison below
+            // is a guaranteed no-op and the aggregate keeps a flag the .db does not have.
+            _company.DefineBomComponentType = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (DefineBomComponentType != _company.DefineBomComponentType)
                 DefineBomComponentType = _company.DefineBomComponentType;
@@ -1296,14 +1593,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             // Turn GST off: keep the (already-seeded) config/tax ledgers but mark it disabled, and persist.
             if (_company.Gst is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                try
+                // The mirror-image divergence — see the matching branch in ApplyGratuity. Save is transactional, so
+                // the .db still HAS the enrolment; memory must not silently lose it, or the rest of the session
+                // computes with GST off over a book that has it on. The restore is passed to TrySave rather than
+                // written after it, so it runs on EVERY failure (a locked or read-only .db included) and lands
+                // before RevertToggle(), which re-derives the toggle from the very flag being restored.
+                if (!TrySave(m => Message = m, () => existing.Enabled = previousEnabled))
                 {
-                    _storage.Save(_company);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-                {
-                    Message = ex.Message;
+                    RevertToggle();
                     return false;
                 }
             }
@@ -1337,6 +1636,17 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Gst ?? new GstConfig();
+        // Capture BEFORE the six in-place writes below. On an ALREADY-ENABLED company `config` IS _company.Gst, so
+        // those writes land on the shared aggregate before the store is ever reached — the same shape as ApplyPt's
+        // SetProfessionalTaxState. HomeStateCode is what makes this a wrong-FIGURES divergence rather than a stale
+        // flag: it decides intra- vs inter-state supply, i.e. CGST+SGST versus IGST on every invoice for the rest
+        // of the session, and a failed save otherwise left the session on a state the book does not have.
+        var previousGst = _company.Gst;
+        var previousGstFields = previousGst is null ? default : CaptureGstFields(previousGst);
+        // EnableGst also AUTO-CREATES the six tax ledgers + Round Off — or re-tags and RELOCATES same-named ledgers
+        // the user pre-created (GstService.EnsureTaxLedger). Putting the config reference back leaves all of that
+        // behind, so the ledger collection is snapshotted too.
+        var ledgersBefore = SnapshotLedgers();
         config.Gstin = gstinOrNull;
         config.HomeStateCode = HomeState.Code;
         config.RegistrationType = (RegistrationType ?? RegistrationTypes.First()).Value;
@@ -1362,8 +1672,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             service.EnableGst(config);           // idempotent: seeds slabs + auto-creates the 6 tax ledgers
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // EnableGst mutates the SHARED aggregate before the store is reached — see the matching note in
+            // ApplyGratuity. The restore is OUTSIDE any type filter (see IsReportableSaveFailure) and BEFORE
+            // RevertToggle(), which re-derives the toggle from _company.GstEnabled, i.e. from the config being
+            // restored: reverting first would read the poisoned config and leave the toggle ON over it.
+            _company.Gst = previousGst;
+            if (previousGst is not null) RestoreGstFields(previousGst, previousGstFields);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             RevertToggle();
             return false;
@@ -1432,8 +1750,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         {
             if (_company.Tds is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                if (!TrySave(m => TdsMessage = m)) return false;
+                // TrySave already carried the widened filter here; what it never carried was the RESTORE, so a
+                // failed disable left memory with TDS off over a book that still has it on. See ApplyGratuity.
+                if (!TrySave(m => TdsMessage = m, () => existing.Enabled = previousEnabled))
+                {
+                    RevertTdsToggle();
+                    return false;
+                }
             }
             RefreshTdsTcsLedgers();
             TdsMessage = "TDS is now OFF for this company. Existing masters are unchanged.";
@@ -1463,6 +1788,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Tds ?? new TdsConfig();
+        // Capture BEFORE WriteDeductorIdentity: on an already-enabled company `config` IS _company.Tds, so its eight
+        // identity writes land on the shared aggregate before the store is reached (the ApplyPt shape again).
+        var previousTds = _company.Tds;
+        var previousTdsIdentity = previousTds is null ? default : CaptureIdentity(previousTds);
+        // …and the COLLECTOR side with it. SyncSharedIdentityToTcs rewrites the live TcsConfig's TAN + responsible
+        // person IN PLACE, so a failed TDS enable otherwise left the 27EQ side of the session filing under a TAN the
+        // book does not hold — a silent wrong-identity divergence in a screen the user never touched.
+        var previousTcs = _company.Tcs;
+        var previousTcsIdentity = previousTcs is null ? default : CaptureIdentity(previousTcs);
+        // EnableTds also auto-creates "TDS Payable" — or re-tags AND RELOCATES a same-named ledger the user
+        // pre-created (TdsTcsService.EnsurePayableLedger moves it under Duties & Taxes unconditionally).
+        var ledgersBefore = SnapshotLedgers();
         WriteDeductorIdentity(config, tan, pan);
 
         try
@@ -1471,8 +1808,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             SyncSharedIdentityToTcs(tan, pan);   // keep 27EQ under the same TAN if TCS is already on
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore unconditionally and BEFORE RevertTdsToggle(), which re-derives the toggle from
+            // _company.TdsEnabled — see the matching note in ApplyGratuity.
+            _company.Tds = previousTds;
+            if (previousTds is not null) RestoreIdentity(previousTds, previousTdsIdentity);
+            if (previousTcs is not null) RestoreIdentity(previousTcs, previousTcsIdentity);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             TdsMessage = ex.Message;
             RevertTdsToggle();
             return false;
@@ -1498,8 +1842,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         {
             if (_company.Tcs is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                if (!TrySave(m => TcsMessage = m)) return false;
+                // The restore TrySave never received here either — see the matching branch in ApplyTds.
+                if (!TrySave(m => TcsMessage = m, () => existing.Enabled = previousEnabled))
+                {
+                    RevertTcsToggle();
+                    return false;
+                }
             }
             RefreshTdsTcsLedgers();
             TcsMessage = "TCS is now OFF for this company. Existing masters are unchanged.";
@@ -1529,6 +1879,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Tcs ?? new TcsConfig();
+        // The exact mirror of ApplyTds's capture — including the DEDUCTOR side, because SyncSharedIdentityToTds
+        // rewrites the live TdsConfig's identity in place. See the notes there.
+        var previousTcs = _company.Tcs;
+        var previousTcsIdentity = previousTcs is null ? default : CaptureIdentity(previousTcs);
+        var previousTds = _company.Tds;
+        var previousTdsIdentity = previousTds is null ? default : CaptureIdentity(previousTds);
+        var ledgersBefore = SnapshotLedgers();
         WriteCollectorIdentity(config, tan, pan);
 
         try
@@ -1537,8 +1894,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             SyncSharedIdentityToTds(tan, pan);   // keep 26Q under the same TAN if TDS is already on
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            _company.Tcs = previousTcs;
+            if (previousTcs is not null) RestoreIdentity(previousTcs, previousTcsIdentity);
+            if (previousTds is not null) RestoreIdentity(previousTds, previousTdsIdentity);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             TcsMessage = ex.Message;
             RevertTcsToggle();
             return false;
@@ -1589,19 +1951,162 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             ApplyBonus();
     }
 
-    /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>
-    private bool TrySave(Action<string> setMessage)
+    /// <summary>
+    /// Persists the company, surfacing the failure via <paramref name="setMessage"/>; false on failure.
+    ///
+    /// <para><paramref name="restore"/> puts the shared aggregate back and runs on <b>every</b> failure, whatever
+    /// type threw — see <see cref="IsReportableSaveFailure"/> for why a type filter must never be what decides
+    /// whether the rollback happens. It runs BEFORE the message and before the caller's toggle-revert, because
+    /// those revert helpers re-derive the toggle from the very field being restored.</para>
+    /// </summary>
+    private bool TrySave(Action<string> setMessage, Action? restore = null)
     {
         try
         {
             _storage.Save(_company);
             return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            restore?.Invoke();
+            if (!IsReportableSaveFailure(ex)) throw;
             setMessage(ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Whether a failure raised while mutating-and-persisting the company is one this screen reports as a message
+    /// rather than letting it crash the app.
+    ///
+    /// <para><b>Why this exists rather than an inline <c>when (ex is InvalidOperationException or
+    /// ArgumentException)</c> filter.</b> That filter — the shape every Apply* method on this page used — decided
+    /// two unrelated things at once: whether to show a message AND whether the rollback ran at all. Three ordinary
+    /// operational failures fall outside it and so silently skipped the rollback: <see cref="DbException"/>
+    /// (<c>SqliteException</c> — SQLITE_BUSY from a second instance holding the write lock, SQLITE_READONLY,
+    /// SQLITE_FULL; <c>SqliteCompanyStore</c> contains no catch blocks of its own, so these propagate raw),
+    /// <see cref="IOException"/> / <see cref="UnauthorizedAccessException"/> from opening the company file, and
+    /// <see cref="OverflowException"/> from an amount past what INTEGER paisa can carry — an
+    /// <see cref="ArithmeticException"/>, not an <see cref="ArgumentException"/>. The two concerns are now
+    /// separated: the caller restores unconditionally, and only the message/crash decision consults this list.</para>
+    /// </summary>
+    /// <remarks>
+    /// The list itself moved to <see cref="SaveFailure.IsReportable"/> when the Budget, Salary-Details and
+    /// Pay-Head masters needed the same decision (slice S2b) — three more copies of a six-type list is the
+    /// divergence this campaign removes. This name stays because eighteen call sites and this doc comment are
+    /// what make the rule readable at each catch.
+    /// </remarks>
+    private static bool IsReportableSaveFailure(Exception ex) => SaveFailure.IsReportable(ex);
+
+    // =========================================================== rollback capture (see TrySave / IsReportableSaveFailure)
+    //
+    // Three shapes of aggregate mutation on this screen cannot be undone by putting a reference back, because the
+    // mutation is IN PLACE on an object the capture points at, or is an addition to a collection the capture does not
+    // own. Each has its own capture/restore pair below, used by Apply / ApplyTds / ApplyTcs.
+    //
+    // ⚠️ ONE residue is deliberately NOT covered, and is recorded rather than papered over: EnableGst seeds
+    // GstConfig.RateSlabs, and EnableTds/EnableTcs seed the Nature-of-Payment / Nature-of-Goods masters, both only
+    // WHEN THE LIST IS EMPTY, and both collections are add-only (no public remove). It is unreachable as a
+    // divergence: a company whose config is non-null was enabled through this same path and therefore already has
+    // them (so nothing is added), and a company whose config was null has its config restored to null here — which
+    // orphans the object the seeds went into. If a public remove ever appears, close it.
+
+    /// <summary>The <see cref="GstConfig"/> fields <see cref="Apply"/> overwrites IN PLACE before persisting.</summary>
+    private readonly record struct GstFields(
+        bool Enabled, string? Gstin, string? HomeStateCode, GstRegistrationType Registration,
+        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate);
+
+    private static GstFields CaptureGstFields(GstConfig c) => new(
+        c.Enabled, c.Gstin, c.HomeStateCode, c.RegistrationType, c.Periodicity,
+        c.CompositionSubType, c.CompositionOptInDate);
+
+    private static void RestoreGstFields(GstConfig c, GstFields f)
+    {
+        c.Enabled = f.Enabled;
+        c.Gstin = f.Gstin;
+        c.HomeStateCode = f.HomeStateCode;          // the wrong-FIGURES one: intra- vs inter-state supply
+        c.RegistrationType = f.Registration;
+        c.Periodicity = f.Periodicity;
+        c.CompositionSubType = f.SubType;
+        c.CompositionOptInDate = f.OptInDate;
+    }
+
+    /// <summary>
+    /// The shared deductor/collector identity <see cref="WriteDeductorIdentity"/> / <see cref="WriteCollectorIdentity"/>
+    /// overwrite IN PLACE — captured as one record rather than nine hand-copied locals per call site, because a
+    /// hand-copied field list is exactly where a field gets forgotten.
+    /// </summary>
+    private readonly record struct StatutoryIdentity(
+        bool Enabled, string? Tan, DeductorType Party, string? Name, string? Pan,
+        string? Designation, string? Address, bool Surcharge, bool Cess);
+
+    private static StatutoryIdentity CaptureIdentity(TdsConfig c) => new(
+        c.Enabled, c.Tan, c.DeductorType, c.ResponsiblePersonName, c.ResponsiblePersonPan,
+        c.ResponsiblePersonDesignation, c.ResponsiblePersonAddress, c.SurchargeApplicable, c.CessApplicable);
+
+    private static StatutoryIdentity CaptureIdentity(TcsConfig c) => new(
+        c.Enabled, c.Tan, c.CollectorType, c.ResponsiblePersonName, c.ResponsiblePersonPan,
+        c.ResponsiblePersonDesignation, c.ResponsiblePersonAddress, c.SurchargeApplicable, c.CessApplicable);
+
+    private static void RestoreIdentity(TdsConfig c, StatutoryIdentity s)
+    {
+        c.Enabled = s.Enabled;
+        c.Tan = s.Tan;
+        c.DeductorType = s.Party;
+        c.ResponsiblePersonName = s.Name;
+        c.ResponsiblePersonPan = s.Pan;
+        c.ResponsiblePersonDesignation = s.Designation;
+        c.ResponsiblePersonAddress = s.Address;
+        c.SurchargeApplicable = s.Surcharge;
+        c.CessApplicable = s.Cess;
+    }
+
+    private static void RestoreIdentity(TcsConfig c, StatutoryIdentity s)
+    {
+        c.Enabled = s.Enabled;
+        c.Tan = s.Tan;
+        c.CollectorType = s.Party;
+        c.ResponsiblePersonName = s.Name;
+        c.ResponsiblePersonPan = s.Pan;
+        c.ResponsiblePersonDesignation = s.Designation;
+        c.ResponsiblePersonAddress = s.Address;
+        c.SurchargeApplicable = s.Surcharge;
+        c.CessApplicable = s.Cess;
+    }
+
+    /// <summary>What one ledger carried before an enable that can create, re-tag or relocate ledgers.</summary>
+    private readonly record struct LedgerState(
+        Apex.Ledger.Domain.Ledger Ledger, Guid GroupId,
+        LedgerGstClassification? Gst, TdsTcsLedgerKind? TdsTcs);
+
+    /// <summary>
+    /// Snapshots the ledger collection ahead of <c>EnableGst</c> / <c>EnableTds</c> / <c>EnableTcs</c>, which
+    /// auto-create the six GST tax ledgers + Round Off / the TDS/TCS payable — and, when a same-named ledger already
+    /// exists, instead TAG it in place. All three are aggregate mutations a config-reference rollback would leave
+    /// behind. <b>The two tag paths differ and both are covered:</b> <c>EnsureTaxLedger</c> stamps
+    /// <c>GstClassification</c> and relocates only a ledger whose group is unset, while <c>EnsurePayableLedger</c>
+    /// stamps <c>TdsTcsClassification</c> and relocates under Duties &amp; Taxes <i>unconditionally</i> — hence
+    /// both the classification and the <c>GroupId</c> are captured.
+    /// </summary>
+    private List<LedgerState> SnapshotLedgers() => _company.Ledgers
+        .Select(l => new LedgerState(l, l.GroupId, l.GstClassification, l.TdsTcsClassification))
+        .ToList();
+
+    /// <summary>Puts the group + classifications back on the ledgers that were edited, and drops the ones added.</summary>
+    private void RestoreLedgers(List<LedgerState> snapshot)
+    {
+        foreach (var s in snapshot)
+        {
+            s.Ledger.GroupId = s.GroupId;
+            s.Ledger.GstClassification = s.Gst;
+            s.Ledger.TdsTcsClassification = s.TdsTcs;
+        }
+
+        // Identity, not value: an auto-created ledger is a brand-new object, and nothing has posted against it yet.
+        var kept = new HashSet<Apex.Ledger.Domain.Ledger>(
+            snapshot.Select(s => s.Ledger), ReferenceEqualityComparer.Instance);
+        foreach (var added in _company.Ledgers.Where(l => !kept.Contains(l)).ToList())
+            _company.RemoveLedger(added);
     }
 
     /// <summary>Writes the shared deductor identity from the form into a <see cref="TdsConfig"/>.</summary>

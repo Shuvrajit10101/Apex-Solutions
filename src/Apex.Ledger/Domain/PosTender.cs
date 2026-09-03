@@ -28,4 +28,62 @@ public sealed record PosTender(
     Money? Change = null,
     string? CardNo = null,
     string? BankName = null,
-    string? ChequeNo = null);
+    string? ChequeNo = null)
+{
+    // The initialisers are what carry the PRIMARY-CONSTRUCTOR parameters into the backing fields. Declaring a
+    // property whose name matches a positional parameter suppresses the compiler's own assignment — without these
+    // the parameter is silently dropped and every tender would post as ZERO (warning CS8907 is the only thing
+    // standing between that and a shipped wrong figure). The `init` accessors below then re-apply the same check
+    // so a `with` expression cannot slip past it either.
+    private readonly Money _amount = Exact(Amount, nameof(Amount));
+    private readonly Money? _tendered = ExactOrNull(Tendered, nameof(Tendered));
+    private readonly Money? _change = ExactOrNull(Change, nameof(Change));
+
+    /// <summary>
+    /// All THREE money members persist through <c>Paisa.FromMoney</c> — <c>amount_paisa</c>,
+    /// <c>tendered_paisa</c> and <c>change_paisa</c> in <c>InsertPosTenders</c> — and that conversion throws on a
+    /// sub-paisa figure. The record's own doc already promised "paisa-exact"; until now nothing enforced it, and
+    /// <c>PosBillingViewModel.TryBuildTenders</c> builds these from a TYPED tender amount whose only gate is
+    /// "Σ tenders == bill total" — which a sub-paisa card tender and its (equally sub-paisa) cash residual satisfy
+    /// exactly. The bill then Posted and the Save threw, out of an Accept whose catch does not roll back.
+    ///
+    /// <para>Validated in the <c>init</c> accessor rather than a field initialiser so a <c>with</c> expression is
+    /// held to the invariant too. Both non-screen callers — <c>ImportPlan</c> and the SQLite read path — build
+    /// from INTEGER paisa and cannot trip it.</para>
+    /// </summary>
+    public Money Amount
+    {
+        get => _amount;
+        init => _amount = Exact(value, nameof(Amount));
+    }
+
+    /// <inheritdoc cref="Amount"/>
+    public Money? Tendered
+    {
+        get => _tendered;
+        init => _tendered = ExactOrNull(value, nameof(Tendered));
+    }
+
+    /// <inheritdoc cref="Amount"/>
+    public Money? Change
+    {
+        get => _change;
+        init => _change = ExactOrNull(value, nameof(Change));
+    }
+
+    /// <summary>
+    /// FitsPaisaStore, not IsPaisaExact — "storable" is magnitude AND exactness, and the exactness half alone
+    /// THROWS <see cref="OverflowException"/> on a big enough figure instead of refusing it (the predicate scales
+    /// by a hundred; the store's conversion then narrows to <c>long</c>). FitsPaisaStore owns that branch order,
+    /// magnitude first, and is the reason this is a real backstop rather than half of one.
+    /// </summary>
+    private static Money Exact(Money value, string member) =>
+        PaisaConversion.FitsPaisaStore(value.Amount)
+            ? value
+            : throw new InvalidOperationException(
+                $"POS tender {member} {value.Amount} cannot be stored as integer paisa: it must be paisa-exact "
+              + $"(2 decimal places) and no larger than {PaisaConversion.MaxStorableRupees}.");
+
+    private static Money? ExactOrNull(Money? value, string member) =>
+        value is { } v ? Exact(v, member) : null;
+}

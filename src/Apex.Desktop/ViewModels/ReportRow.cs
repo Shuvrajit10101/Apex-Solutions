@@ -75,6 +75,20 @@ public sealed class ReportRow
     public bool IsExpired { get; init; }
 
     /// <summary>
+    /// True on a report row whose voucher has been CANCELLED (Phase 10.11 S3). Drives the muted foreground via
+    /// <c>CancelledRowToBrushConverter</c> so a cancelled entry reads as present-but-void: it keeps its place and
+    /// its number in the Day Book, and contributes nothing to any figure.
+    ///
+    /// <para><b>🔴 UNVERIFIED-BY-DESIGN — this presentation is OURS, and the corpus is silent.</b> The source
+    /// corpus states only that Alt+X cancels a voucher; it describes no visual treatment at all, and returns zero
+    /// hits for struck / strike-through. Greying is our choice, taken because it is the reading that cannot be
+    /// mistaken for a live row, and it is recorded as ours rather than asserted as fidelity (R7).</para>
+    ///
+    /// <para>False on every other row and every other report, so nothing outside the Day Book changes.</para>
+    /// </summary>
+    public bool IsCancelled { get; init; }
+
+    /// <summary>
     /// The stock item this row drills to (Stock Summary → Stock Item Movement). Non-null only on a
     /// selectable Stock-Summary item row; null for headers, totals and other reports. Drives whether
     /// Enter/double-click drills in.

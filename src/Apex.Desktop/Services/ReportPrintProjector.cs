@@ -144,7 +144,17 @@ public static class ReportPrintProjector
         string[] cells;
         if (vm.IsAccountingReport)
         {
-            string particulars = Ascii(r.Particulars);
+            // 🔴 Phase 10.11 S3 — THE CANCELLED FACT HAS TO TRAVEL. On screen a cancelled Day Book row carries it
+            // two ways: the muted ink and the "(Cancelled)" tag in `ReportRow.Secondary`. This projection emits
+            // Particulars + Amount and NOTHING else — `Secondary` has no cell to land in and ink does not survive a
+            // projection — so the printed, print-previewed, PDF-exported, CSV/XLSX-exported and emailed Day Book
+            // rendered a cancelled ₹50,000 receipt byte-for-byte identically to a live one, full amount, no marker
+            // anywhere. The voucher/invoice print path got a "CANCELLED" over-print because it is "the one that
+            // leaves the building"; the report egress leaves the building too. Same token the screen shows, ASCII
+            // already. `ReportTabularProjector.ProjectRow` carries the twin — CSV/XLSX go through that one.
+            string particulars = r.IsCancelled
+                ? Ascii(r.Particulars) + "  (Cancelled)"
+                : Ascii(r.Particulars);
             cells = vm.IsTwoColumn
                 ? new[] { particulars, Ascii(r.Debit), Ascii(r.Credit) }
                 : new[] { particulars, Ascii(r.Amount) };

@@ -80,10 +80,17 @@ public sealed record TdsOutstandingReport(DateOnly AsOf, IReadOnlyList<TdsOutsta
 // -------------------------------------------------- R2 TDS Not Deducted -----------------------------------
 
 /// <summary>One below-threshold assessment in the <see cref="TdsNotDeductedReport"/> (R2): TDS was applicable but
-/// nothing was withheld because the section threshold was not (yet) crossed.</summary>
+/// nothing was withheld because the section threshold was not (yet) crossed.
+/// <para>🔴 <b><c>AggregateInWindow</c> is the aggregate over the SECTION'S OWN threshold window, which is not the
+/// financial year for every section.</b> It is the FY-to-date for §194A / §194C / §194H / §194J / §194Q and the
+/// <b>MONTH-to-date</b> for §194-I, whose first proviso tests the rent "for a month or part of a month" against
+/// ₹50,000 and which has no annual limb at all. The field used to be called <c>CumulativeInFy</c>, which was true
+/// of every section the report could then reach and stopped being true the moment the per-month window shipped —
+/// a row showing a year's rent against a ₹50,000 monthly limb would state a shortfall of nothing on a payment
+/// that is genuinely not liable.</para></summary>
 public sealed record TdsNotDeductedRow(
     DateOnly Date, Guid PartyId, string Party, string Section, string Nature,
-    Money Assessable, Money CumulativeInFy, Money Threshold, Money Shortfall);
+    Money Assessable, Money AggregateInWindow, Money Threshold, Money Shortfall);
 
 /// <summary>
 /// <b>R2 — TDS Not Deducted</b> (Phase 7 slice 8): the payments where TDS was <b>applicable but ₹0 was withheld</b>
@@ -116,12 +123,19 @@ public sealed record TdsNotDeductedReport(DateOnly AsOf, IReadOnlyList<TdsNotDed
 
                 var party = company.FindLedger(t.DeducteeLedgerId);
                 var nature = company.FindNatureOfPayment(t.NatureId);
-                var cumulative = svc.ProjectPriorCumulative(t.DeducteeLedgerId, t.NatureId, v.Date);
-                var (threshold, shortfall) = BindingThreshold(nature, t.AssessableValue, cumulative);
+                // 🔴 THE WINDOW IS THE SECTION'S OWN, and taking it from the FY unconditionally is exactly what
+                // made this advisory disagree with the engine on §194-I: the month-to-date is what the engine
+                // tested, so the month-to-date is what the shortfall has to be measured from. A nature the book
+                // can no longer resolve has no window to ask for, so it keeps the FY projection and lands on the
+                // no-threshold row below.
+                var inWindow = nature is null
+                    ? svc.ProjectPriorCumulative(t.DeducteeLedgerId, t.NatureId, v.Date)
+                    : svc.ProjectPriorInThresholdWindow(nature, t.DeducteeLedgerId, v.Date);
+                var (threshold, shortfall) = BindingThreshold(nature, t.AssessableValue, inWindow);
 
                 rows.Add(new TdsNotDeductedRow(
                     v.Date, t.DeducteeLedgerId, party?.Name ?? "(unknown)", t.SectionCode,
-                    nature?.Name ?? t.SectionCode, t.AssessableValue, cumulative, threshold, shortfall));
+                    nature?.Name ?? t.SectionCode, t.AssessableValue, inWindow, threshold, shortfall));
             }
         }
 
@@ -134,12 +148,13 @@ public sealed record TdsNotDeductedReport(DateOnly AsOf, IReadOnlyList<TdsNotDed
             var bySection = string.Compare(a.Section, b.Section, StringComparison.Ordinal);
             if (bySection != 0) return bySection;
             // Intrinsic, input-order-independent final tie-breaks (F3) so equal (date, party, section) rows are
-            // byte-stable regardless of the physical voucher order: deductee id, then assessable, then FY cumulative.
+            // byte-stable regardless of the physical voucher order: deductee id, then assessable, then the
+            // window aggregate.
             var byPartyId = a.PartyId.CompareTo(b.PartyId);
             if (byPartyId != 0) return byPartyId;
             var byAssessable = a.Assessable.Amount.CompareTo(b.Assessable.Amount);
             if (byAssessable != 0) return byAssessable;
-            return a.CumulativeInFy.Amount.CompareTo(b.CumulativeInFy.Amount);
+            return a.AggregateInWindow.Amount.CompareTo(b.AggregateInWindow.Amount);
         });
         return new TdsNotDeductedReport(asOf, rows);
     }
@@ -151,21 +166,25 @@ public sealed record TdsNotDeductedReport(DateOnly AsOf, IReadOnlyList<TdsNotDed
     /// carrying BOTH limbs (e.g. §194C ₹30,000 single / ₹1,00,000 cumulative) this keeps the advisory shortfall from
     /// implying TDS is due when a single below-single-limb payment (FY aggregate still under the cumulative limb) is
     /// not yet liable — the old "cumulative ?? single" logic silently dropped the single limb.
-    /// <paramref name="cumulativeInFy"/> already includes this line (post-hoc projection). A tie prefers the single
-    /// limb (a single large payment is the more immediate trigger); a no-threshold section has no shortfall.
+    /// <paramref name="aggregateInWindow"/> already includes this line (post-hoc projection). A tie prefers the
+    /// single limb (a single large payment is the more immediate trigger); a no-threshold section has no shortfall.
+    /// <para>🔴 <b>The aggregate limb is <see cref="NatureOfPayment.AggregateThreshold"/>, never
+    /// <see cref="NatureOfPayment.CumulativeThreshold"/> directly</b> — on §194-I the latter holds a superseded
+    /// annual figure (or, in a book seeded after the per-month window shipped, nothing at all), and reading it
+    /// here would print either a ₹6,00,000 threshold the engine no longer applies or a ₹0 one it never did.</para>
     /// </summary>
     private static (Money Threshold, Money Shortfall) BindingThreshold(
-        NatureOfPayment? nature, Money assessable, Money cumulativeInFy)
+        NatureOfPayment? nature, Money assessable, Money aggregateInWindow)
     {
         var single = nature?.SingleTransactionThreshold;
-        var cumulative = nature?.CumulativeThreshold;
+        var aggregate = nature?.AggregateThreshold;
         decimal? singleGap = single is { } s ? Math.Max(0m, s.Amount - assessable.Amount) : null;
-        decimal? cumGap = cumulative is { } c ? Math.Max(0m, c.Amount - cumulativeInFy.Amount) : null;
+        decimal? aggregateGap = aggregate is { } a ? Math.Max(0m, a.Amount - aggregateInWindow.Amount) : null;
 
-        if (singleGap is { } sg && (cumGap is not { } cg || sg <= cg))
+        if (singleGap is { } sg && (aggregateGap is not { } ag || sg <= ag))
             return (single!.Value, new Money(sg));
-        if (cumGap is { } cg2)
-            return (cumulative!.Value, new Money(cg2));
+        if (aggregateGap is { } ag2)
+            return (aggregate!.Value, new Money(ag2));
         return (Money.Zero, Money.Zero);
     }
 }

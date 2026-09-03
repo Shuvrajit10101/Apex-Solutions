@@ -186,7 +186,9 @@ public static class CsvImport
         if (string.IsNullOrWhiteSpace(rupees)) return false;
         var cleaned = rupees.Trim().Replace(",", "");
         if (!decimal.TryParse(cleaned, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return false;
-        paisa = (long)decimal.Round(d * 100m, 0, MidpointRounding.AwayFromZero);
+        // ONE rupees→paisa rule (drift lock D3), ROUNDED: an imported CSV figure is quantised rather than
+        // aborting the import of an otherwise-valid row.
+        paisa = PaisaConversion.ToPaisaRounded(d);
         return true;
     }
 

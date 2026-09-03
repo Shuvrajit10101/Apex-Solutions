@@ -17,7 +17,8 @@ public sealed record BankTransactionRow(
     BankTransactionType TransactionType,
     string InstrumentNumber,
     DateOnly? InstrumentDate,
-    DateOnly? BankDate)
+    DateOnly? BankDate,
+    string FormattedNumber = "")
 {
     /// <summary>Signed contribution to the bank balance: +amount for a debit, −amount for a credit.</summary>
     public decimal Signed => Side == DrCr.Debit ? Amount.Amount : -Amount.Amount;
@@ -128,7 +129,8 @@ public static class BankReconciliation
                     alloc?.TransactionType ?? BankTransactionType.Other,
                     alloc?.InstrumentNumber ?? string.Empty,
                     alloc?.InstrumentDate,
-                    alloc?.BankDate));
+                    alloc?.BankDate,
+                    company.FormatVoucherNumber(v)));
             }
         }
 

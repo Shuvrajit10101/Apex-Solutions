@@ -162,8 +162,14 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted POS Billing voucher-entry screen (non-null only for that column; Phase 6 slice 7; RQ-38..RQ-44).</summary>
     public PosBillingViewModel? PosBilling => Page as PosBillingViewModel;
 
+    /// <summary>The hosted Company Alteration profile page (non-null only for that column).</summary>
+    public CompanyProfileViewModel? AlterCompany => Page as CompanyProfileViewModel;
+
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
+
+    /// <summary>The hosted F12 voucher-numbering configuration page (non-null only for that column; numbering S4).</summary>
+    public VoucherNumberingConfigViewModel? VoucherNumberingConfig => Page as VoucherNumberingConfigViewModel;
 
     /// <summary>The hosted Nature-of-Payment (TDS section) master (non-null only for that column; Phase 7 slice 1).</summary>
     public NatureOfPaymentMasterViewModel? NatureOfPaymentMaster => Page as NatureOfPaymentMasterViewModel;
@@ -248,6 +254,12 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted O / Alt+O "Import" panel (non-null only for that RQ-20..24 column).</summary>
     public ImportDataViewModel? ImportDataPanel => Page as ImportDataViewModel;
+
+    /// <summary>The hosted Data → "Backup Company" panel (non-null only for that R-7 carve-out column).</summary>
+    public BackupCompanyViewModel? BackupCompanyPanel => Page as BackupCompanyViewModel;
+
+    /// <summary>The hosted Data → "Restore Company" panel (non-null only for that R-7 carve-out column).</summary>
+    public RestoreCompanyViewModel? RestoreCompanyPanel => Page as RestoreCompanyViewModel;
 
     /// <summary>The hosted M / Ctrl+M "E-Mail" compose panel (non-null only for that RQ-25/26 column).</summary>
     public EmailComposeViewModel? EmailCompose => Page as EmailComposeViewModel;

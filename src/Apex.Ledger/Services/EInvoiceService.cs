@@ -81,7 +81,8 @@ public sealed class EInvoiceService
     /// <summary>
     /// The <see cref="EInvoiceSupplyCategory"/> of an outward voucher, or <c>null</c> when it is an excluded B2C supply
     /// (§2.5). Resolution (from the data the party GST block currently expresses): an outward reverse-charge supply ⇒
-    /// <see cref="EInvoiceSupplyCategory.RcmSupplierLiable"/>; an overseas place of supply (GST code 96/97) ⇒
+    /// <see cref="EInvoiceSupplyCategory.RcmSupplierLiable"/>; an overseas place of supply — <b>the ONE statement of
+    /// that rule is <see cref="GstReportSupport.IsOverseasStateCode"/></b>, never a code list repeated here ⇒
     /// <see cref="EInvoiceSupplyCategory.Export"/>; a registered (GSTIN-bearing) recipient ⇒
     /// <see cref="EInvoiceSupplyCategory.Regular"/>; else a domestic consumer ⇒ <c>null</c> (B2C, excluded). SEZ /
     /// deemed-export are modelled on the enum for the INV-01 writer but not minted here until a party SEZ flag exists.
@@ -93,8 +94,11 @@ public sealed class EInvoiceService
 
         var partyGst = voucher.PartyId is Guid pid ? _company.FindLedger(pid)?.PartyGst : null;
 
-        // Export: an overseas place of supply (GST convention: 96 = Other Country, 97 = Other Territory).
-        if (partyGst?.StateCode is "96" or "97")
+        // Export: an overseas place of supply. W0-8 — this used to test `is "96" or "97"`, which BOTH over-reached and
+        // under-reached: the official state-code master (https://einvoice1.gst.gov.in/Others/MasterCodes) reads
+        // 96 = OTHER COUNTRIES, 97 = Other Territory (a DOMESTIC GST territory), 99 = OTHER COUNTRIES. Routed through
+        // the shared predicate so the e-invoice, e-Way and B2C-QR paths can never disagree about what is overseas.
+        if (GstReportSupport.IsOverseasStateCode(partyGst?.StateCode))
             return EInvoiceSupplyCategory.Export;
 
         // A registered recipient (a real GSTIN) ⇒ ordinary B2B.
@@ -105,12 +109,37 @@ public sealed class EInvoiceService
         return null;
     }
 
-    /// <summary>The printed document number used to build the IRN request — the voucher's number, <b>uppercased</b>
-    /// (invariant-culture) BEFORE submission so the request, the stored artefact and any later cancel reference the
-    /// identical doc-no (§2.4; IRP is case-insensitive from 01-Jun-2025).</summary>
-    public static string DocumentNumberOf(Voucher voucher) =>
-        (voucher.Number > 0 ? voucher.Number.ToString(CultureInfo.InvariantCulture) : voucher.Id.ToString("N"))
-            .ToUpperInvariant();
+    /// <summary>The printed document number used to build the IRN request — the voucher's <b>rendered</b> number
+    /// (numbering-design-v2 §2.2: the ONE policy, so the portal DocNo equals the printed invoice number, prefix/suffix
+    /// and all), emitted <b>AS-TYPED</b> (case preserved) so paper == IRP == e-Way == GSTR-1 == B2C-QR == Day Book — the
+    /// identical string everywhere. A lowercase prefix that prints <c>inv/001</c> therefore files <c>inv/001</c>, not
+    /// <c>INV/001</c>; case is honoured in the reuse key's COMPARISON (see
+    /// <see cref="Company.HasEInvoiceDocumentNumber"/>), never by mutating the emitted string. Falls back to the
+    /// voucher id when the number renders empty (an unnumbered voucher).
+    ///
+    /// <para><b>⚠ UNVERIFIED — and the official source says the opposite.</b> This comment used to justify the
+    /// as-typed rule with the claim that "IRP has been case-insensitive since 01-Jun-2025". That claim carries
+    /// <b>no citation</b> and could not be corroborated. The NIC e-invoice schema workbook
+    /// (<c>https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx</c>, sheet "Validations", V 1.3.1, retrieved
+    /// 2026-08-14 by direct HTTPS GET) states in rule 6: <i>"Document number should not be starting with 0, / and -.
+    /// Also, alphabets in document number should not have alphabets in lower cases. If so, then request is
+    /// rejected."</i> The schema's own pattern agrees — <c>DocDtls.No</c> is
+    /// <c>maxLength: 16, pattern: "^([A-Z1-9]{1}[A-Z0-9/-]{0,15})$"</c>, which admits no lowercase letter, no
+    /// leading zero and no space.</para>
+    ///
+    /// <para><b>The behaviour is deliberately UNCHANGED here, because changing it is a user decision.</b> Emitting
+    /// as-typed is the whole point of the one-string contract (paper == IRP == e-Way == GSTR-1 == B2C-QR == Day
+    /// Book); uppercasing only the IRP copy would break it, and rejecting the configuration belongs at voucher-type
+    /// entry, not in a projection. The four ordinary numbering configurations that violate the pattern — a
+    /// zero-padded width, a space-padded width, a lowercase prefix, and <see cref="NumberingMethod.None"/> (whose
+    /// fallback is a 32-char lowercase GUID, over <c>maxLength: 16</c>) — are pinned by
+    /// <c>EInvoiceInv01SchemaConformanceTests.PINNED_the_document_number_is_not_guarded_against_the_schema_pattern</c>
+    /// so the gap stays visible and a future guard has a red test to turn green.</para></summary>
+    public static string DocumentNumberOf(Company company, Voucher voucher)
+    {
+        var rendered = company.FormatVoucherNumber(voucher);
+        return rendered.Length > 0 ? rendered : voucher.Id.ToString("N");
+    }
 
     /// <summary>
     /// Assembles a fresh <see cref="EInvoiceRecord"/> (status Pending) for a <b>covered</b> voucher and attaches it to the
@@ -127,12 +156,14 @@ public sealed class EInvoiceService
         if (_company.FindEInvoiceRecordForVoucher(voucher.Id) is not null)
             throw new InvalidOperationException("An e-invoice record already exists for this voucher.");
 
-        var docNoUpper = DocumentNumberOf(voucher);
-        if (_company.HasEInvoiceDocumentNumber(docNoUpper))
+        // The stored/emitted doc-no is the AS-TYPED rendered string; the reuse check is case-insensitive (a genuine
+        // same-number reuse — even in a different case — is still blocked, §2.5).
+        var docNo = DocumentNumberOf(_company, voucher);
+        if (_company.HasEInvoiceDocumentNumber(docNo))
             throw new InvalidOperationException(
-                $"Document number '{docNoUpper}' is already used by an e-invoice record and cannot be reused (a cancelled doc-no is not reusable).");
+                $"Document number '{docNo}' is already used by an e-invoice record and cannot be reused (a cancelled doc-no is not reusable).");
 
-        var record = new EInvoiceRecord(Guid.NewGuid(), voucher.Id, docNoUpper);
+        var record = new EInvoiceRecord(Guid.NewGuid(), voucher.Id, docNo);
         record.MarkPending();
         _company.AddEInvoiceRecord(record);
         return record;

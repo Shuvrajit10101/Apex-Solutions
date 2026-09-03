@@ -328,15 +328,19 @@ public sealed class GstService
     /// and no recorded State — the place of supply for an unregistered/unrecorded recipient is the supplier's
     /// own State (DP-8), so the supply defaults to <b>intra-state (CGST+SGST)</b>, NOT IGST. Only a genuinely
     /// different, recorded party State is inter-state.
+    ///
+    /// <para><b>W0-15 — this is now the THROWING WRAPPER over the one shared rule</b>
+    /// (<see cref="GstReportSupport.RoutingOf(Company, string?)"/>, drift lock D8). The rule itself answers
+    /// <c>null</c> when the book declares no home State; a caller that is about to PRODUCE A FIGURE — post tax,
+    /// compute a TCS/RCM leg, bill at the POS — must not proceed on a routing derived from a fact the book does not
+    /// have, so this form refuses. <b>Read-only paths must NOT use it</b>: they call <c>RoutingOf</c> and carry the
+    /// <c>null</c>. That is what stopped an already-issued invoice from being unprintable (F7) — the projector used
+    /// to open with this method for every projection, including reprints that never consume the value.</para>
     /// </summary>
-    public bool IsInterState(string? partyStateCode)
-    {
-        var home = _company.Gst?.HomeStateCode;
-        if (home is null) throw new InvalidOperationException("GST is not enabled (no home state) — cannot route a supply.");
-        // No recorded place of supply ⇒ default to the company home State ⇒ intra-state (B2C local sale, DP-8).
-        if (string.IsNullOrWhiteSpace(partyStateCode)) return false;
-        return !string.Equals(home, partyStateCode, StringComparison.Ordinal);
-    }
+    /// <exception cref="InvalidOperationException">The company declares no home State, so no supply can be routed.</exception>
+    public bool IsInterState(string? partyStateCode) =>
+        GstReportSupport.RoutingOf(_company, partyStateCode)
+        ?? throw new InvalidOperationException("GST is not enabled (no home state) — cannot route a supply.");
 
     // ---- RQ-10: rate resolution (Stock Item → Sales/Purchase Ledger → Company), most-granular-wins ----
 
@@ -538,15 +542,32 @@ public sealed class GstService
         int RspFactorMillis, Money RetailSalePrice, decimal Quantity)
     {
         /// <summary>The paisa-exact cess amount for <paramref name="taxableValue"/>, computed once and rounded once.</summary>
-        public Money ComputeCess(Money taxableValue) => Mode switch
+        public Money ComputeCess(Money taxableValue) =>
+            new Money(CessBeforeRounding(taxableValue)).RoundToPaisa();
+
+        /// <summary>
+        /// 🔴 The cess for <paramref name="taxableValue"/> <b>before the paisa snap</b> — the figure a caller that
+        /// aggregates several lines into ONE posted cess leg must accumulate, so the group is rounded once rather
+        /// than each contributing line being rounded and the roundings summed.
+        ///
+        /// <para><b>Why this exists.</b> <see cref="ComputeInvoiceTax"/> posts one Cess entry line per GST-rate
+        /// group and rounds the CGST/SGST/IGST heads on that group's subtotal. Rounding the cess per LINE instead
+        /// made Σ round(line) the posted cess where the heads use round(Σ line) — so re-deriving the SAME invoice
+        /// from a different but value-identical line partition moved the figure. It is reachable without any
+        /// import: an item line split across N batches posts as N inventory lines, the alteration screen rebuilds
+        /// the grid one row per POSTED line, and the re-derivation then splits one grid row into N. The rounding
+        /// boundary, not the valuation mode, is what has to be invariant — every mode is affected, because every
+        /// mode ends in one <c>RoundToPaisa</c>.</para>
+        ///
+        /// <para>No statutory claim is made here: this is a rounding-BOUNDARY choice, made to match the boundary
+        /// the GST heads beside it already use (DP-4 / RQ-12), not a rate or a threshold.</para>
+        /// </summary>
+        public decimal CessBeforeRounding(Money taxableValue) => Mode switch
         {
-            CessValuationMode.AdValorem =>
-                new Money(taxableValue.Amount * RateBasisPoints / 10000m).RoundToPaisa(),
-            CessValuationMode.Specific =>
-                new Money(Quantity * PerUnit.Amount).RoundToPaisa(),
-            CessValuationMode.RetailSalePriceFactor =>
-                new Money(Quantity * RetailSalePrice.Amount * RspFactorMillis / 1000m).RoundToPaisa(),
-            _ => Money.Zero,
+            CessValuationMode.AdValorem => taxableValue.Amount * RateBasisPoints / 10000m,
+            CessValuationMode.Specific => Quantity * PerUnit.Amount,
+            CessValuationMode.RetailSalePriceFactor => Quantity * RetailSalePrice.Amount * RspFactorMillis / 1000m,
+            _ => 0m,
         };
     }
 
@@ -627,13 +648,19 @@ public sealed class GstService
         var rateOrder = new List<int>();
         var taxableByRate = new Dictionary<int, decimal>();
 
-        // Phase 9 slice 1: Compensation Cess is accumulated per rate group alongside the GST heads. Each line's cess
-        // is computed + rounded ONCE (CessCharge.ComputeCess), then summed into its rate group; one Cess entry line
-        // per group posts to the ring-fenced Output/Input Cess ledger. cessBpByRate carries the group's ad-valorem bp
-        // for the GstLineTax detail (0 when the group is specific/RSP or mixed — reports read the amount, ER-9).
+        // Phase 9 slice 1: Compensation Cess is accumulated per rate group alongside the GST heads. One Cess entry
+        // line per group posts to the ring-fenced Output/Input Cess ledger. cessBpByRate carries the group's
+        // ad-valorem bp for the GstLineTax detail (0 when the group is specific/RSP or mixed — reports read the
+        // amount, ER-9).
+        //
+        // 🔴 THE ACCUMULATOR HOLDS THE UNROUNDED CESS, and the group is snapped to the paisa ONCE below — the same
+        // boundary the CGST/SGST/IGST heads are rounded at (round(Σ line), never Σ round(line)). It used to hold
+        // the per-line ROUNDED figure, which made the posted cess depend on HOW the invoice's value was partitioned
+        // into lines rather than only on what it was worth: re-deriving the identical invoice from a value-identical
+        // but differently-partitioned line set moved the cess and, with it, the party's balance. See
+        // <see cref="CessCharge.CessBeforeRounding"/> for the reachable route (a batch-split line rehydrated flat).
         var cessByRate = new Dictionary<int, decimal>();
         var cessBpByRate = new Dictionary<int, int?>();
-        var totalCess = 0m;
 
         foreach (var line in lines)
         {
@@ -654,15 +681,22 @@ public sealed class GstService
 
             if (line.Cess is { } cess)
             {
-                var cessAmount = cess.ComputeCess(line.TaxableValue).Amount; // computed + rounded once per line
-                cessByRate[line.IntegratedBasisPoints] += cessAmount;
-                totalCess += cessAmount;
+                // UNROUNDED — the group is rounded once, below, exactly as the GST heads are.
+                cessByRate[line.IntegratedBasisPoints] += cess.CessBeforeRounding(line.TaxableValue);
                 // Track a representative ad-valorem bp for the group's cess detail; a mixed group falls back to 0.
                 var lineCessBp = cess.Mode == CessValuationMode.AdValorem ? cess.RateBasisPoints : 0;
                 cessBpByRate[line.IntegratedBasisPoints] =
                     cessBpByRate[line.IntegratedBasisPoints] is { } prior && prior != lineCessBp ? 0 : lineCessBp;
             }
         }
+
+        // 🔴 THE CESS ROUNDING BOUNDARY. Each rate group's accumulated (unrounded) cess is snapped to the paisa
+        // ONCE, here — so the posted cess is round(Σ line), matching round(Σ line) on the heads beside it, and the
+        // figure depends on the invoice's VALUE rather than on the line partition that produced it.
+        var cessRoundedByRate = new Dictionary<int, decimal>();
+        foreach (var bp in rateOrder)
+            cessRoundedByRate[bp] = new Money(cessByRate[bp]).RoundToPaisa().Amount;
+        var totalCess = cessRoundedByRate.Values.Sum();
 
         // Aggregate per (head, rate) group, on the correct side: Output tax is a credit (liability) on a sale;
         // Input tax is a debit (ITC asset) on a purchase. The tax-ledger side mirrors the party side.
@@ -717,7 +751,7 @@ public sealed class GstService
             // Ring-fenced Cess: one entry line per rate group, on the same side as the GST heads (Output on a sale,
             // Input on a purchase). It carries its OWN group's cess base + representative ad-valorem bp (0 for
             // specific/RSP), and NEVER touches the CGST/SGST/IGST totals (ER-2).
-            AddHead(GstTaxHead.Cess, cessByRate[integratedBp], cessBpByRate[integratedBp] ?? 0, groupTaxable);
+            AddHead(GstTaxHead.Cess, cessRoundedByRate[integratedBp], cessBpByRate[integratedBp] ?? 0, groupTaxable);
         }
 
         // Optional invoice round-off on the grand total (taxable + tax + cess so a cess-bearing voucher balances).

@@ -151,7 +151,7 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
             Rows.Add(new EWayCandidateRowVm
             {
                 VoucherId = v.Id,
-                DocNo = EInvoiceService.DocumentNumberOf(v),
+                DocNo = EInvoiceService.DocumentNumberOf(_company, v),
                 Date = ApexDate.Format(v.Date),
                 ConsignmentValue = IndianFormat.AmountAlways(_service.ConsignmentValue(v)),
                 Coverage = CoverageLabel(coverage),

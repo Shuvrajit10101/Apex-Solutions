@@ -107,9 +107,17 @@ public sealed class ItemLineUnitSchemaTests
             var lineCountBefore = ReadScalar(dbPath, "SELECT COUNT(*) FROM voucher_inventory_lines;");
             Assert.True(lineCountBefore > 0);
 
-            // 2) Downgrade to a genuine v45 shape (drop unit_id, stamp version 45).
+            // 2) Downgrade to a genuine v45 shape (step down one version at a time from the current version:
+            //    v49→v48 drops the accounting-invoice flag, v48→v47 drops the counterparty reference columns,
+            //    v47→v46 drops the numbering config, v46→v45 drops unit_id, stamping version 45).
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
+                SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
+                SchemaDowngrade.V49ToV48(conn);
+                SchemaDowngrade.V48ToV47(conn);
+                SchemaDowngrade.V47ToV46(conn);
                 SchemaDowngrade.V46ToV45(conn);
                 SqliteConnection.ClearPool(conn);
             }

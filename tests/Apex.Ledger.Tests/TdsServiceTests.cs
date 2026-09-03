@@ -93,9 +93,18 @@ public class TdsServiceTests
         Assert.Equal(Money.FromRupees(80_000m), carve.NetPartyAmount);
     }
 
+    /// <summary>
+    /// 🔴 <b>THESE TWO EXPECTED FIGURES WERE CHANGED BY T0-1, AND THE OLD ONES PINNED THE DEFECT.</b> Until then
+    /// this Theory asserted ₹10,000 / ₹5,00,000 — 0.1% and 5% of the WHOLE ₹1,00,00,000 — under a comment that
+    /// called §194Q's excess base "a documented later refinement". It is not a refinement; §194Q(1) charges
+    /// "0.1 per cent. of such sum <b>exceeding</b> fifty lakh rupees", so on a first ₹1,00,00,000 purchase of the FY
+    /// the charged base is the ₹50,00,000 excess: <b>₹5,000</b> with PAN, <b>₹2,50,000</b> under the §206AA
+    /// second-proviso 5% cap. The rate resolution this test was written to prove (0.1% / the 5% cap rather than the
+    /// general 20%) is unchanged and still asserted. See <see cref="Tds194QExcessCarveTests"/> for the carve itself.
+    /// </summary>
     [Theory]
-    [InlineData(DeducteePan, 10, 10_000)]  // with PAN: 194Q 0.1% of 1 crore = 10,000
-    [InlineData(null, 500, 5_00_000)]       // no PAN: §194Q special cap 5% (NOT 20%) = 5,00,000
+    [InlineData(DeducteePan, 10, 5_000)]    // with PAN: 194Q 0.1% of the ₹50,00,000 EXCESS = 5,000 (was 10,000)
+    [InlineData(null, 500, 2_50_000)]       // no PAN: §194Q special cap 5% (NOT 20%) of the excess (was 5,00,000)
     public void Section_194Q_resolves_special_no_pan_cap(string? pan, int expectedRateBp, decimal expectedTds)
     {
         var c = NewTdsCompany();
@@ -103,11 +112,12 @@ public class TdsServiceTests
         var buyer = AddLedger(c, "Goods Seller", "Sundry Creditors", false);
         buyer.TdsApplicable = true; buyer.TdsNatureOfPaymentId = nop.Id; buyer.PartyPan = pan;
 
-        // Assessable above the ₹50 lakh cumulative threshold (uniform rule: TDS on the full current assessable —
-        // §194Q's "only on the value exceeding ₹50 lakh" base is a documented later refinement).
+        // Assessable ₹1,00,00,000, the first of the FY: the ₹50,00,000 cumulative gate is crossed and the charged
+        // base is the ₹50,00,000 above it (T0-1). The FULL ₹1,00,00,000 stays the recorded AssessableValue.
         var w = new TdsService(c).ComputeWithholding(Money.FromRupees(1_00_00_000m), nop, buyer, D1);
         Assert.True(w.Applies);
         Assert.Equal(expectedRateBp, w.RateBasisPoints);
+        Assert.Equal(Money.FromRupees(1_00_00_000m), w.AssessableValue);
         Assert.Equal(Money.FromRupees(expectedTds), w.TdsAmount);
     }
 
@@ -154,7 +164,7 @@ public class TdsServiceTests
     }
 
     [Fact]
-    public void Projection_is_pure_ignores_cancelled_and_other_financial_years()
+    public void Projection_is_pure_and_ignores_a_cancelled_voucher()
     {
         var c = NewTdsCompany();
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
@@ -170,8 +180,50 @@ public class TdsServiceTests
         { Cancelled = true });
 
         Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2025, 12, 31)));
-        // A next-FY date sees nothing from this FY.
+    }
+
+    /// <summary>
+    /// 🔴 <b>The FY window and the as-of date, on a LIVE voucher.</b> This used to be the tail of the cancelled
+    /// test above, on a fixture whose only voucher was <c>Cancelled = true</c> — so both of its assertions returned
+    /// zero through the cancelled filter no matter what the date line did, and the whole date/FY clause of
+    /// <c>ProjectPriorCumulative</c> could be DELETED with the full Ledger and Desktop suites green. That line is
+    /// the one the S5c re-carve threshold now stands on, so it gets its own oracle here: a live assessment, and
+    /// both bounds tested in the direction that fails when the clause is dropped.
+    /// </summary>
+    [Fact]
+    public void Projection_counts_only_this_financial_year_up_to_the_as_of_date()
+    {
+        var c = NewTdsCompany();
+        var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
+        var vendor = Vendor(c, DeducteePan);
+        var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
+        var svc = new TdsService(c);
+        var post = new LedgerService(c);
+
+        void PostLive(decimal amount, DateOnly on)
+        {
+            var carve = svc.BuildCarveOut(Money.FromRupees(amount), Money.FromRupees(amount), nop, vendor, on);
+            Assert.False(carve.Applies);                        // each one below the 50,000 cumulative on its own
+            post.Post(new Voucher(Guid.NewGuid(), JournalTypeId(c), on,
+                new[] { new EntryLine(fees.Id, Money.FromRupees(amount), DrCr.Debit), carve.PartyLine }));
+        }
+
+        PostLive(30_000m, D1);                                  // 10-May-2025, i.e. FY 2025-26
+
+        // The as-of date is an UPPER bound: a projection taken the day BEFORE this assessment sees nothing.
+        Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, D1.AddDays(-1)));
+        Assert.Equal(Money.FromRupees(30_000m), svc.ProjectPriorCumulative(vendor.Id, nop.Id, D1));
+
+        // And the FY start is a LOWER bound: the next financial year starts the aggregate again at zero, even
+        // though the voucher is live, uncancelled and earlier than the projection date.
         Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 5, 1)));
+
+        // A second live assessment inside the SAME FY does accumulate — so "zero" above is the window, not apathy.
+        PostLive(15_000m, new DateOnly(2026, 3, 31));            // still FY 2025-26 (ends 31-Mar-2026)
+        Assert.Equal(
+            Money.FromRupees(45_000m),
+            svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 3, 31)));
+        Assert.Equal(Money.Zero, svc.ProjectPriorCumulative(vendor.Id, nop.Id, new DateOnly(2026, 4, 1)));
     }
 
     // ---- TDS assessed on the GST-exclusive base (CBDT Circular 23/2017) ----
@@ -209,10 +261,13 @@ public class TdsServiceTests
         supplier.DeducteeType = DeducteeType.Company; supplier.PartyPan = DeducteePan;
 
         var nop = c.FindNatureOfPaymentByCode("194C")!;
-        var gross = Money.FromRupees(2_00_000m); // > ₹1,00,000 194C aggregate ⇒ TDS applies at 1% (with-PAN Ind/HUF base)
+        // > ₹1,00,000 194C aggregate ⇒ TDS applies. The supplier is a COMPANY, so §194C(1)(ii) charges 2%.
+        // 🔴 This assertion read ₹2,000.00 (1%) until the deductee-type branch shipped — the engine resolved
+        // RateWithPanBp for every legal status. ₹4,000.00 is the statutory figure; see Tds194CDeducteeTypeTests.
+        var gross = Money.FromRupees(2_00_000m);
         var carve = new TdsService(c).BuildCarveOut(gross, gross, nop, supplier, D1);
         Assert.True(carve.Applies);
-        Assert.Equal(Money.FromRupees(2_000m), carve.TdsAmount); // 1% of 2,00,000
+        Assert.Equal(Money.FromRupees(4_000m), carve.TdsAmount); // 2% of 2,00,000
 
         var v = post.Post(new Voucher(Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id, D1,
             new[] { new EntryLine(purchases.Id, gross, DrCr.Debit), carve.PartyLine, carve.TdsPayableLine! },

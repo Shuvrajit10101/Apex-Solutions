@@ -125,33 +125,49 @@ public class ItemInvoiceTests
         Assert.Equal(Money.FromRupees(400m), new StockValuationService(k.Company).ClosingValue(k.ItemId, D4).Value);
     }
 
+    /// <summary>
+    /// ⚠️ NS-3 — this test previously asserted that an over-drawing item-invoice Sales was rejected and the WHOLE
+    /// voucher (accounting leg included) atomically rolled back. That block is gone: TallyPrime has no built-in
+    /// negative-stock block anywhere (official TallyHelp — <i>Configuring an Invoice</i> + the Sales FAQ; the
+    /// licensed corpus is silent, 0 hits across all ten PDFs), and "deliver now, book the purchase bill next week"
+    /// is the commonest real trading sequence there is. What the test now pins is that the sale posts BOTH arms and
+    /// the shortfall is REPORTED — the accounts/stock pairing is still atomic; there is simply no longer a rejection
+    /// here for it to be atomic about.
+    ///
+    /// <para>It deliberately asserts <b>no valuation figure</b>. How a negative on-hand is valued is unresolved
+    /// (plan.md NS-1/NS-8) and <see cref="StockValuationService"/> is untouched by this slice; asserting a number
+    /// here would freeze whatever the unfixed engine currently happens to return.</para>
+    /// </summary>
     [Fact]
-    public void Item_invoice_sales_that_would_go_negative_is_blocked_atomically()
+    public void Item_invoice_sales_beyond_on_hand_now_posts_both_arms_and_is_detected()
     {
         var k = NewKit();
-        // Buy 5 @ ₹100.
+        // Buy 5 @ ₹123.45 = ₹617.25 — odd paisa, so the pairing invariant is actually exercised.
         k.Ledgers.Post(new Voucher(Guid.NewGuid(), k.PurchaseTypeId, D1, new[]
         {
-            new EntryLine(k.Purchases.Id, Money.FromRupees(500m), DrCr.Debit),
-            new EntryLine(k.Creditor.Id, Money.FromRupees(500m), DrCr.Credit),
-        }, inventoryLines: new[] { Item(k, 5m, 100m) }));
+            new EntryLine(k.Purchases.Id, Money.FromRupees(617.25m), DrCr.Debit),
+            new EntryLine(k.Creditor.Id, Money.FromRupees(617.25m), DrCr.Credit),
+        }, inventoryLines: new[] { Item(k, 5m, 123.45m) }));
 
+        // Sell 8 (only 5 on hand) @ ₹187.63 = ₹1,501.04.
         var salesId = Guid.NewGuid();
-        // Attempt to sell 8 (only 5 on hand) — must fail and persist NOTHING (no accounting leg, no stock).
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            k.Ledgers.Post(new Voucher(salesId, k.SalesTypeId, D2, new[]
-            {
-                new EntryLine(k.Debtor.Id, Money.FromRupees(1200m), DrCr.Debit),
-                new EntryLine(k.Sales.Id, Money.FromRupees(1200m), DrCr.Credit),
-            }, inventoryLines: new[] { Item(k, 8m, 150m) })));
-        Assert.Contains("negative", ex.Message, StringComparison.OrdinalIgnoreCase);
+        k.Ledgers.Post(new Voucher(salesId, k.SalesTypeId, D2, new[]
+        {
+            new EntryLine(k.Debtor.Id, Money.FromRupees(1_501.04m), DrCr.Debit),
+            new EntryLine(k.Sales.Id, Money.FromRupees(1_501.04m), DrCr.Credit),
+        }, inventoryLines: new[] { Item(k, 8m, 187.63m) }));
 
-        // The whole voucher rolled back: no accounting movement, on-hand still 5, valuation still ₹500.
-        Assert.Null(k.Company.FindVoucher(salesId));
-        Assert.Equal(0m, LedgerBalances.SignedClosing(k.Company, k.Debtor, D4)); // unchanged
-        Assert.Equal(0m, LedgerBalances.SignedClosing(k.Company, k.Sales, D4));
-        Assert.Equal(5m, new InventoryLedger(k.Company).OnHand(k.ItemId, k.GodownId, D4));
-        Assert.Equal(Money.FromRupees(500m), new StockValuationService(k.Company).ClosingValue(k.ItemId, D4).Value);
+        // Both arms landed, to the paisa.
+        Assert.NotNull(k.Company.FindVoucher(salesId));
+        Assert.Equal(1_501.04m, LedgerBalances.SignedClosing(k.Company, k.Debtor, D4));
+        Assert.Equal(-1_501.04m, LedgerBalances.SignedClosing(k.Company, k.Sales, D4));
+        Assert.Equal(-3m, new InventoryLedger(k.Company).OnHand(k.ItemId, k.GodownId, D4));
+
+        // …and the shortfall is surfaced by the detector rather than by an exception.
+        var s = Assert.Single(new InventoryPostingService(k.Company).DetectNegativeStock());
+        Assert.Equal(k.ItemId, s.StockItemId);
+        Assert.Equal(D2, s.AsOf);
+        Assert.Equal(-3m, s.OnHand);
     }
 
     // ---------------------------------------------------------------- pairing invariant
@@ -305,24 +321,30 @@ public class ItemInvoiceTests
     }
 
     [Fact]
-    public void Cancelling_an_item_invoice_purchase_is_blocked_when_it_would_retro_drive_negative()
+    public void Cancelling_an_item_invoice_purchase_that_retro_drives_negative_now_succeeds_and_is_detected()
     {
         var k = NewKit();
         var purchaseId = Guid.NewGuid();
-        // Purchase 10 inward (item-invoice), then a later Delivery Note draws 8 out.
+        // Purchase 10 inward (item-invoice) @ ₹101.11 = ₹1,011.10, then a later Delivery Note draws 8 out.
         k.Ledgers.Post(new Voucher(purchaseId, k.PurchaseTypeId, D1, new[]
         {
-            new EntryLine(k.Purchases.Id, Money.FromRupees(1000m), DrCr.Debit),
-            new EntryLine(k.Creditor.Id, Money.FromRupees(1000m), DrCr.Credit),
-        }, inventoryLines: new[] { Item(k, 10m, 100m) }));
+            new EntryLine(k.Purchases.Id, Money.FromRupees(1_011.10m), DrCr.Debit),
+            new EntryLine(k.Creditor.Id, Money.FromRupees(1_011.10m), DrCr.Credit),
+        }, inventoryLines: new[] { Item(k, 10m, 101.11m) }));
         new InventoryPostingService(k.Company).Post(new InventoryVoucher(
             Guid.NewGuid(), k.Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DeliveryNote).Id, D2,
             new[] { new InventoryAllocation(k.ItemId, k.GodownId, 8m, StockDirection.Outward) }));
+        Assert.Equal(2m, new InventoryLedger(k.Company).OnHand(k.ItemId, k.GodownId, D4));
 
-        // Cancelling the purchase would leave 0 − 8 = −8 as of D2 → blocked; the voucher stays live.
-        Assert.Throws<InvalidOperationException>(() => k.Ledgers.Cancel(purchaseId));
-        Assert.False(k.Company.FindVoucher(purchaseId)!.Cancelled);
-        Assert.Equal(2m, new InventoryLedger(k.Company).OnHand(k.ItemId, k.GodownId, D4)); // 10 − 8 intact
+        // ⚠️ NS-3: cancelling the purchase leaves 0 − 8 = −8 as of D2. That used to be BLOCKED and the cancel
+        // rolled back; it now applies, and the retro-shortfall is reported instead.
+        k.Ledgers.Cancel(purchaseId);
+
+        Assert.True(k.Company.FindVoucher(purchaseId)!.Cancelled);
+        Assert.Equal(-8m, new InventoryLedger(k.Company).OnHand(k.ItemId, k.GodownId, D4));
+        var s = Assert.Single(new InventoryPostingService(k.Company).DetectNegativeStock());
+        Assert.Equal(D2, s.AsOf);
+        Assert.Equal(-8m, s.OnHand);
     }
 
     // ---------------------------------------------------------------- PRECONDITION PROOF

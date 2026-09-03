@@ -28,6 +28,10 @@
        test drives the same masters/posting path as the engine's own regression suite. -->
   <ItemGroup>
     <Compile Include="..\Apex.Ledger.Tests\FixtureLoader.cs" Link="FixtureLoader.cs" />
+    <!-- The S5a derived-state snapshot (phase 10.11 §7.2). Linked, not duplicated: the round-trip half of the
+         equivalence test must compare the SAME canonical dump the in-memory half compares, or the two halves
+         could disagree about what "every derived figure" means. -->
+    <Compile Include="..\Apex.Ledger.Tests\Support\DerivedState.cs" Link="Support\DerivedState.cs" />
     <None Include="..\Apex.Ledger.Tests\Fixtures\robert.json"
           Link="Fixtures\robert.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

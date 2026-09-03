@@ -152,6 +152,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     [ObservableProperty] private string _reorderLevelText = string.Empty;
     [ObservableProperty] private string _minimumOrderQtyText = string.Empty;
 
+    /// <summary>
+    /// 🔴 <b>T0-3.</b> The item's <b>standard rate</b> (₹ per base unit) — <see cref="StockItem.StandardCost"/>.
+    /// Until this field existed, "Standard Cost" was selectable in the Valuation dropdown with no way to type the
+    /// rate it values at, so the engine took its documented silent fallback to the last purchase rate and closing
+    /// stock was wrong with nothing on screen to say so. Blank ⇒ <c>null</c>, which is what every pre-fix item
+    /// carries; a Standard Cost item with a blank rate is now refused by <see cref="Create"/>.
+    /// </summary>
+    [ObservableProperty] private string _standardCostText = string.Empty;
+
     // ---- Batch switches (Phase 6 Cluster 1; RQ-2) — only offered when the company flag is on ----
     [ObservableProperty] private bool _maintainInBatches;
     [ObservableProperty] private bool _trackManufacturingDate;
@@ -293,6 +302,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         IsTaxable = item.IsTaxable;
         ReorderLevelText = item.ReorderLevel?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
         MinimumOrderQtyText = item.MinimumOrderQuantity?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
+        StandardCostText = item.StandardCost is { } sc ? sc.Amount.ToString("0.00", CultureInfo.InvariantCulture) : string.Empty;
 
         var gst = item.Gst;
         if (gst is not null)
@@ -423,6 +433,33 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             return false;
         if (!TryParseOptionalQuantity(MinimumOrderQtyText, "Minimum order quantity", out var minimumOrderQty))
             return false;
+
+        // 🔴 T0-3. The standard rate: optional in general (the no-rate-inward fallback chain, NegativeStock and the
+        // Manufacturing Journal all consult it whatever the method), REQUIRED when the item is valued at Standard
+        // Cost — otherwise the engine falls back to the last purchase rate silently and closing stock is wrong.
+        Money? standardCost = null;
+        var wantsStandardCost = (SelectedValuation?.Method ?? StockValuationMethod.AverageCost)
+            == StockValuationMethod.StandardCost;
+        if (!string.IsNullOrWhiteSpace(StandardCostText))
+        {
+            if (!TryParseRate(StandardCostText, out var std) || std < 0m)
+            {
+                Message = "Standard rate must be a number ≥ 0 (₹ per unit).";
+                return false;
+            }
+            var stdMoney = Money.FromRupees(std);
+            if (!stdMoney.IsPaisaExact)
+            {
+                Message = $"Standard rate {std} must be to the paisa (2 decimal places).";
+                return false;
+            }
+            standardCost = stdMoney;
+        }
+        else if (wantsStandardCost)
+        {
+            Message = "Standard Cost valuation needs a standard rate — type one, or pick another valuation method.";
+            return false;
+        }
 
         // Pre-validate the opening balance (only if a quantity was entered).
         var wantsOpening = !string.IsNullOrWhiteSpace(OpeningQuantityText);
@@ -597,13 +634,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 item.IsTaxable = isTaxableFlag;
                 item.ReorderLevel = reorderLevel;
                 item.MinimumOrderQuantity = minimumOrderQty;
+                item.StandardCost = standardCost;
                 // The form owns the GST block outright, so an alter that switches GST off clears it.
                 item.Gst = null;
             }
             else
             {
                 item = service.CreateStockItem(name, SelectedGroup.Id, SelectedUnit.Id, categoryId, alias,
-                    valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty);
+                    valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty, standardCost);
             }
 
             if (gstBlock is not null)
@@ -668,6 +706,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         IsTaxable = false;
         ReorderLevelText = string.Empty;
         MinimumOrderQtyText = string.Empty;
+        StandardCostText = string.Empty;
         OpeningQuantityText = string.Empty;
         OpeningRateText = string.Empty;
         OpeningBatchLabel = string.Empty;
@@ -786,6 +825,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         OnPropertyChanged(nameof(CanCreate));
     }
 
+    /// <summary>
+    /// Re-reads the existing-items list from the company. Needed by Phase 10.11 S4: an Alt+D deletion removes a
+    /// stock item from the aggregate while this screen is the one displaying it, and without a rebuild the deleted
+    /// row stays on screen — where the next Ctrl+Enter would try to open a master that no longer exists.
+    /// <see cref="RefreshList"/> already restores the highlight by id, so a delete leaves the highlight cleared
+    /// rather than silently sitting on a neighbouring item.
+    /// </summary>
+    public void ReloadExistingItems() => RefreshList();
+
     private void RefreshList()
     {
         // Keep the highlight on the SAME ITEM across a rebuild (a save re-renders the list): re-finding it by id
@@ -809,7 +857,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 Valuation = ValuationLabel(item.ValuationMethod),
                 OpeningValue = opening == Money.Zero
                     ? "—"
-                    : "₹" + opening.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture),
+                    : "₹" + opening.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture),
             });
         }
 

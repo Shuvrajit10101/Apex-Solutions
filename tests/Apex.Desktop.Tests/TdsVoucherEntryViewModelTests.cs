@@ -262,7 +262,7 @@ public sealed class TdsVoucherEntryViewModelTests : IDisposable
         landlord.PartyPan = DeducteePan;
         landlord.TdsNatureOfPaymentId = prof194J.Id; // the party's default — deliberately the WRONG section
 
-        // 194I(b) has a cumulative ₹6,00,000/FY threshold (no single-txn cap) — cross it so TDS fires.
+        // 194I(b)'s threshold is the §194-I PER-MONTH limb of ₹50,000 (no single-txn cap) — cross it so TDS fires.
         var e = OpenJournal(vm, rent, 7_00_000m, landlord, 7_00_000m);
         Assert.True(e.ShowTdsPanel);
         Assert.NotNull(e.SelectedTdsNature);

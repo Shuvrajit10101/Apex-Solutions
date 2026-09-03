@@ -135,6 +135,12 @@ public sealed class PartyMailingSchemaTests
             {
                 // Step the store down one version at a time — a downgrade reverses exactly one migration, so
                 // reaching v44 from the current version means walking every step in between.
+                SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
+                SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
+                SchemaDowngrade.V49ToV48(conn);
+                SchemaDowngrade.V48ToV47(conn);
+                SchemaDowngrade.V47ToV46(conn);
                 SchemaDowngrade.V46ToV45(conn);
                 SchemaDowngrade.V45ToV44(conn);
                 SqliteConnection.ClearPool(conn);

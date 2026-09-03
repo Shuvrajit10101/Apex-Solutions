@@ -104,18 +104,26 @@ public sealed class EInvoiceConnectorJsonTests
         // DocDtls.No is the UPPERCASED document number (the bare voucher number, invariant-culture).
         Assert.Equal(sale.Number.ToString(System.Globalization.CultureInfo.InvariantCulture),
             root.GetProperty("DocDtls").GetProperty("No").GetString());
-        // Money is integer paisa: ass ₹50,000 = 5,000,000; CGST/SGST ₹4,500 = 450,000 each; total ₹59,000 = 5,900,000.
+        // Money is the schema's rupee decimal — Number(14,2) — NOT integer paisa. Source:
+        // https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx, sheet "Schema" (JSON-Schema draft-07),
+        // retrieved 2026-08-14. ass ₹50,000; CGST/SGST ₹4,500 each; total ₹59,000.
+        //
+        // These assertions previously named INVENTED keys (ass_val_paisa, cgst_val_paisa, …) and integer paisa. The
+        // real NIC names are AssVal / CgstVal / SgstVal / IgstVal / CesVal / TotInvVal — note the comment four lines
+        // below the old CesAmt assertion already NAMED the correct field while the assertion pinned the wrong one.
+        // This is a CORRECTION, not a regression: the old numbers were 100× the declared value.
         var val = root.GetProperty("ValDtls");
-        Assert.Equal(5_000_000L, val.GetProperty("ass_val_paisa").GetInt64());
-        Assert.Equal(450_000L, val.GetProperty("cgst_val_paisa").GetInt64());
-        Assert.Equal(450_000L, val.GetProperty("sgst_val_paisa").GetInt64());
-        Assert.Equal(0L, val.GetProperty("igst_val_paisa").GetInt64());
-        Assert.Equal(0L, val.GetProperty("ces_val_paisa").GetInt64());   // post-22-Sep cess trends to 0
-        Assert.Equal(5_900_000L, val.GetProperty("tot_inv_val_paisa").GetInt64());
-        // The single item line carries GstRt 1800 and CesAmt 0.
+        Assert.Equal(50_000m, val.GetProperty("AssVal").GetDecimal());
+        Assert.Equal(4_500m, val.GetProperty("CgstVal").GetDecimal());
+        Assert.Equal(4_500m, val.GetProperty("SgstVal").GetDecimal());
+        Assert.Equal(0m, val.GetProperty("IgstVal").GetDecimal());
+        Assert.Equal(0m, val.GetProperty("CesVal").GetDecimal());   // post-22-Sep cess trends to 0
+        Assert.Equal(59_000m, val.GetProperty("TotInvVal").GetDecimal());
+        // The single item line carries GstRt 18 (a decimal PERCENT — "Validations", Validations on Items rule 7:
+        // "the sum of SGST and CGST tax rates should be entered as GST Rate"), not 1800 basis points, and CesAmt 0.
         var item0 = root.GetProperty("ItemList")[0];
-        Assert.Equal(1800, item0.GetProperty("GstRt").GetInt32());
-        Assert.Equal(0L, item0.GetProperty("ces_amt_paisa").GetInt64());
+        Assert.Equal(18m, item0.GetProperty("GstRt").GetDecimal());
+        Assert.Equal(0m, item0.GetProperty("CesAmt").GetDecimal());
     }
 
     [Fact]
@@ -123,7 +131,9 @@ public sealed class EInvoiceConnectorJsonTests
     {
         var (company, sale, _) = BuildB2BSale(rateBasisPoints: 4000); // GST 2.0 de-merit 40% slab
         using var doc = JsonDocument.Parse(EInvoiceJson.BuildInv01(company, sale));
-        Assert.Equal(4000, doc.RootElement.GetProperty("ItemList")[0].GetProperty("GstRt").GetInt32());
+        // 40 percent, not 4000 basis points: the schema types GstRt Number(3,3) with maximum 999.999, so the old
+        // value was not merely mis-scaled — it was outside the field's declared range.
+        Assert.Equal(40m, doc.RootElement.GetProperty("ItemList")[0].GetProperty("GstRt").GetDecimal());
     }
 
     // ================================================================ §6.5 <2 MB auto-split (deterministic)

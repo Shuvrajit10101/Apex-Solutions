@@ -78,6 +78,17 @@ public sealed record CompanyDto
     /// <summary>F11 "Enable Job Order Processing" (Phase 6 slice 8; RQ-45). Default false.</summary>
     public bool EnableJobOrderProcessing { get; init; }
 
+    /// <summary>
+    /// "Warn on Negative Stock Balance" (plan.md NS-4; schema v50) — advisory only; negative stock is never blocked.
+    ///
+    /// <para>⚠️ <b>Default TRUE, and the initialiser below is load-bearing.</b> Every other flag on this DTO defaults
+    /// false, so a document written before the property existed deserialises to the right value for free. This one
+    /// does not: <see cref="System.Text.Json"/> leaves a property absent from the JSON at whatever the initialiser
+    /// set, so <c>= true</c> here is the ONLY thing that stops a pre-v50 export from importing with negative-stock
+    /// warnings silently switched off. Removing it looks like a harmless tidy-up and is not.</para>
+    /// </summary>
+    public bool WarnOnNegativeStock { get; init; } = true;
+
     /// <summary>F11 "Maintain Payroll" (Phase 8 slice 1; RQ-1). Default false.</summary>
     public bool PayrollEnabled { get; init; }
 
@@ -645,6 +656,9 @@ public sealed record GroupDto
     public Guid? ParentId { get; init; }
     public string? Alias { get; init; }
     public bool IsPredefined { get; init; }
+    // v51 (WF-1): the Group level of the five-level GST hierarchy. Null for a group carrying no GST details ⇒ a
+    // pre-v51 document is byte-identical (ER-13). Appended at the END so existing field order is unchanged.
+    public MasterGstDto? Gst { get; init; }
 }
 
 public sealed record LedgerDto
@@ -774,8 +788,58 @@ public sealed record VoucherTypeDto
     /// <summary>"Use for GST Statutory Adjustment (Alt+J)" (Phase 9 slice 7) — a Journal voucher-type flag. Default false.</summary>
     public bool IsGstStatAdjustment { get; init; }
 
+    /// <summary>"Prevent Duplicates" (voucher-numbering S3; numbering-design-v2 §7). Default false.
+    /// <para>Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> so a
+    /// default-false type emits no <c>preventDuplicate</c> key — the canonical JSON options set
+    /// <c>DefaultIgnoreCondition = Never</c>, so without this attribute EVERY existing voucher type would gain the
+    /// key and the bytes would change (ER-13). XML gets it free via <c>OptTrue</c>.</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PreventDuplicate { get; init; }
+
+    /// <summary>"Width of numerical part" (voucher-numbering S3; numbering-design-v2 §1.3). Default 0 = no left-pad.
+    /// Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13; see
+    /// <see cref="PreventDuplicate"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int NumberWidth { get; init; }
+
+    /// <summary>"Prefill with zero" (voucher-numbering S3; numbering-design-v2 §1.3). Default false. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13; see
+    /// <see cref="PreventDuplicate"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PrefillWithZero { get; init; }
+
+    /// <summary>The date-effective <b>Prefix</b> rows (voucher-numbering S3; numbering-design-v2 §1.2), or
+    /// <c>null</c> when the type has none. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> so a type with no prefix
+    /// rows emits no <c>prefixes</c> key (ER-13), exactly like <see cref="PosConfig"/> would.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<VoucherNumberAffixDto>? Prefixes { get; init; }
+
+    /// <summary>The date-effective <b>Suffix</b> rows (voucher-numbering S3; numbering-design-v2 §1.2), or
+    /// <c>null</c> when the type has none. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> (ER-13; see
+    /// <see cref="Prefixes"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<VoucherNumberAffixDto>? Suffixes { get; init; }
+
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }
+}
+
+/// <summary>One date-effective affix row in a <see cref="VoucherTypeDto"/>'s <see cref="VoucherTypeDto.Prefixes"/>
+/// or <see cref="VoucherTypeDto.Suffixes"/> (voucher-numbering S3; numbering-design-v2 §1.2), mirroring the domain
+/// <c>VoucherNumberAffix</c> and the SQLite <c>voucher_type_prefix</c> / <c>voucher_type_suffix</c> rows. The
+/// surrogate <c>Id</c> is a private seed (only a same-date tie-break, which the config UI forbids), so it is NOT
+/// serialised — a fresh id is minted on import.</summary>
+public sealed record VoucherNumberAffixDto
+{
+    public required string ApplicableFrom { get; init; }   // ISO yyyy-MM-dd
+    public required string Particulars { get; init; }      // separators included; may be ""
 }
 
 /// <summary>The POS retail-till configuration carried by a POS-flagged Sales voucher type (Phase 6 slice 7; RQ-38;
@@ -823,6 +887,22 @@ public sealed record StockGroupDto
     public Guid? ParentId { get; init; }
     public string? Alias { get; init; }
     public bool AddQuantities { get; init; }
+    // v51 (WF-1): the Stock Group level of the five-level GST hierarchy. Null for a stock group carrying no GST
+    // details ⇒ a pre-v51 document is byte-identical (ER-13). Appended at the END so existing field order is unchanged.
+    public MasterGstDto? Gst { get; init; }
+}
+
+/// <summary>
+/// The narrow GST block a Stock Group, an accounting Group or the company default carries (v51; WF-1). Four fields
+/// only — deliberately NOT <see cref="StockItemGstDto"/>, whose cess/RSP/RCM/§17(5) members are read item-first and
+/// have no meaning at these levels.
+/// </summary>
+public sealed record MasterGstDto
+{
+    public string? HsnSac { get; init; }
+    public required string Taxability { get; init; }  // GstTaxability name
+    public int? RateBasisPoints { get; init; }
+    public required string SupplyType { get; init; }  // GstSupplyType name
 }
 
 public sealed record StockCategoryDto
@@ -1314,6 +1394,16 @@ public sealed record GstConfigDto
     // Appended at the END so existing field order is unchanged (finding #5).
     public long ReconValueTolerancePaisa { get; init; }
     public int ReconDateWindowDays { get; init; }
+    // v51 (WF-1 / register IV-1): the five-level GST hierarchy — the COMPANY-level default block (the last level of
+    // both orders) and the reference application's TWO independent source-order options. Appended at the END so
+    // existing field order is unchanged.
+    // ⚠️ Both source-order initialisers are "LedgerFirst" DELIBERATELY, and that is NOT merely "the enum's zero".
+    // A pre-v51 document carries neither key, and the right reading of an absent key is the shipped order — the
+    // ITEM-FIRST back-fill belongs to the SQL migration, which knows it is looking at a book that already existed.
+    // An importer cannot know that (the document may have come from anywhere), so it must not guess StockItemFirst.
+    public MasterGstDto? DefaultGst { get; init; }
+    public string SourceOfHsnSacDetails { get; init; } = "LedgerFirst";   // GstDetailSource name
+    public string SourceOfGstRate { get; init; } = "LedgerFirst";         // GstDetailSource name
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>
@@ -1511,6 +1601,36 @@ public sealed record VoucherDto
     public bool Optional { get; init; }
     public bool PostDated { get; init; }
     public string? ApplicableUpto { get; init; }       // ISO or null
+
+    /// <summary>The counterparty document number (numbering-design-v2 §8; schema v48) — "Supplier Invoice No."
+    /// (Purchase) / "Reference No." (Sales); the OTHER party's number, never auto-numbered. <c>null</c> ⇒ absent.
+    /// <para><b>Appended at the END and marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/>, exactly like
+    /// <c>VoucherInventoryLineDto.UnitId</c>.</b> The canonical JSON options set <c>DefaultIgnoreCondition =
+    /// Never</c>, so without the attribute EVERY voucher in every existing export would gain a
+    /// <c>"referenceNo": null</c> line and the bytes would change for companies that never capture a reference —
+    /// breaking ER-13. XML gets it free (<c>Opt</c> emits no attribute for null).</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReferenceNo { get; init; }
+
+    /// <summary>The counterparty document's date (numbering-design-v2 §8; schema v48), ISO yyyy-MM-dd. <c>null</c> ⇒
+    /// absent. Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> (ER-13; see
+    /// <see cref="ReferenceNo"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReferenceDate { get; init; }        // ISO or null
+
+    /// <summary>Posted from the <b>Accounting Invoice</b> (service-invoice) entry mode (schema v49) — the persisted
+    /// fact that makes the printed document type independent of the posted GST legs. Default <c>false</c>.
+    /// <para>Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> so a
+    /// default-false voucher emits no <c>isAccountingInvoice</c> key — the canonical JSON options set
+    /// <c>DefaultIgnoreCondition = Never</c>, so without this attribute EVERY voucher in every existing export would
+    /// gain the key and the bytes would change (ER-13). XML gets it free via <c>OptTrue</c>.</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsAccountingInvoice { get; init; }
+
     public IReadOnlyList<EntryLineDto> Lines { get; init; } = [];
     public IReadOnlyList<VoucherInventoryLineDto> InventoryLines { get; init; } = [];
 

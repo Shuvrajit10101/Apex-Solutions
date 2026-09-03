@@ -77,6 +77,9 @@ public sealed class BankingViewModelTests : IDisposable
     {
         vm.OpenVoucher(VoucherBaseType.Payment);
         var entry = vm.VoucherEntry!;
+        // A Payment opens in Single Entry; this helper keys the plain Dr/Cr grid (and asserts per-line IsBankLine),
+        // so step out to it first.
+        entry.ChangeMode();
         entry.Date = date;
 
         // Line 0 = Dr rent ; line 1 = Cr bank (with a bank allocation).

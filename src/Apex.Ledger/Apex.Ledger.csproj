@@ -6,4 +6,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Voucher.Cancelled / Optional / PostDated / ApplicableUpto have `internal` setters (see the banner on
+         Voucher.cs): a posted voucher's lifecycle state may only be moved by a verb in this assembly. The test
+         assembly keys them directly to build fixtures in states the verbs do not produce (a book that was already
+         cancelled, a post-dated banking scenario), which is legitimate fixture construction rather than a caller
+         moving a live book, so internals are exposed to it and to nothing else. -->
+    <InternalsVisibleTo Include="Apex.Ledger.Tests" />
+  </ItemGroup>
+
 </Project>

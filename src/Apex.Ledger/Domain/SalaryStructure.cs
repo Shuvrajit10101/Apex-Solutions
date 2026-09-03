@@ -82,6 +82,17 @@ public sealed class SalaryStructureLine
             throw new ArgumentException("A salary structure line must reference a pay head.", nameof(payHeadId));
         if (order < 0)
             throw new ArgumentException("A salary structure line order must be ≥ 0.", nameof(order));
+        // The line persists through Paisa.FromMoney (SqliteCompanyStore.InsertSalaryStructures), which THROWS on a
+        // sub-paisa figure. The screen's only numeric gate was `amount < 0m` and the service's only one is
+        // `< Money.Zero`, so a sub-paisa rate passed both, was written to the company by DefineForEmployee, and
+        // was refused by the STORE — whose message names no pay head and no field. Refuse it here. Import and the
+        // SQLite read path build from INTEGER paisa and cannot trip it.
+        // FitsPaisaStore, not IsPaisaExact — "storable" is magnitude AND exactness, and the exactness half alone
+        // THROWS on a big enough figure instead of refusing it. See the note in BillAllocation.
+        if (amount is { } m && !PaisaConversion.FitsPaisaStore(m.Amount))
+            throw new InvalidOperationException(
+                $"A salary structure line amount {m.Amount} cannot be stored as integer paisa: it must be "
+              + $"paisa-exact (2 decimal places) and no larger than {PaisaConversion.MaxStorableRupees}.");
 
         PayHeadId = payHeadId;
         Order = order;

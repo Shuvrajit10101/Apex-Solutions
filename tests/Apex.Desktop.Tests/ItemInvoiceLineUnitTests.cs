@@ -251,7 +251,7 @@ public sealed class ItemInvoiceLineUnitTests : IDisposable
         // ---- (3) GST TAXABLE VALUE = ₹20.00 ------------------------------------------------------
         // Read from the GST reporting path the returns actually use, not from the entry screen.
         var gstr1 = Report.BuildGstr1(c, FyStart, asOf);
-        var b2b = gstr1.B2B.Single(r => r.InvoiceNumber == posted.Number);
+        var b2b = gstr1.B2B.Single(r => r.InvoiceNumber == posted.Number.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal(Money.FromRupees(20m), b2b.TaxableValue);
         Assert.Equal(Money.FromRupees(1.80m), b2b.Cgst);
         Assert.Equal(Money.FromRupees(1.80m), b2b.Sgst);

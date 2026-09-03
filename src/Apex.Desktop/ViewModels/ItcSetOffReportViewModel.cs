@@ -164,6 +164,8 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase
         _ => head.ToString(),
     };
 
-    private static long P(Money m) => (long)Math.Round(m.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// <summary>Delegates to <see cref="Apex.Ledger.PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
+    /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a set-off view quantises, it does not abort.</summary>
+    private static long P(Money m) => Apex.Ledger.PaisaConversion.ToPaisaRounded(m);
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
 }

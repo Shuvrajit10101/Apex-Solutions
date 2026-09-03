@@ -31,7 +31,14 @@ public enum DeductorType
 
 /// <summary>
 /// The legal status of a <b>deductee</b> (the party whose payment is subject to TDS). Persisted on a party ledger
-/// (Phase 7 slice 1). At compute time it selects the section-conditional rate (e.g. §194C Individual/HUF 1% vs 2%).
+/// (Phase 7 slice 1). At compute time it selects the section-conditional with-PAN rate:
+/// <c>TdsService.ResolveWithPanRate</c> reads it for every nature whose
+/// <see cref="NatureOfPayment.RateTurnsOnDeducteeType"/> is true — §194C, and only §194C, in the seeded set
+/// (§194C(1)(i) <b>1%</b> to an individual or a Hindu undivided family, §194C(1)(ii) <b>2%</b> to anyone else).
+/// <para>This sentence was <b>false when it was written</b> and is kept, corrected, as the record: until the
+/// bifurcation shipped, <c>ComputeWithholding</c> resolved <c>panApplied ? RateWithPanBp : RateWithoutPanBp</c> and
+/// read this enum nowhere, so Individual, HUF, Firm and Company all withheld ₹500.00 on a ₹50,000 §194C bill
+/// where a company owed ₹1,000.00.</para>
 /// </summary>
 public enum DeducteeType
 {

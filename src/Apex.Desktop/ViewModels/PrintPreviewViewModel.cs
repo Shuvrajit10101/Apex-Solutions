@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
@@ -23,9 +24,9 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
-    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice (RQ-11),
-    /// a POS receipt, or a payroll Payslip (RQ-16). The document mode selects the Io renderer and the F12 config
-    /// knobs that apply.</summary>
+    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice — or the
+    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, or a payroll Payslip (RQ-16).
+    /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
     public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
@@ -123,27 +124,46 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
-    /// <summary>Preview a GST tax invoice (RQ-11) via <c>InvoicePdf</c>; the F12 knobs apply.</summary>
+    /// <summary>Preview a GST tax invoice — or a <b>Bill of Supply</b> (W0-1) — via <c>InvoicePdf</c>; the F12 knobs
+    /// apply, except that the title override cannot re-title a bill of supply (see <c>InvoicePdf.Render</c>).</summary>
     public PrintPreviewViewModel(InvoicePrintData invoice)
     {
         _invoice = invoice ?? throw new ArgumentNullException(nameof(invoice));
         Kind = PrintKind.Invoice;
+        // The heading names the document the operator is actually looking at; a bill of supply must not be announced
+        // as a tax invoice anywhere in the app, on screen or on paper.
+        // T0-11 slice S2 — and a recipient-side record must not be announced as a tax invoice either. This heading is
+        // also surfaced as PrintConfigViewModel.DocumentTitle and used as the DEFAULT SAVED FILE NAME, so leaving it
+        // on the two-way literal would have filed a purchase record as "Tax Invoice No. 42.pdf" — the same defect
+        // W0-1's own follow-up found on the POS receipt path.
+        var kindName = invoice.IsRecipientRecord
+            ? GstReportSupport.PurchaseRecordScreenLabel
+            : invoice.IsBillOfSupply ? "Bill of Supply" : "Tax Invoice";
         ReportTitle = string.IsNullOrEmpty(invoice.InvoiceNumber)
-            ? "Tax Invoice"
-            : $"Tax Invoice No. {invoice.InvoiceNumber}";
+            ? kindName
+            : $"{kindName} No. {invoice.InvoiceNumber}";
         _config = BuildConfig();
         Render();
     }
 
-    /// <summary>Preview a POS retail receipt (Phase 6 slice 7 RQ-44) via <c>PosReceiptPdf</c>. A receipt is a fixed
-    /// retail bill layout — the F12 title/narration/copy knobs do not apply.</summary>
+    /// <summary>Preview a POS retail receipt (Phase 6 slice 7 RQ-44) via <c>PosReceiptPdf</c> — or a <b>Bill of
+    /// Supply</b> (W0-1b). A receipt is a fixed retail bill layout, so the F12 title/narration/copy knobs do not
+    /// apply.</summary>
     public PrintPreviewViewModel(PosReceiptData receipt)
     {
         _receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
         Kind = PrintKind.Receipt;
+        // W0-1 follow-up (review findings #2/#5) — the SAME principle the invoice ctor above applies: the heading
+        // names the document the operator is actually looking at, and a bill of supply must not be announced as
+        // something else anywhere in the app. This one was left on the old literal, so a composition dealer's POS
+        // sale headed its pane "Retail Receipt No. 1" — and, because ReportTitle is also surfaced as
+        // PrintConfigViewModel.DocumentTitle and used as the DEFAULT SAVED FILE NAME, the operator filed
+        // "Retail Receipt No. 1.pdf" for a document whose title band, number caption and closing declaration all read
+        // bill of supply.
+        var kindName = receipt.IsBillOfSupply ? "Bill of Supply" : "Retail Receipt";
         ReportTitle = string.IsNullOrEmpty(receipt.BillNumber)
-            ? "Retail Receipt"
-            : $"Retail Receipt No. {receipt.BillNumber}";
+            ? kindName
+            : $"{kindName} No. {receipt.BillNumber}";
         _config = BuildConfig();
         Render();
     }
@@ -261,23 +281,71 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (current.Count > 0) yield return current;
     }
 
+    /// <summary>
+    /// The width one preview column gets, in DIP, from the print model's own declared
+    /// <see cref="PrintColumn.Weight"/>.
+    ///
+    /// <para>🔴 <b>T0-11 review CRITIC-01 and C17/L3-03.</b> Every cell of this pane used to be a literal 120 DIP.
+    /// The shell is monospace (<c>MainWindow.axaml</c>'s <c>FontFamily="Consolas, …"</c>, 6.0479 DIP/glyph at
+    /// <c>FontSize="11"</c>, measured under Skia), so a cell held eighteen glyphs and an ellipsis — and because the
+    /// width was a literal inside a horizontal StackPanel with no star track, the cut was invariant under every
+    /// window size and every DPI. Rendered at 1280x720 DIP, the purchase record's three item lines — 2 @ 12,345.67,
+    /// 3 @ 8,901.23 and 1 @ 45,678.91 — all painted as "N. Widget  (HSN 84…", i.e. the slice's whole subject matter
+    /// was unreachable on the pane the operator approves, and "Tax Charged by the Supplier" lost the word that says
+    /// whose tax it is.</para>
+    ///
+    /// <para><b>The weights were already there and this pane was throwing them away.</b> <c>PrintColumn.Weight</c>
+    /// is documented as "columns share the content width in proportion to their weights" and <c>ReportPdf</c> has
+    /// always split the PAPER that way; only the screen mirror ignored it, so the screen gave "Particulars"
+    /// (weight 4) exactly what it gave a two-figure amount column. Reading the same weights is the same
+    /// mirror-follows-the-bytes discipline as every other row in this file.</para>
+    ///
+    /// <para><b>The floor is what keeps this from being a trade.</b> A purely proportional split would NARROW the
+    /// columns of a wide report (a twelve-column payroll matrix), buying the invoice's readability with somebody
+    /// else's. Flooring at the 120 the pane has always used makes the change monotone: every column either widens
+    /// or stays exactly as it was, on every report kind.</para>
+    ///
+    /// <para><b>Why 80 per weight unit.</b> It is the largest round scale whose total for the widest of these
+    /// reports still fits the sheet at the narrowest supported viewport. Measured on the shipped shell at
+    /// 1280x720 DIP (== 1920x1080 at 150%, an ordinary full-HD laptop) the preview sheet gives its rows 572.00 DIP;
+    /// the invoice mirror's weights (4 / 1 / 1.5) come to 320 + 120 + 120 = 560, so the Grand Total still lands
+    /// inside the sheet with no horizontal scrolling. At 90 it would be 615 and the money column would go behind a
+    /// scrollbar at that size, which is not a trade worth making for eight more glyphs.</para>
+    ///
+    /// <para><b>The residue, stated rather than hidden:</b> a stock-item name long enough to push the composed row
+    /// past 320 DIP still trims. That is why the cell now carries <c>ToolTip.Tip</c> — the pattern the sheet's own
+    /// Subtitle has used all along — and why <c>InvoicePdf</c> remains the authority on the full particulars.</para>
+    /// </summary>
+    private const double PreviewWidthPerWeightUnit = 80.0;
+
+    /// <summary>The width every preview cell had before the column budget existed. Now a FLOOR: no column may be
+    /// narrower than the pane has always drawn it, so widening one can never starve another.</summary>
+    private const double PreviewMinimumCellWidth = 120.0;
+
+    private static double PreviewColumnWidth(PrintColumn column) =>
+        Math.Max(PreviewMinimumCellWidth, Math.Round(column.Weight * PreviewWidthPerWeightUnit));
+
     private PreviewPage BuildPreviewPage(List<PrintRow> rows, int pageNo)
     {
+        var widths = new double[_previewReport.Columns.Count];
+        for (int i = 0; i < widths.Length; i++) widths[i] = PreviewColumnWidth(_previewReport.Columns[i]);
+
         var lines = new List<PreviewLine>(rows.Count);
         foreach (var r in rows)
         {
-            var cells = new List<string>(_previewReport.Columns.Count);
+            var cells = new List<PreviewCell>(_previewReport.Columns.Count);
             for (int i = 0; i < _previewReport.Columns.Count; i++)
             {
                 string text = i < r.Cells.Count ? (r.Cells[i] ?? string.Empty) : string.Empty;
                 if (i == 0 && r.Indent > 0) text = new string(' ', r.Indent) + text;
-                cells.Add(text);
+                cells.Add(new PreviewCell(text, widths[i]));
             }
             lines.Add(new PreviewLine(cells, r.IsHeader, r.IsTotal));
         }
 
-        var headers = new List<string>(_previewReport.Columns.Count);
-        foreach (var c in _previewReport.Columns) headers.Add(c.Header);
+        var headers = new List<PreviewCell>(_previewReport.Columns.Count);
+        for (int i = 0; i < _previewReport.Columns.Count; i++)
+            headers.Add(new PreviewCell(_previewReport.Columns[i].Header, widths[i]));
 
         return new PreviewPage(_previewReport.Title, _previewReport.Subtitle, headers, lines, pageNo);
     }
@@ -326,11 +394,51 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         var inv = _invoice!;
         var cfg = BuildPrintConfig();
         var rows = new List<PrintRow>();
-        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
+        // T0-11 review C3/L1-03 — the CGST Rule 48(1) copy marking is an issuer particular, and the mirror drops it
+        // on a record for the same reason and off the SAME axis as InvoicePdf.DrawFirstHeader does. The two sites
+        // must move together: a fix applied to the bytes alone is exactly the preview/paper drift this file's own
+        // comments name as the thing to avoid, and a mirror still offering "DUPLICATE FOR TRANSPORTER" over a page
+        // that carries none would have the operator approving a statutory copy marking the paper does not bear.
+        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel) && inv.StatesOurDeclarationAndSignature)
             rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
-        rows.Add(PrintRow.Header($"Invoice No. {inv.InvoiceNumber}", "Date", inv.InvoiceDateText));
-        rows.Add(PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
-        rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
+        // W0-1: CGST Rule 5(1)(f) puts the composition declaration at the TOP of the bill of supply — so it is the
+        // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title. W0-1 follow-up
+        // (finding #6): gated on the structural flag, in lockstep with InvoicePdf.TopDeclarationLines — if the mirror
+        // showed a declaration the bytes suppress, the operator would approve one document and issue another.
+        if (inv.IsBillOfSupply && !string.IsNullOrWhiteSpace(inv.TopDeclaration))
+            rows.Add(PrintRow.Header(inv.TopDeclaration, string.Empty, string.Empty));
+        // T0-11 slice S2: the mirror re-derives the record's three suppressions from the SAME structural flag
+        // InvoicePdf reads — the number caption (RQ-11a forbids "Invoice No." over OUR number on HIS document), the
+        // counterparty the operator is being shown, and the place of supply (CGST Rule 46(n), a supplier particular).
+        // If the mirror and the bytes disagreed the operator would approve one document and issue another.
+        rows.Add(PrintRow.Header(
+            (inv.IsRecipientRecord ? GstReportSupport.RecordNumberCaption + " "
+                : inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber,
+            "Date", inv.InvoiceDateText));
+        // On a record the counterparty is the SUPPLIER, and he is the party in the block that HEADS the document.
+        // T0-11 review C24/L3-10 — that is the ORIENTATION question (Rule 46(a)), so it reads `Heads`, exactly as
+        // `InvoicePdf` now does for the same row. The mirror re-derives the record's presentation from the same
+        // structural axes as the bytes; if the two disagreed the operator would approve one document and issue
+        // another.
+        rows.Add(inv.Heads == PartyOrientation.WeAreRecipient
+            ? PrintRow.Header("Supplier: " + inv.Seller.Name, string.Empty, string.Empty)
+            : PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
+        if (!inv.IsRecipientRecord)
+            rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
+        // census T0-9 - the mirror states the e-invoice particulars the bytes carry, gated on the SAME predicate
+        // (InvoicePrintData.StatesEInvoice) InvoicePdf measures and draws with. The QR itself is a raster mark and
+        // this mirror is a text grid, so the mirror says that the signed QR prints rather than trying to show it: an
+        // operator approving a preview that was silent about the QR would be approving a different document from the
+        // one that leaves the printer, which is the exact divergence W0-1 and W0-15 each had to close elsewhere.
+        if (inv.StatesEInvoice)
+        {
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceIrn))
+                rows.Add(PrintRow.Header("e-Invoice IRN: " + inv.EInvoiceIrn, string.Empty, string.Empty));
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceAckNo))
+                rows.Add(PrintRow.Header("IRP Ack No: " + inv.EInvoiceAckNo, "Ack Date", inv.EInvoiceAckDateText));
+            if (!string.IsNullOrWhiteSpace(inv.EInvoiceSignedQr))
+                rows.Add(PrintRow.Header("Signed QR code: printed on the invoice", string.Empty, string.Empty));
+        }
 
         int sr = 0;
         foreach (var it in inv.Items)
@@ -343,21 +451,91 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 IndianFormat.Amount(it.TaxableValue),
             }));
         }
-        rows.Add(PrintRow.Total("Taxable Value", string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
-        if (inv.IsInterState)
-            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
-        else
+        // W0-1: the on-screen mirror suppresses exactly what InvoicePdf suppresses — a bill of supply shows Rule 49(g)'s
+        // value of supply and no tax head at all. If the two disagreed the operator would approve one document and
+        // issue another.
+        rows.Add(PrintRow.Total(inv.IsBillOfSupply ? "Value of Supply" : "Taxable Value",
+            string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
+        if (!inv.IsBillOfSupply)
         {
-            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
-            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
+            // W0-15: three-valued, and the mirror states exactly what InvoicePdf.HeadRows states. A null routing names
+            // NO head — if the two disagreed the operator would approve one document and issue another. Where a null
+            // routing nonetheless carries tax (only reachable from a hand-built DTO — the projector's null routing
+            // means no forward leg was posted), both surfaces state the AMOUNT under the head-free label "Tax", so
+            // neither shows a Grand Total exceeding the visible rows by an unexplained figure.
+            // T0-11 slice S2 — WHOSE tax the head rows below state. The mirror has no per-rate breakup table, so
+            // it cannot carry the caption where InvoicePdf carries it; without this the operator would approve a
+            // screen showing "IGST 17,473.31" with nothing on it saying the charge is the supplier's, which is the
+            // one thing RQ-11a makes binding about a record's tax.
+            // T0-11 review C24/L3-10 — "whose tax" is the ORIENTATION question, the same axis `InvoicePdf` reads for
+            // the same caption. The wording is untouched (open R12 question, plan.md Phase 10.13).
+            if (inv.Heads == PartyOrientation.WeAreRecipient)
+                rows.Add(PrintRow.Header(GstReportSupport.SupplierTaxCaption, string.Empty, string.Empty));
+            if (inv.IsInterState is true)
+                rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
+            else if (inv.IsInterState is false)
+            {
+                rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
+                rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
+            }
+            else if (inv.TotalTax.Amount != 0m)
+                rows.Add(new PrintRow(new[] { "Tax", string.Empty, IndianFormat.AmountAlways(inv.TotalTax) }));
+            // W0-1 follow-up (review finding #3): the ring-fenced Compensation Cess, which InvoicePdf.DrawClosingBlock
+            // has printed on its own line since FIX-1 and this mirror did not. Cess is OUT of TotalTax but IN
+            // GrandTotal (the accept path adds it to the party leg), so omitting the row left the operator approving a
+            // page whose visible money rows summed to 55,810.14 under a printed Grand Total of 64,323.55 — the whole
+            // 8,513.41 of cess invisible. Same condition and same position as the renderer, so a cess-free invoice
+            // mirrors exactly as before (ER-13).
+            if (inv.TotalCess.Amount != 0m)
+                rows.Add(new PrintRow(new[] { "Compensation Cess", string.Empty, IndianFormat.AmountAlways(inv.TotalCess) }));
         }
+        // T0-11 review C1 (L1-01): the posted party-side charges that are neither goods nor GST/cess — an additional
+        // cost of purchase on a record, §206C TCS on an outward invoice. Same condition and same POSITION as
+        // InvoicePdf.DrawClosingBlock (outside the bill-of-supply branch, after the heads, before the round-off): the
+        // whole defect was a Grand Total that exceeded the visible rows by an amount the page never mentioned, and a
+        // mirror that reproduced it would have the operator approve one document and issue another. Empty on every
+        // document that bears none ⇒ the pane is unchanged (ER-13).
+        foreach (var charge in inv.OtherCharges)
+            rows.Add(new PrintRow(new[] { charge.Caption, string.Empty, IndianFormat.AmountAlways(charge.Amount) }));
         if (inv.RoundOff.Amount != 0m)
             rows.Add(new PrintRow(new[] { "Round Off", string.Empty, IndianFormat.AmountAlways(inv.RoundOff) }));
-        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
+        rows.Add(PrintRow.Total(inv.IsBillOfSupply ? "Total" : "Grand Total",
+            string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
         if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(inv.Narration))
             rows.Add(PrintRow.Header("Narration: " + inv.Narration, string.Empty, string.Empty));
 
-        var title = string.IsNullOrEmpty(cfg.TitleOverride) ? "TAX INVOICE" : cfg.TitleOverride!;
+        // The title override cannot re-title a bill of supply — mirroring InvoicePdf.Render, so the preview and the
+        // bytes can never differ on what document this is.
+        // FIX-W1h: mirror the renderer's FALLBACKS too, not just its override rule. `DocumentTitle` now defaults to
+        // empty (so a caller who sets only IsBillOfSupply cannot be handed a page titled TAX INVOICE), which means
+        // both branches need the same structural derivation InvoicePdf.Render applies — otherwise the operator's
+        // screen would show a blank heading over bytes that are correctly titled.
+        string title;
+        if (inv.IsRecipientRecord)
+        {
+            // T0-11 slice S2 — the same three-branch derivation InvoicePdf.Render applies, record first and both
+            // outward titles refused, so the pane the operator approves and the bytes that leave the building cannot
+            // name two different documents.
+            title = inv.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title)
+                || title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase)
+                || title.Trim().Equals(GstReportSupport.BillOfSupplyTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.PurchaseRecordTitle;
+        }
+        else if (inv.IsBillOfSupply)
+        {
+            // FIX-W2b: case-insensitive (and trimmed), mirroring InvoicePdf.Render — an ordinal compare let the
+            // spelling "Tax Invoice" through and headed the operator's own approval screen with it.
+            title = inv.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title) ||
+                title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.BillOfSupplyTitle;
+        }
+        else
+        {
+            title = string.IsNullOrEmpty(cfg.TitleOverride) ? inv.DocumentTitle : cfg.TitleOverride!;
+            if (string.IsNullOrWhiteSpace(title)) title = GstReportSupport.TaxInvoiceTitle;
+        }
         return new PrintReport
         {
             Title = title,
@@ -376,6 +554,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     {
         var r = _receipt!;
         var rows = new List<PrintRow>();
+        // Rule 5(1)(f): a composition taxable person's wording sits at the TOP of the bill of supply — so it is the
+        // mirror's first row too, matching where PosReceiptPdf draws it (finding #6: gated on the structural flag in
+        // lockstep with the renderer, so the mirror can never show a declaration the bytes suppress).
+        if (r.IsBillOfSupply && !string.IsNullOrWhiteSpace(r.TopDeclaration))
+            rows.Add(PrintRow.Header(r.TopDeclaration, string.Empty, string.Empty));
         rows.Add(PrintRow.Header($"Bill No. {r.BillNumber}", "Date", r.DateText));
         rows.Add(PrintRow.Header("Customer: " + (string.IsNullOrWhiteSpace(r.Party) ? "(cash)" : r.Party),
             string.Empty, string.Empty));
@@ -388,15 +571,23 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 IndianFormat.Amount(it.Value),
             }));
 
-        rows.Add(PrintRow.Total("Taxable", string.Empty, IndianFormat.AmountAlways(r.TotalTaxable)));
-        if (r.IsInterState)
-            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(r.TotalIgst) }));
-        else
+        // W0-1b: the mirror suppresses exactly what PosReceiptPdf suppresses — a bill of supply shows Rule 49(g)'s
+        // value of supply and no tax head at all. If the two disagreed the operator would approve one document over
+        // the counter and hand the customer another (the same failure FIX-W1f caught on the invoice path).
+        rows.Add(PrintRow.Total(r.IsBillOfSupply ? "Value of Supply" : "Taxable",
+            string.Empty, IndianFormat.AmountAlways(r.TotalTaxable)));
+        if (!r.IsBillOfSupply)
         {
-            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(r.TotalCgst) }));
-            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(r.TotalSgst) }));
+            if (r.IsInterState)
+                rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(r.TotalIgst) }));
+            else
+            {
+                rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(r.TotalCgst) }));
+                rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(r.TotalSgst) }));
+            }
         }
-        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(r.GrandTotal)));
+        rows.Add(PrintRow.Total(r.IsBillOfSupply ? "Total" : "Grand Total",
+            string.Empty, IndianFormat.AmountAlways(r.GrandTotal)));
 
         rows.Add(PrintRow.Header("Payment", string.Empty, string.Empty));
         foreach (var t in r.Tenders)
@@ -410,7 +601,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(r.Message2)) rows.Add(PrintRow.Header(r.Message2, string.Empty, string.Empty));
         if (!string.IsNullOrWhiteSpace(r.Declaration)) rows.Add(PrintRow.Header(r.Declaration, string.Empty, string.Empty));
 
-        var title = string.IsNullOrWhiteSpace(r.Title) ? "RETAIL INVOICE" : r.Title;
+        // W0-1b: derived structurally, mirroring PosReceiptPdf.Render — the POS config's DefaultTitle is a print
+        // preference and may not re-title a §31(3)(c) bill of supply.
+        var title = r.IsBillOfSupply
+            ? GstReportSupport.BillOfSupplyTitle
+            : (string.IsNullOrWhiteSpace(r.Title) ? "RETAIL INVOICE" : r.Title);
         return new PrintReport
         {
             Title = title,
@@ -463,17 +658,31 @@ public sealed class PreviewPage
 {
     public string Title { get; }
     public string Subtitle { get; }
+
+    /// <summary>The column headings as the pane lays them out — the caption AND the column's width, so the header
+    /// band and the body cells below it can never line up under different captions.</summary>
+    public IReadOnlyList<PreviewCell> HeaderColumns { get; }
+
+    /// <summary>The heading TEXTS. A view over <see cref="HeaderColumns"/>, materialised once — never a second
+    /// copy of the same answer.</summary>
     public IReadOnlyList<string> Headers { get; }
+
+    /// <summary>The page's column layout. It IS <see cref="HeaderColumns"/> — the header band and every body cell
+    /// are laid out from one set of widths, so a figure can never line up under a caption that does not govern
+    /// it — and this name is here for readers (and tests) asking about the layout rather than about the captions.</summary>
+    public IReadOnlyList<PreviewCell> Columns => HeaderColumns;
+
     public IReadOnlyList<PreviewLine> Lines { get; }
     public int PageNumber { get; }
     public int TotalPages { get; private set; }
 
-    public PreviewPage(string title, string subtitle, IReadOnlyList<string> headers,
+    public PreviewPage(string title, string subtitle, IReadOnlyList<PreviewCell> headerColumns,
         IReadOnlyList<PreviewLine> lines, int pageNumber)
     {
         Title = title;
         Subtitle = subtitle;
-        Headers = headers;
+        HeaderColumns = headerColumns;
+        Headers = headerColumns.Select(c => c.Text).ToList();
         Lines = lines;
         PageNumber = pageNumber;
         TotalPages = pageNumber;
@@ -485,16 +694,40 @@ public sealed class PreviewPage
     public string Footer => $"Apex Solutions  -  Page {PageNumber} of {TotalPages}";
 }
 
-/// <summary>One preview body line: the per-column cell texts, plus header/total styling flags.</summary>
+/// <summary>
+/// One cell of the preview sheet: the text, and the width of the column it sits in.
+///
+/// <para>The width is DATA rather than markup because a literal in the cell template made the truncation invariant
+/// under every window size and every DPI (T0-11 review CRITIC-01 / C17-L3-03): a report whose model says its first
+/// column is four times the width of its amount column got the same 120 DIP for both. It is computed once per page
+/// from <see cref="PrintColumn.Weight"/> — the weights the PDF renderer has always split the paper by — so the pane
+/// and the paper give the same column the same share.</para>
+///
+/// <para>This is the shell's own established shape for a width-carrying cell, not a new one: the payroll matrix grid
+/// binds <c>PayrollMatrixCellVm</c>'s <c>Text</c>/<c>Width</c> pair exactly this way (<c>MainWindow.axaml</c>), for
+/// the same reason — a horizontal StackPanel keeps its columns aligned only if every cell's width is stated.</para>
+/// </summary>
+/// <param name="Text">The already-formatted cell text.</param>
+/// <param name="Width">The column's width in DIP.</param>
+public sealed record PreviewCell(string Text, double Width);
+
+/// <summary>One preview body line: the per-column cells, plus header/total styling flags.</summary>
 public sealed class PreviewLine
 {
+    /// <summary>The cells as the pane lays them out: text plus the width of the column each sits in.</summary>
+    public IReadOnlyList<PreviewCell> Columns { get; }
+
+    /// <summary>The cell TEXTS. A view over <see cref="Columns"/>, materialised once in the constructor — one
+    /// source of truth, not a parallel copy that could drift from it.</summary>
     public IReadOnlyList<string> Cells { get; }
+
     public bool IsHeader { get; }
     public bool IsTotal { get; }
 
-    public PreviewLine(IReadOnlyList<string> cells, bool isHeader, bool isTotal)
+    public PreviewLine(IReadOnlyList<PreviewCell> columns, bool isHeader, bool isTotal)
     {
-        Cells = cells;
+        Columns = columns;
+        Cells = columns.Select(c => c.Text).ToList();
         IsHeader = isHeader;
         IsTotal = isTotal;
     }

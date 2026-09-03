@@ -31,7 +31,7 @@ public sealed partial class BankReconRowViewModel : ViewModelBase
     {
         Transaction = tx;
         Date = ApexDate.Format(tx.Date);
-        VoucherNo = tx.VoucherNumber.ToString(CultureInfo.InvariantCulture);
+        VoucherNo = tx.FormattedNumber;
         Instrument = string.IsNullOrWhiteSpace(tx.InstrumentNumber) ? "—" : tx.InstrumentNumber;
         Kind = tx.TransactionType.ToString();
         // Signed movement: a debit (+) is money into the bank, a credit (−) is money out.

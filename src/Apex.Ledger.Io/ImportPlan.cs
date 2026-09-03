@@ -180,6 +180,12 @@ internal sealed class ImportPlan
             GroupService.ValidateNatureAgainstParent(declaredNature, parent, t);
             var domain = new Group(Guid.NewGuid(), g.Name, declaredNature, parent, g.Alias,
                 isPredefined: false);
+            // v51 (WF-1): the Group level of the GST hierarchy, with the same fail-fast mirror the item and the
+            // sales/purchase-ledger blocks already carry (the recurring Io-bypass defect class) — a malformed HSN or
+            // a positive rate on a non-taxable block throws here in pre-flight, so the whole batch rejects
+            // all-or-nothing rather than persisting a block the domain would have refused.
+            domain.Gst = BuildMasterGst(g.Gst);
+            domain.Gst?.EnsureValid();
             t.AddGroup(domain);
             journal.RecordGroup(domain);
             groupId[g.Id] = domain.Id;
@@ -198,6 +204,9 @@ internal sealed class ImportPlan
             }
             // Phase 6: the additional-cost / zero-valued / POS / job-work flags ride the type verbatim. The POS
             // retail-till config (which references godowns + ledgers created later) is attached in a deferred pass.
+            // v47 (numbering S3): the three scalars + the two date-keyed affix lists are constructed through the ctor
+            // (get-only, ctor-injected) so an imported type ROUND-TRIPS its numbering config — a fresh surrogate id
+            // is minted per affix (the DTO carries only date + particulars).
             var domain = new VoucherType(Guid.NewGuid(), vt.Name,
                 ParseEnum<VoucherBaseType>(vt.BaseType), ParseEnum<NumberingMethod>(vt.Numbering),
                 vt.DefaultShortcut, vt.Abbreviation, vt.IsActive, isPredefined: false,
@@ -210,7 +219,12 @@ internal sealed class ImportPlan
                 allowConsumption: vt.AllowConsumption,
                 isStatPayment: vt.IsStatPayment,
                 isRcmPaymentVoucher: vt.IsRcmPaymentVoucher,
-                isGstStatAdjustment: vt.IsGstStatAdjustment);
+                isGstStatAdjustment: vt.IsGstStatAdjustment,
+                preventDuplicate: vt.PreventDuplicate,
+                numberWidth: vt.NumberWidth,
+                prefillWithZero: vt.PrefillWithZero,
+                prefixes: ImportAffixes(vt.Prefixes),
+                suffixes: ImportAffixes(vt.Suffixes));
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -641,7 +655,16 @@ internal sealed class ImportPlan
                 continue;
             }
             var parent = sg.ParentId is { } pid ? ResolveStockGroupId(pid, stockGroupId, t) : (Guid?)null;
+            // v51 (WF-1): the Stock Group level of the GST hierarchy + the pre-flight fail-fast mirror.
+            // ⚠️ ORDER MATTERS AND IS NOT COSMETIC. The block is validated BEFORE CreateStockGroup, because
+            // CreateStockGroup already ADDS the group to the target while `journal.RecordStockGroup` — the only
+            // thing Rollback can undo — happens after. Validating in between would leave a group behind on a
+            // rejected batch: Applied = false with the target quietly mutated, which is exactly the all-or-nothing
+            // promise this path exists to keep.
+            var gst = BuildMasterGst(sg.Gst);
+            gst?.EnsureValid();
             var domain = inv.CreateStockGroup(sg.Name, parent, sg.Alias, sg.AddQuantities);
+            domain.Gst = gst;
             journal.RecordStockGroup(domain);
             stockGroupId[sg.Id] = domain.Id;
             created++;
@@ -885,7 +908,13 @@ internal sealed class ImportPlan
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
                 costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId,
                 unitId, t);
-            posting.Post(domain);
+            // G-2: LEGACY cost-allocation strictness. A company-import file is a rehydration of books this
+            // product already accepted — including under the superseded partition rule (see
+            // CostAllocationStrictness) — so refusing to re-import our own export of an older company would
+            // be data loss. Every other invariant still runs at full strength, and an allocation that foots
+            // under NEITHER rule is still rejected. Lines admitted only by the legacy clause are listed by
+            // CostAllocationDiagnostics.FindLegacyCrossCategoryLines after the import.
+            posting.Post(domain, CostAllocationStrictness.Legacy);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
             posted++;
@@ -1170,6 +1199,14 @@ internal sealed class ImportPlan
         t.Pin = c.Pin;
         t.FinancialYearStart = CompanyImportService.ParseDate(c.FinancialYearStart);
         t.BooksBeginFrom = CompanyImportService.ParseDate(c.BooksBeginFrom);
+        // The supplier PIN reaches a printed tax invoice (W0-2a), so it gets the same six-digit floor the
+        // recipient PIN has had since v45. Without this a canonical document carrying pin="abcdef" would
+        // print "PIN: abcdef" on a statutory document.
+        // 🔴 IT RUNS AFTER THE TWO DATES, NOT BEFORE THEM. EnsureValid also holds the books-begin ≥ year-start
+        // invariant now, and calling it above the assignments checked the TARGET's dates instead of the
+        // document's — so a canonical document carrying an impossible pair was applied unchecked and produced a
+        // book that could be saved and never reopened.
+        t.EnsureValid();
         if (c.BaseCurrencySymbol is not null) t.BaseCurrencySymbol = c.BaseCurrencySymbol;
         if (c.BaseCurrencyName is not null) t.BaseCurrencyName = c.BaseCurrencyName;
         t.DecimalPlaces = c.DecimalPlaces;
@@ -1178,6 +1215,10 @@ internal sealed class ImportPlan
         // Phase 6 company feature toggles. The two plain flags are captured by the header snapshot for rollback.
         t.UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity;   // slice 4 (RQ-22)
         t.EnableMultiplePriceLevels = c.EnableMultiplePriceLevels;               // slice 5 (RQ-26)
+
+        // v50 (NS-4) "Warn on Negative Stock Balance" — a plain flag, captured by the header snapshot for rollback.
+        // The DTO's own initialiser is what makes a pre-v50 document arrive here as TRUE rather than false.
+        t.WarnOnNegativeStock = c.WarnOnNegativeStock;
 
         // Phase 8 slice 1 Payroll F11 toggles — plain flags, captured by the header snapshot for rollback.
         t.PayrollEnabled = c.PayrollEnabled;
@@ -1283,7 +1324,17 @@ internal sealed class ImportPlan
             // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
             ReconValueTolerance = MoneyCodec.FromPaisa(g.ReconValueTolerancePaisa),
             ReconDateWindowDays = g.ReconDateWindowDays,
+            // v51 (WF-1): the company-level default GST block + the two source-order options. The DTO's own
+            // initialisers are what make a pre-v51 document arrive here as LedgerFirst rather than as a guess — see
+            // GstConfigDto for why LedgerFirst, and not the migration's StockItemFirst, is right on an IMPORT path.
+            DefaultGst = BuildMasterGst(g.DefaultGst),
+            SourceOfHsnSacDetails = ParseEnum<GstDetailSource>(g.SourceOfHsnSacDetails),
+            SourceOfGstRate = ParseEnum<GstDetailSource>(g.SourceOfGstRate),
         };
+        // NOTE: the company default block is NOT re-validated here. GstConfig.EnsureValid already calls
+        // DefaultGst.EnsureValid, and that is the guard this path relies on — a second call here would be a
+        // duplicate that no test can distinguish from its absence. The Stock Group and Group blocks above DO need
+        // their own explicit calls: neither master has an aggregate EnsureValid that the import runs.
         // Phase 9 slice 5: preserve the exported per-state e-Way threshold overrides (fresh ids). A malformed row throws
         // here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
         foreach (var t in g.EWayStateThresholds)
@@ -1434,7 +1485,12 @@ internal sealed class ImportPlan
             CompanyImportService.ParseDate(v.Date), lines, v.Number, v.Narration,
             v.PartyId is { } pid ? ResolveLedgerId(pid, ledgerId, t) : null,
             v.Cancelled, v.Optional, v.PostDated, CompanyImportService.ParseDateOpt(v.ApplicableUpto),
-            invLines, posTenders);
+            invLines, posTenders,
+            // v48 (numbering S5): the counterparty reference carries across the import (the mandatory Io mirror).
+            referenceNo: v.ReferenceNo, referenceDate: CompanyImportService.ParseDateOpt(v.ReferenceDate),
+            // v49: the accounting-invoice (service-invoice) flag carries across too, so an imported service invoice
+            // still prints as the tax invoice it was issued as. false for every other voucher (ER-13).
+            isAccountingInvoice: v.IsAccountingInvoice);
     }
 
     private static BillAllocation BuildBillAllocation(BillAllocationDto a) => new(
@@ -1614,6 +1670,17 @@ internal sealed class ImportPlan
         IsBodyCorporate = p.IsBodyCorporate,
     };
 
+    /// <summary>Builds the narrow v51 <see cref="MasterGstDetails"/> block a Stock Group / Group / company default
+    /// carries, or <c>null</c> when the document has none (WF-1). Callers must follow with
+    /// <see cref="MasterGstDetails.EnsureValid"/> so a malformed block rejects the batch in pre-flight.</summary>
+    private static MasterGstDetails? BuildMasterGst(MasterGstDto? m) => m is null ? null : new MasterGstDetails
+    {
+        HsnSac = m.HsnSac,
+        Taxability = ParseEnum<GstTaxability>(m.Taxability),
+        RateBasisPoints = m.RateBasisPoints,
+        SupplyType = ParseEnum<GstSupplyType>(m.SupplyType),
+    };
+
     private static StockItemGstDetails? BuildStockItemGst(StockItemGstDto? s) => s is null ? null : new StockItemGstDetails
     {
         HsnSac = s.HsnSac,
@@ -1785,6 +1852,15 @@ internal sealed class ImportPlan
     }
 
     private static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Rebuilds a voucher type's date-keyed affix rows from the DTO list (v47; numbering S3). A fresh
+    /// surrogate id is minted per row (the DTO carries only date + particulars — the id is a private tie-break
+    /// seed); a malformed date throws in pre-flight ⇒ all-or-nothing (RQ-23). <c>null</c> ⇒ no rows.</summary>
+    private static IEnumerable<VoucherNumberAffix> ImportAffixes(IReadOnlyList<VoucherNumberAffixDto>? affixes) =>
+        (affixes ?? [])
+            .Select(a => new VoucherNumberAffix(
+                Guid.NewGuid(), CompanyImportService.ParseDate(a.ApplicableFrom), a.Particulars))
+            .ToList();
 
     /// <summary>Parses an optional ISO round-trip (o) <see cref="DateTimeOffset"/> (Phase 9 slice 5 e-Way generation
     /// timestamp / validity); a malformed value throws in pre-flight ⇒ all-or-nothing (RQ-23).</summary>

@@ -164,6 +164,8 @@ public sealed class CostCentreViewModelTests : IDisposable
         // Payment: Dr Salaries 60,000 (cost-applicable) / Cr Cash 60,000, split 40k Delhi + 20k Mumbai.
         vm.OpenVoucher(VoucherBaseType.Payment);
         var entry = vm.VoucherEntry!;
+        // A Payment opens in Single Entry; these cost-allocation tests key the plain Dr/Cr grid via Lines[0].
+        entry.ChangeMode();
 
         var l0 = entry.Lines[0];
         l0.SelectedLedger = salaries;
@@ -225,6 +227,8 @@ public sealed class CostCentreViewModelTests : IDisposable
 
         vm.OpenVoucher(VoucherBaseType.Payment);
         var entry = vm.VoucherEntry!;
+        // A Payment opens in Single Entry; these cost-allocation tests key the plain Dr/Cr grid via Lines[0].
+        entry.ChangeMode();
 
         var l0 = entry.Lines[0];
         l0.SelectedLedger = salaries;
@@ -266,6 +270,8 @@ public sealed class CostCentreViewModelTests : IDisposable
 
         vm.OpenVoucher(VoucherBaseType.Payment);
         var entry = vm.VoucherEntry!;
+        // A Payment opens in Single Entry; these cost-allocation tests key the plain Dr/Cr grid via Lines[0].
+        entry.ChangeMode();
 
         var l0 = entry.Lines[0];
         l0.SelectedLedger = salaries;
@@ -304,6 +310,8 @@ public sealed class CostCentreViewModelTests : IDisposable
         // Dr Salaries 60,000 split Delhi 40,000 + Mumbai 20,000 / Cr Cash.
         vm.OpenVoucher(VoucherBaseType.Payment);
         var entry = vm.VoucherEntry!;
+        // A Payment opens in Single Entry; these cost-allocation tests key the plain Dr/Cr grid via Lines[0].
+        entry.ChangeMode();
         var l0 = entry.Lines[0];
         l0.SelectedLedger = salaries;
         l0.Side = DrCr.Debit;

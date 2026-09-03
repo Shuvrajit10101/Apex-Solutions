@@ -17,7 +17,8 @@ public sealed record StockItemMovementRow(
     Money? Rate,
     Money RunningValue,
     Guid? PartyId,
-    string? Narration);
+    string? Narration,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The Stock Item Movement report (catalog §16; requirements RQ-28) — the Stock-Summary drill target for a
@@ -96,7 +97,7 @@ public sealed record StockItemMovement(
                 var runningValue = valuation.ClosingValue(stockItemId, m.Date).Value;
                 rows.Add(new StockItemMovementRow(
                     m.Date, m.VoucherTypeName, m.Number, inward, outward, running, m.Rate, runningValue,
-                    m.PartyId, m.Narration));
+                    m.PartyId, m.Narration, m.FormattedNumber));
             }
             else
             {

@@ -8,6 +8,7 @@ using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -53,6 +54,11 @@ public sealed partial class AttendanceVoucherLineRowViewModel : ViewModelBase
 /// <summary>A recorded attendance entry shown in the read-back list on the voucher screen.</summary>
 public sealed class AttendanceEntryRow
 {
+    /// <summary>🔴 T0-12. The recorded entry's id — the handle the Remove button needs. Without it the row was a
+    /// read-back string with no way back to the entry, which is why a wrongly-keyed attendance figure could not be
+    /// undone anywhere in the product.</summary>
+    public Guid Id { get; init; }
+
     public string Employee { get; init; } = string.Empty;
     public string AttendanceType { get; init; } = string.Empty;
     public string Period { get; init; } = string.Empty;
@@ -134,8 +140,16 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
 
     /// <summary>
     /// Ctrl+A / the Record button: validates the period and every non-blank row (employee + type chosen, value a
-    /// number ≥ 0), then records them all through <see cref="PayrollAttendanceService"/> and persists. Nothing is
-    /// recorded unless the whole set validates (all-or-nothing). Returns true on success.
+    /// number ≥ 0, <b>and no duplicate period</b>), then records them all through
+    /// <see cref="PayrollAttendanceService"/> and persists. Nothing is recorded unless the whole set validates
+    /// (all-or-nothing). Returns true on success.
+    ///
+    /// <para>🔴 <b>A duplicate REFUSES THE WHOLE RUN; it does not skip the line.</b> Both because that is the
+    /// all-or-nothing contract every other guard on this screen already keeps, and because skipping is the more
+    /// dangerous of the two in payroll: a silently skipped line means an employee's attendance is <i>not</i>
+    /// recorded while the operator reads "Recorded 4 entries" and believes the month is keyed — the same
+    /// invisible-wrong-figure defect as T0-12, only under-paying instead of double-paying. A refusal costs one
+    /// keystroke, names the offending line, and the Remove button below makes it recoverable.</para>
     /// </summary>
     public bool Accept()
     {
@@ -158,10 +172,26 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
             return false;
         }
 
+        // 🔴 T0-12 FOLLOW-ON — the duplicate refusal is PRE-VALIDATED here, beside every other row guard, because
+        // it is the ONLY PayrollAttendanceService.Record guard this screen does not otherwise pre-check (unknown
+        // employee/type, date order and negative value are all caught above or by the row loop, so none of them
+        // could ever fire mid-batch). Left to the record loop below, the duplicate fired mid-batch: Record mutates
+        // the open company row by row via AddAttendanceEntry, while _storage.Save runs only AFTER the loop. A
+        // 5-row run whose 3rd row duplicated therefore left 3 entries in the in-memory company against 1 on disk,
+        // with the read-back list still showing 1 — two entries neither saved nor displayed, which the next save
+        // from ANY screen (the Remove button below included) silently committed. Measured before this guard:
+        // pressing Remove on the one visible row took disk from 1 entry to 2 GHOST entries.
+        var service = new PayrollAttendanceService(_company);
         var pending = new List<(Guid Employee, Guid Type, decimal Value)>();
-        foreach (var row in Rows)
+        // The whole run shares ONE screen-level [from, to], so two pending lines collide exactly when employee ×
+        // attendance type repeats. Checking each line against the COMPANY alone cannot see that collision: nothing
+        // is added to the company until the record loop, so an earlier pending line is not there to be found yet.
+        var claimedInThisRun = new HashSet<(Guid Employee, Guid Type)>();
+        for (var i = 0; i < Rows.Count; i++)
         {
+            var row = Rows[i];
             if (row.IsBlank) continue;
+            var line = i + 1;   // the line number as the operator sees it in the grid, blanks included
             if (row.SelectedEmployee is null) { Message = "Every attendance line needs an employee."; return false; }
             if (row.SelectedAttendanceType is null) { Message = $"Choose the attendance/production type for '{row.SelectedEmployee.Name}'."; return false; }
             if (!TryParseValue(row.ValueText, out var value))
@@ -169,6 +199,29 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
                 Message = $"The value for '{row.SelectedEmployee.Name}' must be a number ≥ 0 (e.g. 26 days or 480 units).";
                 return false;
             }
+
+            // (1) The line duplicates an entry ALREADY on record — the production caller FindExact's own doc
+            // comment claims ("so the entry screen can warn before the operator commits a whole batch") and, until
+            // now, did not have.
+            if (service.FindExact(row.SelectedEmployee.Id, row.SelectedAttendanceType.Id, from, to) is { } existing)
+            {
+                Message = $"Line {line}: {row.SelectedAttendanceType.Name} for {row.SelectedEmployee.Name} over "
+                    + $"{from:dd-MM-yyyy} to {to:dd-MM-yyyy} is already recorded as "
+                    + $"{existing.Value.ToString("0.####", CultureInfo.InvariantCulture)}. Remove that entry from the "
+                    + "list below if you meant to correct it, then record again. Nothing was recorded.";
+                return false;
+            }
+
+            // (2) The line duplicates an EARLIER LINE OF THIS SAME RUN. Without this the run still threw
+            // mid-batch, because case (1) cannot see a row that has not been recorded yet.
+            if (!claimedInThisRun.Add((row.SelectedEmployee.Id, row.SelectedAttendanceType.Id)))
+            {
+                Message = $"Line {line}: {row.SelectedAttendanceType.Name} for {row.SelectedEmployee.Name} is on an "
+                    + $"earlier line of this run as well, over the same {from:dd-MM-yyyy} to {to:dd-MM-yyyy}. The two "
+                    + "values would be ADDED together, not replaced — keep one line. Nothing was recorded.";
+                return false;
+            }
+
             pending.Add((row.SelectedEmployee.Id, row.SelectedAttendanceType.Id, value));
         }
 
@@ -178,15 +231,35 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
             return false;
         }
 
+        var recorded = new List<AttendanceEntry>(pending.Count);
         try
         {
-            var service = new PayrollAttendanceService(_company);
             foreach (var (employee, type, value) in pending)
-                service.Record(employee, type, from, to, value);
+                recorded.Add(service.Record(employee, type, from, to, value));
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
+            // 🔴 ROLL THE PART-RUN BACK. The pre-validation above closes the duplicate window, but it is a SECOND
+            // layer and not the only one: Record keeps every guard of its own and can still throw here for a
+            // condition this screen cannot pre-check — an employee deleted from another screen behind a row's
+            // cached Employee object, say — and _storage.Save throws after the loop has already mutated the
+            // company. Either way the rows recorded so far sit in the in-memory company and NOT on disk, and the
+            // read-back list is not rebuilt on this path, so they were invisible until some later save from any
+            // screen committed them. Undoing them is what makes "Could not record attendance" true, and it is
+            // exact: every guard in Record precedes its AddAttendanceEntry, so a throwing Record never half-added
+            // and `recorded` holds precisely the entries this run put in the company.
+            //
+            // Note this deliberately does NOT also call RebuildRecentEntries(). Because the roll-back is complete,
+            // the company is back to its pre-run state and the displayed list already matches it — a rebuild here
+            // is a no-op that no test could redden, i.e. a dead guard. The staleness the failure used to cause is
+            // fixed at the root instead of papered over at the view.
+            //
+            // Removal goes through the company rather than PayrollAttendanceService.Delete deliberately: Delete
+            // THROWS when the entry is missing, and throwing out of a catch block would crash the screen instead
+            // of reporting.
+            foreach (var entry in recorded)
+                _company.RemoveAttendanceEntry(entry);
             Message = $"Could not record attendance: {ex.Message}";
             return false;
         }
@@ -224,6 +297,34 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
         AddBlankRow();
     }
 
+    /// <summary>
+    /// 🔴 <b>T0-12 — the correction route.</b> Removes one recorded attendance/production entry and persists. The
+    /// engine has always had <see cref="PayrollAttendanceService.Delete"/>; it had <b>no caller in this layer</b>,
+    /// so a wrongly-keyed attendance figure was permanent and the only "fix" available to an operator was to record
+    /// it again — which added to it and paid twice. This button is also what makes the duplicate REFUSAL fair:
+    /// delete, then re-record the right figure.
+    /// </summary>
+    [RelayCommand]
+    private void RemoveEntry(AttendanceEntryRow? row)
+    {
+        Message = null;
+        if (row is null) return;
+        try
+        {
+            new PayrollAttendanceService(_company).Delete(row.Id);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Could not remove the entry: {ex.Message}";
+            return;
+        }
+
+        _onChanged();
+        Message = $"Removed {row.AttendanceType} for {row.Employee} ({row.Period}).";
+        RebuildRecentEntries();
+    }
+
     private void RebuildRecentEntries()
     {
         RecentEntries.Clear();
@@ -238,6 +339,7 @@ public sealed partial class AttendanceVoucherEntryViewModel : ViewModelBase, ISe
         {
             RecentEntries.Add(new AttendanceEntryRow
             {
+                Id = e.Id,
                 Employee = _company.FindEmployee(e.EmployeeId)?.Name ?? "(unknown)",
                 AttendanceType = _company.FindAttendanceType(e.AttendanceTypeId)?.Name ?? "(unknown)",
                 Period = $"{e.FromDate:dd-MM-yyyy} – {e.ToDate:dd-MM-yyyy}",

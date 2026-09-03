@@ -135,7 +135,7 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
         foreach (var v in _company.Vouchers.Where(v => !v.Cancelled).OrderBy(v => v.Date).ThenBy(v => v.Number))
         {
             var coverage = _service.CoverageOf(v);
-            var docNo = EInvoiceService.DocumentNumberOf(v);
+            var docNo = EInvoiceService.DocumentNumberOf(_company, v);
             var record = _company.EInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == v.Id);
 
             // Only outward vouchers are worth listing; everything else is NotApplicable noise.

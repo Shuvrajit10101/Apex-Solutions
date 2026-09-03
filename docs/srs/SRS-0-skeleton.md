@@ -22,7 +22,7 @@ the contract between the plan (`plan.md`) and the implementation; it is the trac
 ### 1.2 Scope
 Reproduce Tally Prime's **behaviour, navigation, and keyboard shortcuts** as catalogued in
 `docs/tally-feature-catalog.md`: the Gateway of Tally hub, Create/Alter verbs, F11/F12 gating, drill-down
-everywhere, the To/By (Dr/Cr) model, the 28 predefined groups + 2 default ledgers + 24 predefined voucher
+everywhere, the To/By (Dr/Cr) model, the 28 predefined groups + 2 default ledgers + 23 predefined voucher
 types seed, and the matching reports (Balance Sheet, P&L, Trial Balance, Day Book, Stock Summary,
 Outstandings, GST returns, …). Full in-scope / out-of-scope lists live in `plan.md` §1.2–§1.3.
 
@@ -101,7 +101,7 @@ are grounded in the catalog + `tally/` PDFs; law/edition facts are web-verified,
 - **FR-0.4** The `tally/` folder SHALL be excluded from version control (third-party IP, R4).
 
 ### 4.1 Phase 1 — Accounting core (ledger engine)  *(to be filled)*
-> Company + seed (28 groups + 2 ledgers + 24 voucher types); Chart of Accounts; core vouchers
+> Company + seed (28 groups + 2 ledgers + 23 voucher types); Chart of Accounts; core vouchers
 > (Contra/Payment/Receipt/Journal/Sales/Purchase + Credit/Debit Note; To/By; modes; Ctrl+A save,
 > Alt+D/Alt+X); Trial Balance, Day Book, Balance Sheet, P&L, Ledger/Cash/Bank books; drill-down.
 > **Acceptance:** Robert & Bright reproduce known totals to the paisa (NFR-3).

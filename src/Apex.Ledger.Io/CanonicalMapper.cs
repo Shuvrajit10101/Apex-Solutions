@@ -77,6 +77,7 @@ public static class CanonicalMapper
         UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
         EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
+        WarnOnNegativeStock = c.WarnOnNegativeStock,
         PayrollEnabled = c.PayrollEnabled,
         PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
         SalaryTdsEnabled = c.SalaryTdsEnabled,
@@ -398,6 +399,8 @@ public static class CanonicalMapper
     {
         Id = g.Id, Name = g.Name, Nature = g.Nature.ToString(),
         ParentId = g.ParentId, Alias = g.Alias, IsPredefined = g.IsPredefined,
+        // v51 (WF-1): the Group level of the GST hierarchy; null when the group carries no block (ER-13).
+        Gst = MapMasterGst(g.Gst),
     };
 
     private static LedgerDto MapLedger(Domain.Ledger l) => new()
@@ -599,8 +602,24 @@ public static class CanonicalMapper
         IsStatPayment = t.IsStatPayment,
         IsRcmPaymentVoucher = t.IsRcmPaymentVoucher,
         IsGstStatAdjustment = t.IsGstStatAdjustment, // Phase 9 slice 7
+        // v47 (numbering S3): the three scalars + the two date-keyed affix lists. Lists are null when empty so a
+        // never-configured type serialises byte-identically (ER-13); each is ordered by (ApplicableFrom, Id) for
+        // deterministic bytes, matching the render selection order.
+        PreventDuplicate = t.PreventDuplicate,
+        NumberWidth = t.NumberWidth,
+        PrefillWithZero = t.PrefillWithZero,
+        Prefixes = MapAffixes(t.Prefixes),
+        Suffixes = MapAffixes(t.Suffixes),
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
+
+    private static IReadOnlyList<VoucherNumberAffixDto>? MapAffixes(IReadOnlyList<VoucherNumberAffix> affixes) =>
+        affixes.Count == 0
+            ? null
+            : affixes
+                .OrderBy(a => a.ApplicableFrom).ThenBy(a => a.Id)
+                .Select(a => new VoucherNumberAffixDto { ApplicableFrom = Iso(a.ApplicableFrom), Particulars = a.Particulars })
+                .ToList();
 
     private static PosConfigDto MapPosConfig(PosConfig c) => new()
     {
@@ -653,6 +672,17 @@ public static class CanonicalMapper
     private static StockGroupDto MapStockGroup(StockGroup g) => new()
     {
         Id = g.Id, Name = g.Name, ParentId = g.ParentId, Alias = g.Alias, AddQuantities = g.AddQuantities,
+        // v51 (WF-1): the Stock Group level of the GST hierarchy; null when the group carries no block (ER-13).
+        Gst = MapMasterGst(g.Gst),
+    };
+
+    /// <summary>Maps the narrow v51 <see cref="MasterGstDetails"/> block, or <c>null</c> when absent (ER-13).</summary>
+    private static MasterGstDto? MapMasterGst(MasterGstDetails? g) => g is null ? null : new MasterGstDto
+    {
+        HsnSac = g.HsnSac,
+        Taxability = g.Taxability.ToString(),
+        RateBasisPoints = g.RateBasisPoints,
+        SupplyType = g.SupplyType.ToString(),
     };
 
     private static StockCategoryDto MapStockCategory(StockCategory g) => new()
@@ -787,6 +817,12 @@ public static class CanonicalMapper
         // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
         ReconValueTolerancePaisa = MoneyCodec.ToPaisa(g.ReconValueTolerance),
         ReconDateWindowDays = g.ReconDateWindowDays,
+        // v51 (WF-1): the company-level default block + the two source-order options, written unconditionally. Both
+        // orders are always emitted even when they equal the shipped default: a book that deliberately chose
+        // StockItemFirst must not be indistinguishable from one that never chose anything.
+        DefaultGst = MapMasterGst(g.DefaultGst),
+        SourceOfHsnSacDetails = g.SourceOfHsnSacDetails.ToString(),
+        SourceOfGstRate = g.SourceOfGstRate.ToString(),
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()
@@ -872,6 +908,11 @@ public static class CanonicalMapper
         Narration = v.Narration, PartyId = v.PartyId,
         Cancelled = v.Cancelled, Optional = v.Optional, PostDated = v.PostDated,
         ApplicableUpto = Iso(v.ApplicableUpto),
+        // v48 (numbering S5): the counterparty reference — empty ⇒ null so an unset reference omits (ER-13).
+        ReferenceNo = string.IsNullOrEmpty(v.ReferenceNo) ? null : v.ReferenceNo,
+        ReferenceDate = Iso(v.ReferenceDate),
+        // v49: the accounting-invoice (service-invoice) flag — false omits (ER-13).
+        IsAccountingInvoice = v.IsAccountingInvoice,
         Lines = v.Lines.Select(MapEntryLine).ToList(),
         InventoryLines = v.InventoryLines.Select(MapVoucherInventoryLine).ToList(),
         // POS tenders preserved in their declared (stable) order — Gift, Card, Cheque, Cash.

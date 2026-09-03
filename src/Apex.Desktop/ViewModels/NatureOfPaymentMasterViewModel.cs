@@ -124,6 +124,20 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
             Message = "Cumulative-FY threshold must be a rupee amount ≥ 0, or blank.";
             return false;
         }
+        // 🔴 A PER-MONTH SECTION HAS NO FINANCIAL-YEAR AGGREGATE TO STORE, so a figure typed into this field would
+        // be persisted and never applied — and, since the list column now states the window instead, it would not
+        // even show up to contradict itself. Silently ignoring what the operator typed is the one outcome not
+        // available here, so it is refused by name. (This is also what the seeded §194-I rows do: they carry no
+        // stored threshold at all, and an existing book's superseded ₹6,00,000 in this field is inert.)
+        if (cumulative is not null
+            && new NatureOfPayment(Guid.Empty, section, name, withPanBp, withoutPanBp, fvu).ThresholdWindowIsPerMonth)
+        {
+            Message = $"§{section} tests its threshold PER MONTH — \"rent credited or paid for a month or part of "
+                    + "a month … does not exceed fifty thousand rupees\" — and carries no financial-year aggregate "
+                    + "limb at all. A Cumulative-FY threshold on this section would be stored and never applied, "
+                    + "so leave it blank.";
+            return false;
+        }
 
         try
         {
@@ -197,14 +211,28 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         }
     }
 
+    /// <summary>
+    /// The threshold column for one nature. 🔴 <b>It states the window as well as the figure, because they are
+    /// not the same test.</b> A per-month section (§194-I: "rent credited or paid for a month or part of a month
+    /// … does not exceed fifty thousand rupees", and no annual limb at all) prints "₹50,000/month" and does NOT
+    /// print its stored <see cref="NatureOfPayment.CumulativeThreshold"/>: on such a nature that field is inert —
+    /// an existing book still carries the superseded annualised ₹6,00,000 there, and printing it would tell the
+    /// operator a figure the engine does not apply.
+    /// </summary>
     private static string DescribeThreshold(NatureOfPayment n)
     {
         var single = n.SingleTransactionThreshold;
-        var cumulative = n.CumulativeThreshold;
-        if (single is null && cumulative is null) return "—";
+        var monthly = n.MonthlyThreshold;
+        var cumulative = monthly is null ? n.CumulativeThreshold : null;
+        if (single is null && monthly is null && cumulative is null) return "—";
         var parts = new List<string>();
-        if (single is { } s) parts.Add($"₹{s.Amount:#,##0} single");
-        if (cumulative is { } c) parts.Add($"₹{c.Amount:#,##0}/FY");
+        // Whole rupees through the ONE grouping rule (drift lock D2). An interpolated ":#,##0" specifier binds to
+        // CurrentCulture, so on the en-US host this app targets a §194C ₹1,00,000 threshold printed "₹100,000"
+        // while the tax invoice for the same company printed "₹1,00,000" — the same-assembly contradiction D2
+        // exists to eliminate — and on a de-DE host "₹100.000", which reads as a decimal.
+        if (single is { } s) parts.Add($"₹{IndianFormat.RupeesAlways(s)} single");
+        if (monthly is { } m) parts.Add($"₹{IndianFormat.RupeesAlways(m)}/month");
+        if (cumulative is { } c) parts.Add($"₹{IndianFormat.RupeesAlways(c)}/FY");
         return string.Join(" · ", parts);
     }
 }

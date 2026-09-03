@@ -41,6 +41,18 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
 
     private static string AsLatin1(byte[] bytes) => Encoding.Latin1.GetString(bytes);
 
+    /// <summary>
+    /// The PDF bytes as text with content-stream string escapes resolved — <c>\(</c>, <c>\)</c> and <c>\\</c>.
+    /// <para><b>Why this exists.</b> Round brackets are PDF string delimiters, so <c>PdfWriter</c> escapes them:
+    /// a line printed as <c>State: Maharashtra (27)</c> appears in the raw bytes as
+    /// <c>State: Maharashtra \(27\)</c>. Searching <see cref="AsLatin1"/> for the literal printed text therefore
+    /// returns -1 and looks exactly like the line being ABSENT from the document. Every future bracketed
+    /// assertion — state codes, HSN qualifiers, tax-rate labels — hits this. Use this helper whenever the
+    /// expected substring contains a bracket; <see cref="AsLatin1"/> remains correct for everything else.</para>
+    /// </summary>
+    private static string AsPdfText(byte[] bytes) =>
+        AsLatin1(bytes).Replace("\\(", "(").Replace("\\)", ")").Replace("\\\\", "\\");
+
     // ---------------------------------------------------------------- scaffolding (mirrors the GST invoice tests)
 
     private sealed class Kit
@@ -55,15 +67,24 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
         public required Guid InterCustomerId { get; init; } // Gujarat (24), inter-state
     }
 
-    private Kit NewGstKit(string companyName)
+    /// <param name="captureProfile">
+    /// When supplied, the company's postal block is TYPED INTO THE REAL CREATION SCREEN instead of being
+    /// assigned onto the aggregate afterwards — the difference between "the printer can render an address" and
+    /// "a user can produce one", which is the whole point of the capture half.
+    /// </param>
+    private Kit NewGstKit(string companyName, Action<CompanyProfileViewModel>? captureProfile = null)
     {
         var vm = new MainWindowViewModel(_storage);
         vm.NewCompanyName = companyName;
+        captureProfile?.Invoke(vm.CreateCompanyProfile);
         vm.CreateCompany();
 
         var c = vm.Company!;
-        c.MailingName = "Acme Traders Pvt Ltd";
-        c.Address = "12 Industrial Estate\nPune, Maharashtra 411001";
+        if (captureProfile is null)
+        {
+            c.MailingName = "Acme Traders Pvt Ltd";
+            c.Address = "12 Industrial Estate\nPune, Maharashtra 411001";
+        }
         c.FinancialYearStart = FyStart;
         c.BooksBeginFrom = FyStart;
 
@@ -244,6 +265,345 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
 
         Assert.Equal(party.Name, invoice.Buyer.Name);
         Assert.Empty(invoice.Buyer.AddressLines);
+    }
+
+    // ========================================================== W0-2a / T0-8 (PRINT half only): the SUPPLIER block
+
+    // These tests cover W0-2a — the print half of T0-8. They do NOT deliver W0-2b (the Company Create/Alter
+    // screen), and nothing here reads Company.State under any shape, which is what makes this half independent
+    // of the open R12 user gate. See plan.md W0-2a / W0-2b.
+
+    /// <summary>
+    /// <b>T0-8, print half.</b> Given a company whose postal address HAS been captured, the supplier block prints
+    /// every component the WI-4 recipient block prints: the address lines, then Country, then the PIN as its own
+    /// final line. Before this slice the supplier dropped Country and PIN, and <c>Company.Pin</c> had <b>zero
+    /// readers in the whole print path</b> — its only references outside persistence were the canonical
+    /// import/export copy sites.
+    /// <para><b>This is a fidelity/parity test, NOT a statutory-delivery test.</b> Rule 46(a) requires "name,
+    /// address and GSTIN"; Country and PIN are neither
+    /// (<c>docs/w0-2-company-screen-grounding.md</c> §5.5: "Pin Code, Telephone, Mobile, Fax, E-Mail and Website
+    /// are Tally-fidelity fields, not compliance fields"). What Rule 46(a) genuinely delivers today is pinned
+    /// separately by <see cref="The_Rule_46a_name_and_GSTIN_pair_is_delivered_but_the_address_half_is_not"/>.
+    /// The fixture state here — a captured <c>Address</c> — is one <b>no book on disk can currently reach</b>,
+    /// because no UI writes that field.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_with_a_captured_postal_address_prints_every_component_the_recipient_block_prints()
+    {
+        var k = NewGstKit("Print Seller Address Co");
+        var c = k.Vm.Company!;
+        c.MailingName = "Acme Traders Private Limited";
+        c.Address = "37B Kalyani Nagar\nYerawada";
+        c.Country = "India";
+        c.Pin = "411037";
+
+        var v = PostSaleInvoice(k, k.LocalCustomerId,
+            e => FillItemLine(e, k.WidgetId, k.MainGodownId, 7m, "1313.57"));
+        var invoice = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        Assert.Equal("Acme Traders Private Limited", invoice.Seller.Name);
+        // Every captured component, PIN as its own final line, exactly as the recipient block does.
+        Assert.Equal(
+            new[] { "37B Kalyani Nagar", "Yerawada", "India", "PIN: 411037" },
+            invoice.Seller.AddressLines);
+        Assert.Equal(GstinMaharashtra, invoice.Seller.Gstin);
+
+        // …and it reaches the rendered PDF, which is the document the buyer actually receives.
+        var text = AsLatin1(PrintDrilledVoucher(k.Vm, v.Id).PdfBytes);
+        Assert.Contains("Acme Traders Private Limited", text);
+        Assert.Contains("37B Kalyani Nagar", text);
+        Assert.Contains("Yerawada", text);
+        Assert.Contains("PIN: 411037", text);       // 411037 appears nowhere else in this fixture
+        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// What CGST Rule 46(a) — "name, address and GSTIN of the supplier" — delivers on a company whose address
+    /// was never captured: the name and the GSTIN, and no address.
+    ///
+    /// <para><b>REWORDED when the capture screen shipped, deliberately rather than deleted.</b> Its old name
+    /// said "the address half is NOT delivered", which was a statement about the PRODUCT: <c>Company.Address</c>
+    /// had no assignment site anywhere in the desktop layer, so no book could carry one. That is now false —
+    /// <c>A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block</c> types the address
+    /// in and prints it. What this fixture still pins is narrower and still worth pinning: a company that
+    /// carries NO address prints none, rather than a bare "India" line manufactured from the country default.
+    /// The behaviour is unchanged; only the claim its name was making has moved.</para>
+    /// </summary>
+    [Fact]
+    public void The_Rule_46a_name_and_GSTIN_pair_survive_on_a_company_whose_address_was_never_captured()
+    {
+        var k = NewGstKit("Print Rule46a Co");
+        var c = k.Vm.Company!;
+        c.MailingName = "Acme Traders Private Limited";
+        c.Address = null;   // an address the operator never typed
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(c,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Equal("Acme Traders Private Limited", invoice.Seller.Name);   // (a) name  ✔
+        Assert.Equal(GstinMaharashtra, invoice.Seller.Gstin);                // (a) GSTIN ✔
+        Assert.Empty(invoice.Seller.AddressLines);                           // no address captured, none printed
+    }
+
+    /// <summary>
+    /// 🔴 THE END-TO-END CLAIM THIS SLICE EXISTS TO MAKE: a company created THROUGH THE CREATION SCREEN prints
+    /// a CGST Rule 46(a)-compliant supplier block — <i>name, address and GSTIN of the supplier</i> — all three,
+    /// in the projection AND in the bytes the buyer receives. Before the screen existed the address particular
+    /// was unreachable from the product, so every invoice this application could produce breached it.
+    ///
+    /// <para><b>The fixture is deliberately awkward, and each oddity is load-bearing:</b></para>
+    /// <list type="bullet">
+    /// <item><b>Mailing Name ≠ Name.</b> Rule 46(a)'s supplier NAME maps to the Mailing Name, and a fixture
+    /// where the two are equal cannot tell them apart.</item>
+    /// <item><b>A three-line address with a BLANK middle line</b>, taken from the corpus's own worked example —
+    /// so the split must drop the empty entry and print three lines, not four.</item>
+    /// <item><b>An address line containing a comma</b> — pinning the newline-only split, so
+    /// "13A, Picnic Garden Road" stays ONE line.</item>
+    /// <item><b>A postal State that disagrees with the GST State.</b> Kerala typed on the screen against a
+    /// Maharashtra registration: the printed State must still be the GST one, now proved from the capture
+    /// side rather than only from an assigned aggregate.</item>
+    /// </list>
+    /// <para><i>Mutation that reddens it:</i> stop applying the typed postal fields in the creation path.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block()
+    {
+        var k = NewGstKit("Print Captured Co", profile =>
+        {
+            profile.MailingName = "Bright Traders";
+            profile.Address = "13A, Picnic Garden Road\n\n3rd Lane\nKolkata";
+            profile.SelectedState = profile.StateOptions.Single(o => o.State?.Name == "Kerala");
+            profile.Pin = "700039";
+        });
+
+        var c = k.Vm.Company!;
+        Assert.Equal("Print Captured Co", c.Name);          // the Name and the Mailing Name really do differ
+        Assert.Equal("Bright Traders", c.MailingName);
+
+        var v = PostSaleInvoice(k, k.LocalCustomerId,
+            e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13"));
+        var invoice = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        // (a) name — the Mailing Name, not the company Name.
+        Assert.Equal("Bright Traders", invoice.Seller.Name);
+        // (a) GSTIN.
+        Assert.Equal(GstinMaharashtra, invoice.Seller.Gstin);
+        // (a) address — three lines: the blank middle entry is dropped, and the comma does NOT split a line.
+        Assert.Equal(
+            new[] { "13A, Picnic Garden Road", "3rd Lane", "Kolkata", "India", "PIN: 700039" },
+            invoice.Seller.AddressLines.ToArray());
+        // The printed State is the GST registration's, even though the postal one says Kerala.
+        Assert.Equal("Kerala", c.State);
+        Assert.Equal("Maharashtra (27)", invoice.Seller.StateText);
+
+        // …and all of it reaches the rendered PDF, which is the document the buyer actually receives.
+        var text = AsPdfText(PrintDrilledVoucher(k.Vm, v.Id).PdfBytes);
+        Assert.Contains("Bright Traders", text);
+        Assert.Contains("13A, Picnic Garden Road", text);
+        Assert.Contains("3rd Lane", text);
+        Assert.Contains("PIN: 700039", text);
+        Assert.Contains("State: Maharashtra (27)", text);
+        Assert.DoesNotContain("Kerala", text);
+        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <b>The State ruling, pinned.</b> <c>SellerBlock</c> takes the printed State from the GST home State and
+    /// never from the postal <c>Company.State</c>. This fixture makes the two <b>DISAGREE</b> — postal "Kerala"
+    /// against GST home code 27 — which is a state a canonical import can produce today
+    /// (<c>CanonicalXml</c> writes and reads a company <c>state</c> attribute, and nothing ties it to
+    /// <c>Gst.HomeStateCode</c>).
+    /// <para><b>Why an agreeing fixture was not enough.</b> The original test set <c>State = "Maharashtra"</c>,
+    /// agreeing with code 27, so both designs produced the same string and the assertion could not discriminate.
+    /// Mutating <c>SellerBlock</c> to prefer the postal State
+    /// (<c>StateText(IndianState.FromName(company.State)?.Code ?? company.Gst?.HomeStateCode)</c>) left the whole
+    /// Desktop suite green. Under that mutation this test prints "Kerala (32)" and fails on all three
+    /// assertions — the invoice would claim Kerala while GSTR-1 filed 27, the self-refuting invoice/return pair
+    /// that HEAD <c>85f82dd</c> closed for the buyer side.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_whose_postal_State_disagrees_with_its_GST_State_prints_the_GST_one()
+    {
+        var k = NewGstKit("Print Divergent State Co");
+        var c = k.Vm.Company!;
+        c.Address = "37B Kalyani Nagar\nYerawada";
+        c.State = "Kerala";        // postal State (code 32) — deliberately NOT the GST home State (27)
+        Assert.Equal("27", c.Gst!.HomeStateCode);
+
+        var v = PostSaleInvoice(k, k.LocalCustomerId,
+            e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13"));
+        var invoice = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        // Pre-PDF and unescaped, so the bracketed code can be asserted exactly.
+        Assert.Equal("Maharashtra (27)", invoice.Seller.StateText);
+
+        // …and in the rendered document. AsPdfText resolves the escaped brackets; AsLatin1 would not match.
+        var text = AsPdfText(PrintDrilledVoucher(k.Vm, v.Id).PdfBytes);
+        Assert.Contains("State: Maharashtra (27)", text);
+        Assert.DoesNotContain("Kerala", text);
+    }
+
+    /// <summary>
+    /// The asymmetry itself, asserted directly rather than inferred: given the SAME postal components on the
+    /// company and on the party, the two printed address blocks must be identical. Before this slice the supplier
+    /// got 2 lines where the recipient got 4.
+    /// </summary>
+    [Fact]
+    public void The_supplier_address_block_is_built_exactly_like_the_recipient_one()
+    {
+        var k = NewGstKit("Print Symmetric Address Co");
+        var c = k.Vm.Company!;
+        c.Address = "37B Kalyani Nagar\nYerawada";
+        c.Country = "India";
+        c.Pin = "411037";
+
+        var party = c.FindLedger(k.LocalCustomerId)!;
+        party.Mailing = new PartyMailingDetails
+        {
+            MailingName = "Naresh Traders Private Limited",
+            Address = "37B Kalyani Nagar\nYerawada",
+            Country = "India",
+            Pincode = "411037",
+        };
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(c,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Equal(invoice.Buyer.AddressLines, invoice.Seller.AddressLines);
+        Assert.Equal(4, invoice.Seller.AddressLines.Count);
+    }
+
+    /// <summary>
+    /// The PIN append is CONDITIONAL: a company with an address but no PIN prints its address lines and its
+    /// country, and nothing else — no bare "PIN:" line. <b>This is the PIN guard's proof.</b>
+    /// <para><b>Rewritten 2026-08-15, twice over.</b> (1) This comment used to claim it discriminated <i>both</i>
+    /// blank-guards; measured, it bites only the PIN half — removing the COUNTRY guard leaves it green, because
+    /// <c>SplitAddress</c> drops blank entries so a null-safe <c>country!.Trim()</c> on a blank value just adds an
+    /// empty string that is silently swallowed. The country guard's real proof is
+    /// <see cref="A_party_with_an_address_and_PIN_but_no_country_prints_both_and_does_not_crash"/>, which walks
+    /// the NULL path on the party side. (2) The fixture used to set <c>c.Country = "  "</c>, and setting it to
+    /// <c>null</c> instead does not work either: <c>companies.country</c> is <c>TEXT NOT NULL</c>
+    /// (<c>Schema.cs</c>), written unconditionally and read with <c>GetString</c>, so a null-Country company
+    /// <b>cannot be saved at all</b> — the posting step throws before any assertion runs. A company with no
+    /// country is not a state this product can be in, which is exactly why the country guard is provable only on
+    /// the party side. <c>Country</c> is therefore left at its real default here.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_with_an_address_but_no_PIN_prints_no_stray_PIN_line()
+    {
+        var k = NewGstKit("Print Bare Address Co");
+        var c = k.Vm.Company!;
+        c.Address = "37B Kalyani Nagar\nYerawada";
+        c.Pin = null;
+        Assert.Equal("India", c.Country);   // untouched: the real, unavoidable default
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(c,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Equal(new[] { "37B Kalyani Nagar", "Yerawada", "India" }, invoice.Seller.AddressLines);
+        Assert.DoesNotContain(invoice.Seller.AddressLines, l => l.StartsWith("PIN", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A company with no postal address at all still prints exactly what it printed before (ER-13): the block
+    /// collapses to name + GSTIN, with no placeholder and no stray country/PIN line.
+    /// <para><b>🔴 This test used to be doctored, and the doctoring hid a shipped regression.</b> It set
+    /// <c>c.Country = "  "</c> — a value the product cannot produce. <c>Company.Country</c> is non-null and
+    /// defaults to <c>"India"</c>, storage writes it unconditionally, and nothing in <c>src/Apex.Desktop</c> ever
+    /// assigns it, so EVERY company in EVERY book on disk has <c>Country = "India"</c> and a blank Address.
+    /// Against the real default the unguarded projector printed a supplier block containing exactly one line,
+    /// "India", where it had printed none — changing every invoice and every reprint of every historical invoice,
+    /// and replacing a visibly blank block with one that looks populated while still carrying no Rule 46(a)
+    /// address. <c>Country</c> is left at its real default below; the guard under test is
+    /// <c>SupplierPostalAddressText</c>.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_with_no_address_still_prints_exactly_as_before()
+    {
+        var k = NewGstKit("Print No Seller Address Co");
+        var c = k.Vm.Company!;
+        c.Address = null;
+        c.Pin = null;
+        Assert.Equal("India", c.Country);   // NOT doctored: the real default, on the real creation path
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(c,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Empty(invoice.Seller.AddressLines);
+        Assert.Equal(GstinMaharashtra, invoice.Seller.Gstin);
+    }
+
+    /// <summary>
+    /// The companion to the test above, and the only fixture that represents <b>any book on disk today</b>: a
+    /// company built by the real <c>CreateCompany()</c> path with nothing else set. Its postal state is read off
+    /// that path rather than hand-written, so the fixture cannot drift away from what the product actually
+    /// produces — if <c>CreateCompany()</c> ever starts capturing an address, the probe assertions fail here
+    /// first.
+    /// </summary>
+    [Fact]
+    public void A_freshly_created_company_prints_no_supplier_address_lines_at_all()
+    {
+        // What the ONLY company-creation path in the product actually produces.
+        var probeVm = new MainWindowViewModel(_storage) { NewCompanyName = "Freshly Created Probe Co" };
+        probeVm.CreateCompany();
+        var fresh = probeVm.Company!;
+        Assert.True(string.IsNullOrWhiteSpace(fresh.Address));   // no assignment site in src/Apex.Desktop
+        Assert.Equal("India", fresh.Country);                    // non-null default, never typed by anyone
+        Assert.Null(fresh.Pin);
+
+        // Reproduce exactly that postal state on a printable fixture.
+        var k = NewGstKit("Print Fresh Company Co");
+        var c = k.Vm.Company!;
+        c.Address = fresh.Address;
+        c.Country = fresh.Country;
+        c.Pin = fresh.Pin;
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(c,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Empty(invoice.Seller.AddressLines);
+
+        // And nothing stray reaches the rendered document either.
+        var text = AsLatin1(PrintDrilledVoucher(k.Vm, k.Vm.Company!.Vouchers.Last().Id).PdfBytes);
+        Assert.DoesNotContain("PIN:", text);
+        Assert.DoesNotContain("India", text);
+    }
+
+    /// <summary>
+    /// The country blank-guard is <b>load-bearing, and this is the test that proves it</b>. A party may capture an
+    /// address and a PIN and leave Country empty — <c>PartyMailingDetails.Country</c> is nullable and the mailing
+    /// screen does not require it — and the shared address builder must skip it rather than dereference it.
+    /// <para><b>Why this test exists at all:</b> mutating the guard away to <c>country!.Trim()</c> left the ENTIRE
+    /// 2,129-test Desktop suite green, because every party fixture in the repository happened to set Country and
+    /// every company defaults it to "India". The guard was therefore unprovable — dead by the standard this repo
+    /// holds itself to — until a fixture existed that actually walks the null. Note the whitespace half of the same
+    /// guard is genuinely redundant (<see cref="SplitAddress"/> drops blank entries); the NULL half is not.</para>
+    /// </summary>
+    [Fact]
+    public void A_party_with_an_address_and_PIN_but_no_country_prints_both_and_does_not_crash()
+    {
+        var k = NewGstKit("Print No Country Co");
+        var party = k.Vm.Company!.FindLedger(k.LocalCustomerId)!;
+        party.Mailing = new PartyMailingDetails
+        {
+            MailingName = "Naresh Traders Private Limited",
+            Address = "37B Kalyani Nagar\nYerawada",
+            Country = null,
+            Pincode = "411037",
+        };
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(k.Vm.Company!,
+            PostSaleInvoice(k, k.LocalCustomerId,
+                e => FillItemLine(e, k.WidgetId, k.MainGodownId, 3m, "917.13")));
+
+        Assert.Equal(
+            new[] { "37B Kalyani Nagar", "Yerawada", "PIN: 411037" },
+            invoice.Buyer.AddressLines);
     }
 
     // ================================================================ RQ-11: inter-state IGST + place of supply

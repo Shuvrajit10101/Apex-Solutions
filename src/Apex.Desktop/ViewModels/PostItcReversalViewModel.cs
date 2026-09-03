@@ -243,7 +243,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                 SourceVouchers.Add(new ItcReversalSourceRowVm
                 {
                     VoucherId = v.Id,
-                    DocNo = EInvoiceService.DocumentNumberOf(v),
+                    DocNo = EInvoiceService.DocumentNumberOf(_company, v),
                     Date = ApexDate.Format(v.Date),
                     Party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name ?? string.Empty : string.Empty,
                     InputTax = R(itc),
@@ -269,7 +269,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         foreach (var line in voucher.Lines)
         {
             if (line.Gst is not { } g || g.IsReverseCharge || g.Adjustment is not null) continue;
-            total += (long)Math.Round(line.Amount.Amount * 100m, MidpointRounding.AwayFromZero);
+            total += Apex.Ledger.PaisaConversion.ToPaisaRounded(line.Amount); // ONE rule (D3), ROUNDED
         }
         return total;
     }
@@ -587,13 +587,12 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
             error = $"{label}: '{text}' is not a valid rupee amount.";
             return false;
         }
-        var scaled = r * 100m;
-        if (scaled != decimal.Truncate(scaled))
+        // ONE sub-paisa test (drift lock D3).
+        if (!Apex.Ledger.PaisaConversion.TryToPaisaExact(r, out paisa))
         {
             error = $"{label}: '{text}' is finer than a paisa.";
             return false;
         }
-        paisa = (long)scaled;
         return true;
     }
 

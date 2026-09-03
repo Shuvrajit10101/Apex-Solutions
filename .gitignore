@@ -71,3 +71,10 @@ desktop.ini
 # copyrighted Tally Prime study PDFs and must stay out of the repository.
 # ---------------------------------------------------------------------------
 tally/
+
+# ---------------------------------------------------------------------------
+# HEAD-oracle harness scratch (tools/HeadOracle). The pristine engine snapshot
+# and the per-run build trees are regenerated artefacts, never sources.
+# ---------------------------------------------------------------------------
+.oracle-baseline/
+.oracle-work/

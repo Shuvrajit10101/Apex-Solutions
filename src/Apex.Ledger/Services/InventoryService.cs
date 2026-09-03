@@ -291,13 +291,21 @@ public sealed class InventoryService
         return item;
     }
 
-    /// <summary>Deletes a stock item, blocked while it carries any opening allocation.</summary>
+    /// <summary>
+    /// Deletes a stock item, blocked by the SHARED delete guard.
+    ///
+    /// <para>🔴 <b>This used to carry its own, weaker rule</b> — "blocked while it carries any opening allocation",
+    /// one of the eleven columns that reference <c>stock_items(id)</c>. Phase 10.11 S4 added a second delete route
+    /// through <see cref="MasterDeletionRules.EnsureStockItemDeletable"/> and left this one in place with no caller,
+    /// so the next caller would have picked the weak one and deleted an item a BOM, a batch or an invoice line
+    /// still held — an unsavable company. It now delegates: one rule, one place to correct it, and the two routes
+    /// cannot diverge.</para>
+    /// </summary>
     public void DeleteStockItem(Guid stockItemId)
     {
         var item = _company.FindStockItem(stockItemId)
             ?? throw new InvalidOperationException($"Stock item {stockItemId} not found.");
-        if (_company.StockOpeningBalances.Any(b => b.StockItemId == stockItemId))
-            throw new InvalidOperationException($"Stock item '{item.Name}' has opening stock and cannot be deleted.");
+        MasterDeletionRules.EnsureStockItemDeletable(_company, item);
         _company.RemoveStockItem(item);
     }
 

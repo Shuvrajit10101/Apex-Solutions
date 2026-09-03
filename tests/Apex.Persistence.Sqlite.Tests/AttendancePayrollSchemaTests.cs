@@ -181,6 +181,9 @@ public sealed class AttendancePayrollSchemaTests
         CREATE TABLE employees (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE attendance_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         -- voucher_types is required because the chain now runs through the v38→v39 RCM migration, whose
         -- ALTER TABLE voucher_types ADD COLUMN is_rcm_payment_voucher needs the table to exist.
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
@@ -190,5 +193,12 @@ public sealed class AttendancePayrollSchemaTests
         -- exist. A real database of this vintage always has it (created at v12); this fixture is a minimal
         -- hand-written subset, so the table is declared here for the ALTER to land on.
         CREATE TABLE voucher_inventory_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0, rate_paisa INTEGER NOT NULL DEFAULT 0);
+        -- groups and stock_groups are required because the chain now runs through the v50->v51 GST-hierarchy
+        -- migration, whose ALTER TABLE groups / stock_groups ADD COLUMN gst_hsn_sac/gst_taxability/gst_rate_bp/
+        -- gst_supply_type needs both tables to exist. A real database of this vintage always has them (groups at
+        -- v1, stock_groups at v9); this fixture is a minimal hand-written subset, so they are declared here for
+        -- the ALTERs to land on.
+        CREATE TABLE groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        CREATE TABLE stock_groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 }

@@ -162,7 +162,14 @@ public static class ReportTabularProjector
         TabularCell[] cells;
         if (vm.IsAccountingReport)
         {
-            var particulars = TabularCell.Text(r.Particulars);
+            // 🔴 Phase 10.11 S3 — the export twin of the same defect described in
+            // `ReportPrintProjector.ProjectRow`: this projection is what CSV, XLSX and the emailed workbook are
+            // built from, and it emitted a cancelled Day Book row with its full amount and no marker of any kind
+            // (the "(Cancelled)" tag lives in `ReportRow.Secondary`, which has no cell here). The Amount cell stays
+            // a real Number so the spreadsheet still sums the column exactly as the screen totals it; the fact
+            // rides on the label, where a reader sees it.
+            var particulars = TabularCell.Text(
+                r.IsCancelled ? r.Particulars + "  (Cancelled)" : r.Particulars);
             cells = vm.IsTwoColumn
                 ? new[] { particulars, MoneyCell(r.Debit), MoneyCell(r.Credit) }
                 : new[] { particulars, MoneyCell(r.Amount) };

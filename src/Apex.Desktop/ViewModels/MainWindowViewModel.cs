@@ -7,6 +7,11 @@ using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+// Aliased rather than importing Apex.Ledger.Services wholesale: this file deliberately fully-qualifies engine
+// services (ManufacturingJournalService, …) so that namespace cannot start shadowing Apex.Desktop.Services.
+using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
+// Phase 10.11 S4 — the Delete guards. Aliased for the reason above, not imported.
+using MasterDeletionRules = Apex.Ledger.Services.MasterDeletionRules;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -15,6 +20,13 @@ public enum Screen
 {
     CompanySelect,
     CreateCompany,
+
+    // Company Alteration — the profile fields of the OPEN company (mailing name, postal block, book dates,
+    // base currency), reached from the Gateway's Company section. Its own screen id rather than a mode flag on
+    // CreateCompany because the two are reached from different places: creation must work with no company open,
+    // alteration needs one.
+    AlterCompany,
+
     Gateway,
     Report,
 
@@ -34,6 +46,11 @@ public enum Screen
     Export,
     ExportData,
     ImportData,
+
+    // Data -> Backup / Restore: the backup carve-out from the otherwise-excluded Phase 10, because plan.md names
+    // backup as the mitigation for its OWN top-ranked data-loss risk (R-7).
+    BackupCompany,
+    RestoreCompany,
     EmailCompose,
     SmtpSettings,
     VoucherEntry,
@@ -67,6 +84,10 @@ public enum Screen
     PosBilling,
     GstConfig,
     GstRateSetup,
+
+    // F12 voucher-numbering configuration (numbering-design-v2 §5; §9 S4) — pushed as a cascade column over a
+    // voucher-entry context; edits the per-type Prefix/Suffix/Width/Prefill/Prevent-duplicate S3-persisted fields.
+    VoucherNumberingConfig,
 
     // Composition returns (Phase 9 slice 3; RQ-16) — CMP-08 (quarterly) + GSTR-4 (annual), surfaced only for a
     // Composition dealer under Reports → Statutory Reports → Composition Returns.
@@ -207,6 +228,10 @@ public enum GatewayMenu
     // Reports → Payroll Reports (Phase 8 slice 8): the payslip + pay sheet + payroll register + attendance register +
     // payment advice, a group under the Reports root shown only when Payroll is enabled.
     PayrollReports,
+
+    // Data -> Backup / Restore: the two data-safety screens, nested under a "Data" section on the Gateway root so
+    // backup is reachable through the ordinary cascade, not a hidden hotkey.
+    Data,
 }
 
 /// <summary>
@@ -341,8 +366,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty] private PosBillingViewModel? _posBilling;
 
+    /// <summary>The Company Alteration profile page, non-null only while that page is open.</summary>
+    [ObservableProperty] private CompanyProfileViewModel? _alterCompany;
+
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
+
+    /// <summary>The F12 voucher-numbering configuration (numbering S4) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private VoucherNumberingConfigViewModel? _voucherNumberingConfig;
 
     /// <summary>The GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance) view model, non-null only while open.</summary>
     [ObservableProperty] private GstRateSetupViewModel? _gstRateSetup;
@@ -539,6 +570,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The O / Alt+O "Import" (canonical/CSV company import, RQ-20..24) panel, non-null only while that column is open.</summary>
     [ObservableProperty] private ImportDataViewModel? _importDataPanel;
 
+    /// <summary>The Data -> "Backup Company" panel (the R-7 carve-out), non-null only while that column is open.</summary>
+    [ObservableProperty] private BackupCompanyViewModel? _backupCompanyPanel;
+
+    /// <summary>The Data -> "Restore Company" panel (the R-7 carve-out), non-null only while that column is open.</summary>
+    [ObservableProperty] private RestoreCompanyViewModel? _restoreCompanyPanel;
+
     /// <summary>The M / Ctrl+M "E-Mail" compose panel (RQ-25/26), non-null only while that column is open.</summary>
     [ObservableProperty] private EmailComposeViewModel? _emailCompose;
 
@@ -590,6 +627,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
+        && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
         && LedgerVouchers is null && VoucherDetail is null;
 
@@ -685,6 +723,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBackupCompanyPanelChanged(BackupCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnRestoreCompanyPanelChanged(RestoreCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -738,6 +778,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
 
+        // Built HERE and not in ShowCreateCompany, so it is never null. The company-creation screen is driven
+        // directly by ~150 test fixtures that set NewCompanyName and call CreateCompany() without ever opening
+        // the screen; a lazily-built form would make CreateCompany read a null and need a second code path.
+        CreateCompanyProfile = new CompanyProfileViewModel(_storage, () => { });
+
         // WI-9: the SHARED choke point for bare-letter hotkeys. Columns are pushed from ~125 call sites, so
         // assigning here — as a column enters the cascade — is what makes the accelerators reach EVERY menu
         // column (root, submenu, picker) instead of only the ones a builder remembered to call. Page columns
@@ -784,18 +829,71 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    /// <summary>
+    /// The company-creation form's profile fields (mailing name, postal block, book dates, base currency).
+    ///
+    /// <para><b>The NAME is deliberately NOT read from here.</b> It stays on <see cref="NewCompanyName"/>,
+    /// which ~150 test fixtures set directly before calling <see cref="CreateCompany"/>, and which the
+    /// creation form has always bound. Routing it through this form as well would give the same value two
+    /// homes and one of them would eventually go stale.</para>
+    /// </summary>
+    public CompanyProfileViewModel CreateCompanyProfile { get; }
+
     private void ShowCreateCompany()
     {
         CurrentScreen = Screen.CreateCompany;
         ScreenTitle = "Company Creation";
         NewCompanyName = string.Empty;
-        Message = "Enter the company name, then press Enter (Ctrl+A) to create.";
+        ResetCreateCompanyProfile();
+        Message = "Enter the company details, then press Ctrl+A (or Enter) to create.";
         LeaveCascade();
         Menu.Clear();
         BuildButtonBar();
     }
 
-    /// <summary>Creates a fresh seeded company, saves it, and opens it. No-op on a blank name.</summary>
+    /// <summary>Clears the creation form back to its seeded defaults, so a second create starts blank.</summary>
+    private void ResetCreateCompanyProfile()
+    {
+        CreateCompanyProfile.MailingName = string.Empty;
+        CreateCompanyProfile.Address = string.Empty;
+        CreateCompanyProfile.SelectedState = null;
+        CreateCompanyProfile.Country = "India";
+        CreateCompanyProfile.Pin = string.Empty;
+        CreateCompanyProfile.FinancialYearStartText = string.Empty;
+        CreateCompanyProfile.BooksBeginFromText = string.Empty;
+        CreateCompanyProfile.BaseCurrencySymbol = "₹";
+        CreateCompanyProfile.BaseCurrencyName = "INR";
+        CreateCompanyProfile.DecimalPlacesText = "2";
+        CreateCompanyProfile.DecimalUnitName = "Paisa";
+        CreateCompanyProfile.ClearMessage();
+    }
+
+    /// <summary>
+    /// Creates a fresh seeded company from the creation form, saves it, and opens it. No-op on a blank name.
+    ///
+    /// <para><b>A creation where nothing but the name was typed must stay byte-identical to what this method
+    /// produced before the form existed.</b> Every profile field is applied only when it was actually typed —
+    /// blank leaves the seeded default in place — and the two dates are passed through as <c>null</c> so
+    /// <c>CompanyFactory.CreateSeeded</c>'s own defaulting still governs. That is what keeps ~150 existing
+    /// fixtures, and every book already on disk, exactly where they were.</para>
+    ///
+    /// <para><b>🔴 THE NAME COLLISION IS REFUSED HERE, and it is a book-eater, not a nicety.</b> The company's
+    /// <c>.db</c> path is derived from its name with the invalid filename characters replaced
+    /// (<c>CompanyStorage.PathForName</c>), and <c>CompanyStorage.Load</c> takes the FIRST company row in the
+    /// file. So creating "Acme/Traders" on a machine that already has "Acme_Traders" used to write a SECOND
+    /// company row into the FIRST company's file, with no exception and no message — and everything typed into
+    /// the second one then became unreachable forever, because the loader never returns it. Alteration already
+    /// refuses to rename for exactly this reason (<c>CompanyProfileViewModel.IsNameEditable</c>); refusing a
+    /// rename while leaving the identical hole open on create is not a coherent position, so the check is here
+    /// too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
+    /// only the identical name. <b>WHICH pairs collide is platform-dependent</b> — <c>/</c> collapses
+    /// everywhere, <c>:</c> only on Windows; see <c>CompanyStorage.PathForName</c> for the full note.</para>
+    ///
+    /// <para><b>And the domain's own refusals are reported, not thrown.</b> <c>CreateSeeded</c> runs
+    /// <c>new Company(...)</c>, whose constructor throws on an impossible pair of book dates; nothing between
+    /// here and the Avalonia dispatcher catches, so an escaped exception is a crash with no message on the
+    /// form. The screen pre-validates, and this is the backstop behind it.</para>
+    /// </summary>
     public void CreateCompany()
     {
         var name = (NewCompanyName ?? string.Empty).Trim();
@@ -805,9 +903,79 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var company = Apex.Ledger.Services.CompanyFactory.CreateSeeded(name);
-        _storage.Save(company);
+        if (_storage.Exists(name))
+        {
+            Message = $"A company file already exists for '{name}'. "
+                    + "Company names must differ by more than the characters a filename cannot hold.";
+            return;
+        }
+
+        // Pre-validate the typed profile BEFORE anything is created, so a bad PIN or an impossible pair of
+        // book dates is a message on the form rather than a half-created company.
+        if (!CreateCompanyProfile.TryReadForCreate(out var profile))
+        {
+            Message = CreateCompanyProfile.Message;
+            return;
+        }
+
+        Company company;
+        try
+        {
+            company = Apex.Ledger.Services.CompanyFactory.CreateSeeded(
+                name, profile.FinancialYearStart, profile.BooksBeginFrom);
+
+            if (profile.MailingName is { } mailing) company.MailingName = mailing;
+            if (profile.Address is { } address) company.Address = address;
+            if (profile.State is { } state) company.State = state;
+            if (profile.Country is { } country) company.Country = country;
+            if (profile.Pin is { } pin) company.Pin = pin;
+            if (profile.BaseCurrencySymbol is { } symbol) company.BaseCurrencySymbol = symbol;
+            if (profile.BaseCurrencyName is { } currency) company.BaseCurrencyName = currency;
+            if (profile.DecimalPlaces is { } places) company.DecimalPlaces = places;
+            if (profile.DecimalUnitName is { } unit) company.DecimalUnitName = unit;
+
+            _storage.Save(company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // Nothing has been opened, so there is nothing to roll back — the half-built aggregate is local and
+            // is dropped with the frame. The form keeps everything the operator typed.
+            CreateCompanyProfile.Refuse(ex.Message);
+            Message = ex.Message;
+            return;
+        }
+
         OpenCompany(company);
+    }
+
+    /// <summary>
+    /// Opens <b>Company Alteration</b> for the OPEN company as a cascade page column: the same profile fields
+    /// the creation screen captures, pre-filled, with the name shown read-only (renaming would fork the book —
+    /// see <see cref="CompanyProfileViewModel.IsNameEditable"/>).
+    ///
+    /// <para><b>No accelerator — and the honest reason is scope, not a chord collision.</b> The reference
+    /// product reaches company alteration through a COMPANY MENU on <c>Alt+K</c> (Book PDF p.15, Study Guide
+    /// pp.61/267 — both [V]). This row shipped saying that chord "is already bound in this application", which
+    /// overstates it: measured at <c>Views/MainWindow.axaml.cs</c> line 757 (re-pointed 2026-08-18 — the
+    /// comment cited line 653, which now holds the Ctrl+T post-dated toggle; re-located by CONTENT, since the
+    /// file's only <c>Key.K</c> test is the one quoted next), the saved-views binding is
+    /// <c>Key.K &amp;&amp; Alt &amp;&amp; vm.IsReportContext</c> — it is bound in REPORT context only, and on
+    /// the Gateway root column, where this row lives, <c>Alt+K</c> is unbound. The dispatcher already scopes
+    /// that chord by context, so a Gateway-scoped one would follow the existing pattern rather than create an
+    /// arbitration hazard.
+    /// <b>What is actually missing is the menu the chord opens.</b> The attested route is Alt+K → a company
+    /// menu → Alter, and this application has no company menu; binding Alt+K straight to this one page would
+    /// be an invented shortcut wearing an attested chord, which is worse than none. The row is therefore
+    /// reached by arrow and Enter, like Chart of Accounts, and the company menu is logged as owed —
+    /// <c>docs/w0-2-company-screen-grounding.md</c> §9 item 17.</para>
+    /// </summary>
+    public void ShowAlterCompany()
+    {
+        if (Company is null) return;
+
+        var page = new CompanyProfileViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Company Alteration", page), Screen.AlterCompany,
+            "Company Alteration", () => AlterCompany = page);
     }
 
     /// <summary>Builds, saves and opens the embedded Robert demo (creating a populated company).</summary>
@@ -880,14 +1048,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
-    /// <summary>Builds the root Gateway menu column (the three sections and their items).</summary>
+    /// <summary>Builds the root Gateway menu column (its section headers and their items).</summary>
     private GatewayColumn BuildRootColumn()
     {
         var col = new GatewayColumn("Gateway of Apex Solutions");
 
         // ---- MASTERS ----
+        // "Alter Company" sits HERE, between Create and Chart of Accounts, and the placement is a correction,
+        // not a preference. `docs/invented-vs-cloned.md` IV-29 records this exact menu as invented — "The
+        // Gateway's sections and vocabulary are ours, not Tally's — and 'Alter' is not on it" — diagnoses the
+        // cause as "the menu GREW A SECTION PER PHASE rather than being laid out once from the reference
+        // product", and prescribes: add "Alter" to MASTERS. This row first shipped as a NEW "Company" section
+        // placed AHEAD of Masters, i.e. all three moves IV-29 names as wrong, and it moved the Gateway's
+        // default keyboard highlight off Masters → Create for every entry into the screen — a product-wide
+        // navigation change riding in on an address-capture slice. Under Masters the highlight is back where
+        // it was and the section list is the one the register already catalogues.
+        // The DIVERGENCE that remains is recorded rather than hidden: the reference product's Masters → Alter
+        // is a master-alteration submenu, whereas this row alters the COMPANY. See IV-29 and
+        // docs/w0-2-company-screen-grounding.md §9 item 17.
         col.Add(MenuItemViewModel.Header("Masters"));
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Alter Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- STATUTORY (F11 Company Features → Statutory Configuration) ----
@@ -935,6 +1116,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
+        // ---- DATA (the backup/restore carve-out from the otherwise-excluded Phase 10) ----
+        // plan.md names backup/restore as the mitigation for its OWN top-ranked data-loss risk (R-7) and then puts
+        // it in a phase that is excluded. It is surfaced here as a first-class Gateway section, not a hidden
+        // hotkey, because a safety net nobody can find is not a safety net. Only Backup/Restore is carved out —
+        // the rest of Phase 10 (security, roles, audit trail, vault) stays excluded.
+        col.Add(MenuItemViewModel.Header("Data"));
+        col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
 
@@ -942,8 +1131,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the "Vouchers" submenu column (Transactions → Vouchers): the six accounting voucher
-    /// types, each a page item under its F-key.
+    /// Builds the "Vouchers" submenu column (Transactions → Vouchers): the eight accounting voucher types —
+    /// Contra/Payment/Receipt/Journal/Sales/Purchase under F4–F9, then Credit Note (Alt+F6) and Debit Note
+    /// (Alt+F5) — each a page item under its key.
     /// </summary>
     private GatewayColumn BuildVouchersColumn()
     {
@@ -955,6 +1145,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Journal", () => { }, "F7", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
+        // Credit Note / Debit Note (Alt+F6 / Alt+F5). Two of the predefined types had NO menu row anywhere in the
+        // app — reachable only by their accelerator or the Day-Book Alt+A picker, so an operator who did not
+        // already know the key could not find them at all. They belong here beside the sales they reverse (Book
+        // p.24 lists Credit Note at #11 and Debit Note at #12), nested under this same VOUCHERS header rather
+        // than buried under "Other Vouchers" with the provisional kinds — they are ordinary weekly accounting
+        // vouchers (decision D9 option A). The hints are TallyPrime's keys, and the keys this app already binds,
+        // so neither row can advertise a dead key.
+        col.Add(new MenuItemViewModel("Credit Note", () => { }, "Alt+F6", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Debit Note", () => { }, "Alt+F5", isSubItem: true, kind: MenuItemKind.Page));
 
         // Inventory (stock/order) voucher kinds under their own groups (professional hierarchy):
         // Order Vouchers [PO, SO]; Inventory Vouchers [GRN, Delivery, Rejection In/Out, Stock Journal, Physical Stock].
@@ -1011,7 +1210,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Builds the "Inventory Vouchers" submenu column (Transactions → Vouchers → Inventory Vouchers): the six
     /// stock-moving kinds — <b>Receipt Note (GRN)</b> (Alt+F9), <b>Delivery Note</b> (Alt+F8),
     /// <b>Rejection In</b> (Ctrl+F6), <b>Rejection Out</b> (Ctrl+F5), <b>Stock Journal</b> (Alt+F7) and
-    /// <b>Physical Stock</b> (F10 menu) — each a page item. They move stock only (no accounting entry, DP-5).
+    /// <b>Physical Stock</b> (Ctrl+F7) — each a page item. They move stock only (no accounting entry, DP-5).
     /// </summary>
     private GatewayColumn BuildInventoryVouchersColumn()
     {
@@ -1022,7 +1221,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Rejection In", () => { }, "Ctrl+F6", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Rejection Out", () => { }, "Ctrl+F5", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Stock Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "F10", isSubItem: true, kind: MenuItemKind.Page));
+        // Physical Stock is Ctrl+F7 (TallyPrime's official key). This row printed "F10", which in this app opens
+        // the Other Vouchers menu — an advertised key that did something else, while Ctrl+F7 was bound to nothing.
+        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "Ctrl+F7", isSubItem: true, kind: MenuItemKind.Page));
         // Manufacturing Journal (Phase 6 Cluster 2; RQ-11/RQ-53) — a Stock-Journal-derived type reached under
         // Inventory Vouchers via Alt+F7 (the manufacturing shortcut), surfaced only when the F12 config
         // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
@@ -1109,6 +1310,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Banking"));
         col.Add(new MenuItemViewModel("Bank Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Backup / Restore" submenu column (Data → Backup / Restore): the two data-safety pages. A backup
+    /// is a version-stamped snapshot of the company DATABASE taken through the SQLite Online Backup API — a
+    /// different thing from Export Data (which serialises the aggregate to JSON/XML for interchange), and the two
+    /// are deliberately not conflated in the menu.
+    /// </summary>
+    private GatewayColumn BuildDataColumn()
+    {
+        var col = new GatewayColumn("Backup / Restore");
+        col.Add(MenuItemViewModel.Header("Backup / Restore"));
+        col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2152,6 +2368,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
+    /// True only while the report page is the <b>ACTIVE COLUMN</b> — the operator is standing ON the report, not
+    /// in something stacked over it.
+    ///
+    /// <para>🔴 <b>Why this exists next to <see cref="IsReportContext"/> rather than replacing it.</b> The two
+    /// answer different questions and a destructive verb needs this one. <see cref="IsReportContext"/> is
+    /// deliberately TRUE while an F12 config panel, an Alt+F12 sort/filter panel, an Alt+A add-voucher picker, an
+    /// Alt+K saved-views panel or a Print Preview column is open, because each of those leaves
+    /// <see cref="Reports"/> bound beneath it and the report-PARAMETER shortcuts must keep acting on the report
+    /// underneath. Phase 10.11 S3's Alt+X arm was written on it and inherited exactly that width: with the Day
+    /// Book row still highlighted behind the column, Alt+X raised the cancellation for the voucher BEHIND
+    /// whichever panel the operator was in, and a single Y voided it. <c>IsPickerOpen</c> does not close that hole
+    /// — it sees an open ComboBox popup, not a Miller column.</para>
+    ///
+    /// <para>Deliberately expressed as <see cref="Screen.Report"/> and nothing else, which is the same test
+    /// <see cref="DrillSelectedRow"/> already uses to decide that the report's own Enter belongs to it:
+    /// <see cref="Reports"/> is bound under exactly one screen (<see cref="OpenReport"/> and the column
+    /// re-bind), so this is "the live report page and no other surface".</para>
+    /// </summary>
+    public bool IsLiveReportPage => Reports is not null && CurrentScreen == Screen.Report;
+
+    /// <summary>
     /// True while the LIVE report is the Day Book (WI-12) — the single context the Alt+A "Add Voucher" picker is
     /// offered in. Stays true while its own picker column is open (<see cref="Reports"/> is left bound beneath the
     /// picker), so Esc/Back returns to the same live Day Book.
@@ -2731,6 +2968,83 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Import button on the Import panel: read + parse + engine-routed apply. Returns success.</summary>
     public bool ApplyImport() => ImportDataPanel?.Apply() ?? false;
 
+    // =============================================================== screen: backup / restore company (R-7)
+
+    /// <summary>
+    /// Gateway → Data → Backup / Restore → <b>Backup Company</b>: opens the panel that writes a consistent,
+    /// version-stamped snapshot of the open company's DATABASE to a single <c>.apexbak</c> archive. A no-op
+    /// unless a company is open; re-opening while the panel is up is a no-op (one column, not a stack).
+    /// </summary>
+    public void OpenBackupCompany()
+    {
+        if (BackupCompanyPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new BackupCompanyViewModel(Company, _storage);
+        BackupCompanyPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BackupCompany;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Backup button on the Backup panel: take the snapshot. Returns success.</summary>
+    public bool ApplyBackup() => BackupCompanyPanel?.Apply() ?? false;
+
+    /// <summary>
+    /// Opens the "Data → Backup / Restore" submenu column directly (Alt+Y, and the button-bar quick button).
+    /// Rebuilds the cascade to [root → Backup / Restore] and focuses the submenu, exactly as drilling would.
+    /// </summary>
+    public void ShowDataMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Backup / Restore");
+        OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data,
+            "Gateway of Apex Solutions — Backup / Restore");
+    }
+
+    /// <summary>
+    /// Gateway → Data → Backup / Restore → <b>Restore Company</b>: opens the panel that puts an archive back over
+    /// a company's database. The panel is two-step (Examine, then a confirmed Restore) — restore is the one
+    /// genuinely destructive operation here (NFR-8). A no-op unless a company is open.
+    /// </summary>
+    public void OpenRestoreCompany()
+    {
+        if (RestoreCompanyPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new RestoreCompanyViewModel(Company, _storage, onRestored: ReopenRestoredCompany);
+        RestoreCompanyPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.RestoreCompany;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+E / the Examine button on the Restore panel: read the manifest, arm nothing. Returns success.</summary>
+    public bool ExamineRestore() => RestoreCompanyPanel?.Examine() ?? false;
+
+    /// <summary>Ctrl+A / the Restore button on the Restore panel: replace the company database. Returns success.</summary>
+    public bool ApplyRestore() => RestoreCompanyPanel?.Apply() ?? false;
+
+    /// <summary>
+    /// After a successful restore the in-memory aggregate is the one that was just REPLACED, so every report and
+    /// every button-bar gate would still be answering from the overwritten data. Swap in the reloaded company and
+    /// refresh the derived shell state, keeping the panel visible so its success line stays readable.
+    /// </summary>
+    private void ReopenRestoredCompany(Company restored)
+    {
+        Company = restored;
+        StatusCompany = restored.Name;
+        StatusDate = ApexDate.Format(restored.FinancialYearStart);
+        Message = $"Restored '{restored.Name}' from backup.";
+        BuildButtonBar();
+    }
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -2746,19 +3060,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        // Resolve by RULE (active only, seeded series first, never a specialised variant) — not by "whatever came
+        // first, and if nothing is active open a deactivated one anyway". See VoucherTypeResolver for why that
+        // shape was wrong three ways.
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
+
+        OpenVoucher(type, date, onSaved);
+    }
+
+    /// <summary>
+    /// Opens the voucher-entry screen for an EXACT voucher type — the identity-preserving overload. A caller that
+    /// knows which series the operator chose (the Day-Book Alt+A picker row, a report drill-down) must come
+    /// through here: resolving that choice back down to its base kind would silently substitute a different
+    /// series, with a different name and a different number sequence.
+    /// </summary>
+    public void OpenVoucher(VoucherType type, DateOnly? date = null, Action? onSaved = null)
+    {
+        if (Company is null) return;
+        ArgumentNullException.ThrowIfNull(type);
 
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
             onSaved: onSaved ?? ShowGateway,
             onCancelled: BackFromPage,
             date: date);
+        // G-5 (BOOK pp.130–132): a batch-tracked line on a Purchase/Sales ITEM INVOICE opens the same real
+        // batch-allocation sub-screen the stock screens use — as a cascade column to the right, so the invoice
+        // stays beneath it and comes back intact on Esc. Wired here (not inside the entry VM) because the shell
+        // owns the cascade, exactly as OpenInventoryVoucher does.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
@@ -2783,13 +3119,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
+
+        OpenInventoryVoucher(type, date, onSaved);
+    }
+
+    /// <summary>
+    /// Opens the stock/order voucher-entry screen for an EXACT voucher type — the identity-preserving overload
+    /// (see <see cref="OpenVoucher(VoucherType, DateOnly?, Action?)"/> for why base-kind resolution is not good
+    /// enough for a caller that already knows the series).
+    /// </summary>
+    public void OpenInventoryVoucher(VoucherType type, DateOnly? date = null, Action? onSaved = null)
+    {
+        if (Company is null) return;
+        ArgumentNullException.ThrowIfNull(type);
 
         var entry = new InventoryVoucherEntryViewModel(
             Company, type, _storage,
@@ -2830,12 +3178,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
         var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
-        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive))
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
         {
-            var baseType = type.BaseType;
+            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
+            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
+            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
+            // than the row the operator was standing on.
+            var chosen = type;
             picker.Add(new MenuItemViewModel(
                 type.Name,
-                () => PickAddVoucherType(baseType, seedDate),
+                () => PickAddVoucherType(chosen, seedDate),
                 type.DefaultShortcut ?? string.Empty,
                 isSubItem: true,
                 kind: MenuItemKind.Action));
@@ -2853,13 +3205,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
-    /// the Day Book's place — one page column, honouring the cascade invariant) and opens that type's entry seeded
-    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
-    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material kinds to their own
-    /// dedicated screens (they carry no date/refresh override, matching their existing menu route).
+    /// WI-12 — whether a voucher type can be offered as something to ADD from the Day Book, i.e. whether choosing
+    /// it actually produces a voucher on the screen the operator is looking at.
+    /// <list type="bullet">
+    /// <item><b>Attendance</b> never can. Nothing in the product posts a <c>Voucher</c> of that base kind — the
+    /// Attendance / Production screen writes <c>AttendanceEntry</c> rows — so offering it would advertise an entry
+    /// that cannot be made. The seed row is gone (see <c>SeedVoucherTypes</c>), but a company created before that
+    /// still carries a stored Attendance row that a data migration has not removed, so the guard stays.</item>
+    /// <item>A <b>Manufacturing Journal</b> type is offered only while the F12 "Set Components (BOM)" config is
+    /// on, exactly like its menu row — its screen is gated on that config and would silently not open.</item>
+    /// </list>
     /// </summary>
-    private void PickAddVoucherType(VoucherBaseType baseType, DateOnly? seedDate)
+    private bool CanAddFromDayBook(VoucherType type) =>
+        type.BaseType != VoucherBaseType.Attendance
+        && (!type.IsManufacturingJournal || Company is { SetComponentsBom: true });
+
+    /// <summary>
+    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
+    /// the Day Book's place — one page column, honouring the cascade invariant) and opens THAT TYPE's entry seeded
+    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
+    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material / Payroll /
+    /// Manufacturing-Journal / POS kinds to their own dedicated screens (those carry no date/refresh override,
+    /// matching their existing menu route).
+    /// <para>The parameter is the chosen <see cref="VoucherType"/>, not its base kind: two types can share a base
+    /// (a second Sales series; a Manufacturing Journal over Stock Journal; a POS Sales type), and re-resolving the
+    /// base opened whichever one the resolver preferred rather than the row the operator picked.</para>
+    /// </summary>
+    private void PickAddVoucherType(VoucherType type, DateOnly? seedDate)
     {
         // Drop the picker menu column so OpenPageColumn's trim leaves exactly one page column (the new voucher,
         // in the Day Book's place). Without this the picker (a menu column) would survive the trim.
@@ -2869,17 +3241,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // On save, return to a freshly-built Day Book (its projection now includes the just-posted voucher).
         Action refreshDayBook = () => OpenReport(ReportKind.DayBook);
 
-        switch (baseType)
+        // Types whose identity means a DIFFERENT SCREEN, not just a different series — checked before the base
+        // switch, because each of these shares its base kind with an ordinary type.
+        if (type.IsManufacturingJournal) { OpenManufacturingJournal(); return; }
+        if (type.IsPosSales) { OpenPosBilling(); return; }
+
+        switch (type.BaseType)
         {
             case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
             case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
             case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
             case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            // A Payroll voucher is computed on its own screen (period + employees + Compute), never keyed as a
+            // bare Dr/Cr grid — which is what routing it through the accounting entry would have given.
+            case VoucherBaseType.Payroll: ShowPayrollVoucher(); break;
             default:
-                if (VoucherEffects.IsInventoryBaseType(baseType))
-                    OpenInventoryVoucher(baseType, seedDate, refreshDayBook);
+                if (VoucherEffects.IsInventoryBaseType(type.BaseType))
+                    OpenInventoryVoucher(type, seedDate, refreshDayBook);
                 else
-                    OpenVoucher(baseType, seedDate, refreshDayBook);
+                    OpenVoucher(type, seedDate, refreshDayBook);
                 break;
         }
     }
@@ -3301,11 +3681,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var baseType = direction == JobWorkDirection.In
             ? VoucherBaseType.JobWorkInOrder
             : VoucherBaseType.JobWorkOutOrder;
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
@@ -3330,11 +3709,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
         if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
@@ -4388,13 +4766,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the Outstandings page (Reports → Statements of Accounts → Outstandings → Receivables/Payables)
     /// as a page column: the open bill-wise bills for the chosen side with due date, pending amount and
-    /// ageing. Spacebar multi-select + Ctrl+B settle bills through the engine, then the report refreshes.
+    /// ageing. Spacebar multi-selects bills and Alt+A opens a settlement voucher pre-loaded with them; the page
+    /// itself posts nothing.
     /// </summary>
     public void OpenOutstandings(OutstandingsKind kind)
     {
         if (Company is null) return;
 
-        var vm = new OutstandingsViewModel(Company, _storage, kind, onChanged: () => { });
+        var vm = new OutstandingsViewModel(Company, kind);
         var title = kind == OutstandingsKind.Receivables ? "Outstandings — Receivables" : "Outstandings — Payables";
         OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Outstandings, title,
             () => Outstandings = vm);
@@ -4531,7 +4910,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         JobWorkOrderEntry = null;
         MaterialMovementEntry = null;
         PosBilling = null;
+        AlterCompany = null;
         GstConfig = null;
+        VoucherNumberingConfig = null;
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
@@ -4593,6 +4974,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
+        BackupCompanyPanel = null;
+        RestoreCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
         LedgerVouchers = null;
@@ -4620,8 +5003,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A on a form page: accept the current voucher / create the current ledger.</summary>
     public void AcceptCurrent() => ActivateSelected();
 
-    /// <summary>Alt+X: cancel the in-progress voucher (no save) and pop its page column.</summary>
-    public void CancelVoucher()
+    /// <summary>
+    /// ABANDONS the in-progress entry screen — discards what is being keyed (no save) and pops its page column.
+    /// This is the <b>Escape</b> verb and the verb behind the six on-screen "Cancel" buttons.
+    ///
+    /// <para><b>🔴 It is NOT voucher cancellation, and it used to be called <c>CancelVoucher</c>.</b> Under that
+    /// name it was bound to Alt+X app-wide, which spent the reference product's voucher-CANCEL accelerator on
+    /// throwing away the screen. Phase 10.11 S3 took Alt+X back for
+    /// <see cref="RequestCancelHighlightedVoucher"/> and renamed this method to what it actually does, so the two
+    /// verbs can never again be confused by their names. Renamed rather than deleted <b>deliberately</b>: the
+    /// plan's wording ("delete it so the compile breaks") would have destroyed a live feature — the rename breaks
+    /// the compile at every stale caller just the same, and the behaviour survives.</para>
+    /// </summary>
+    public void AbandonEntry()
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
@@ -4650,21 +5044,1013 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             BackFromPage();
     }
 
+    // ====================================================== Phase 10.11 S3: Alt+X — cancel a POSTED voucher
+
+    /// <summary>
+    /// The voucher a raised cancellation confirmation will act on, or <see cref="Guid.Empty"/> when the
+    /// confirmation currently up (if any) is the ordinary master Accept.
+    ///
+    /// <para>This is what makes the WI-11 confirmation ONE channel rather than two. A second flag + a second
+    /// pair of Y/N key arms would have to be inserted somewhere in the window's first-match-wins chain, and the
+    /// Alt+Y hole S1 closed (a stray accelerator answering a confirmation nobody read) is exactly the class of
+    /// defect that duplication produces. Arming this id re-points the SAME prompt at a different action;
+    /// <see cref="ConfirmMasterAccept"/> branches on it and <see cref="ResetMasterAcceptPrompt"/> disarms it.</para>
+    /// </summary>
+    private Guid _pendingCancelVoucherId;
+
+    /// <summary>
+    /// <b>Alt+X — raise the single Y/N confirmation for cancelling the voucher highlighted in the live report.</b>
+    /// Returns <c>true</c> when the prompt was raised; <c>false</c> (a quiet no-op, or a named message) otherwise.
+    ///
+    /// <para><b>🔴 FIDELITY — UNVERIFIED-BY-DESIGN, our choice, corpus silent.</b> The source corpus says only
+    /// that Alt+X cancels a voucher (Book PDF p.437); it nowhere describes what cancelling MEANS. Retaining the
+    /// voucher's number, leaving the books unaffected, greying the row, over-printing "CANCELLED" and <b>this
+    /// prompt's wording</b> are all OURS. The confirmation is deliberately a <b>SINGLE</b> prompt: the corpus's
+    /// published double confirmation ("… Yes or No?" then "Are you sure Yes or No?") is attested for a master and
+    /// for a group company, not for a voucher, and we decline to copy it across by analogy.</para>
+    ///
+    /// <para><b>The four gates, and why each is here rather than in the key handler.</b> The window's Alt+X arm
+    /// decides only that the keystroke is ours (report context, not typing, no open picker, no Ctrl). Everything
+    /// that depends on DATA is decided here so the on-screen route and any future button route cannot diverge
+    /// from the accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open, or no live report — inert;</item>
+    ///   <item>a confirmation is already up — inert, so Alt+X cannot stack a second prompt over the first;</item>
+    ///   <item>the highlighted row resolves to no voucher — a header, a total, an empty-state note, or no
+    ///         selection at all. One lookup answers all of them, including the <see cref="Guid.Empty"/> a
+    ///         non-drillable row carries, because no posted voucher can ever hold that id. A separate
+    ///         <c>id == Guid.Empty</c> clause stood here and was REMOVED after a mutation run showed nothing
+    ///         could distinguish it from the lookup: a guard no test can fail is dead code wearing the costume
+    ///         of safety;</item>
+    ///   <item>the voucher is ALREADY cancelled — refused with a named message rather than silently re-armed.
+    ///         Re-cancelling is harmless to the books, but a prompt that asks a question whose answer changes
+    ///         nothing trains an operator to answer prompts without reading them;</item>
+    ///   <item>🔴 the voucher still holds a LIVE IRN or a LIVE e-Way Bill — refused, naming the portal document,
+    ///         because cancelling it locally is a ONE-WAY DOOR that strands the statutory one. See
+    ///         <see cref="LiveStatutoryDocumentBlocker"/>.</item>
+    /// </list></para>
+    /// </summary>
+    public bool RequestCancelHighlightedVoucher()
+    {
+        if (Company is null || Reports is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // A previous outcome's notice goes before a new question is asked: the two bars share the status-bar row,
+        // so leaving a stale notice up would paint it underneath the confirmation the operator is being asked.
+        Notice = string.Empty;
+
+        if (Reports.SelectedRow is not { DrillVoucherId: var id }) return false;
+        if (Company.FindVoucher(id) is not { } voucher) return false;
+
+        if (voucher.Cancelled)
+        {
+            RaiseLifecycleNotice($"{VoucherLabel(voucher)} is already cancelled.");
+            return false;
+        }
+
+        if (LiveStatutoryDocumentBlocker(voucher) is { } blocker)
+        {
+            RaiseLifecycleNotice($"Cannot cancel {VoucherLabel(voucher)}: it carries {blocker}. "
+                              + "Cancel that at the portal first, then cancel the voucher.");
+            return false;
+        }
+
+        _pendingCancelVoucherId = id;
+        // 🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent (the corpus says only "To cancel a voucher", Book p.437).
+        // WHAT THIS SENTENCE MUST NOT SAY, and did: "the books are unaffected". It is the exact opposite of what
+        // cancelling does — every balance the voucher touched MOVES, which is the whole point of the verb and is
+        // what the design's own T-5 requires ("every balance moves by exactly the invoice"). There is no un-cancel
+        // (ORCHESTRATOR RULING 3) and no alteration route yet (S5), so an operator who read the old wording as "my
+        // figures will not move" and pressed Y had no way back. `The_prompt_tells_the_truth_about_the_books` now
+        // asserts the wording AND the balance movement in one case so the two cannot drift apart again.
+        AcceptPromptText = $"Cancel {VoucherLabel(voucher)}? "
+                           + "The number is kept, but the entry stops counting — every balance it touched will "
+                           + "move. This cannot be undone. (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// The live portal document that makes cancelling <paramref name="voucher"/> a one-way door, or <c>null</c>
+    /// when there is none.
+    ///
+    /// <para>🔴 <b>Why Cancel refuses instead of proceeding.</b> <c>LedgerService.Cancel</c> sets a flag and
+    /// nothing else, so a <c>Generated</c> <c>EInvoiceRecord</c> keeps its IRP-issued IRN, AckNo and AckDate. But
+    /// the ONLY route in the app to cancel that IRN at the IRP is the Generate E-Invoice screen, and its
+    /// <c>Rebuild()</c> lists <c>Vouchers.Where(v =&gt; !v.Cancelled)</c> — so the moment the voucher is cancelled
+    /// locally it LEAVES that screen and the IRN can never be cancelled from here again. The app would be holding
+    /// a live IRN for a document that is void in its own books, with no way back.
+    /// <c>GenerateEWayBillViewModel.Rebuild()</c> carries the identical filter, so the e-Way Bill has the identical
+    /// trap.</para>
+    ///
+    /// <para><b>Refusing is not a dead end — it is an ORDER.</b> The voucher is still live, so it is still listed
+    /// on both portal screens: cancel the IRN / EWB there (24-hour window), which moves the record to
+    /// <c>Cancelled</c>, and this gate lifts. The alternative — admitting locally-cancelled vouchers back into
+    /// those screens — would leave the two states drifting apart in every report meanwhile. This mirrors the
+    /// refusal §6.4 item 3 already specifies for Delete on a voucher carrying an e-invoice/e-Way record.</para>
+    ///
+    /// <para><b>Scope.</b> Only <c>Generated</c> blocks. <c>Pending</c> was never sent to the portal, and
+    /// <c>Cancelled</c> / <c>Failed</c> / <c>NotApplicable</c> hold nothing that can be stranded.</para>
+    /// </summary>
+    private string? LiveStatutoryDocumentBlocker(Voucher voucher)
+    {
+        if (Company is null) return null;
+
+        var irn = Company.EInvoiceRecords.FirstOrDefault(
+            r => r.SourceVoucherId == voucher.Id && r.Status == EInvoiceStatus.Generated);
+        var ewb = Company.EWayBillRecords.FirstOrDefault(
+            r => r.SourceVoucherId == voucher.Id && r.Status == EWayStatus.Generated);
+
+        return (irn, ewb) switch
+        {
+            (not null, not null) => "a live IRN and a live e-Way Bill",
+            (not null, null)     => "a live IRN",
+            (null, not null)     => "a live e-Way Bill",
+            _                    => null,
+        };
+    }
+
+    /// <summary>"Sales No. 3 dated 15-Apr-2024" — the operator-facing identity of a voucher, used in the
+    /// cancellation prompt and its result message so both name the same document the report row shows.</summary>
+    private string VoucherLabel(Voucher voucher)
+    {
+        var typeName = Company?.FindVoucherType(voucher.TypeId)?.Name ?? "Voucher";
+        var number = Company?.FormatVoucherNumber(voucher) ?? string.Empty;
+        var numberPart = string.IsNullOrWhiteSpace(number) ? string.Empty : $" No. {number}";
+        return $"{typeName}{numberPart} dated {voucher.Date:dd-MMM-yyyy}";
+    }
+
+    /// <summary>
+    /// "Y" on the cancellation confirmation: marks the armed voucher cancelled through the engine, persists, and
+    /// rebuilds the live report so the row greys immediately.
+    ///
+    /// <para>The engine call is <c>LedgerService.Cancel</c> and NOTHING else — S3 adds no engine semantics. The
+    /// voucher keeps its number (the engine sets a flag and never touches <c>Number</c>) and drops out of every
+    /// balance because <c>LedgerBalances.CountsAsOf</c> and <c>ItemInvoiceStock.Counts</c> already exclude
+    /// cancelled vouchers. Persisting through <c>_storage.Save</c> is the same route
+    /// <see cref="ConvertMemorandum"/> takes; the store is a snapshot, so a save is how the flag survives.</para>
+    ///
+    /// <para>🔴 <b>A FAILED SAVE ROLLS THE FLAG BACK.</b> The engine mutates the in-memory aggregate and the save
+    /// happens after it, so a save that throws used to leave the books cancelled in memory, nothing on disk, the
+    /// report un-rebuilt and the row still black — the aggregate silently AHEAD of the store, which is the state
+    /// every later save then carries. Two things were wrong and both are fixed here: the flag is restored in the
+    /// catch, and the catch actually catches what <c>_storage.Save</c> throws. <c>CompanyStorage.Save</c> opens
+    /// with <c>company.EnsureValid()</c>, and <c>Company.EnsureValid</c> throws <b>ArgumentException</b> (a bad
+    /// PIN, or books-begin before the year start — its own doc says such a book "loads without complaint … and
+    /// then the next save on any screen throws"). The old <c>catch (InvalidOperationException)</c> never saw it, so
+    /// the one genuinely reachable failure on this path was an unhandled exception out of the window's key handler
+    /// with the voucher already flagged. Restoring <c>Cancelled = false</c> is a ROLLBACK of a transaction that did
+    /// not commit — it is NOT an un-cancel feature (ORCHESTRATOR RULING 3 ships none) and no UI route reaches
+    /// it.</para>
+    ///
+    /// <para>🔴 <b>v52 — THE ROLLBACK NOW UNDOES BOTH HALVES.</b> <c>LedgerService.Cancel</c> also appends a
+    /// <c>VoucherEditLogEntry</c>, and a rollback that put the flag back while leaving the log line standing would
+    /// have left this company asserting a cancellation that never reached disk — which the NEXT successful save on
+    /// any screen would then persist. So the failure arm calls <c>LedgerService.DiscardUncommittedCancel</c>,
+    /// which clears the flag and drops that one entry together. It is also now the ONLY way this screen can clear
+    /// the flag at all: <c>Voucher.Cancelled</c>'s setter is <c>internal</c>.</para>
+    /// </summary>
+    private void CancelPendingVoucher(Guid voucherId)
+    {
+        if (Company is null) return;
+
+        var voucher = Company.FindVoucher(voucherId);
+        var service = new Apex.Ledger.Services.LedgerService(Company);
+
+        // v52 — the edit-log entry Cancel appends. Held so the failure arm can discard it: the rollback has to
+        // undo BOTH halves of the verb, or the log keeps a line saying this voucher was cancelled when it was not.
+        Apex.Ledger.Domain.VoucherEditLogEntry? logEntry = null;
+        try
+        {
+            logEntry = service.Cancel(voucherId);
+            _storage.Save(Company);
+        }
+        // 🔴 W0-13's shared predicate, NOT the narrow `is InvalidOperationException or ArgumentException` filter
+        // this line used to carry. `SaveFailure.IsReportable` exists precisely to replace that shape: it also
+        // admits DbException (SqliteException — BUSY from a second instance, READONLY, FULL), IOException,
+        // UnauthorizedAccessException and OverflowException, none of which the old filter saw. With the narrow
+        // filter a locked or read-only `.db` threw straight out of the window's key handler with the voucher
+        // already flagged in memory and NOTHING on the notice bar. The rollback above runs either way; only the
+        // report-vs-crash decision consults the predicate, which is the separation SaveFailure's own doc requires.
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // `logEntry` is null only when Cancel itself threw (an unknown voucher — also reportable), in which
+            // case nothing was flagged and nothing was logged, so there is nothing to undo.
+            if (logEntry is not null) service.DiscardUncommittedCancel(voucherId, logEntry);
+            RaiseLifecycleNotice($"Cannot cancel: {ex.Message}");
+            return;
+        }
+
+        RaiseLifecycleNotice(voucher is null
+            ? "Voucher cancelled."
+            : $"{VoucherLabel(voucher)} cancelled — the number is kept and every balance it touched has moved.");
+
+        // Rebuild the live report in place so the cancelled row greys and its amount leaves the running figures
+        // without the operator having to re-open the report.
+        Reports?.Show(Reports.Kind);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The one surface the lifecycle verbs can actually be SEEN on.</b> Every outcome of Alt+X (cancel) and
+    /// Alt+D (delete) — the refusals, a failed write and the success — reports through here.
+    ///
+    /// <para><b>Why not <see cref="Message"/>.</b> Alt+X works on exactly one screen, the live report page, and
+    /// that page CANNOT RENDER <see cref="Message"/>: the report <c>DataTemplate</c> is typed
+    /// <c>x:DataType="vm:ReportsViewModel"</c>, which has no <c>Message</c> property at all, and every
+    /// <c>{Binding Message}</c> in the window sits in a master/entry/action panel. So the "already cancelled"
+    /// refusal, the live-IRN refusal and — worst — a FAILED cancel were all indistinguishable from a dead key:
+    /// no bar, no text, nothing. This bar is declared at window level beside the WI-11 confirmation, so it is
+    /// visible on every screen including the report.</para>
+    ///
+    /// <para><b>Why not the WI-11 amber bar itself.</b> That bar is a QUESTION channel — while it is up the Y/N
+    /// arms are live. Painting a notice there would leave a bare <c>Y</c> answering a statement, which is the Alt+Y
+    /// hole S1 closed. <see cref="Message"/> is still set alongside, so the routes that DO render it keep
+    /// working and nothing that reads it changes.</para>
+    /// </summary>
+    private void RaiseLifecycleNotice(string text)
+    {
+        Message = text;
+        Notice = text;
+    }
+
+    /// <summary>
+    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation. Set only by the
+    /// Phase 10.11 lifecycle verbs — S3 cancel and S4 delete (see <see cref="RaiseLifecycleNotice"/>) — and cleared
+    /// on any change of screen, because a notice belongs to the screen it was raised on.
+    /// </summary>
+    [ObservableProperty] private string _notice = string.Empty;
+
+    // ====================================================== Phase 10.11 S4: Alt+D — DELETE a posted voucher/master
+
+    /// <summary>What an armed Alt+D confirmation is about to delete. <see cref="None"/> means the confirmation
+    /// currently up (if any) belongs to another verb.</summary>
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem }
+
+    /// <summary>
+    /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
+    /// <see cref="_pendingCancelVoucherId"/> is. A second flag plus a second pair of Y/N key arms would have to be
+    /// inserted into the window's first-match-wins chain, and the Alt+Y hole S1 closed (a stray accelerator
+    /// answering a confirmation nobody read) is the class of defect that duplication produces — with a
+    /// DESTRUCTIVE verb behind it this time. <see cref="ConfirmMasterAccept"/> branches on the kind and
+    /// <see cref="ResetMasterAcceptPrompt"/> disarms it.
+    /// </summary>
+    private DeletionTarget _pendingDeleteKind;
+    private Guid _pendingDeleteId;
+
+    /// <summary>
+    /// The five surfaces Alt+D is offered on (design §6.4 item 6): the live report page (the Day Book carries the
+    /// voucher rows), the register drill and the voucher-detail column beneath it, the Chart of Accounts, and the
+    /// Stock Item master's existing-items list.
+    ///
+    /// <para>🔴 <b>Why the report clause is <see cref="IsLiveReportPage"/> and not <see cref="IsReportContext"/>.</b>
+    /// Inherited straight from the S3 review finding: <c>IsReportContext</c> is deliberately TRUE while an F12
+    /// config, an Alt+F12 sort/filter, an Alt+A add-voucher picker, an Alt+K saved-views panel or a Print Preview
+    /// column is stacked over the report, because the report-PARAMETER shortcuts must keep acting on the report
+    /// underneath. A destructive verb written on it fires for the row BEHIND whichever column the operator is
+    /// standing in. <c>IsPickerOpen</c> cannot see that — it looks for an open ComboBox popup, not a Miller
+    /// column.</para>
+    ///
+    /// <para>The two drill columns are named EXPLICITLY rather than covered by a "report is bound" test, for the
+    /// same reason: <see cref="Screen.LedgerVouchers"/> and <see cref="Screen.VoucherDetail"/> are the two screens
+    /// that ARE the active column and DO own a voucher, and nothing stacks over them today.</para>
+    ///
+    /// <para>🔴 <b>THE STOCK ITEM CLAUSE EXCLUDES AN OPEN ALTERATION, and that is a fix.</b>
+    /// <c>ShowStockItemAlter</c> opens the alteration column under the SAME <see cref="Screen.StockItemMaster"/>
+    /// value, so <see cref="IsStockItemMasterScreen"/> cannot tell Creation from Alteration — and Alt+D therefore
+    /// deleted the very master the open form was editing. Measured: the item went, the caption still read "Stock
+    /// Item Alteration", the operator's keyed changes were still in the form, and the Ctrl+A that would have saved
+    /// them was afterwards a completely silent no-op. §6.4 item 6 offers Alt+D on "the Stock Item master's
+    /// existing-items LIST", not on an open alteration of a row in it, so the narrower reading is also the one the
+    /// design asked for.</para>
+    ///
+    /// <para><b>The <c>Company is not null</c> clause is a precondition, honestly labelled.</b> It is not
+    /// independently falsifiable — every screen below requires an open company to reach, and nothing in the
+    /// application ever sets <c>Company</c> back to null — and <see cref="RequestDeleteHighlighted"/> re-tests it
+    /// anyway. It is KEPT rather than deleted for a mutation score: this property gates the app's one destructive
+    /// accelerator, and a null-safety precondition is not the same category as a guard whose comment claims a
+    /// mechanism it cannot deliver.</para>
+    /// </summary>
+    public bool IsDeleteTargetPage =>
+        Company is not null
+        && (IsLiveReportPage
+            || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || IsChartOfAccountsScreen
+            || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false }));
+
+    /// <summary>
+    /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
+    /// Returns <c>true</c> when the prompt was raised; <c>false</c> (a quiet no-op, or a named refusal on the
+    /// notice bar) otherwise.
+    ///
+    /// <para><b>🔴 FIDELITY (R7) — THE PROMPT COUNT IS A CONFLICT, NOT A SILENCE. THIS RECORD WAS WRONG AND IS
+    /// REWRITTEN.</b> The corpus settles that Alt+D is Delete and that a ledger carrying transactions cannot be
+    /// deleted (STUDY-GUIDE PDF p.67). The referential guard, the numbering guard, the bill-wise guard, offering
+    /// Cancel as the remedy, the five surfaces and every string below remain
+    /// <b>UNVERIFIED-BY-DESIGN — ours, corpus silent</b>.
+    /// <br/><b>The number of confirmations is NOT one of them.</b> This comment used to say the published DOUBLE
+    /// confirmation "is attested for a MASTER and for a GROUP COMPANY and is <i>not attested for a voucher</i>",
+    /// and filed the whole slice's SINGLE prompt — including the three MASTER routes below — under a
+    /// decline-to-extend from that silence. Re-extracted first-hand with <c>pdftotext -raw</c>, both halves of that
+    /// sentence are wrong:
+    /// <list type="bullet">
+    ///   <item><b>A MASTER is attested BOTH ways, in conflict.</b> BOOK PDF p.21 gives the ledger recipe as
+    ///     <i>"… &gt; Alt+D &gt; Press Two times Enter"</i> (double); STUDY-GUIDE PDF p.67 gives the same object as
+    ///     <i>"Press Alt+D supply Yes to confirm Deletion"</i> (single). So the three master routes are a DIVERGENCE
+    ///     FROM AN ATTESTED SCOPE, not a decline-to-extend from silence.</item>
+    ///   <item><b>A voucher is NOT silent either.</b> BOOK PDF pp.22-23 carries a heading that reads
+    ///     <i>"How to Delete Voucher …?"</i> over the same <i>"Alt+D &gt; Press Two times Enter"</i> recipe — under
+    ///     a path that then says <c>Alter &gt; Voucher type</c>, so the source contradicts itself within one entry.
+    ///     Low-quality attestation is still attestation; "not attested" was not supportable.</item>
+    ///   <item>The GROUP COMPANY double IS attested, unambiguously and with its wording (STUDY-GUIDE PDF p.277:
+    ///     <i>"Delete Yes or No?"</i> then <i>"Are you sure Yes or No?"</i>). Company deletion is out of S4 by
+    ///     ruling, so nothing here contradicts it.</item>
+    /// </list>
+    /// <b>🔴 WHAT SHIPS, AND ON WHAT BASIS — SETTLED BY THE USER 2026-08-18, IN TWO RULINGS. THE BEHAVIOUR IS
+    /// UNCHANGED (one prompt on all five routes, exactly as S4 shipped it); ONLY THE RECORD CHANGES, AND IT
+    /// CHANGES INTO TWO RECORDS.</b>
+    /// <list type="bullet">
+    ///   <item><b>(A) THE VOUCHER ROUTES — OUR DECISION AGAINST WEAK, SELF-CONTRADICTORY ATTESTATION.</b>
+    ///     BOOK PDF pp.22-23 attest the double prompt for a voucher and contradict themselves doing it (see the
+    ///     bullet above). We keep ONE prompt and record it as a decision taken <i>against</i> that attestation.
+    ///     It is explicitly <b>not</b> "corpus silent" and <b>not</b> a
+    ///     decline-to-extend-an-unattested-behaviour — <b>the whole earlier D-6 record rested on an absence that
+    ///     turned out not to exist.</b></item>
+    ///   <item><b>(B) THE THREE MASTER ROUTES (ledger, group, stock item) — A DELIBERATE DIVERGENCE FROM AN
+    ///     ATTESTED SCOPE.</b> Here the double prompt IS cleanly attested (BOOK PDF p.21 for a ledger,
+    ///     STUDY-GUIDE PDF p.277 with its wording for a Group Company). We ship one prompt anyway and record it
+    ///     as a divergence from an attested scope — a different claim, on different evidence, from (A).
+    ///     <i>STUDY-GUIDE p.67's single prompt for the same ledger object narrows the divergence and does not
+    ///     change its category: we do not get to pick the friendly source and call the result fidelity.</i></item>
+    /// </list>
+    /// <b>Keep (A) and (B) apart.</b> They are defended by different pages, falsified by different findings and
+    /// re-opened by different evidence; conflating them is the exact R7 defect a review lens caught on S3.
+    /// Anything restating one must restate both, or say which it means.
+    /// <br/><b>SUPERSEDED, quoted so the category history stays legible:</b> this paragraph read <i>"a SINGLE
+    /// prompt on all five routes … a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED SOURCE. That is a third R7
+    /// category"</i>. One category is replaced by the two above.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Alt+D arm
+    /// decides only that the keystroke is ours (a delete-capable surface, not typing, no open picker, exactly
+    /// Alt). Everything that depends on DATA is decided here, so an on-screen route added later cannot diverge
+    /// from the accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open — inert;</item>
+    ///   <item>a confirmation is already up — inert, so Alt+D cannot stack a second prompt over the first, and
+    ///         cannot re-point a live cancel confirmation at a delete;</item>
+    ///   <item>nothing highlighted, or a row that resolves to no master/voucher — a quiet no-op;</item>
+    ///   <item>🔴 the guards in <see cref="MasterDeletionRules"/> — refused with THEIR message, which names the
+    ///         count of blocking documents, or (for a filed statutory document) offers Cancel instead. The
+    ///         guard is asked BEFORE the question is put: a confirmation for something that cannot happen trains
+    ///         an operator to answer prompts without reading them.</item>
+    /// </list></para>
+    /// </summary>
+    public bool RequestDeleteHighlighted()
+    {
+        if (Company is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // 🔴 The previous outcome's notice is cleared in `Arm`, at the moment a NEW QUESTION actually goes up —
+        // not here. Clearing it here wiped the refusal the operator was reading whenever the route then returned
+        // false because nothing was highlighted: they pressed Alt+D on a header row and their diagnosis vanished
+        // with nothing in its place. The invariant that matters is "a stale outcome never shares the status-bar row
+        // with a live confirmation", and arming is exactly when that becomes possible.
+        return CurrentScreen switch
+        {
+            // `Reports?` rather than `Reports!` + a `when IsLiveReportPage` clause: on Screen.Report the clause
+            // reduced to a null test (IsLiveReportPage IS `Reports is not null && CurrentScreen == Screen.Report`,
+            // and the switch has already established the second half), so it was an unfalsifiable guard spelled as
+            // a screen predicate. The null-conditional says the same thing, cannot NRE, and leaves nothing dead.
+            Screen.Report => RequestDeleteVoucher(Reports?.SelectedRow?.DrillVoucherId),
+            Screen.LedgerVouchers => RequestDeleteVoucher(LedgerVouchers?.SelectedRow?.DrillVoucherId),
+            Screen.VoucherDetail => RequestDeleteVoucher(VoucherDetail?.VoucherId),
+            Screen.ChartOfAccounts => RequestDeleteChartRow(),
+            Screen.StockItemMaster => RequestDeleteStockItemRow(),
+            _ => false,
+        };
+    }
+
+    /// <summary>Arms the confirmation for a posted voucher, after the S4 guards accept it.</summary>
+    private bool RequestDeleteVoucher(Guid? voucherId)
+    {
+        if (voucherId is not { } id) return false;
+        if (Company!.FindVoucher(id) is not { } voucher) return false;
+
+        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureVoucherDeletable(Company, voucher),
+                                 CancelRoutingFor(voucher))) return false;
+
+        return Arm(DeletionTarget.Voucher, id,
+            $"Delete {VoucherLabel(voucher)}? The entry and every line on it are removed from the books "
+            + "permanently, and there is no undo. (Y/N)");
+    }
+
+    /// <summary>Arms the confirmation for the Chart of Accounts' highlighted row — a ledger row or a group row,
+    /// resolved exactly the way <see cref="AlterHighlightedChartRow"/> resolves it, so Alt+D and Enter can never
+    /// disagree about which master the highlight means.</summary>
+    private bool RequestDeleteChartRow()
+    {
+        if (ChartOfAccounts?.HighlightedRow is not { } row) return false;
+
+        if (row.LedgerId is { } ledgerId && Company!.FindLedger(ledgerId) is { } ledger)
+        {
+            if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureLedgerDeletable(Company, ledger))) return false;
+            return Arm(DeletionTarget.Ledger, ledgerId,
+                $"Delete ledger '{ledger.Name}'? This cannot be undone. (Y/N)");
+        }
+
+        if (row.GroupId is { } groupId && Company!.FindGroup(groupId) is { } group)
+        {
+            if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureGroupDeletable(Company, group))) return false;
+            return Arm(DeletionTarget.Group, groupId,
+                $"Delete group '{group.Name}'? This cannot be undone. (Y/N)");
+        }
+
+        return false;
+    }
+
+    /// <summary>Arms the confirmation for the Stock Item master's highlighted existing-item row — the same row
+    /// Ctrl+Enter opens for alteration.</summary>
+    private bool RequestDeleteStockItemRow()
+    {
+        if (StockItemMaster?.HighlightedRow is not { } row) return false;
+        if (Company!.FindStockItem(row.StockItemId) is not { } item) return false;
+
+        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureStockItemDeletable(Company, item))) return false;
+
+        return Arm(DeletionTarget.StockItem, row.StockItemId,
+            $"Delete stock item '{item.Name}'? This cannot be undone. (Y/N)");
+    }
+
+    /// <summary>
+    /// Runs one <see cref="MasterDeletionRules"/> guard and turns its refusal into a notice. Returns <c>true</c>
+    /// when the guard passed.
+    ///
+    /// <para>The guards are pure and communicate by THROWING (the <see cref="MasterAlterationRules"/> shape they
+    /// are built on), and their messages are written to be read by an operator — they already name the count of
+    /// blocking documents and, for a filed statutory document, the remedy. So the refusal is surfaced verbatim
+    /// rather than re-worded here: one wording, one place to correct it, and no chance of the screen saying
+    /// something the rule does not.</para>
+    /// </summary>
+    private bool GuardsAllowDeletion(Action guard, string? routing = null)
+    {
+        try
+        {
+            guard();
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RaiseLifecycleNotice(routing is null ? ex.Message : $"{ex.Message} {routing}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HALF OF THE REFUSAL ONLY THE VIEW MODEL CAN KNOW: whether the remedy it names is reachable from
+    /// where the operator is standing.</b> Returns the extra sentence to append, or <c>null</c> when the guard's
+    /// own wording is already actionable here.
+    ///
+    /// <para>Both voucher refusals end in <i>"Cancel it instead (Alt+X)"</i>, but the Alt+X arm is gated on
+    /// <see cref="IsLiveReportPage"/> while Alt+D is offered on <see cref="Screen.LedgerVouchers"/> and
+    /// <see cref="Screen.VoucherDetail"/> as well. Measured on both drill columns: the refusal appears, a real Alt+X
+    /// on the same surface does nothing at all, and the destructive verb is then the ONLY lifecycle verb available
+    /// there — the exact inverse of the design's argument that Cancel is the default gesture and Delete the
+    /// exception. And on the surface where the key DOES work, the commonest filed case is refused by Cancel too
+    /// (<see cref="LiveStatutoryDocumentBlocker"/>), so the one-line remedy was unreachable on two of five surfaces
+    /// and refused on the third.</para>
+    ///
+    /// <para><b>Why the routing is added HERE rather than folded into the guard's message.</b> The message is the
+    /// rule's, and it stays in one place — that is the whole reason <see cref="GuardsAllowDeletion"/> surfaces it
+    /// verbatim. WHERE the operator is standing, and whether a portal document blocks Cancel, are facts the pure
+    /// engine rule cannot see. <b>Why not simply extend the Alt+X arm to the two drill columns instead:</b> that
+    /// arm belongs to S3 and <c>AltX_in_a_drill_column_beneath_a_live_report_raises_nothing</c> pins its current
+    /// scope deliberately. Widening a shipped verb's surface is a scope decision for its own slice, not a
+    /// side-effect of a delete fix.</para>
+    /// </summary>
+    private string? CancelRoutingFor(Voucher voucher)
+    {
+        if (LiveStatutoryDocumentBlocker(voucher) is { } blocker)
+            return $"Alt+X is refused too while it carries {blocker} — cancel that at the portal first.";
+
+        return IsLiveReportPage
+            ? null
+            : "Alt+X works on the Day Book — open it there to cancel this voucher.";
+    }
+
+    /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
+    private bool Arm(DeletionTarget kind, Guid id, string prompt)
+    {
+        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row, and
+        // this is the one moment at which a stale statement and a live question could appear side by side.
+        Notice = string.Empty;
+        _pendingDeleteKind = kind;
+        _pendingDeleteId = id;
+        AcceptPromptText = prompt;
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// "Y" on a deletion confirmation: performs the armed deletion, persists, and refreshes the surface it was
+    /// raised on.
+    ///
+    /// <para>🔴 <b>WHY THE SAVE IS PRE-FLIGHTED INSTEAD OF ROLLED BACK, and this differs from S3 deliberately.</b>
+    /// S3's cancel mutates a flag, so a failed save can be undone by restoring the flag. A DELETE cannot be undone
+    /// that way: the voucher is out of <c>Company.Vouchers</c>, and nothing outside the engine assembly can put it
+    /// back at its ORIGINAL LIST INDEX — and that index is persisted (<c>ORDER BY rowid</c>) and therefore
+    /// user-visible in the Day Book's ordering of same-dated entries. Re-posting it would append it at the end and
+    /// silently re-order the operator's book. So the one genuinely reachable save failure is checked BEFORE
+    /// anything is removed: <c>CompanyStorage.Save</c> opens with <c>Company.EnsureValid()</c>, which throws
+    /// <b>ArgumentException</b> on a bad PIN or a books-begin earlier than the year start — a state a book can be
+    /// loaded in and only discovers on its next save. Calling it here means such a company reports a named refusal
+    /// with the voucher still on the books, instead of losing the voucher to a save that was never going to
+    /// commit.</para>
+    ///
+    /// <para><b>The residue, stated rather than implied.</b> If the write fails AFTER that check — a locked or
+    /// unwritable <c>.db</c> — the store's transaction rolls back but the in-memory aggregate has already lost the
+    /// row, so the book on screen is AHEAD of the file. That is reported as a named failure telling the operator to
+    /// re-open the company; it is not silently swallowed, and it is not claimed to be handled.</para>
+    /// </summary>
+    private void PerformPendingDeletion(DeletionTarget kind, Guid id)
+    {
+        if (Company is null) return;
+
+        // Pre-flight the ONE reachable save failure while nothing has been removed yet (see the summary).
+        try
+        {
+            Company.EnsureValid();
+        }
+        catch (ArgumentException ex)
+        {
+            RaiseLifecycleNotice($"Cannot delete: {ex.Message}");
+            return;
+        }
+
+        string what;
+        try
+        {
+            switch (kind)
+            {
+                case DeletionTarget.Voucher:
+                    if (Company.FindVoucher(id) is not { } voucher) return;
+                    what = VoucherLabel(voucher);
+                    // Re-ask the guards immediately before the irreversible act: the confirmation has been on
+                    // screen for an unbounded time and nothing stops another surface changing the book meanwhile.
+                    MasterDeletionRules.EnsureVoucherDeletable(Company, voucher);
+                    new Apex.Ledger.Services.LedgerService(Company).Delete(id);
+                    break;
+
+                case DeletionTarget.Ledger:
+                    if (Company.FindLedger(id) is not { } ledger) return;
+                    what = $"Ledger '{ledger.Name}'";
+                    MasterDeletionRules.EnsureLedgerDeletable(Company, ledger);
+                    Company.RemoveLedger(ledger);
+                    break;
+
+                case DeletionTarget.Group:
+                    if (Company.FindGroup(id) is not { } group) return;
+                    what = $"Group '{group.Name}'";
+                    MasterDeletionRules.EnsureGroupDeletable(Company, group);
+                    Company.RemoveGroup(group);
+                    break;
+
+                case DeletionTarget.StockItem:
+                    if (Company.FindStockItem(id) is not { } item) return;
+                    what = $"Stock item '{item.Name}'";
+                    MasterDeletionRules.EnsureStockItemDeletable(Company, item);
+                    Company.RemoveStockItem(item);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _storage.Save(Company);
+        }
+        // 🔴 W0-13's shared predicate. This line used to be the narrow
+        // `when (ex is InvalidOperationException or ArgumentException)` filter — the exact shape
+        // `SaveFailure.IsReportable` was created to replace — on the ONE destructive verb in the application. The
+        // summary above promised the residue "is reported as a named failure telling the operator to re-open the
+        // company"; measured with the `.db` set read-only, it was neither reported NOR swallowed: SQLite Error 8
+        // escaped the window key handler with the row already gone from memory and the notice bar EMPTY. Every
+        // foreign-key failure this slice's guards now prevent escaped the same way. The filter admits DbException,
+        // IOException, UnauthorizedAccessException and OverflowException as well, so the promise the doc comment
+        // makes is now true. (The `ArgumentException` half of the old filter was additionally UNREACHABLE:
+        // `Company.EnsureValid` is the only source, `CompanyStorage.Save` opens with it, and the pre-flight above
+        // already calls and catches it — nothing between the two can change the PIN or the books-begin date.)
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // A guard that has become true since the question was asked, or a write that failed after the
+            // pre-flight. The aggregate may now be AHEAD of the store — say so rather than imply a clean undo.
+            RaiseLifecycleNotice($"Cannot delete: {ex.Message} Re-open the company before continuing.");
+            RefreshDeletionSurface(kind);
+            return;
+        }
+
+        RaiseLifecycleNotice($"{what} deleted.");
+        RefreshDeletionSurface(kind);
+    }
+
+    /// <summary>
+    /// Re-renders the surface the deletion was raised on so the removed row leaves the screen immediately, the
+    /// way S3's cancel re-runs the live report. A voucher deletion re-runs the report; a master deletion rebuilds
+    /// the Chart of Accounts tree or the Stock Item master's existing-items list.
+    ///
+    /// <para>A voucher-detail column is deliberately NOT popped: the deletion leaves the operator looking at a
+    /// detail pane for a voucher that is gone, and Esc/Left already returns to the register beneath it. Popping a
+    /// column from inside a confirmation handler would move the cascade underneath the operator, which is the
+    /// work-loss class the Alt+Y hole was closed for.</para>
+    ///
+    /// <para>🔴 <b>THAT EXCEPTION IS ABOUT DELETION AND DOES NOT CARRY TO ALTERATION — it was read across, and a
+    /// document went out wrong.</b> The paragraph above rests on "the voucher is gone": there is nothing left to
+    /// re-project, so leaving the pane standing is the least-surprising outcome and the pane cannot mislead
+    /// anyone about a live document. After an ALTERATION the voucher still exists, still carries the same number,
+    /// and is still PRINTABLE and E-MAILABLE from that very pane — so a pane left alone there is not inert, it
+    /// re-issues the superseded document. The alteration doors therefore call
+    /// <see cref="VoucherDetailViewModel.Refresh"/> (S5d/S5e review, C2), which is a re-projection and never a
+    /// pop, so the cascade still does not move underneath the operator. Deletion and alteration disagree here on
+    /// purpose; do not unify them.</para>
+    ///
+    /// <para>🔴 <b>THE REGISTER DRILL WAS MISSING AND THE COMMENT ABOVE CLAIMED IT WAS NOT.</b> A voucher deleted
+    /// from <see cref="Screen.LedgerVouchers"/> re-ran the REPORT (which is not the active column) and left the
+    /// deleted row on the drill with its amount still in the running balance, <c>SelectedRow</c> still pointing at
+    /// it, and a second Alt+D on that stale row a silent dead key. The shipped register-drill test asserted only
+    /// that the voucher had left the books, which is why it was green with the stale screen behind it. Unlike the
+    /// voucher-detail exception this was an omission, not a decision — so the drill is rebuilt here, in place, the
+    /// same way the report is.</para>
+    /// </summary>
+    private void RefreshDeletionSurface(DeletionTarget kind)
+    {
+        switch (kind)
+        {
+            case DeletionTarget.Voucher:
+                Reports?.Show(Reports.Kind);
+                LedgerVouchers?.Refresh();
+                break;
+            case DeletionTarget.Ledger:
+            case DeletionTarget.Group:
+                ChartOfAccounts?.Refresh();
+                break;
+            case DeletionTarget.StockItem:
+                StockItemMaster?.ReloadExistingItems();
+                break;
+        }
+    }
+
+    // ============================================ Phase 10.11 S5d: Ctrl+Enter — ALTER the highlighted voucher
+
+    /// <summary>
+    /// The three surfaces Ctrl+Enter opens a posted voucher for ALTERATION from — the live report page (the Day
+    /// Book carries the voucher rows), the register drill, and the read-only voucher-detail column beneath it.
+    ///
+    /// <para><b>They are EXACTLY the three voucher arms of <see cref="IsDeleteTargetPage"/>, deliberately.</b>
+    /// Alt+D and Ctrl+Enter resolve the highlighted voucher through the same three expressions, so the two verbs
+    /// can never disagree about which document the highlight means — the same reason
+    /// <see cref="RequestDeleteChartRow"/> resolves its row the way <see cref="AlterHighlightedChartRow"/> does.
+    /// <see cref="IsDeleteTargetPage"/>'s two MASTER arms (Chart of Accounts, Stock Item master) are absent
+    /// because master alteration already has its own route: Enter on the chart, and Ctrl+Enter on the Stock Item
+    /// list via <see cref="AlterHighlightedStockItemRow"/>, which the window's arm consults FIRST.</para>
+    ///
+    /// <para>🔴 <b>Why the report clause is <see cref="IsLiveReportPage"/> and not <see cref="IsReportContext"/>.</b>
+    /// Inherited from the S3 review finding and NOT re-derived: <c>IsReportContext</c> is deliberately TRUE while
+    /// an F12 config, an Alt+F12 sort/filter, an Alt+A add-voucher picker, an Alt+K saved-views panel or a Print
+    /// Preview column is stacked over the report, with the report's row still highlighted behind it. Opening an
+    /// alteration from inside one of those columns would push an entry screen over the operator's open panel for
+    /// the voucher BEHIND it. Alteration is not destructive the way Alt+X and Alt+D are — but it is the verb that
+    /// puts a posted voucher into an editable form, and the scope hole is the same hole.</para>
+    ///
+    /// <para>🔴 <b>MEASURED, not assumed, and the measurement corrected a claim.</b> Swapping the window arm's
+    /// clause for <see cref="IsReportContext"/> does NOT open the stacked-column hole, because
+    /// <see cref="RequestAlterHighlightedVoucher"/>'s <c>CurrentScreen</c> switch has no <c>ReportConfig</c> /
+    /// <c>ReportSortFilter</c> / <c>AddVoucherPicker</c> / <c>SavedViews</c> / <c>PrintPreview</c> arm and refuses
+    /// those a second time. The two are redundant for that case and the switch is what decides it. What this
+    /// property is measurably load-bearing for is the OTHER two surfaces: <see cref="IsReportContext"/> excludes
+    /// <see cref="Screen.LedgerVouchers"/> and <see cref="Screen.VoucherDetail"/> by construction, so an arm
+    /// written on it loses the register drill and the voucher-detail column entirely — which is exactly what the
+    /// mutation reddened.</para>
+    ///
+    /// <para>The <c>Company is not null</c> clause is a precondition, honestly labelled: it is not independently
+    /// falsifiable (every screen below needs an open company to reach, and nothing sets <c>Company</c> back to
+    /// null) and <see cref="RequestAlterHighlightedVoucher"/> re-tests it anyway. Kept for the same reason
+    /// <see cref="IsDeleteTargetPage"/> keeps its own.</para>
+    /// </summary>
+    public bool IsVoucherAlterTargetPage =>
+        Company is not null
+        && (IsLiveReportPage
+            || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+
+    /// <summary>
+    /// <b>Ctrl+Enter — open the highlighted posted voucher for ALTERATION.</b> Returns the THREE-VALUED
+    /// <see cref="VoucherAlterationRequest"/>: <c>Opened</c>, <c>NoVoucherHere</c> (a quiet no-op — the caller
+    /// MUST fall through so the row still drills), or <c>Refused</c> (terminal, with a NAMED refusal already on
+    /// the notice bar — the caller MUST consume the key, because falling through would drill and
+    /// <c>OnCurrentScreenChanged</c> wipes the notice on the way past).
+    ///
+    /// <para>🔴 It is deliberately NOT a <c>bool</c>. A bool conflates <c>NoVoucherHere</c> with <c>Refused</c>,
+    /// and those two demand OPPOSITE caller behaviour — fall through versus consume. That conflation is the
+    /// entire reason <see cref="VoucherAlterationRequest"/> exists, so do not "simplify" this signature.</para>
+    ///
+    /// <para><b>🔴 FIDELITY (R7) — TWO RECORDS, AND THEY MUST NOT BE MERGED.</b>
+    /// <list type="bullet">
+    ///   <item><b>(A) A DELIBERATE WIDENING OF AN ATTESTED BEHAVIOUR — the gesture.</b> The corpus attests
+    ///     <c>Ctrl+Enter</c> as an ALTERATION key reached from a report drill-down, verbatim
+    ///     <i>"To alter a master during voucher entry or from drilldown of a report"</i> (Book PDF p.436
+    ///     [printed p.432], re-extracted with <c>pdftotext -raw</c> — <c>-layout</c> scrambles that three-column
+    ///     table). What it attests is a <b>master</b>. Binding the same chord to a <b>voucher</b> from the same
+    ///     place widens an attested behaviour to a second object. It is <b>not</b> corpus silence, and it is not
+    ///     a narrowing.</item>
+    ///   <item><b>(B) A DELIBERATE DIVERGENCE FROM AN ATTESTED BEHAVIOUR — the chord we did NOT use.</b> The
+    ///     corpus's own route to voucher alteration is <b>plain Enter</b> on a register row:
+    ///     <i>"… &gt; \&lt;X&gt; Register &gt; Select Month &amp; Show/Edit Entry"</i>, repeated verbatim for every
+    ///     voucher family (Book PDF pp.32, 34, 37, 42, 47, 49, 64, 71 and the inventory families), and TallyPrime
+    ///     has no separate read-only voucher screen — one action is named, not two. We keep plain Enter for the
+    ///     read-only <see cref="Screen.VoucherDetail"/> column to preserve the Miller-column cascade. That is
+    ///     USER DECISION 1 / VL-1, settled, with a follow-up to reconsider — recorded here as a divergence from
+    ///     an ATTESTED behaviour, never as fidelity.</item>
+    /// </list>
+    /// <b>Attested and FOLLOWED, so it is neither of the above:</b> <c>Ctrl+A</c> saves the altered voucher —
+    /// <i>"… &amp; Show/Edit Entry &gt; Press \"Ctrl+A\" for Save"</i> (Book PDF pp.51, 53, 56, 58). That is why
+    /// <see cref="ActivateSelected"/> routes an altering entry screen to <c>AcceptAlteration</c> rather than
+    /// inventing a second accept key.
+    /// <br/><b>OURS — corpus silent:</b> the three surfaces above, the refusal sentences (they come from
+    /// <see cref="VoucherAlterationEligibility"/>), and the notice bar they are shown on.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Ctrl+Enter arm
+    /// decides only that the keystroke is ours (a voucher-alteration surface, not typing, no open picker, exactly
+    /// Ctrl). Everything that depends on DATA is decided here so a future button route cannot diverge from the
+    /// accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open — inert;</item>
+    ///   <item>🔴 a confirmation is already up — inert. An armed Alt+X or Alt+D question names a voucher and is
+    ///         answered by a bare Y; opening an entry screen over it would carry the arming into a screen that
+    ///         cannot show the question, exactly the class <see cref="ActivateSelected"/>'s own lifecycle gate
+    ///         was added for. Answer it first;</item>
+    ///   <item>nothing highlighted, or a row that resolves to no voucher (a header, a total, an empty-state note,
+    ///         or the <see cref="Guid.Empty"/> a non-drillable row carries) — a quiet no-op;</item>
+    ///   <item>🔴 <see cref="VoucherEntryViewModel.ForAlter"/> REFUSED — the family-specific sentence is put on
+    ///         the notice bar by name. 13 of the 33 enumerated shapes refuse and 8 more defer, so the refusal is
+    ///         the COMMON outcome on a real book, not the edge case. It reaches the operator through
+    ///         <see cref="RaiseLifecycleNotice"/> and not through <c>Message</c>, because the report page's
+    ///         <c>DataTemplate</c> is typed <c>x:DataType="vm:ReportsViewModel"</c> and has no <c>Message</c>
+    ///         property at all — the S3 review's finding, inherited rather than rediscovered.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Why the alteration opens as a DRILL column and not a page column.</b>
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// or register the operator drilled from; the cascade would come back to the Gateway on Esc instead of to the
+    /// row they were standing on. <see cref="OpenDrillColumn"/> appends to the right and leaves the pane beneath
+    /// intact, and <see cref="BindPageColumn"/> already re-binds a surviving
+    /// <see cref="VoucherEntryViewModel"/> when the column is popped.</para>
+    /// </summary>
+    public VoucherAlterationRequest RequestAlterHighlightedVoucher()
+    {
+        if (Company is null) return VoucherAlterationRequest.NoVoucherHere;
+
+        // 🔴 An armed Alt+X / Alt+D question is answered by a BARE Y, and the entry screen this would open cannot
+        // show it. Reported as Refused, not as NoVoucherHere: the operator is told what to do and the keystroke is
+        // consumed, so it cannot fall through and drill out from under the question instead.
+        if (IsAcceptPromptOpen)
+        {
+            RaiseLifecycleNotice(
+                "Answer the question on screen first (Y or N) — Ctrl+Enter does nothing while it is up.");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var voucherId = CurrentScreen switch
+        {
+            // `Reports?` rather than `Reports!` + an `IsLiveReportPage` clause, for the reason
+            // RequestDeleteHighlighted records: on Screen.Report that clause reduces to a null test, so it would
+            // be an unfalsifiable guard spelled as a screen predicate.
+            Screen.Report => Reports?.SelectedRow?.DrillVoucherId,
+            Screen.LedgerVouchers => LedgerVouchers?.SelectedRow?.DrillVoucherId,
+            Screen.VoucherDetail => VoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
+        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+
+        return ShowVoucherAlteration(voucher);
+    }
+
+    /// <summary>
+    /// Opens <paramref name="voucher"/>'s alteration screen, or puts its named refusal on the notice bar. Split
+    /// out from <see cref="RequestAlterHighlightedVoucher"/> so the surface resolution and the open are separately
+    /// legible — and so the refusal has exactly ONE exit.
+    /// </summary>
+    private VoucherAlterationRequest ShowVoucherAlteration(Voucher voucher)
+    {
+        // The surface the operator drilled from, captured as an INSTANCE: OpenDrillColumn does not clear the sub
+        // screens, but a later pop rebinds them, and a `() => Reports?.Show(...)` closure read at save time could
+        // see a different report. Same trap ShowLedgerAlter records for the Chart of Accounts tree.
+        var report = Reports;
+        var register = LedgerVouchers;
+        // 🔴 THE THIRD SURFACE, AND THE ONE THE REVIEW CAUGHT MISSING. Ctrl+Enter is admitted FROM
+        // Screen.VoucherDetail (IsVoucherAlterTargetPage's third arm), so the read-only column can be the pane
+        // the alteration was raised from — and it is the pane that ISSUES DOCUMENTS: OpenPrintPreview's
+        // Screen.VoucherDetail branch prints it, and EmailComposeViewModel attaches the same bytes. Left
+        // unrefreshed it re-issued the SUPERSEDED document under the live voucher number. See
+        // VoucherDetailViewModel.Refresh.
+        var detail = VoucherDetail;
+
+        // 🔴 S5e — A POS BILL GOES TO THE POS SCREEN, and the branch is here rather than inside ForAlter because
+        // WHICH SCREEN opens is a shell decision. Every field of a POS bill's tender split is persisted, so it is
+        // fully recoverable — but only on the screen that keys a tender split. VoucherAlterationEligibility still
+        // refuses it for the accounting entry screen, correctly and for the unchanged reason; this route means an
+        // operator never has to read that refusal.
+        if (Company!.FindVoucherType(voucher.TypeId) is { IsPosSales: true })
+            return ShowPosBillAlteration(voucher, report, register);
+
+        var open = VoucherEntryViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                // Pop the alteration column, then re-render whatever survived beneath it so the amended figures
+                // are on screen without the operator re-opening the report — the same courtesy S3's cancel and
+                // S4's delete already pay through RefreshDeletionSurface.
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+                detail?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // 🔴 The refusal is SHOWN, never swallowed. `ForAlter` returns a refusal for most shapes on a real
+            // book, and a caller that dropped it would make Ctrl+Enter indistinguishable from a dead key — the
+            // precise failure VoucherAlterationOpen was made a two-sided type to prevent.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        // The same batch-allocation cascade wiring OpenVoucher does. Without it a batch-tracked line on an
+        // altering screen would raise an event nobody handles — the shell owns the cascade, not the entry VM.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Accounting Voucher Alteration — {entry.Type.Name}";
+        // No `Notice = string.Empty` here: OpenDrillColumn moves CurrentScreen to VoucherEntry from one of three
+        // other screens, and OnCurrentScreenChanged clears the bar on every change. Writing it again would be a
+        // guard no test could fail.
+        // The CASCADE COLUMN label says Alteration too, not just the screen title above it. OpenVoucher labels
+        // its column `type.Name + " Voucher"`, and reusing that here left an operator with the Day Book on
+        // the left and a column on the right that read identically for a new entry and for an amendment of a
+        // posted one. The master screens already distinguish the two ("Stock Item Alteration").
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.VoucherEntry, title, () => VoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// Opens <paramref name="voucher"/>'s alteration on the POS BILLING screen, or puts its named refusal on the
+    /// notice bar. The POS sibling of <see cref="ShowVoucherAlteration"/>, and it opens a DRILL column for the
+    /// identical reason: <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would
+    /// delete the report the operator drilled from and send Esc back to the Gateway instead of to the row they
+    /// were standing on.
+    /// </summary>
+    private VoucherAlterationRequest ShowPosBillAlteration(
+        Voucher voucher, ReportsViewModel? report, LedgerVouchersViewModel? register)
+    {
+        // The same third surface, for the same reason — this door is reached from Screen.VoucherDetail too.
+        var detail = VoucherDetail;
+
+        // 🔴 PRINT AFTER SAVE ON THE ALTERATION DOOR (review finding C8 — MAJOR / fidelity), and it is a
+        // TWO-LAYERED fix of which this is the second layer. AcceptAlterationCore now RAISES
+        // PrintReceiptRequested when the POS type's print-after-save is on; before this line nothing on this route
+        // SUBSCRIBED — OpenPosBilling wires the event and its onSaved is the only caller of the receipt preview —
+        // so raising it alone would still have produced no paper. The customer's only receipt kept understating
+        // an amended bill.
+        PosReceiptData? pendingReceipt = null;
+        var open = PosBillingViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+                detail?.Refresh();
+                // The receipt column is pushed AFTER the surfaces beneath are re-rendered, so Esc from the receipt
+                // returns to a correct pane rather than to a stale one.
+                if (pendingReceipt is { } r) { pendingReceipt = null; OpenPosReceiptDrill(r); }
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // 🔴 SHOWN, never swallowed — the same channel ShowVoucherAlteration uses, and for the same reason:
+            // the report page's DataTemplate is typed to ReportsViewModel and has no Message property at all.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        entry.PrintReceiptRequested += r => pendingReceipt = r;
+        var title = $"POS Bill Alteration — {entry.Type.Name}";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " — POS Alteration", entry),
+            Screen.PosBilling, title, () => PosBilling = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// Shows an ALTERED POS bill's retail receipt as a Print-Preview <b>drill</b> column, appended over whatever
+    /// the operator drilled from.
+    ///
+    /// <para><b>Why not <see cref="OpenPosReceiptPreview"/>, the fresh-entry sibling.</b> That one runs
+    /// <c>ClearSubScreens</c> and REMOVES the trailing column, because a fresh bill's entry screen is a PAGE
+    /// column that has served its purpose. An alteration is a drill column stacked over a live report, register or
+    /// voucher-detail pane — the same reason <see cref="ShowPosBillAlteration"/> uses
+    /// <see cref="OpenDrillColumn"/> rather than <see cref="OpenPageColumn"/> — so tearing the cascade down here
+    /// would send Esc back to the Gateway instead of to the row the operator was standing on. The body is
+    /// <see cref="OpenPrintPreview"/>'s tail verbatim, which is the shape that appends without trimming.</para>
+    /// </summary>
+    private void OpenPosReceiptDrill(PosReceiptData receipt)
+    {
+        var preview = new PrintPreviewViewModel(receipt);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// 🔴 <b>The ONE place that decides which accept verb the POS billing screen runs</b> — <c>Accept</c> for a new
+    /// bill, <see cref="PosBillingViewModel.AcceptAlteration"/> for a posted one being altered. The POS sibling of
+    /// <see cref="AcceptVoucherEntryOrAlteration"/>, and it exists for the identical reason: the screen has TWO
+    /// accept routes (Ctrl+A through <see cref="ActivateSelected"/>, and the on-screen Accept button through
+    /// <c>MainWindow.OnAcceptPosClick</c>), and on an altering screen <c>Accept</c> would Post a SECOND bill
+    /// beside the original. Both routes now come through here, so they cannot disagree.
+    /// </summary>
+    public bool AcceptPosBillingOrAlteration() =>
+        PosBilling is { } pos && (pos.IsAltering ? pos.AcceptAlteration() : pos.Accept());
+
+    /// <summary>
+    /// 🔴 <b>The ONE place that decides which accept verb the voucher-entry screen runs</b> — <c>Accept</c> for a
+    /// new voucher, <see cref="VoucherEntryViewModel.AcceptAlteration"/> for a posted one being altered. Returns
+    /// what the verb returned; <c>false</c> when no entry screen is bound.
+    ///
+    /// <para><b>Why one method and not two call sites.</b> The screen has TWO accept routes — Ctrl+A through
+    /// <see cref="ActivateSelected"/>, and the on-screen <i>Accept</i> button through
+    /// <c>MainWindow.OnAcceptVoucherClick</c> — and until this slice the button called <c>VoucherEntry.Accept()</c>
+    /// directly. On an altering screen that is a HARD REFUSAL ("use AcceptAlteration"), so the button and the key
+    /// would have disagreed the moment alteration became reachable. Both now come through here, which is the same
+    /// discipline <c>RequestDeleteChartRow</c> follows in resolving its row exactly as
+    /// <see cref="AlterHighlightedChartRow"/> does.</para>
+    ///
+    /// <para><b>FIDELITY (R7) — ATTESTED AND FOLLOWED.</b> The corpus saves an altered voucher with the SAME key
+    /// as creation: <i>"… &amp; Show/Edit Entry &gt; Press \"Ctrl+A\" for Save"</i>, Book PDF pp.51, 53, 56, 58.
+    /// No second accept chord is invented. The branch on <c>IsAltering</c> (rather than on a separate screen id)
+    /// is what lets the alteration form BE the entry form pre-filled, which is also how the reference product
+    /// presents it — <i>"TallyPrime has no separate read-only voucher screen"</i>, design record §2.1.</para>
+    ///
+    /// <para><b>Why <c>Accept</c> could not simply be made to cope.</b> <c>Accept</c> is build + <c>Post</c> +
+    /// REGISTRATION SIDE EFFECTS: it re-runs <c>DetectTdsContext</c>, <c>DetectRcmShape</c> and
+    /// <c>BuildAdvanceLines</c> against TODAY's masters, mints a fresh <see cref="Guid"/> and posts a SECOND
+    /// voucher beside the original (design §6.6a.6). Its refusal on an altering screen is a designed guard, not an
+    /// oversight, and this branch is what stops an operator ever meeting it.</para>
+    /// </summary>
+    public bool AcceptVoucherEntryOrAlteration() =>
+        VoucherEntry is { } entry && (entry.IsAltering ? entry.AcceptAlteration() : entry.Accept());
+
     // =============================================================== WI-11: the Accept? (Y/N) confirmation
 
     /// <summary>
     /// WI-11 — true while the terminal "Accept? (Y/N)" confirmation is up over a master screen. Every Y/N key
     /// arm in the window's tunnel handler is SCOPED to this flag, which is what stops the confirmation from
     /// hijacking Y (Gateway → Export Data) or Alt+N (Auto Columns) anywhere else in the app.
+    /// <para>
+    /// <b>Modifier scoping (Phase 10.11 S1).</b> While the flag is true the confirmation arm owns bare and
+    /// Shift-held <c>Y</c>/<c>N</c> (answer it), <c>Escape</c> and <c>Alt+Escape</c> (dismiss it, master
+    /// intact), and it CONSUMES <c>Alt+Y</c>/<c>Alt+N</c> as inert — those two neither answer the question nor
+    /// reach their own accelerators, because the Alt+Y owner (Data → Backup / Restore) tears the open master's
+    /// column down and would discard everything the operator keyed. <c>Ctrl</c>-held keys are excluded
+    /// entirely, so Ctrl+A still saves outright. Answer the prompt first, then press the accelerator.
+    /// </para>
     /// </summary>
     [ObservableProperty] private bool _isAcceptPromptOpen;
 
     /// <summary>The prompt text shown while <see cref="IsAcceptPromptOpen"/> — e.g. "Accept Ledger? (Y/N)".</summary>
     [ObservableProperty] private string _acceptPromptText = string.Empty;
 
-    /// <summary>True on the master screens that carry an Accept confirmation (the WI-11 scope).</summary>
+    /// <summary>
+    /// True on the master screens that carry an Accept confirmation (the WI-11 scope).
+    ///
+    /// <para><b>The two company screens joined this list when the company profile form shipped</b>, so the
+    /// company is accepted exactly the way every other master is: Ctrl+A saves outright, Enter asks first.
+    /// This is a real behaviour change on creation — Enter used to create immediately — and it is made
+    /// deliberately rather than left as an inconsistency, because the confirmation and the shortcut route
+    /// through the same <see cref="ActivateSelected"/> and so cannot drift apart. Creation had NO test
+    /// coverage of its navigation or keyboard behaviour at all before this (only its side effect, a company
+    /// object, was exercised), which is why the change ships with that coverage rather than unobserved.</para>
+    /// </summary>
     public bool IsMasterAcceptScreen =>
-        CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
+        CurrentScreen is Screen.CreateCompany or Screen.AlterCompany
+            or Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
             or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
             or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
             or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
@@ -4694,32 +6080,64 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return true;
     }
 
-    /// <summary>WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.</summary>
+    /// <summary>
+    /// WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.
+    /// <para>Phase 10.11 S3: when <see cref="_pendingCancelVoucherId"/> is armed the prompt is a voucher
+    /// CANCELLATION, not a master accept, and Y routes there instead. The id is read and disarmed BEFORE the
+    /// action runs, so a cancellation can never leave the channel armed for the next unrelated prompt.</para>
+    /// <para>Phase 10.11 S4: likewise for <see cref="_pendingDeleteKind"/> — a DELETION. Both armed slots are read
+    /// and torn down together before either action runs, which is what makes "the channel is disarmed no matter
+    /// what the action does" true of the destructive verb as well as the reversible one.</para>
+    /// </summary>
     public bool ConfirmMasterAccept()
     {
         if (!IsAcceptPromptOpen) return false;
 
-        IsAcceptPromptOpen = false;
-        AcceptPromptText = string.Empty;
+        // Read the armed action, then tear the prompt down through the ONE teardown before running it, so the
+        // channel is disarmed no matter what the action does.
+        var pendingCancel = _pendingCancelVoucherId;
+        var pendingDeleteKind = _pendingDeleteKind;
+        var pendingDeleteId = _pendingDeleteId;
+        ResetMasterAcceptPrompt();
+        if (pendingCancel != Guid.Empty)
+        {
+            CancelPendingVoucher(pendingCancel);
+            return true;
+        }
+
+        if (pendingDeleteKind != DeletionTarget.None)
+        {
+            PerformPendingDeletion(pendingDeleteKind, pendingDeleteId);
+            return true;
+        }
+
         // Deliberately the identical code path as Ctrl+A, so the confirmation can never drift from the
         // accept-as-is shortcut into saving something different.
         ActivateSelected();
         return true;
     }
 
-    /// <summary>WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.</summary>
+    /// <summary>
+    /// WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.
+    /// <para>Phase 10.11 S3: this is also the "No" of a voucher cancellation, so it must disarm the pending
+    /// cancellation — otherwise the next Accept prompt raised anywhere in the app inherits the armed id and a
+    /// plain "Y" on a ledger master cancels a voucher. It clears the prompt through
+    /// <see cref="ResetMasterAcceptPrompt"/> rather than by hand: an inline copy of the three assignments was
+    /// written first, and a mutation run proved NOTHING could distinguish deleting the disarm from keeping it,
+    /// because the teardown already covered every reachable path. Routing here leaves ONE place that clears this
+    /// state, which is one place to get right and one place a test can pin.</para>
+    /// </summary>
     public bool DismissMasterAccept()
     {
         if (!IsAcceptPromptOpen) return false;
 
-        IsAcceptPromptOpen = false;
-        AcceptPromptText = string.Empty;
+        ResetMasterAcceptPrompt();
         return true;
     }
 
     /// <summary>
     /// WI-11 — THE TEARDOWN CHOKE POINT for the Accept confirmation. Answering Y/N is only ONE way to leave a
-    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Alt+X (cancel), Esc and any
+    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Esc / the Cancel button (abandon),
     /// navigation away all leave it too. Before this existed the flag stayed TRUE after those exits and the
     /// still-live Y/N arm — which sits EARLIER in the window's first-match-wins chain — then swallowed the next
     /// bare <c>Y</c> on the Gateway, drilling the highlighted row instead of opening Export Data (and leaving a
@@ -4727,7 +6145,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// exact invariant WI-11 promised not to break.
     /// <para>
     /// Rather than scatter a reset down every exit, this is called from the three places a master screen can be
-    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Alt+X, Esc, Back, any
+    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Esc, Back, any
     /// jump), <see cref="ClearSubScreens"/> (the page view models being nulled, the campaign convention for new
     /// screen state) and the top of <see cref="ActivateSelected"/> (Ctrl+A, which SAVES WITHOUT changing the
     /// screen and so is invisible to the other two).
@@ -4735,22 +6153,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void ResetMasterAcceptPrompt()
     {
+        // Phase 10.11 S3 — the early return does NOT test `_pendingCancelVoucherId`, and a clause that did was
+        // removed after a mutation run proved it could never change the outcome. The invariant that makes it
+        // redundant: the ONLY writer that arms the id (`RequestCancelHighlightedVoucher`) sets
+        // `IsAcceptPromptOpen = true` in the same breath, and the only reader disarms it through here — so
+        // "id armed AND prompt closed AND text empty" is unreachable, and on the Ctrl+A teardown path the id can
+        // only be armed if the prompt is open, in which case this return does not fire. Keeping it would have been
+        // a guard no test can fail — the same dead code wearing the costume of safety that the `id == Guid.Empty`
+        // clause in `RequestCancelHighlightedVoucher` was deleted for, twenty lines away in the same slice.
         if (!IsAcceptPromptOpen && AcceptPromptText.Length == 0) return;
 
         IsAcceptPromptOpen = false;
         AcceptPromptText = string.Empty;
+        // The armed cancellation is part of the prompt's state and dies with it.
+        _pendingCancelVoucherId = Guid.Empty;
+        // Phase 10.11 S4 — and so is the armed DELETION. Missing this line is the defect S3's own comment
+        // describes one verb earlier: an armed action that outlives its prompt lets a plain "Y" on the next
+        // unrelated Accept confirmation, anywhere in the app, execute it. With Delete behind the channel that is
+        // a voucher or a master destroyed by a keystroke aimed at a ledger master.
+        _pendingDeleteKind = DeletionTarget.None;
+        // …and its id, which is PAIRED-STATE HYGIENE, honestly labelled. It is not independently falsifiable and a
+        // mutation run confirms that: the id is only ever read when the KIND is armed, and the kind's disarm IS
+        // pinned (`A_dismissed_deletion_cannot_be_executed_by_a_later_unrelated_Y`). It is kept rather than deleted
+        // for a mutation score, because clearing one half of a two-field slot and not the other is exactly the
+        // asymmetry the next reader would trip over. This is a different category from the dead clause the comment
+        // above describes: that one CLAIMED a mechanism it could not deliver.
+        _pendingDeleteId = Guid.Empty;
     }
 
     /// <summary>
     /// Any change of screen tears down whatever master was open, so the Accept confirmation can never survive
     /// into the next screen (see <see cref="ResetMasterAcceptPrompt"/>). Raising the prompt does not change the
     /// screen, so this never cancels a confirmation the operator is looking at.
+    /// <para>Phase 10.11 S3 — the window-level <see cref="Notice"/> goes the same way and is cleared HERE rather
+    /// than inside <see cref="ResetMasterAcceptPrompt"/>: that method early-returns when no prompt is up, which is
+    /// precisely the state a notice is displayed in, so a notice routed through it would never be cleared.</para>
     /// </summary>
-    partial void OnCurrentScreenChanged(Screen value) => ResetMasterAcceptPrompt();
+    partial void OnCurrentScreenChanged(Screen value)
+    {
+        ResetMasterAcceptPrompt();
+        Notice = string.Empty;
+    }
 
     /// <summary>The human noun for the open master screen, used in the prompt text.</summary>
     private string MasterAcceptNoun() => CurrentScreen switch
     {
+        Screen.CreateCompany or Screen.AlterCompany => "Company",
         Screen.LedgerMaster => "Ledger",
         Screen.AccountGroupMaster => "Group",
         Screen.CostCategoryMaster => "Cost Category",
@@ -4813,9 +6261,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.ToggleItemInvoice();
     }
 
+    /// <summary>Ctrl+H "Change Mode": cycle the in-progress Purchase/Sales voucher through As Voucher → Item Invoice →
+    /// Accounting Invoice → As Voucher. A no-op on any other screen/type.</summary>
+    public void ChangeMode()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ChangeMode();
+    }
+
+    /// <summary>The Accounting-Invoice checkbox affordance: flip the in-progress Purchase/Sales voucher between plain
+    /// accounting and accounting-(service)-invoice mode. A no-op on any other screen/type.</summary>
+    public void ToggleAccountingInvoice()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ToggleAccountingInvoice();
+    }
+
     /// <summary>True while a Purchase/Sales voucher-entry page is active (drives the Ctrl+I item-invoice action).</summary>
     public bool IsInvoiceableEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
+
+    /// <summary>
+    /// True while a voucher-entry page has ANY alternative entry mode for Ctrl+H to change to — Purchase/Sales (the
+    /// three invoice modes) OR Contra/Payment/Receipt (Single ⟷ Double Entry, G-6).
+    /// <para>This exists because Ctrl+H was gated on <see cref="IsInvoiceableEntry"/>, which is Purchase/Sales only —
+    /// so Single Entry, though implemented, would have been unreachable from the keyboard on exactly the three
+    /// vouchers it belongs to. TallyPrime has ONE "Change Mode" key whose mode list varies by voucher type; this is
+    /// that key's gate.</para>
+    /// </summary>
+    public bool IsChangeModeEntry =>
+        CurrentScreen == Screen.VoucherEntry
+        && VoucherEntry is { } entry
+        && (entry.CanBeItemInvoice || entry.CanBeSingleEntry);
 
     /// <summary>True while a Memorandum voucher-entry page is the active screen (drives the Convert action).</summary>
     public bool IsMemorandumEntry =>
@@ -4833,11 +6310,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return null;
 
-        var target = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType && t.IsActive)
-                     ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType);
+        // Same rule as every other route: an INACTIVE type is never the target of a conversion either — a
+        // provisional voucher must not silently become a real one under a series the operator switched off.
+        var target = VoucherTypeResolver.ResolveForEntry(Company, targetBaseType);
         if (target is null)
         {
-            Message = $"No '{targetBaseType}' voucher type is configured to convert into.";
+            Message = $"No active '{VoucherTypeResolver.DisplayName(Company, targetBaseType)}' "
+                      + "voucher type is configured to convert into.";
             return null;
         }
 
@@ -4846,7 +6325,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             var service = new Apex.Ledger.Services.LedgerService(Company);
             var regular = service.ConvertToRegular(memorandumVoucherId, target.Id);
             _storage.Save(Company);
-            Message = $"Memorandum converted to {target.Name} No. {regular.Number}.";
+            Message = $"Memorandum converted to {target.Name} No. {Company.FormatVoucherNumber(regular)}.";
             return regular;
         }
         catch (InvalidOperationException ex)
@@ -5104,7 +6583,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>Going through <see cref="OpenPageColumn"/> instead would trim back to the last MENU column and null
     /// <see cref="VoucherEntry"/>, SILENTLY DESTROYING the half-typed voucher: the operator who pressed Alt+C to
     /// add one missing ledger would lose every line already keyed. The entry view model instance therefore
-    /// survives beneath this column, and popping the column (Esc / Alt+X / a completed create) re-binds that SAME
+    /// survives beneath this column, and popping the column (Esc / the Cancel button / a completed create) re-binds that SAME
     /// instance through <see cref="RehydratePageFromRightmostColumn"/> with its state intact.</para>
     /// </summary>
     private void OpenCreateMasterColumn(GatewayColumn pageColumn, Screen screen, string title, Action setPage)
@@ -5166,7 +6645,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// WI-1 — drops every armed create-on-the-fly whose column is no longer in the cascade, i.e. one popped
-    /// WITHOUT a create (Esc / Alt+X) or TRIMMED AWAY by a page-replacing navigation. Without this the request
+    /// WITHOUT a create (Esc / the Cancel button) or TRIMMED AWAY by a page-replacing navigation. Without this the request
     /// would stay armed and a later, unrelated master create on the same screen would jump back into a stale
     /// field.
     /// <para><b>DEFECT 2 — the session soft-lock.</b> This used to be called from <see cref="BackFromPage"/>
@@ -5204,6 +6683,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             case AdditionalCostRowViewModel row when fieldId == MasterCreateFields.Ledger:
                 row.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
+                return;
+
+            // Accounting-invoice Particulars row. Resolved out of the ROW'S OWN option list (rebuilt a few lines above
+            // by RefreshMasterPickers), not out of Company.Ledgers: that list is filtered to income/expense-nature
+            // non-tax ledgers, so a ledger created under some other group is genuinely not selectable here and the
+            // field must keep what it had rather than hold a value its ComboBox cannot display. Without this case the
+            // create round-trip returned to a blank field on every Alt+C in that column.
+            case AccountingInvoiceLineViewModel row when fieldId == MasterCreateFields.Ledger:
+                row.SelectedLedger = row.Ledgers.FirstOrDefault(l => l.Id == createdId) ?? row.SelectedLedger;
                 return;
 
             case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCategory:
@@ -5312,6 +6800,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.AddInventoryLine();
     }
 
+    /// <summary>Adds a fresh blank Particulars line to the current accounting-invoice's grid ("+ Add line").</summary>
+    public void AddAccountingInvoiceLine()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddAccountingInvoiceLine();
+    }
+
     /// <summary>Adds a fresh blank line to the current inventory voucher's primary grid ("+ Add line").</summary>
     public void AddInventoryLine()
     {
@@ -5359,10 +6854,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsOutstandingsScreen) Outstandings!.ToggleSelectHighlighted();
     }
 
-    /// <summary>Ctrl+B on the Outstandings page: settle (knock off) the selected bills via the engine.</summary>
-    public void SettleBills()
+    /// <summary>
+    /// Alt+A on the Outstandings page — settle the spacebar-selected bills by OPENING a Single-Entry
+    /// Receipt/Payment pre-loaded with them as Against-Reference allocations. Nothing is posted here: the
+    /// operator confirms the date, picks the cash/bank ledger and every per-bill amount, and presses Accept.
+    ///
+    /// <para>This replaces the deleted Ctrl+B binding, which posted the whole batch unasked (register row IV-5).
+    /// <b>Alt+A is TallyPrime's own "Add voucher in report"</b> [TallyHelp keyboard-shortcuts, Reports bottom bar;
+    /// CORPUS-BOOK p.431], which is exactly the semantic needed — create a voucher FROM this report — and it is
+    /// the meaning this app already gives Alt+A on the Day Book.</para>
+    ///
+    /// <para><b>The date is not seeded</b> (<c>date: null</c>), so a settlement is dated exactly like any
+    /// hand-keyed Receipt/Payment. <b>That is a consistency choice, NOT a protection</b> — an earlier draft of
+    /// this comment claimed it avoided <c>Outstandings.AsOf</c>, and it does not: <c>AsOf</c> is the maximum
+    /// voucher date in the company and the entry screen's own default is the same expression
+    /// (<c>Date = date ?? company.Vouchers.Max(v =&gt; v.Date) ?? BooksBeginFrom</c>), so on every reachable path
+    /// the two are equal. A book whose newest voucher is a 31-Mar year-end journal DOES open the settlement dated
+    /// 31-Mar. The difference from the deleted Ctrl+B path is that the date is now an editable field on screen
+    /// that the operator confirms, rather than one stamped invisibly on an already-posted voucher.</para>
+    ///
+    /// <para>The <c>onSaved</c> hook is required, not decorative: <see cref="OpenVoucher(VoucherType, DateOnly?,
+    /// Action?)"/> defaults to <see cref="ShowGateway"/>, which would dump the operator on the Gateway with no
+    /// confirmation that the bill closed. Returning to a refreshed Outstandings of the SAME side is what shows
+    /// them the settled bill is gone.</para>
+    /// </summary>
+    public void OpenSettlementVoucherFromOutstandings()
     {
-        if (IsOutstandingsScreen) Outstandings!.SettleSelected();
+        if (Company is null || !IsOutstandingsScreen) return;
+
+        var outstandings = Outstandings!;
+        var kind = outstandings.Kind;                       // captured now — the page is replaced by the entry screen
+        var preload = outstandings.BuildSettlementPreload();
+        if (preload is null) return;                        // the page carries the reason in its Message
+
+        OpenVoucher(preload.Type, date: null, onSaved: () => OpenOutstandings(kind));
+        if (CurrentScreen != Screen.VoucherEntry || VoucherEntry is null) return;
+        VoucherEntry.PreloadSettlement(preload);
     }
 
     // =============================================================== keyboard navigation
@@ -5380,7 +6907,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
-        // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Ctrl+B).
+        // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Alt+A settle).
         if (IsOutstandingsScreen)
         {
             Outstandings!.MoveHighlight(direction);
@@ -5489,6 +7016,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // Numbering S4: on the F12 voucher-numbering config the arrows move the N1 voucher-type highlight (the type
+        // whose numbering fields the N2/N3 editors show). Same placement rule as the master arms above — it is a page
+        // column, so the IsGatewayCascade branch below would otherwise swallow the keystroke and the list never move.
+        if (IsVoucherNumberingConfigScreen)
+        {
+            VoucherNumberingConfig!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -5523,6 +7059,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ActivateSelected()
     {
+        // 🔴 Phase 10.11 S4 — CTRL+A IS INERT OVER AN ARMED LIFECYCLE QUESTION, AND SAYS SO.
+        // The Ctrl+A arm sits ABOVE the WI-11 confirmation arm in the window's tunnel chain, deliberately, so the
+        // ~40 accept-as-is screens keep working and "Ctrl+A while the prompt happens to be up simply accepts" — and
+        // that reasoning is sound while the prompt asks about the SAME object Ctrl+A would save. It stops being
+        // sound the moment the shared channel carries a second verb about a DIFFERENT object. Measured on the Stock
+        // Item master with "Widget" highlighted, "Gizmo" typed in the form and `Delete stock item 'Widget'?` up: one
+        // Ctrl+A silently discarded the delete question (ResetMasterAcceptPrompt runs at the top of this method) and
+        // CREATED Gizmo instead — a destructive question replaced by an unrelated write, with nothing on the notice
+        // bar. That is the S1 Alt+Y hole shape on the destructive channel, and the arm's own comment claims the
+        // prompt is "MODAL against Alt+letter chords" while leaving this one open.
+        // So: answer the lifecycle question first. Two presses, exactly the doctrine already settled for Alt+Y and
+        // for Escape. Nothing is saved, nothing is discarded, and the question stays on screen.
+        if (IsAcceptPromptOpen
+            && (_pendingDeleteKind != DeletionTarget.None || _pendingCancelVoucherId != Guid.Empty))
+        {
+            RaiseLifecycleNotice("Answer the question on screen first (Y or N) — Ctrl+A does nothing while it is up.");
+            return;
+        }
+
         // WI-11: the accept-as-is path. Ctrl+A saves WITHOUT changing the screen, so it is invisible to the
         // screen-change reset — clear the confirmation here or it leaks and shadows the Gateway's bare Y.
         ResetMasterAcceptPrompt();
@@ -5532,8 +7087,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CreateCompany:
                 CreateCompany();
                 return;
+            case Screen.AlterCompany:
+                AlterCompany?.Accept();
+                return;
             case Screen.VoucherEntry:
-                VoucherEntry?.Accept();
+                AcceptVoucherEntryOrAlteration();
                 return;
             case Screen.InventoryVoucherEntry:
                 InventoryVoucherEntry?.Accept();
@@ -5633,7 +7191,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 MaterialMovementEntry?.Accept();
                 return;
             case Screen.PosBilling:
-                PosBilling?.Accept();
+                AcceptPosBillingOrAlteration();
                 return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
@@ -5646,6 +7204,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();
+                return;
+            // Numbering S4: Ctrl+A / Enter commits the working numbering config (validation runs inside Save — a
+            // duplicate-date reject, digit-adjacent warn, or historical-stability block/confirm never tears the
+            // screen down, so this stays a non-destructive accept action like every other master). Accept semantics
+            // parity (Ctrl+A/Enter = accept): the FIRST accept on a change needing confirmation warns (Save →
+            // NeedsConfirmation, IsConfirmPending); a SECOND accept confirms it (ConfirmSave persists). Without this
+            // branch the accept key re-ran Save(), which resets IsConfirmPending and re-warns forever — leaving Confirm
+            // reachable only by mouse / Tab+Space. Purely VM-side; the b8c617e key handler in MainWindow.axaml.cs is untouched.
+            case Screen.VoucherNumberingConfig:
+                if (VoucherNumberingConfig is { IsConfirmPending: true }) VoucherNumberingConfig.ConfirmSave();
+                else VoucherNumberingConfig?.Save();
                 return;
             case Screen.GstRateSetup:
                 GstRateSetup?.AddRateHistory(); // Ctrl+A appends the add-form's dated rate window (primary action)
@@ -5850,6 +7419,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Cost Centres"),
             "Budgets" => (BuildBudgetsColumn(), GatewayMenu.Budgets,
                 "Gateway of Apex Solutions — Budgets"),
+            // Data → Backup / Restore (the R-7 carve-out).
+            "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
+                "Gateway of Apex Solutions — Backup / Restore"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -5875,6 +7447,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         switch (item.Label)
         {
+            // Company → Alter Company (the open company's own profile).
+            case "Alter Company": ShowAlterCompany(); break;
+            // Data → Backup / Restore (the R-7 carve-out).
+            case "Backup Company": OpenBackupCompany(); break;
+            case "Restore Company": OpenRestoreCompany(); break;
             case "Chart of Accounts": ShowChartOfAccounts(); break;
             case "Day Book": OpenReport(ReportKind.DayBook); break;
             case "Balance Sheet": OpenReport(ReportKind.BalanceSheet); break;
@@ -6015,6 +7592,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Journal": OpenVoucher(VoucherBaseType.Journal); break;
             case "Sales": OpenVoucher(VoucherBaseType.Sales); break;
             case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
+            // The §34 Credit / Debit Note entries — their new menu rows (Transactions → Vouchers) route here, to
+            // the same screens Alt+F6 / Alt+F5 already opened.
+            case "Credit Note": OpenVoucher(VoucherBaseType.CreditNote); break;
+            case "Debit Note": OpenVoucher(VoucherBaseType.DebitNote); break;
             case "Reversing Journal": OpenVoucher(VoucherBaseType.ReversingJournal); break;
             case "Memorandum": OpenVoucher(VoucherBaseType.Memorandum); break;
             case "Purchase Order": OpenInventoryVoucher(VoucherBaseType.PurchaseOrder); break;
@@ -6085,7 +7666,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
-        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / Alt+X) disarms the round-trip.
+        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / the Cancel button) disarms the round-trip.
         AbandonCreateOnTheFlyIfColumnGone();
         ActiveColumnIndex = Columns.Count - 1;
         // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its
@@ -6233,6 +7814,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
+                    "Backup / Restore" => GatewayMenu.Data,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;
@@ -6342,12 +7924,123 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void F12Configure()
     {
+        // Re-pressing F12 while the numbering config is already open POPS it (the F12/Esc toggle, numbering S4).
+        if (CurrentScreen == Screen.VoucherNumberingConfig)
+        {
+            Back();
+            return;
+        }
+
         if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
         {
             lm.ToggleConfiguration();
             return;
         }
+
+        // On a voucher-entry context F12 opens the per-type voucher-numbering configuration (numbering-design-v2 §5.1),
+        // pushed as a cascade column to the right (prior panes persist). Every other F12 context is unchanged: the
+        // report-F12 (OpenReportConfig) and print-preview-F12 (OpenPrintConfig) are handled earlier in the key tunnel.
+        if (Company is not null && IsVoucherNumberingContext(out var preselectTypeId))
+        {
+            OpenVoucherNumberingConfig(preselectTypeId);
+            return;
+        }
+
         Message = "F12 Configure — display options (Phase 1 defaults).";
+    }
+
+    /// <summary>
+    /// True when the live screen is a voucher-entry context whose type's numbering F12 configures; outputs that
+    /// type's id so the config column opens pre-selected on it (numbering S4).
+    /// </summary>
+    private bool IsVoucherNumberingContext(out Guid preselectTypeId)
+    {
+        preselectTypeId = Guid.Empty;
+        switch (CurrentScreen)
+        {
+            case Screen.VoucherEntry when VoucherEntry is { } v: preselectTypeId = v.Type.Id; return true;
+            case Screen.InventoryVoucherEntry when InventoryVoucherEntry is { } iv: preselectTypeId = iv.Type.Id; return true;
+            case Screen.ManufacturingJournalEntry when ManufacturingJournalEntry is { } mj: preselectTypeId = mj.Type.Id; return true;
+            case Screen.JobWorkOrderEntry when JobWorkOrderEntry is { } jw: preselectTypeId = jw.Type.Id; return true;
+            case Screen.MaterialMovementEntry when MaterialMovementEntry is { } mm: preselectTypeId = mm.Type.Id; return true;
+            case Screen.PosBilling when PosBilling is { } pos: preselectTypeId = pos.Type.Id; return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// Opens the F12 voucher-numbering configuration as a cascade column pushed to the RIGHT of the current pane
+    /// (numbering S4; §5.1). Like <see cref="OpenReportConfig"/> it does NOT trim the pane it opened over, so the
+    /// voucher-entry column stays live beneath and Esc/F12 pops back to it. Re-pressing while open is a no-op (the F12
+    /// toggle in <see cref="F12Configure"/> pops instead). Optionally pre-selects <paramref name="preselectTypeId"/>.
+    /// </summary>
+    public void OpenVoucherNumberingConfig(Guid? preselectTypeId = null)
+    {
+        if (Company is null) return;
+        if (VoucherNumberingConfig is not null) return; // already open — don't stack a second column
+
+        var page = new VoucherNumberingConfigViewModel(Company, _storage, onSaved: BuildButtonBar);
+        if (preselectTypeId is { } id) page.SelectByTypeId(id);
+        VoucherNumberingConfig = page;
+        Columns.Add(new GatewayColumn(page.Title, page));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.VoucherNumberingConfig;
+        ScreenTitle = page.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>True while the F12 voucher-numbering configuration is the live screen — the arrows then move its N1
+    /// voucher-type highlight (numbering S4).</summary>
+    public bool IsVoucherNumberingConfigScreen =>
+        CurrentScreen == Screen.VoucherNumberingConfig && VoucherNumberingConfig is not null;
+
+    /// <summary>
+    /// 🔴 <b>The type F-keys (F4–F9) as the OPERATOR presses them — the same six verbs, with the one thing
+    /// <see cref="OpenVoucher"/> must never do added in front: silently destroying unsaved keying.</b>
+    ///
+    /// <para><b>The defect (S5d/S5e review, C9 — MAJOR).</b> The six rows were enabled on <c>hasCompany</c> alone
+    /// and the window dispatches plain F4–F9 with no screen test at all, so ONE keystroke ran
+    /// <see cref="OpenVoucher"/> → <see cref="OpenPageColumn"/> → <c>ClearSubScreens</c>, which nulls
+    /// <see cref="VoucherEntry"/> and <see cref="Reports"/> unconditionally. Measured on a half-keyed alteration:
+    /// no prompt (<c>IsAcceptPromptOpen == false</c>), no <see cref="Notice"/>, no <c>Message</c>, the amendment
+    /// gone, and the Day Book column beneath it torn down (Columns 3 → 2). Measured on a half-keyed NEW entry:
+    /// the identical silent loss without the column teardown.</para>
+    ///
+    /// <para>🔴 <b>SCOPED TO THE SCREEN, NOT TO <c>IsAltering</c>.</b> See
+    /// <see cref="VoucherEntryViewModel.HasUnsavedWork"/> for why — an <c>IsAltering</c> guard closes the smaller
+    /// half of the defect and leaves a new entry destroyed by the same key.</para>
+    ///
+    /// <para><b>Why a REFUSAL and not a discard PROMPT.</b> The Y/N confirmation channel is
+    /// <see cref="IsAcceptPromptOpen"/>, and it is scoped to master screens (<see cref="IsMasterAcceptScreen"/>
+    /// excludes <see cref="Screen.VoucherEntry"/>); raising a question on a screen whose arms cannot answer it is
+    /// the Alt+Y hole S1 closed. The operator already has both exits and they are named in the sentence: Esc
+    /// abandons, Ctrl+A accepts. A discard prompt is a design question, not a defect fix.</para>
+    ///
+    /// <para><b>Why the row stays ENABLED and the guard sits in the action.</b> <c>Fire</c> skips a disabled row
+    /// entirely, so dimming these six would turn a silent discard into a silent DEAD KEY — the same failure in a
+    /// different costume. The action runs and puts the reason on the notice bar.</para>
+    ///
+    /// <para><b>Narrowness, deliberately.</b> Only the six type-key ROWS are wrapped. Direct
+    /// <see cref="OpenVoucher"/> callers — the Vouchers menu, <c>OpenAddVoucherFromReport</c>, the settlement
+    /// route, every test fixture — are untouched, because none of them is a keystroke aimed at a screen the
+    /// operator is standing on. <b>KNOWN AND NOT CLOSED HERE:</b> the same six keys on
+    /// <see cref="Screen.PosBilling"/> discard an in-progress or altering POS bill the same way; that needs a
+    /// <c>HasUnsavedWork</c> on <see cref="PosBillingViewModel"/> and is reported, not smuggled into this fix.</para>
+    /// </summary>
+    private void OpenVoucherFromTypeKey(VoucherBaseType baseType)
+    {
+        if (CurrentScreen == Screen.VoucherEntry && VoucherEntry is { HasUnsavedWork: true } entry)
+        {
+            RaiseLifecycleNotice(entry.IsAltering
+                ? "Opening another voucher type would discard this alteration and close the report beneath it. "
+                + "Press Esc to abandon the alteration, or Ctrl+A to save it, and then press the key again."
+                : "Opening another voucher type would discard the voucher you are keying. Press Esc to abandon "
+                + "it, or Ctrl+A to accept it, and then press the key again.");
+            return;
+        }
+
+        OpenVoucher(baseType);
     }
 
     private void BuildButtonBar()
@@ -6362,26 +8055,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;
-        // F4–F9 now open the real accounting voucher-entry screens.
-        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucher(VoucherBaseType.Contra), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucher(VoucherBaseType.Payment), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucher(VoucherBaseType.Receipt), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucher(VoucherBaseType.Journal), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucher(VoucherBaseType.Sales), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucher(VoucherBaseType.Purchase), hasCompany));
+        // F4–F9 now open the real accounting voucher-entry screens. They go through OpenVoucherFromTypeKey, NOT
+        // straight to OpenVoucher, so a type key can never silently discard keying — see that method.
+        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucherFromTypeKey(VoucherBaseType.Payment), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucherFromTypeKey(VoucherBaseType.Sales), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucherFromTypeKey(VoucherBaseType.Purchase), hasCompany));
 
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
         // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
         ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
+        // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+H", "Change Mode", ChangeMode, IsChangeModeEntry));
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
-        // Alt+A is context-sensitive: on the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
+        // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
+        // the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
         // Only ONE Alt+A row is emitted — the shell's Fire()/hint lookup takes the first key match, so a second
-        // Alt+A would shadow this. The Day-Book "Add Voucher" wins whenever the live report is the Day Book.
-        if (IsDayBookReport)
+        // Alt+A would shadow this. BRANCH ORDER MIRRORS THE KEY DISPATCHER: Outstandings first, then the Day Book,
+        // then POS. Get it wrong and the Outstandings page advertises "Tax Analysis" and fires the POS handler.
+        if (IsOutstandingsScreen)
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Settle Bills", OpenSettlementVoucherFromOutstandings, true));
+        else if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
@@ -6397,8 +8098,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
             hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
-        // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
-        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
+        // NOTE: there is deliberately NO "Ctrl+B" row here. Ctrl+B was the Bill-Settlement badge until Phase 10.11
+        // S2 (register row IV-5) removed the binding; leaving the badge would paint a red accelerator for a key
+        // that fires nothing, which is register defect IV-31. Settlement is advertised on the Alt+A row above.
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.
@@ -6418,6 +8120,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
+
+        // Alt+Y — Data (Backup / Restore; the R-7 carve-out). A quick door to the data-safety menu from anywhere,
+        // alongside the Gateway → Data cascade. Bare Y is already Export Data on the Gateway root, so this one is
+        // Alt-modified and the badge says so.
+        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, hasCompany));
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));

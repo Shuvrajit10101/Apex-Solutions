@@ -252,12 +252,35 @@ public sealed class PayHeadComputationSlab
             throw new ArgumentException("Slab rate basis points must be ≥ 0.", nameof(rateBasisPoints));
         if (fromAmount is { } f && toAmount is { } t && t <= f)
             throw new ArgumentException("Slab 'up to' amount must be greater than the 'greater than' amount.", nameof(toAmount));
+        // All THREE of these are money and all three persist through Paisa.FromMoney
+        // (SqliteCompanyStore.InsertPayHeadComputationSlabs writes value_paisa, from_amount_paisa and
+        // to_amount_paisa), which THROWS on a sub-paisa figure. PayHeadService.ValidateComputation guards
+        // calc-type, self-reference, duplicates and cycles but never the slab money, and that file's ONLY
+        // IsPaisaExact covers RoundingLimit alone — so a sub-paisa slab reached the store, which refused it in
+        // words that name no slab, after CreatePayHead had already written the head to the company. Import and
+        // the SQLite read path build from INTEGER paisa and cannot trip this.
+        RequirePaisaExact(value, "value");
+        if (fromAmount is { } lo) RequirePaisaExact(lo, "'greater than'");
+        if (toAmount is { } hi) RequirePaisaExact(hi, "'up to'");
 
         SlabType = slabType;
         RateBasisPoints = rateBasisPoints;
         Value = value;
         FromAmount = fromAmount;
         ToAmount = toAmount;
+    }
+
+    /// <summary>
+    /// FitsPaisaStore, not IsPaisaExact — "storable" is magnitude AND exactness, and the exactness half alone
+    /// THROWS <see cref="OverflowException"/> on a big enough figure instead of refusing it (the predicate scales
+    /// by a hundred; the store's conversion then narrows to <c>long</c>). FitsPaisaStore owns that branch order.
+    /// </summary>
+    private static void RequirePaisaExact(Money amount, string which)
+    {
+        if (!PaisaConversion.FitsPaisaStore(amount.Amount))
+            throw new InvalidOperationException(
+                $"A computation slab {which} amount {amount.Amount} cannot be stored as integer paisa: it must be "
+              + $"paisa-exact (2 decimal places) and no larger than {PaisaConversion.MaxStorableRupees}.");
     }
 
     /// <summary>The rate as a percentage (e.g. 12.00 for 1200 bp).</summary>

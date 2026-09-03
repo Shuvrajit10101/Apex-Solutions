@@ -285,8 +285,10 @@ public sealed record ItcGateView(
     private static decimal PaisaToRupees(long paisa) => paisa / 100m;
 
     /// <summary>A paisa-exact rupee Money → integer paisa (the split shares are already paisa-exact, so this never rounds
-    /// off a real fraction — it only crosses the rupees↔paisa boundary for the candidate's per-head fields).</summary>
-    private static long ToPaisa(Money money) => (long)Math.Round(money.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// off a real fraction — it only crosses the rupees↔paisa boundary for the candidate's per-head fields).
+    /// Delegates to <see cref="PaisaConversion.ToPaisaRounded(Money)"/> — the ONE rupees→paisa rule (drift lock D3),
+    /// ROUNDED semantics: a derived report quantises a sub-paisa intermediate, it does not abort.</summary>
+    private static long ToPaisa(Money money) => PaisaConversion.ToPaisaRounded(money);
 }
 
 /// <summary>A CGST/SGST/IGST money triple for the ITC-gate (Phase 9 slice 6b). Compensation Cess is ring-fenced out of the

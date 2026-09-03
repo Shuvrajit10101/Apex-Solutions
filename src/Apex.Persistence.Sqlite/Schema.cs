@@ -92,14 +92,70 @@ namespace Apex.Persistence.Sqlite;
 /// <c>voucher_inventory_lines</c> (<c>unit_id</c> → <c>units(id)</c>), so an invoice line can be entered in a
 /// compound unit ("2 Dozen @ ₹10" ⇒ ₹20 billed, 24 Nos moved). NULL ⇒ the item's base unit, i.e. every pre-v46
 /// line, so a company with no unit-carrying line serialises byte-identically to a v45 company (ER-13).
-/// <b><see cref="CurrentVersion"/> = 46</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v47</b> adds the Phase-10.7 voucher-numbering S3 <b>per-type numbering config</b>: three additive columns on
+/// <c>voucher_types</c> (<c>prevent_duplicate</c>, <c>number_width</c>, <c>prefill_with_zero</c>) plus two date-keyed
+/// affix child tables (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their indexes.
+/// <b>v48</b> adds the voucher-numbering S5 <b>counterparty captured field</b>: two nullable columns on
+/// <c>vouchers</c> (<c>reference_no</c>, <c>reference_date</c>) holding the other party's document number/date —
+/// "Supplier Invoice No." on a Purchase, "Reference No." on a Sales — a distinct field from the CDN-only
+/// <c>original_invoice_number</c>.
+/// <b>v49</b> adds the <b>accounting-invoice flag</b>: one <c>is_accounting_invoice INTEGER NOT NULL DEFAULT 0</c>
+/// column on <c>vouchers</c> recording that a Sales voucher was posted from the Accounting Invoice (service-invoice)
+/// entry mode, so the printed document type is a PERSISTED FACT rather than an inference from the posted GST legs —
+/// a zero-rated or wholly-exempt service invoice posts no tax leg yet is still a Rule-46 tax invoice. Existing v48
+/// rows read 0 = "not an accounting invoice" and print exactly as before.
+/// <b>v50</b> adds the <b>negative-stock warning toggle</b>: one
+/// <c>warn_on_negative_stock INTEGER NOT NULL <b>DEFAULT 1</b></c> column on <c>companies</c>.
+/// ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one defaults 0, so "column absent"
+/// and "flag off" coincide and a missed read path is harmless; here they do not coincide, and a read path that treats
+/// an absent value as <c>false</c> silently switches warnings OFF on every upgraded book.
+/// <b>v51</b> adds the <b>GST five-level hierarchy masters</b>: a four-column <c>MasterGstDetails</c> block on
+/// <c>groups</c> and on <c>stock_groups</c>, the same block (prefixed <c>gst_default_</c>) on <c>companies</c>, and the
+/// two independent source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>.
+/// ⚠️ <b>The only bump so far where a fresh database and a migrated one deliberately hold DIFFERENT values</b>: fresh =
+/// <c>0</c> (LedgerFirst, the reference application's shipped order), upgraded = <c>1</c> (StockItemFirst, what this
+/// application has always resolved). The difference is carried by an explicit <c>UPDATE</c> in
+/// <see cref="MigrateV50ToV51"/>, never by the column default — see that constant.
+/// <b>v52</b> adds the <b>voucher edit log</b>: one new table <c>voucher_edit_log</c> and its <c>company_id</c>
+/// index. The first bump whose subject is EVIDENCE rather than figures - it records that a posted voucher was
+/// cancelled, deleted or altered, together with the pre-change voucher. Purely additive: no column is added to any
+/// existing table, so there is no DEFAULT anywhere in it and no existing row is rewritten.
+/// <b><see cref="CurrentVersion"/> = 52</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v46</b> is the latest bump (Phase 10.5
+    /// <summary>The current schema version this adapter reads and writes. <b>v52</b> is the latest bump
+    /// (the <b>voucher edit log</b>: one new table <c>voucher_edit_log</c> + its <c>company_id</c> index, recording
+    /// every Cancel / Delete / Alter / memorandum-conversion applied to a posted voucher, with the pre-change
+    /// voucher serialised into <c>before_snapshot</c>. Purely additive - no column is added to any existing table,
+    /// so no existing row is rewritten and no DEFAULT can back-fill a figure. See <see cref="MigrateV51ToV52"/>).
+    /// v51 was the latest bump
+    /// (the <b>GST five-level hierarchy masters</b>: a four-column <c>MasterGstDetails</c> block on <c>groups</c> and
+    /// on <c>stock_groups</c>, the same block prefixed <c>gst_default_</c> on <c>companies</c>, and the two
+    /// independent source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>. ⚠️ <b>The only bump
+    /// where a fresh database and a migrated one deliberately hold DIFFERENT values</b> — fresh = LedgerFirst (the
+    /// column default), upgraded = StockItemFirst (an explicit <c>UPDATE</c>, so no existing book's figures move).
+    /// See <see cref="MigrateV50ToV51"/>). v50 was
+    /// (the <b>negative-stock warning toggle</b>: one <c>warn_on_negative_stock INTEGER NOT NULL <b>DEFAULT 1</b></c>
+    /// column on <c>companies</c>. ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one
+    /// defaults 0, so "column absent" and "flag off" coincide and a missed read path is harmless; here they do not
+    /// coincide, and a read path that treats an absent value as <c>false</c> silently switches warnings OFF on every
+    /// upgraded book. See <see cref="MigrateV49ToV50"/>). v49 was
+    /// (the <b>accounting-invoice flag</b>: one <c>INTEGER NOT NULL DEFAULT 0</c> column on <c>vouchers</c>
+    /// (<c>is_accounting_invoice</c>) recording that a Sales voucher was posted from the Accounting Invoice
+    /// (service-invoice) entry mode, so the printed document type is a PERSISTED FACT rather than an inference from
+    /// the posted GST legs — a zero-rated or wholly-exempt service invoice posts no tax leg yet is still a Rule-46
+    /// tax invoice. Existing v48 rows read 0 = "not an accounting invoice" and print exactly as before). v48 was
+    /// voucher-numbering S5 — the <b>counterparty captured field</b>: two nullable columns on <c>vouchers</c>
+    /// (<c>reference_no</c>, <c>reference_date</c>) holding the other party's document number/date — "Supplier
+    /// Invoice No." on a Purchase, "Reference No." on a Sales — a distinct field from the CDN-only
+    /// <c>original_invoice_number</c>). v47 was voucher-numbering S3 — the per-type numbering config: three additive
+    /// columns on <c>voucher_types</c>
+    /// (<c>prevent_duplicate</c>, <c>number_width</c>, <c>prefill_with_zero</c>) plus two date-keyed affix child
+    /// tables (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their indexes). v46 was Phase 10.5
     /// WI-10 Gap 2 — the item-invoice line unit: one nullable <c>unit_id</c> column on
-    /// <c>voucher_inventory_lines</c>). v45 was Phase 10.5
+    /// <c>voucher_inventory_lines</c>. v45 was Phase 10.5
     /// slice 7 — WI-4 party Mailing Details: four nullable TEXT columns on <c>ledgers</c>. v44 was the Phase 9
     /// slice 7a — Rule-88A set-off + electronic ledgers + PMT-06/DRC-03: the <c>gst_setoff_lines</c> +
     /// <c>itc_reversals</c> + <c>gst_challans</c> + <c>gst_drc03</c> tables + their indexes, and the adjustment
@@ -109,7 +165,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 46;
+    public const int CurrentVersion = 52;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -263,7 +319,28 @@ public static class Schema
             bonus_rate_bp                  INTEGER NOT NULL DEFAULT 833, -- bonus rate basis points (833 = 8.33%), clamped [833,2000]
             bonus_calc_ceiling_paisa       INTEGER NOT NULL DEFAULT 700000, -- §12 calc ceiling, paisa (₹7,000)
             bonus_minimum_wage_paisa       INTEGER NOT NULL DEFAULT 0,  -- state minimum wage, paisa (0 = fall back to ₹7,000)
-            bonus_prorate                  INTEGER NOT NULL DEFAULT 1   -- 0/1 (prorate mid-year joiner by months worked)
+            bonus_prorate                  INTEGER NOT NULL DEFAULT 1,  -- 0/1 (prorate mid-year joiner by months worked)
+            -- v50 (plan.md NS-4): "Warn on Negative Stock Balance" — a pure persisted, ADVISORY toggle. Negative
+            -- stock is never blocked (NS-3); this decides only whether the operator is warned about it.
+            -- ⚠️ DEFAULT 1 — the ONLY company flag here that defaults TRUE. "Column absent" and "flag off" are
+            -- therefore NOT the same thing, unlike every 0-defaulted flag above: MigrateV49ToV50 must also use
+            -- DEFAULT 1 (it does), or every upgraded book comes up with warnings silently switched off.
+            warn_on_negative_stock         INTEGER NOT NULL DEFAULT 1,  -- 0/1 (advisory only; default ON)
+            -- v51 (plan.md WF-1 / register IV-1): the five-level GST master hierarchy. Two INDEPENDENT source-order
+            -- options + the COMPANY-level default GST block, which is the last level of both orders.
+            -- ⚠️ R7, corrected by the owed review (lens 3 finding 5): "the reference application ships them
+            -- separately" is a [web], A14-UNVERIFIED claim — ZERO corpus hits for "Source of HSN/SAC", "Source of
+            -- GST Rate" or a GST-rate hierarchy across the ten PDFs. See GstDetailSource's remarks for the full
+            -- sourcing. Two schema columns rest on it.
+            -- ⚠️ DEFAULT 0 = LedgerFirst is the FRESH-company value and MUST stay 0 on both sides of the migration
+            -- (the equivalence test compares the DEFAULT literal). Existing books are moved to StockItemFirst by an
+            -- explicit UPDATE inside MigrateV50ToV51 — NOT by this default. See that constant for why.
+            gst_source_of_hsn_sac          INTEGER NOT NULL DEFAULT 0,  -- GstDetailSource ordinal (0 = LedgerFirst)
+            gst_source_of_rate             INTEGER NOT NULL DEFAULT 0,  -- GstDetailSource ordinal (0 = LedgerFirst)
+            gst_default_hsn_sac            TEXT        NULL,            -- company default HSN/SAC (4/6/8 digits)
+            gst_default_taxability         INTEGER     NULL,            -- GstTaxability ordinal (NULL = no block)
+            gst_default_rate_bp            INTEGER     NULL,            -- company default rate in basis points
+            gst_default_supply_type        INTEGER     NULL             -- GstSupplyType ordinal (Goods/Services)
         );
 
         CREATE TABLE nature_of_payment (
@@ -676,7 +753,14 @@ public static class Schema
             alias         TEXT        NULL,
             is_predefined INTEGER NOT NULL,   -- 0/1
             -- Is this the reserved P&L head (kept out of Company.Groups on reload)?
-            is_pl_head    INTEGER NOT NULL DEFAULT 0
+            is_pl_head    INTEGER NOT NULL DEFAULT 0,
+            -- v51 (plan.md WF-1 / register IV-1): the accounting group's MasterGstDetails block — the "Group" level of
+            -- the five-level GST hierarchy. gst_taxability NULL = no GST block (the same marker the item and the
+            -- sales/purchase-ledger blocks use). Every pre-v51 group reads all four NULL.
+            gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
+            gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
+            gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
+            gst_supply_type  INTEGER     NULL    -- GstSupplyType enum ordinal (Goods/Services)
         );
 
         CREATE TABLE ledgers (
@@ -834,7 +918,33 @@ public static class Schema
             is_rcm_payment_voucher INTEGER NOT NULL DEFAULT 0,      -- 0/1
             -- v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" — a Journal voucher-type flag marking a
             -- Rule-88A set-off / ITC-reversal stat-adjustment. 0/1, default 0 so an existing Journal type is byte-identical (ER-13).
-            is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0       -- 0/1
+            is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0,      -- 0/1
+            -- v47 (voucher-numbering S3; numbering-design-v2 §6; catalog §4): per-type numbering config. "Prevent
+            -- Duplicates" rejects a colliding rendered number; "Width of numerical part" left-pads the numeric core
+            -- (0 = no pad); "Prefill with zero" chooses '0' vs ' ' as the pad char. Default 0 so an existing type is
+            -- byte-identical (ER-13). The date-keyed Prefix/Suffix rows live in voucher_type_prefix / _suffix below.
+            prevent_duplicate  INTEGER NOT NULL DEFAULT 0,          -- 0/1
+            number_width       INTEGER NOT NULL DEFAULT 0,          -- 0 = no left-pad
+            prefill_with_zero  INTEGER NOT NULL DEFAULT 0           -- 0/1
+        );
+
+        -- v47 (voucher-numbering S3; numbering-design-v2 §1.2/§6): the date-effective Prefix / Suffix rows for a
+        -- voucher type's numbering. Each is an unbounded list of {applicable_from, particulars} keyed by the type
+        -- (following the pos_tender_ledger_defaults child-table precedent). particulars is the ENTIRE affix text,
+        -- separators included (e.g. "25-26/", "/A") and may be empty. A type with no affix rows serialises
+        -- byte-identically (ER-13).
+        CREATE TABLE voucher_type_prefix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,      -- ISO yyyy-MM-dd
+            particulars     TEXT NOT NULL       -- separators included; may be ""
+        );
+
+        CREATE TABLE voucher_type_suffix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,
+            particulars     TEXT NOT NULL
         );
 
         CREATE TABLE vouchers (
@@ -849,7 +959,14 @@ public static class Schema
             optional    INTEGER NOT NULL,
             post_dated  INTEGER NOT NULL,
             -- v6 (catalog §7): Reversing-Journal "Applicable upto" date; NULL for every other voucher
-            applicable_upto TEXT    NULL
+            applicable_upto TEXT    NULL,
+            -- v48 (numbering S5): the counterparty document number/date — "Supplier Invoice No." (Purchase) /
+            -- "Reference No." (Sales); free text, NEVER auto-numbered; NULL for every voucher without one
+            reference_no   TEXT    NULL,
+            reference_date TEXT    NULL,      -- ISO yyyy-MM-dd
+            -- v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher —
+            -- hand-keyed As-Voucher sales, item invoices, plain vouchers — so they print exactly as before.
+            is_accounting_invoice INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE entry_lines (
@@ -1043,7 +1160,23 @@ public static class Schema
             name           TEXT    NOT NULL,
             parent_id      TEXT        NULL REFERENCES stock_groups(id),   -- NULL = under implicit Primary
             alias          TEXT        NULL,
-            add_quantities INTEGER NOT NULL DEFAULT 1                      -- "Should quantities be added?" 0/1
+            add_quantities INTEGER NOT NULL DEFAULT 1,                     -- "Should quantities be added?" 0/1
+            -- v51 (plan.md WF-1 / register IV-1): the stock group's "Set/Alter GST details" block — the level whose
+            -- absence caused D8's hard block on a customer who set the rate once on a Stock Group. Same four
+            -- columns, same NULL-taxability marker, as `groups`.
+            -- ⚠️ This DDL used to call the stock group "level 2 of the five-level GST hierarchy". It is not: the 2
+            -- was the ordinal of "Defining at Stock Group Level" in the corpus's list of five METHODS, which the
+            -- corpus frames as "any one method of the following" and is not a resolution order. Under the shipped
+            -- default (GstDetailSource.LedgerFirst) the stock group is FOURTH. Corrected by the owed review, lens 3
+            -- finding 3 — a resolver author who took the number from here would walk the hierarchy wrong.
+            -- ⚠️ NULL gst_taxability is the ONE-column marker for a four-column block, and NO CHECK enforces the
+            -- invariant (lens 1 finding 5): a row with a real HSN/rate but a NULL taxability reads back as "no
+            -- block" and silently loses both. Nothing in src/ can produce that row; anything writing these columns
+            -- outside SqliteCompanyStore.BindMasterGst must write all four.
+            gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
+            gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
+            gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
+            gst_supply_type  INTEGER     NULL    -- GstSupplyType enum ordinal (Goods/Services)
         );
 
         CREATE TABLE stock_categories (
@@ -1461,6 +1594,9 @@ public static class Schema
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
+        -- v47 (voucher-numbering S3): lookup the date-keyed affix rows by their owning voucher type.
+        CREATE INDEX ix_vt_prefix_type ON voucher_type_prefix(voucher_type_id);
+        CREATE INDEX ix_vt_suffix_type ON voucher_type_suffix(voucher_type_id);
         CREATE INDEX ix_vouchers_company       ON vouchers(company_id);
         CREATE INDEX ix_entry_lines_voucher    ON entry_lines(voucher_id);
         CREATE INDEX ix_bill_allocations_line  ON bill_allocations(entry_line_id);
@@ -1703,6 +1839,38 @@ public static class Schema
             amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
         );
         CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
+
+        -- v52 (the VOUCHER EDIT LOG): one row per Cancel / Delete / Alter / memorandum-conversion applied to a
+        -- posted voucher. Before this table, Cancel was the only one of the verbs that left ANY evidence (it sets
+        -- a flag and the voucher stays on the book); Delete removed the row and Alter overwrote it in place, after
+        -- which nothing in the product could tell an auditor the book had been edited.
+        --
+        -- !! NEITHER `company_id` NOR `voucher_id` IS A FOREIGN KEY, AND BOTH OMISSIONS ARE LOAD-BEARING.
+        --   * `voucher_id`: Delete's whole purpose is that the voucher is gone. A REFERENCES vouchers(id) would
+        --     make the one entry that matters most - the record of a deletion - the one entry that cannot be
+        --     stored. (`company_id` follows `saved_views`, which documents it as "a plain isolation key".)
+        --   * `company_id`: this is the second table (after saved_views) that whole-company Save does NOT own.
+        --     Save is DELETE-ALL + full re-INSERT, and it deletes the `companies` row itself mid-transaction; a
+        --     companies FK would fail on that delete for any book that had ever been edited.
+        --
+        -- APPEND-ONLY IN THE STORE, not merely by convention: SqliteCompanyStore.DeleteCompanyRows deliberately
+        -- does not delete from this table and the writer is INSERT OR IGNORE on `id`, so a save from an aggregate
+        -- that never loaded the log cannot erase it and re-saving the same entry is a no-op.
+        --
+        -- `before_snapshot` is the pre-change voucher serialised by Domain.VoucherSnapshot - the whole object
+        -- graph, so the record cannot silently narrow as Voucher gains fields. There is deliberately NO actor /
+        -- user / modified_by column: this application has no identity model of any kind, and a column whose only
+        -- honest value is "unknown" would invite a fabricated one.
+        CREATE TABLE voucher_edit_log (
+            id               TEXT    NOT NULL PRIMARY KEY,   -- VoucherEditLogEntry.Id
+            company_id       TEXT    NOT NULL,               -- owning company (isolation key; no FK - see above)
+            voucher_id       TEXT    NOT NULL,               -- the edited voucher (no FK - Delete removes it)
+            verb             INTEGER NOT NULL,               -- VoucherEditVerb ordinal (0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum)
+            recorded_at      TEXT    NOT NULL,               -- ISO-8601 round-trip ("o") with offset
+            before_snapshot  TEXT    NOT NULL                -- VoucherSnapshot.Of(the pre-change voucher)
+        );
+
+        CREATE INDEX ix_voucher_edit_log_company ON voucher_edit_log(company_id);
         """;
 
     /// <summary>
@@ -3538,4 +3706,281 @@ public static class Schema
     /// <see cref="MigrateV45ToV46"/> creates and <c>SchemaDowngrade.V46ToV45</c> removes. Named once so the two can
     /// never disagree.</summary>
     public static readonly IReadOnlyList<string> V46ItemLineUnitColumns = new[] { "unit_id" };
+
+    /// <summary>
+    /// v46 → v47 (voucher-numbering S3; numbering-design-v2 §6 — the per-type <b>numbering config</b>): additive —
+    /// three columns on <c>voucher_types</c> (<c>prevent_duplicate</c>, <c>number_width</c>,
+    /// <c>prefill_with_zero</c>, all <c>INTEGER NOT NULL DEFAULT 0</c>) plus two date-keyed affix child tables
+    /// (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their by-type indexes, run inside a transaction
+    /// that bumps <c>schema_version</c> to 47. <b>No row rewrites, no data backfill</b>: every existing v46 voucher
+    /// type reads the three <c>DEFAULT 0</c> columns and the two tables start empty, so a company that never
+    /// configures numbering persists and serialises byte-identically to a v46 company (ER-13).
+    ///
+    /// <para>The three <c>ALTER … ADD COLUMN … DEFAULT 0</c> and the two <c>CREATE TABLE</c> / <c>CREATE INDEX</c>
+    /// statements are byte-identical to their counterparts in <see cref="CreateV1"/> — the migration-equivalence
+    /// test compares <c>PRAGMA table_info</c> (name/type/notnull/<b>default</b>/pk) and normalised index SQL, so
+    /// the <c>DEFAULT 0</c> literals and the index definitions MUST match on both sides. A fresh DB is stamped
+    /// straight to v47 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV46ToV47 = """
+        ALTER TABLE voucher_types ADD COLUMN prevent_duplicate  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN number_width       INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN prefill_with_zero  INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE voucher_type_prefix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,      -- ISO yyyy-MM-dd
+            particulars     TEXT NOT NULL       -- separators included; may be ""
+        );
+
+        CREATE TABLE voucher_type_suffix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,
+            particulars     TEXT NOT NULL
+        );
+
+        CREATE INDEX ix_vt_prefix_type ON voucher_type_prefix(voucher_type_id);
+        CREATE INDEX ix_vt_suffix_type ON voucher_type_suffix(voucher_type_id);
+        """;
+
+    /// <summary>The three <c>voucher_types</c> columns v47 adds — the exact set <see cref="MigrateV46ToV47"/>
+    /// creates and <c>SchemaDowngrade.V47ToV46</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V47NumberingColumns =
+        new[] { "prevent_duplicate", "number_width", "prefill_with_zero" };
+
+    /// <summary>
+    /// v47 → v48 (voucher-numbering S5; numbering-design-v2 §8 — the <b>counterparty captured field</b>): additive —
+    /// two nullable columns on <c>vouchers</c> (<c>reference_no</c> TEXT NULL, <c>reference_date</c> TEXT NULL, ISO
+    /// yyyy-MM-dd) that hold the OTHER party's document number/date ("Supplier Invoice No." on a Purchase, "Reference
+    /// No." on a Sales). This is a DISTINCT field from the GST credit/debit-note-only <c>original_invoice_number</c>
+    /// on <c>gst_cdn_links</c> (which references OUR earlier invoice). Run inside a transaction that bumps
+    /// <c>schema_version</c> to 48. <b>No row rewrites, no data backfill</b>: every existing v47 voucher reads the two
+    /// NULL columns, so a company with no captured reference persists and serialises byte-identically to a v47
+    /// company (ER-13).
+    ///
+    /// <para>The two <c>ALTER … ADD COLUMN … TEXT NULL</c> statements are byte-identical to their counterparts in
+    /// <see cref="CreateV1"/> — the migration-equivalence test compares <c>PRAGMA table_info</c>
+    /// (name/type/notnull/default/pk), so the <c>TEXT</c>/nullable contract MUST match on both sides. A fresh DB is
+    /// stamped straight to v48 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV47ToV48 = """
+        ALTER TABLE vouchers ADD COLUMN reference_no   TEXT NULL;
+        ALTER TABLE vouchers ADD COLUMN reference_date TEXT NULL;
+        """;
+
+    /// <summary>The two <c>vouchers</c> columns v48 adds — the exact set <see cref="MigrateV47ToV48"/> creates and
+    /// <c>SchemaDowngrade.V48ToV47</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V48ReferenceColumns =
+        new[] { "reference_no", "reference_date" };
+
+    /// <summary>
+    /// v48 → v49 (the <b>accounting-invoice flag</b>): additive — one <c>is_accounting_invoice INTEGER NOT NULL
+    /// DEFAULT 0</c> column on <c>vouchers</c> recording that the voucher was posted from the <b>Accounting Invoice</b>
+    /// (service-invoice) entry mode. The printed document type then rests on a persisted FACT instead of an inference
+    /// from the posted GST legs: a zero-rated (LUT/export, 0%) or wholly-exempt service invoice posts no tax leg at all
+    /// yet is still a valid Rule-46 tax invoice, and a hand-keyed As-Voucher sale is excluded structurally (flag = 0)
+    /// rather than by "no other path happens to stamp <c>GstLineTax</c> today".
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 49. <b>No row rewrites, no data backfill</b>:
+    /// every existing v48 voucher reads the DEFAULT 0 — "not an accounting invoice" — which is exactly how v48 treated
+    /// every row, so an existing company prints and serialises byte-identically (ER-13).</para>
+    ///
+    /// <para>The <c>ALTER … ADD COLUMN</c> is byte-identical to its counterpart in <see cref="CreateV1"/> — the
+    /// migration-equivalence test compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the
+    /// <c>INTEGER</c>/NOT NULL/<c>DEFAULT 0</c> contract MUST match on both sides. A fresh DB is stamped straight to
+    /// v49 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV48ToV49 = """
+        ALTER TABLE vouchers ADD COLUMN is_accounting_invoice INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>The single <c>vouchers</c> column v49 adds — the exact set <see cref="MigrateV48ToV49"/> creates and
+    /// <c>SchemaDowngrade.V49ToV48</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V49AccountingInvoiceColumns =
+        new[] { "is_accounting_invoice" };
+
+    /// <summary>
+    /// v49 → v50 (plan.md NS-4 — the <b>negative-stock warning toggle</b>): additive — one
+    /// <c>warn_on_negative_stock INTEGER NOT NULL DEFAULT 1</c> column on <c>companies</c>, recording the
+    /// company-level "Warn on Negative Stock Balance" setting. The setting is <b>advisory only</b>: negative stock
+    /// itself is always permitted (NS-3 turned the posting guard into a non-throwing detector), and this flag decides
+    /// nothing more than whether the operator is told.
+    ///
+    /// <para>⚠️ <b>THE DEFAULT-TRUE ASYMMETRY — the reason this migration is not boilerplate.</b> Every other flag
+    /// column in this schema is <c>DEFAULT 0</c>, so "the column is absent" and "the flag is off" mean the same thing
+    /// and a read path that forgets the column still produces the right answer. This column is <c>DEFAULT 1</c>, so
+    /// they mean OPPOSITE things. <c>ALTER TABLE … ADD COLUMN … NOT NULL DEFAULT 1</c> back-fills every existing v49
+    /// row with 1, which is the intended upgrade behaviour: a book that predates the setting gets warnings ON,
+    /// matching the reference application's own default and matching a fresh company. A migration that used
+    /// <c>DEFAULT 0</c>, or a loader that read a missing value as <c>default(bool)</c>, would silently disable
+    /// warnings on every upgraded book — invisible until someone oversells. The same asymmetry binds the canonical
+    /// XML attribute read, the JSON DTO's property initialiser and the downgrade round-trip; all four paths are
+    /// pinned by tests.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 50. <b>No row rewrites</b> beyond the
+    /// column's own default back-fill; no new tables, no indexes. The <c>ALTER … ADD COLUMN</c> is byte-identical to
+    /// its counterpart in <see cref="CreateV1"/> — the migration-equivalence test compares <c>PRAGMA table_info</c>
+    /// (name/type/notnull/<b>default</b>/pk), so the <c>INTEGER</c>/NOT NULL/<c>DEFAULT 1</c> contract MUST match on
+    /// both sides.</para>
+    /// </summary>
+    public const string MigrateV49ToV50 = """
+        ALTER TABLE companies ADD COLUMN warn_on_negative_stock INTEGER NOT NULL DEFAULT 1;
+        """;
+
+    /// <summary>The single <c>companies</c> column v50 adds — the exact set <see cref="MigrateV49ToV50"/> creates and
+    /// <c>SchemaDowngrade.V50ToV49</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V50NegativeStockColumns =
+        new[] { "warn_on_negative_stock" };
+
+    /// <summary>
+    /// v50 → v51 (plan.md Phase 10.10 WF-1 / register IV-1 — the <b>GST five-level hierarchy masters</b>): additive —
+    /// a four-column <c>MasterGstDetails</c> block on <c>groups</c> and on <c>stock_groups</c>, the same four columns
+    /// (prefixed <c>gst_default_</c>) on <c>companies</c>, and the reference application's <b>two</b> independent
+    /// source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>. Fourteen columns, no new tables,
+    /// no indexes.
+    ///
+    /// <para>⚠️ <b>THE FRESH/UPGRADED SPLIT — the reason this migration is not boilerplate, and the reason the
+    /// back-fill is a statement rather than a <c>DEFAULT</c>.</b> The two source-order columns must hold DIFFERENT
+    /// values on the two paths:</para>
+    /// <list type="bullet">
+    /// <item>A <b>fresh</b> database gets <c>0</c> = <c>GstDetailSource.LedgerFirst</c> — the reference
+    /// application's shipped order (Ledger → Group → Stock Item → Stock Group → Company).</item>
+    /// <item>An <b>upgraded</b> book gets <c>1</c> = <c>GstDetailSource.StockItemFirst</c>, because that is what this
+    /// application has always resolved (item → ledger). Back-filling the shipped order instead would silently change
+    /// the rate on the next invoice of every existing customer (R12 decision 1).</item>
+    /// </list>
+    /// <para>The <c>DEFAULT</c> literal cannot carry that, for a mechanical reason: the migration-equivalence test
+    /// compares <c>PRAGMA table_info</c> <b>including the default</b>, so a <c>DEFAULT 1</c> here against
+    /// <c>DEFAULT 0</c> in <see cref="CreateV1"/> is an immediate divergence. The back-fill is therefore an explicit
+    /// <c>UPDATE</c> over the rows that already exist. It is safe precisely because it runs only on the migration
+    /// path: <see cref="CreateV1"/> stamps a fresh database before any company row exists, so no fresh company can
+    /// ever be caught by it.</para>
+    ///
+    /// <para><b>The twelve master-GST columns are all NULLABLE with no default</b>, and <c>gst_taxability</c> /
+    /// <c>gst_default_taxability</c> being NULL is the marker for "this master carries no GST block" — the same
+    /// marker <c>stock_items.gst_taxability</c> and <c>ledgers.sp_gst_taxability</c> have used since v13. Every
+    /// pre-v51 group, stock group and company therefore reads "no block", which is exactly what it had, so no rate
+    /// resolution anywhere changes and no row is rewritten.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 51. Each <c>ALTER … ADD COLUMN</c> is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/>. The transaction is real and was measured:
+    /// pre-creating one column so the sixth <c>ALTER</c> fails leaves <c>schema_version</c> at 50 with the five
+    /// earlier <c>ALTER</c>s rolled back, so a crashed upgrade cannot leave the half-migrated shape.</para>
+    ///
+    /// <para>🔴 <b>THE BACK-FILL DOES NOT DEFEND ITSELF — owed-review lens 1 finding 1.</b> Writing <c>1</c> here is
+    /// only half the guarantee; the value also has to survive the ordinary save path. It did not: the two columns
+    /// are carried in memory on <c>GstConfig</c>, which <c>SqliteCompanyStore</c> builds only for
+    /// <c>gst_enabled = 1</c>, so on a migrated book with GST OFF the next whole-company save re-INSERTed
+    /// <c>LedgerFirst</c> over this <c>UPDATE</c>. Measured before the fix: stored <c>1|1</c> → one ordinary save →
+    /// <c>0|0</c>. <c>SqliteCompanyStore.ReadStoredSourceOrders</c> now preserves the stored value when the
+    /// aggregate carries none; the remaining GST-off → GST-on transition hole is documented on
+    /// <c>GstDetailSource</c>. <b>A migration's back-fill is not "done" until the writer that will overwrite it has
+    /// been read.</b></para>
+    /// </summary>
+    public const string MigrateV50ToV51 = """
+        ALTER TABLE companies ADD COLUMN gst_source_of_hsn_sac   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gst_source_of_rate      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gst_default_hsn_sac     TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_taxability  INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_rate_bp     INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_supply_type INTEGER     NULL;
+
+        ALTER TABLE groups ADD COLUMN gst_hsn_sac     TEXT        NULL;
+        ALTER TABLE groups ADD COLUMN gst_taxability  INTEGER     NULL;
+        ALTER TABLE groups ADD COLUMN gst_rate_bp     INTEGER     NULL;
+        ALTER TABLE groups ADD COLUMN gst_supply_type INTEGER     NULL;
+
+        ALTER TABLE stock_groups ADD COLUMN gst_hsn_sac     TEXT        NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_taxability  INTEGER     NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_rate_bp     INTEGER     NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_supply_type INTEGER     NULL;
+
+        -- ⚠️ THE BACK-FILL. Every company that already exists keeps resolving item-first (StockItemFirst = 1), which
+        -- is what this application did before the hierarchy existed, so no shipped figure moves. This CANNOT be
+        -- expressed as the column DEFAULT — that must stay 0 to match CreateV1 — and it is unreachable from a fresh
+        -- database, which has no company rows when CreateV1 runs.
+        UPDATE companies SET gst_source_of_hsn_sac = 1, gst_source_of_rate = 1;
+        """;
+
+    /// <summary>The six <c>companies</c> columns v51 adds — the exact set <see cref="MigrateV50ToV51"/> creates and
+    /// <c>SchemaDowngrade.V51ToV50</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V51GstHierarchyCompanyColumns =
+        new[]
+        {
+            "gst_source_of_hsn_sac", "gst_source_of_rate",
+            "gst_default_hsn_sac", "gst_default_taxability", "gst_default_rate_bp", "gst_default_supply_type",
+        };
+
+    /// <summary>The four <c>MasterGstDetails</c> columns v51 adds to <b>both</b> <c>groups</c> and
+    /// <c>stock_groups</c> — the exact set <see cref="MigrateV50ToV51"/> creates and <c>SchemaDowngrade.V51ToV50</c>
+    /// removes from each. One list, because the two masters carry the identical block by design.</summary>
+    public static readonly IReadOnlyList<string> V51GstHierarchyMasterColumns =
+        new[] { "gst_hsn_sac", "gst_taxability", "gst_rate_bp", "gst_supply_type" };
+
+    /// <summary>
+    /// v51 → v52 (the <b>voucher edit log</b>): creates the <c>voucher_edit_log</c> table and its
+    /// <c>ix_voucher_edit_log_company</c> index. <b>Pure CREATE TABLE/INDEX</b> - no <c>ALTER</c>, no new column on
+    /// any existing table, no row rewrite anywhere. An existing v51 database keeps every table and every row byte
+    /// for byte and simply gains an empty log.
+    ///
+    /// <para>⚠️ <b>THE BACK-FILL DIRECTION, stated because the last two bumps were each caught by the opposite
+    /// mistake.</b> v51's lesson was that a <c>DEFAULT</c> which back-fills to the NEW behaviour silently changes
+    /// shipped figures; v50's was that a <c>DEFAULT 0</c> which back-fills to the OLD one silently re-ships a bug.
+    /// <b>This migration back-fills NOTHING, in either direction, because it cannot:</b> it adds no column to any
+    /// existing table, so there is no <c>DEFAULT</c> literal anywhere in it and no <c>UPDATE</c> statement. The
+    /// only "back-fill" is the new table's own emptiness on an upgraded book, and that empty log is the TRUTH -
+    /// this application kept no record of past cancellations, deletions or alterations, so there is nothing to
+    /// reconstruct and any row written here for a pre-v52 edit would be fabricated. The log therefore begins at
+    /// the upgrade, and says so by being empty before it. <b>Zero shipped figures can move</b>: nothing reads this
+    /// table to compute anything.</para>
+    ///
+    /// <para><b>No foreign keys, deliberately - see the comment block on the identical DDL in
+    /// <see cref="CreateV1"/>.</b> <c>voucher_id</c> would make a Delete's own log line unstorable, and
+    /// <c>company_id</c> would break whole-company <c>Save</c>, which deletes the <c>companies</c> row
+    /// mid-transaction and does not own this table.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 52. The DDL is byte-identical to its
+    /// counterpart in <see cref="CreateV1"/> - <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk) and the <c>sqlite_master</c> index SQL, so the two
+    /// copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV51ToV52 = """
+        -- v52 (the VOUCHER EDIT LOG): one row per Cancel / Delete / Alter / memorandum-conversion applied to a
+        -- posted voucher. Before this table, Cancel was the only one of the verbs that left ANY evidence (it sets
+        -- a flag and the voucher stays on the book); Delete removed the row and Alter overwrote it in place, after
+        -- which nothing in the product could tell an auditor the book had been edited.
+        --
+        -- !! NEITHER `company_id` NOR `voucher_id` IS A FOREIGN KEY, AND BOTH OMISSIONS ARE LOAD-BEARING.
+        --   * `voucher_id`: Delete's whole purpose is that the voucher is gone. A REFERENCES vouchers(id) would
+        --     make the one entry that matters most - the record of a deletion - the one entry that cannot be
+        --     stored. (`company_id` follows `saved_views`, which documents it as "a plain isolation key".)
+        --   * `company_id`: this is the second table (after saved_views) that whole-company Save does NOT own.
+        --     Save is DELETE-ALL + full re-INSERT, and it deletes the `companies` row itself mid-transaction; a
+        --     companies FK would fail on that delete for any book that had ever been edited.
+        --
+        -- APPEND-ONLY IN THE STORE, not merely by convention: SqliteCompanyStore.DeleteCompanyRows deliberately
+        -- does not delete from this table and the writer is INSERT OR IGNORE on `id`, so a save from an aggregate
+        -- that never loaded the log cannot erase it and re-saving the same entry is a no-op.
+        --
+        -- `before_snapshot` is the pre-change voucher serialised by Domain.VoucherSnapshot - the whole object
+        -- graph, so the record cannot silently narrow as Voucher gains fields. There is deliberately NO actor /
+        -- user / modified_by column: this application has no identity model of any kind, and a column whose only
+        -- honest value is "unknown" would invite a fabricated one.
+        CREATE TABLE voucher_edit_log (
+            id               TEXT    NOT NULL PRIMARY KEY,   -- VoucherEditLogEntry.Id
+            company_id       TEXT    NOT NULL,               -- owning company (isolation key; no FK - see above)
+            voucher_id       TEXT    NOT NULL,               -- the edited voucher (no FK - Delete removes it)
+            verb             INTEGER NOT NULL,               -- VoucherEditVerb ordinal (0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum)
+            recorded_at      TEXT    NOT NULL,               -- ISO-8601 round-trip ("o") with offset
+            before_snapshot  TEXT    NOT NULL                -- VoucherSnapshot.Of(the pre-change voucher)
+        );
+
+        CREATE INDEX ix_voucher_edit_log_company ON voucher_edit_log(company_id);
+        """;
+
+    /// <summary>The single table v52 adds - the exact object <see cref="MigrateV51ToV52"/> creates and
+    /// <c>SchemaDowngrade.V52ToV51</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V52EditLogTables = new[] { "voucher_edit_log" };
 }
