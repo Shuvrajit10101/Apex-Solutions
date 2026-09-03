@@ -2721,13 +2721,20 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      basis-point figure and the ODD one above it.** `integratedBp / 2` is an **integer** division, so 500 and
      501 both stamp 250 and the signature cannot see the move. Reproduced through the real purchase
      item-invoice screen: rate 5.00% → 5.01%, `AcceptAlteration` returned TRUE, **ITC 185.19 → 185.56, supplier
-     credit 3,888.90 → 3,889.27.** Rs 0.37 measured, **unbounded in principle**. Inter-state is safe. **OPEN.**
-     Census **T0-14**. The literals are in the guard's own doc comment.
+     credit 3,888.90 → 3,889.27.** Rs 0.37 measured, **unbounded in principle**. Inter-state is safe.
+     🔴 **CLOSED 2026-09-03** — `VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal`, wired LAST on BOTH
+     accept paths. Pinned by **AMOUNT**, not by rate: the integrated bp is not recoverable from a posted leg
+     (250 is 500 and it is also 501), so stamping it into the signature was not available without a schema
+     change that could not reach already-posted vouchers. Census **T0-14**. The literals are in the guard's own
+     doc comment.
   2. **🔴 WRONG MONEY — the same pin is blind to a TAXABILITY FLIP masked by a same-rate sibling.** Two items at
      one rate; flip ONE to Exempt with the screen open and it is ACCEPTED with an identical signature while the
      **stamped taxable base falls 7,654.15 → 3,950.44, the ITC falls 1,377.75 → 711.08 and the supplier's
-     credit falls 9,031.90 → 8,365.23 — Rs 666.67 on an alteration that touched nothing.** **OPEN.** Census
-     **T0-15**.
+     credit falls 9,031.90 → 8,365.23 — Rs 666.67 on an alteration that touched nothing.**
+     🔴 **CLOSED 2026-09-03** — the SAME `TaxMagnitudeDriftRefusal`, which pins the stamped `TaxableValue`
+     alongside the amount, built on the cess pin's shape (a **re-derivation over the POSTED rows**, so the rows
+     are held fixed and only a moved master can trip it). Two **negative controls** ship with it, one per door,
+     so it cannot silently become a blanket refusal. Census **T0-15**.
   3. **🔴 WRONG MONEY (feature gap) — `PosBillingViewModel.ComputeGst` resolves NO Compensation Cess**, so a
      cess-bearing item sold over the counter collects **zero** cess while the identical item on a Sales item
      invoice collects it. **Needs its own slice, not a fix slipped into a defect pass.** ⚠️ **R7/A6 mandate: its
