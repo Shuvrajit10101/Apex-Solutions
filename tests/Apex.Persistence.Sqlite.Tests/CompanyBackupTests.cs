@@ -900,16 +900,31 @@ public sealed class CompanyBackupTests : IDisposable
     //
     // Every "and_changes_nothing" test above exercises a REFUSAL — a path that returns before the swap is
     // reached at all. The only window in which a restore can DAMAGE the company it was run to protect is the
-    // swap itself: the target is held open (an AV scanner, a second instance, an indexing agent, or a leaked
-    // SQLite handle from a failed store open — see the last test in this section), the replace throws, and the
-    // restore does not happen. The original — file AND its -wal/-shm/-journal crash-recovery sidecars — must
-    // come through that untouched, because those sidecars are the only thing that can roll a half-written
+    // swap itself: something in the park/replace sequence throws after the sidecars have been moved aside, and
+    // the restore does not happen. The original — file AND its -wal/-shm/-journal crash-recovery sidecars —
+    // must come through that untouched, because those sidecars are the only thing that can roll a half-written
     // company file back, and a user reaches for a restore precisely when their file is in that state.
-
-    /// <summary>Opens <paramref name="path"/> the way a scanner or a second instance does: readable by others,
-    /// but not deletable or replaceable — which is exactly what defeats the swap.</summary>
-    private static FileStream HoldOpen(string path) =>
-        new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+    //
+    // 🔴 HOW THE SWAP IS MADE TO FAIL, AND WHY IT IS NOT A HELD-OPEN FILE ANY MORE.
+    // This test used to obstruct the swap by holding the target open with FileShare.Read, and that is a
+    // WINDOWS-ONLY mechanism dressed up as a universal one. On Windows a share-mode denial genuinely makes a
+    // file un-replaceable. On Unix, .NET emulates FileShare with advisory flock() locks that bind only other
+    // .NET FileStreams, while the swap (CompanyBackup.cs — File.Move(staging, target, overwrite: true)) is
+    // rename(2): rename consults no lock and no open descriptor, it unlinks a directory entry and relinks it,
+    // and the holder simply keeps reading the old inode. So on Linux and macOS every park succeeded, the
+    // replace succeeded, the restore COMPLETED, and Assert.Throws saw nothing — the test failed for a reason
+    // that had nothing to do with the behaviour it exists to pin.
+    //
+    // The obstruction below is portable because it is not about locking at all: a DIRECTORY is planted on the
+    // path the "-journal" sidecar must be parked to. SafeDelete is a no-op there (File.Exists is false for a
+    // directory — measured on Windows), and the File.Move that follows cannot overwrite a directory on ANY
+    // platform: Windows raises UnauthorizedAccessException ("Access to the path is denied" — measured here on
+    // .NET 10), Unix raises EISDIR, which .NET surfaces as UnauthorizedAccessException/IOException. Both are
+    // inside Restore's catch filter, so the message still opens "Could not restore the backup".
+    //
+    // It also lands in a STRICTLY better place than the old one: SidecarSuffixes is ["-wal","-shm","-journal"],
+    // so -wal and -shm park successfully first and the throw happens with two real files parked — which means
+    // this now exercises Unpark for real, where the held-open version failed before anything was parked at all.
 
     [Fact]
     public void A_restore_that_fails_at_the_swap_leaves_the_original_and_its_recovery_sidecars_intact()
@@ -936,10 +951,12 @@ public sealed class CompanyBackupTests : IDisposable
         var walBefore = Sha256OfFile(target + "-wal");
         var shmBefore = Sha256OfFile(target + "-shm");
 
-        // ---- Act: restore while the target cannot be replaced. Every validation passes; the SWAP fails. ----
-        CompanyBackupException ex;
-        using (HoldOpen(target))
-            ex = Assert.Throws<CompanyBackupException>(() => CompanyBackup.Restore(archive, target));
+        // ---- Act: restore while the swap cannot complete. Every validation passes; the SWAP fails. ----
+        // A directory standing exactly where the "-journal" sidecar must be parked. -wal and -shm park first
+        // and succeed, so the failure happens mid-park with two real files already moved aside.
+        Directory.CreateDirectory(target + "-journal" + ".apex-restore-old");
+
+        var ex = Assert.Throws<CompanyBackupException>(() => CompanyBackup.Restore(archive, target));
 
         Assert.Contains("Could not restore the backup", ex.Message, StringComparison.OrdinalIgnoreCase);
 
@@ -956,11 +973,17 @@ public sealed class CompanyBackupTests : IDisposable
         Assert.Equal(walBefore, Sha256OfFile(target + "-wal"));
         Assert.Equal(shmBefore, Sha256OfFile(target + "-shm"));
 
-        // No debris from the abandoned swap.
+        // No debris from the abandoned swap. The "-wal" and "-shm" legs are the load-bearing ones here: those
+        // two DID park and Unpark had to put them back, so a parked file left behind would show up there.
+        // (The "-journal" leg is weaker by construction — this test's own obstruction occupies that name, so
+        // File.Exists is false for it whatever happens. It is still checked, and paired with a Directory.Exists
+        // so that a swap which somehow clobbered the obstruction would not slip past as "no debris".)
         Assert.False(File.Exists(target + ".apex-restore-tmp"), "the staging file was left behind");
         foreach (var suffix in new[] { "", "-journal", "-wal", "-shm" })
             Assert.False(File.Exists(target + suffix + ".apex-restore-old"),
                 $"a parked '{suffix}' was left behind by the failed swap");
+        Assert.True(Directory.Exists(target + "-journal" + ".apex-restore-old"),
+            "the planted obstruction is gone — the swap did not fail where this test believes it failed");
 
         // ---- Assert: the original is not merely byte-identical, it is USABLE. (The planted sidecars are this
         //      test's own junk, not real SQLite files, so they are cleared before the engine opens the file.) ----
@@ -979,6 +1002,95 @@ public sealed class CompanyBackupTests : IDisposable
         var outstanding = Outstandings.Build(reloaded, AsOf);
         Assert.Equal(13_655.58m, outstanding.Receivables.Single(b => b.Reference == "MT/001").Pending.Amount);
         Assert.Equal(16_752.53m, outstanding.Payables.Single(b => b.Reference == "KS/77").Pending.Amount);
+    }
+
+    /// <summary>
+    /// The held-open target, kept as a scenario but asserted PER PLATFORM, because the platforms genuinely
+    /// differ and pretending otherwise is what made the old test fail on CI.
+    /// <para><b>Windows:</b> a share-mode denial makes the target un-replaceable, the swap throws, and the
+    /// original plus its sidecars must survive — the AV-scanner / second-instance / indexing-agent case.</para>
+    /// <para><b>Linux and macOS:</b> the swap is <c>rename(2)</c>, which no advisory lock and no open
+    /// descriptor can block, so the restore is EXPECTED to succeed. That is correct behaviour, not a gap: a
+    /// file being held open on POSIX really does not make it un-replaceable, and the Windows failure mode has
+    /// no POSIX analogue to pin.</para>
+    /// <para>This test is deliberately NOT skipped on POSIX. A test that silently does not run on a platform
+    /// is worse than no test, so both branches assert something real, and the pair share one invariant that
+    /// must hold everywhere: the restore either COMPLETED or CHANGED NOTHING — never half of each. The
+    /// portable pin on the failure path itself is the test above, which runs on all three platforms.</para>
+    /// </summary>
+    [Fact]
+    public void A_target_held_open_blocks_the_swap_on_Windows_and_is_replaced_regardless_on_POSIX()
+    {
+        var keeper = OddPaisaCompany("Keeper Co");
+        var keeperDb = SaveFixture(keeper, "holdopen-keeper.db");
+        var archive = Path_("holdopen" + CompanyBackup.ArchiveExtension);
+        CompanyBackup.Create(keeperDb, archive, TakenAt);
+        SqliteConnection.ClearAllPools();
+
+        var victim = OddPaisaCompany("Victim Co");
+        var target = SaveFixture(victim, "holdopen-victim.db");
+        SqliteConnection.ClearAllPools();
+
+        File.WriteAllBytes(target + "-journal", Encoding.ASCII.GetBytes("hot-journal 41234.57 undo pages"));
+        var targetBefore = Sha256OfFile(target);
+        var journalBefore = Sha256OfFile(target + "-journal");
+
+        // The scanner / second instance: readable by others, but on Windows not deletable or replaceable.
+        CompanyBackupException? thrown = null;
+        using (new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            try { CompanyBackup.Restore(archive, target); }
+            catch (CompanyBackupException ex) { thrown = ex; }
+        }
+        SqliteConnection.ClearAllPools();
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.NotNull(thrown);
+            Assert.Contains("Could not restore the backup", thrown!.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            // rename(2) cannot be blocked by a holder. If THIS is what reddens on CI, the premise behind the
+            // whole rewrite is wrong — .NET's FileShare emulation on this platform does obstruct the swap —
+            // and the portable directory obstruction above should be re-examined too.
+            Assert.True(thrown is null,
+                $"a held-open target obstructed the swap on POSIX, which rename(2) should make impossible: {thrown?.Message}");
+        }
+
+        // ---- The invariant both platforms owe: completed, or changed nothing. Never half of each. ----
+        Assert.False(File.Exists(target + ".apex-restore-tmp"), "the staging file was left behind");
+        foreach (var suffix in new[] { "", "-journal", "-wal", "-shm" })
+            Assert.False(File.Exists(target + suffix + ".apex-restore-old"),
+                $"a parked '{suffix}' was left behind");
+
+        if (thrown is not null)
+        {
+            // Nothing happened: the original and its only route back must both be byte-identical.
+            Assert.Equal(targetBefore, Sha256OfFile(target));
+            Assert.True(File.Exists(target + "-journal"),
+                "a restore that then failed deleted the target's hot journal — the original is unrecoverable");
+            Assert.Equal(journalBefore, Sha256OfFile(target + "-journal"));
+
+            File.Delete(target + "-journal");
+            SqliteConnection.ClearAllPools();
+            using var untouched = new SqliteCompanyStore(target);
+            Assert.Equal("Victim Co", untouched.Load(victim.Id)!.Name);
+        }
+        else
+        {
+            // It completed: the target IS the backup, and the replaced database's sidecar is gone rather than
+            // left behind to be replayed into the restored file on first open.
+            Assert.NotEqual(targetBefore, Sha256OfFile(target));
+            Assert.False(File.Exists(target + "-journal"),
+                "the replaced database's hot journal outlived the swap and would corrupt the restored file");
+
+            using var restored = new SqliteCompanyStore(target);
+            Assert.Equal("Keeper Co", restored.Load(keeper.Id)!.Name);
+            var tb = TrialBalance.Build(restored.Load(keeper.Id)!, AsOf);
+            Assert.Equal(115_305.59m, tb.TotalDebit.Amount);
+            Assert.Equal(115_305.59m, tb.TotalCredit.Amount);
+        }
     }
 
     [Fact]
