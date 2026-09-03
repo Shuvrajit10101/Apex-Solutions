@@ -95,6 +95,25 @@ public sealed class OneRuleDriftLockTests
     /// </summary>
     private const string D8Routing = @"!\s*string\.Equals\([^;]*(?:[Hh]ome|[Ss]tateCode|[Ss]tate\b)";
 
+    /// <summary>
+    /// D9 (T0-4 slice S1) — a GST rate read STRAIGHT OFF A MASTER'S GST BLOCK, bypassing
+    /// <c>GstService.ResolveRate</c> entirely. Five such readers ship today, each returning <c>0</c> where the
+    /// resolver returns the ER-5 unresolved sentinel, and each hard-coding its own single rung: three read only the
+    /// Stock Item, two read only the sales/purchase Ledger. They agree with the resolver today ONLY because the
+    /// resolver is itself item-then-ledger. The moment the five-level walk lands (S2) any one of them can disagree
+    /// with the tax the invoice actually posted — which is the "one rule, several places" shape D1/D3/D7/D8 all
+    /// record. Whitespace-tolerant so a re-spaced or line-split copy cannot slip past.
+    /// </summary>
+    private const string D9MasterRateBypass = @"IsTaxable:\s*true\s*,\s*RateBasisPoints:";
+
+    /// <summary>
+    /// D10 (T0-4 slice S1) — a call to <c>GstService.ResolveRate</c>. Unlike D1–D9 this is not a "second copy"
+    /// pattern: <c>ResolveRate</c> IS the one home, and the risk is the opposite one — a NEW live re-resolve
+    /// appearing beside a report or a payload, where it would re-rate an already-issued document off today's
+    /// masters instead of off the posted legs. Pinned as an exact INVENTORY, so an addition is a deliberate act.
+    /// </summary>
+    private const string D10ResolveRateCallSite = @"\.ResolveRate\(";
+
     // ============================================================ scanning machinery
 
     /// <summary>The repository root — the directory holding <c>Apex.slnx</c>.</summary>
@@ -173,6 +192,47 @@ public sealed class OneRuleDriftLockTests
                 $"tests for a sub-paisa tail — i.e. it re-implements the rule.\n" +
                 $"Patterns: {patternA}  AND  {patternB}\n" + string.Join("\n", offenders) +
                 "\nDelegate to PaisaConversion instead of re-implementing it.");
+    }
+
+    /// <summary>
+    /// Asserts that <paramref name="pattern"/> occurs in the shipped tree at EXACTLY the repo-relative paths and
+    /// counts given in <paramref name="expected"/> — no more, no fewer, nowhere else. Stronger than
+    /// <see cref="AssertOnlyIn"/>, which pins only WHERE a rule may live: an inventory also pins HOW MANY, so a
+    /// sixth copy added inside a file that already holds one is caught too.
+    ///
+    /// <para><b>Line numbers are deliberately NOT part of the inventory</b> — they churn on every unrelated edit and
+    /// a lock that has to be re-numbered constantly is a lock that gets deleted. Comment lines are skipped so a
+    /// doc-comment mentioning the idiom never counts as a call site.</para>
+    /// </summary>
+    private static void AssertExactInventory(
+        string rule, string pattern, IReadOnlyDictionary<string, int> expected, string remedy)
+    {
+        var rx = new Regex(pattern, RegexOptions.Compiled);
+        var actual = new SortedDictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var path in ShippedSources())
+            foreach (var line in File.ReadAllLines(path))
+            {
+                if (line.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+                if (!rx.IsMatch(line)) continue;
+                var rel = Path.GetRelativePath(RepoRoot(), path).Replace('\\', '/');
+                actual[rel] = actual.TryGetValue(rel, out var n) ? n + 1 : 1;
+            }
+
+        var expectedSorted = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var kv in expected) expectedSorted[kv.Key] = kv.Value;
+
+        // Non-vacuity: an inventory that expects nothing, or that finds nothing, protects nothing.
+        Assert.NotEmpty(expectedSorted);
+        Assert.NotEmpty(actual);
+
+        if (!expectedSorted.SequenceEqual(actual))
+            Assert.Fail(
+                $"{rule}: the shipped inventory of this idiom has changed.\nPattern: {pattern}\n" +
+                $"EXPECTED:\n{Render(expectedSorted)}\nACTUAL:\n{Render(actual)}\n{remedy}");
+
+        static string Render(SortedDictionary<string, int> d) =>
+            d.Count == 0 ? "  (none)" : string.Join("\n", d.Select(kv => $"  {kv.Key}  x{kv.Value}"));
     }
 
     // ============================================================ D1
@@ -269,6 +329,79 @@ public sealed class OneRuleDriftLockTests
     public void IntraInterRoutingHasOneHome() =>
         AssertOnlyIn("D8 intra/inter routing", D8Routing, "GstReportSupport.cs");
 
+    // ============================================================ D9 / D10 — the GST rate hierarchy (T0-4 S1)
+
+    /// <summary>
+    /// D9 — the FIVE master-block rate readers that bypass <c>GstService.ResolveRate</c>, pinned as an exact
+    /// inventory so slice S2 cannot move one without moving the others.
+    ///
+    /// <para><b>S1 changes none of them.</b> This lock records them AS THEY ARE, which is the whole point: they are
+    /// the "several places" half of a one-rule-several-places defect that has not bitten yet only because the
+    /// resolver happens to walk the same two rungs they do. Each returns <c>0</c> on an unresolvable master where
+    /// <c>ResolveRate</c> returns the ER-5 sentinel, and each is hard-wired to ONE rung:</para>
+    /// <list type="bullet">
+    ///   <item><c>Gstr1.LineIntegratedRate</c> — Stock Item only.</item>
+    ///   <item><c>Gstr1.LedgerIntegratedRate</c> — sales/purchase Ledger only.</item>
+    ///   <item><c>EInvoiceJson.LineIntegratedRate</c> — Stock Item only.</item>
+    ///   <item><c>EInvoiceJson.ServiceLegsByRate</c> — sales/purchase Ledger only.</item>
+    ///   <item><c>EWayBillJson.LineIntegratedRate</c> — Stock Item only.</item>
+    /// </list>
+    ///
+    /// <para>🔴 <b>Two of these five were NOT in the T0-4 design's list of four</b> — <c>EInvoiceJson</c>'s and
+    /// <c>EWayBillJson</c>'s item-only <c>LineIntegratedRate</c>. The design's fourth entry
+    /// (<c>GstReportSupport</c>) is not a bypass at all: it calls <c>ResolveRate</c> properly, and is pinned by D10
+    /// below instead. Counting them was the point of writing the lock rather than trusting the list.</para>
+    ///
+    /// <para>All five are BUCKETING readers — they choose which posted rate group a line belongs to and never
+    /// compute tax — so making them hierarchy-aware is a decision S2 must take explicitly, per bypass, and record.
+    /// This lock exists so that decision cannot be taken by omission.</para>
+    /// </summary>
+    [Fact]
+    public void TheMasterRateBypassReadersAreExactlyTheFiveKnownOnes() =>
+        AssertExactInventory(
+            "D9 master-block rate bypass", D9MasterRateBypass,
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["src/Apex.Ledger/Reports/Gstr1.cs"] = 2,
+                ["src/Apex.Ledger.Io/EInvoiceJson.cs"] = 2,
+                ["src/Apex.Ledger.Io/EWayBillJson.cs"] = 1,
+            },
+            "A sixth reader of a master's GST block would silently disagree with GstService.ResolveRate the moment "
+          + "the five-level hierarchy lands (T0-4 S2). Resolve through GstService, or — if this really is a "
+          + "posted-rate BUCKETING read — add it here deliberately and say in its doc why it may not resolve.");
+
+    /// <summary>
+    /// D10 — <c>GstService.ResolveRate</c> has exactly these eight call sites. A live re-resolve added beside a
+    /// report, a payload or a print projector would re-rate an already-issued document off TODAY's masters rather
+    /// than off its posted legs — the failure this project has already paid for once, and the reason the print
+    /// money block was moved wholly onto posted legs (W0-10).
+    ///
+    /// <para>The one report-side call site is deliberate and documented: <c>GstReportSupport</c>'s
+    /// <c>IsWhollyExemptItemSupply</c> re-resolves every stock line live to choose TAX INVOICE vs BILL OF SUPPLY.
+    /// It is the single place where master drift is genuinely visible on issued paper, and S2 widens what it can
+    /// see. Pinning it here is what makes that exposure countable instead of incidental.</para>
+    ///
+    /// <para>🔴 <b>Also recorded, because the count is what surfaced it:</b> the design's survey named six call
+    /// sites; there are EIGHT. The two extra are <c>PosBillingViewModel</c>'s second call and
+    /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites use the DATE-BLIND
+    /// two-argument overload, so the dated <c>RateHistory</c> override never fires at the POS while every voucher
+    /// path passes <c>Date</c> — a pre-existing wrong-money candidate that S2 neither causes nor fixes.</para>
+    /// </summary>
+    [Fact]
+    public void ResolveRateHasExactlyTheEightKnownCallSites() =>
+        AssertExactInventory(
+            "D10 ResolveRate call sites", D10ResolveRateCallSite,
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
+                ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
+                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 1,
+                ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
+            },
+            "A new ResolveRate call site re-resolves a rate from LIVE masters. On a posting path that is correct; "
+          + "on a report, a payload or a print path it re-rates issued paper and must instead read the posted "
+          + "GstLineTax legs (see GstReportSupport.IntegratedRateOf). Add it here only with that decision recorded.");
+
     // ============================================================ meta — the locks are not vacuous
 
     /// <summary>
@@ -323,6 +456,16 @@ public sealed class OneRuleDriftLockTests
     [InlineData(nameof(D8Routing), D8Routing, @"!string.Equals(live.Trim(), home.Trim(), StringComparison.OrdinalIgnoreCase);")]                           // VoucherPrintProjector.ConsistentBuyerStateCode
     [InlineData(nameof(D8Routing), D8Routing, @"var isInter = !string.Equals(homeCode, party, StringComparison.Ordinal);")]                                // renamed variant
     [InlineData(nameof(D8Routing), D8Routing, @"bool inter = !string.Equals(supplierState, buyerStateCode, StringComparison.Ordinal);")]                   // renamed variant, neither operand called "home"
+    // D9 — the five shipped master-block rate bypasses, verbatim, plus re-spaced and line-split variants.
+    [InlineData(nameof(D9MasterRateBypass), D9MasterRateBypass, @"company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;")]
+    [InlineData(nameof(D9MasterRateBypass), D9MasterRateBypass, @"ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;")]
+    [InlineData(nameof(D9MasterRateBypass), D9MasterRateBypass, @"var rate = singleRate ?? (ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0);")]
+    [InlineData(nameof(D9MasterRateBypass), D9MasterRateBypass, @"group.Gst is {IsTaxable:true,RateBasisPoints: { } r} ? r : 0;")]                          // re-spaced variant
+    [InlineData(nameof(D9MasterRateBypass), D9MasterRateBypass, @"stockGroup.Gst is { IsTaxable:  true ,  RateBasisPoints: { } bp } ? bp : 0")]             // padded variant
+    // D10 — the shipped ResolveRate call sites, and a plausible new one beside a report.
+    [InlineData(nameof(D10ResolveRateCallSite), D10ResolveRateCallSite, @"var res = _gst.ResolveRate(l.SelectedItem, valueLedger, Date);")]
+    [InlineData(nameof(D10ResolveRateCallSite), D10ResolveRateCallSite, @"var res = gst.ResolveRate(company.FindStockItem(il.StockItemId), valueLedger, voucher.Date);")]
+    [InlineData(nameof(D10ResolveRateCallSite), D10ResolveRateCallSite, @"var rate = new GstService(company).ResolveRate(item, ledger).RateBasisPoints;")]  // a new live re-resolve in a report
     public void EveryLockBitesOnAReintroducedCopy(string lockName, string pattern, string reintroducedLine) =>
         Assert.True(
             Regex.IsMatch(reintroducedLine, pattern),
@@ -383,4 +526,22 @@ public sealed class OneRuleDriftLockTests
             Regex.IsMatch(shippedLine, D8Routing),
             $"D8 false-positives on a line that derives no routing — a lock that has to be exempted gets deleted:\n" +
             $"  {shippedLine}\nPattern: {D8Routing}");
+
+    /// <summary>
+    /// D9 must NOT fire on the shipped lines that mention taxability WITHOUT reading a rate off a master — the
+    /// exempt-service-ledger discriminator and the ER-5 unresolved sentinel both test <c>IsTaxable: false</c>, and
+    /// neither is a rate bypass. The first two are VERBATIM lines from <c>src/</c> (<c>Gstr1.cs</c> and
+    /// <c>GstService.IsUnresolved</c>); the third is a constructed near-miss — the property-access form of the very
+    /// rule D9 polices, which must NOT match, or the lock would fire on <c>ResolveBase</c> itself. Its
+    /// false-positive surface is pinned as deliberately as its bite, for the reason D8's twin test states: a lock
+    /// that has to be silenced with an exemption is a lock that gets deleted.
+    /// </summary>
+    [Theory]
+    [InlineData(@"        ledger.SalesPurchaseGst is { IsTaxable: false };")]
+    [InlineData(@"    public static bool IsUnresolved(RateResolution r) => r is { IsTaxable: false, RateBasisPoints: -1, Taxability: GstTaxability.Taxable };")]
+    [InlineData(@"        if (item?.Gst is { } itemGst && itemGst.IsTaxable && itemGst.RateBasisPoints is { } ir)")]
+    public void TheMasterRateBypassLockIgnoresTaxabilityTestsThatReadNoRate(string shippedLine) =>
+        Assert.False(
+            Regex.IsMatch(shippedLine, D9MasterRateBypass),
+            $"D9 false-positives on a line that reads no rate off a master:\n  {shippedLine}\nPattern: {D9MasterRateBypass}");
 }
