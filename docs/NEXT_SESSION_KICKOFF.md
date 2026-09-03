@@ -40,8 +40,10 @@ Rewritten **2026-08-17**, in full.
 > (as of 2026-08-17 — a floor, and necessarily one: the commit that carries this very line moves HEAD past
 > `bdd3389` as it lands, so **this file can no more name its own tip than its own commit count**.
 > `git rev-parse HEAD`), schema **v51**,
-> **≥85 commits ahead of `origin/main` (`c655dc2`) as of `bdd3389` — a floor pinned to a sha; verify, do not
-> quote**, pushed and in sync, **PR #34 OPEN and NOT merged**.
+> ~~**≥85 commits ahead of `origin/main` (`c655dc2`) as of `bdd3389` — a floor pinned to a sha; verify, do not
+> quote**, pushed and in sync, **PR #34 OPEN and NOT merged**.~~ 🔴 **SUPERSEDED 2026-09-03 — this branch and
+> the other three MERGED in PR #36. `origin/main` is `973c156` at schema 52 and the branches are deleted; see
+> the correction under TRAP 3 and in the STATE block below.**
 > **THE THING TO RE-MEASURE IS THE FOUR PER-PROJECT COUNTS, NEVER THE TOTAL:**
 > build **0W/0E** · `Apex.Ledger.Tests` **1668** · `Apex.Ledger.Io.Tests` **414** ·
 > `Apex.Persistence.Sqlite.Tests` **231** · `Apex.Desktop.Tests` **2195**. Run each project separately and read
@@ -58,14 +60,25 @@ Rewritten **2026-08-17**, in full.
 > main loop **declare a LIVE agent dead** and nearly put two agents into one worktree. An empty or absent
 > tasks-output file proves nothing. Check transcript mtimes before you relaunch anything.
 >
-> **▶ TRAP 3 — WORKTREES.** **`isolation: 'worktree'` cuts from `main`, NOT from the current branch.** A
-> parallel track created that way starts at `c655dc2` and silently lacks **every commit on the branch** (≥85
-> as of `bdd3389`) — **schema `52` among
-> them, against `origin/main`'s `46`** — so it would build a far older database and every migration fixture in it would be a lie. **A12, and only
+> **▶ TRAP 3 — WORKTREES. 🔴 ITS PREMISE WAS CORRECTED 2026-09-03; THE RULE IT TEACHES SURVIVES.**
+> **`isolation: 'worktree'` cuts from `main`, NOT from the current branch** — that part is unchanged and is
+> still worth knowing. ~~A parallel track created that way starts at `c655dc2` and silently lacks **every
+> commit on the branch** (≥85 as of `bdd3389`) — **schema `52` among them, against `origin/main`'s `46`** — so
+> it would build a far older database and every migration fixture in it would be a lie.~~ **THAT SENTENCE IS
+> NOW FALSE AND WAS BECOMING A HAZARD OF ITS OWN**, because it tells a reader to distrust the one baseline
+> that is currently correct: **`origin/main` is `973c156` at `Schema.CurrentVersion` 52 — the NEWEST thing in
+> the repo.** PR #36 merged all four tracks (`claude/apex-wrong-figures-bc45f4`, `claude/apex-tier0`,
+> `claude/apex-edit-log`, `claude/apex-print-engine`) and their branches are deleted, and `.gitattributes`
+> (`* text=auto`, PR #35) is committed, so a fresh cut no longer depends on an invisible local
+> `core.autocrlf`. **Cutting from main is the right default again.**
+> **A12, and only
 > A12 (R4), cuts the worktree explicitly from the branch tip, and `Schema.CurrentVersion` is verified INSIDE
 > it before any build** — **⚠️ CORRECTED 2026-08-19: grep `public const int CurrentVersion` in
 > `src/Apex.Persistence.Sqlite/Schema.cs`, NEVER by line — ~~`:159`~~ moved when the voucher edit log took v52.** **A worktree that comes up at a LOWER number than this branch was cut from `main` — re-cut it;
-> do not debug the difference.**
+> do not debug the difference.** 🔴 **KEEP THAT LAST HEURISTIC. It is still sound and only its baseline
+> moved:** it compares a worktree against **its own branch's** number, never against a hard-coded one, so it
+> is exactly the check that would catch main falling behind again. What is retired is the claim that main IS
+> behind, and the number **46**.
 >
 > **▶ THE EIGHT STANDING USER RULINGS (R12) — all in `plan.md` §5; do not re-litigate:**
 > **1.** Build order = census order: Wave 0 remainder → Wave 1 correctness → Wave 2 structural → Wave 3 breadth.
@@ -119,7 +132,7 @@ Rewritten **2026-08-17**, in full.
 | Branch | `claude/apex-wrong-figures-bc45f4`, **in sync with its upstream** |
 | HEAD | **at or after `bdd3389`** — a floor pinned to a sha, as of 2026-08-17, and stale by construction the instant it is written: the commit that carries this table moves HEAD past `bdd3389`. `git rev-parse HEAD`. The previous revision of this file asserted `3e968b3` as a bare fact and was two commits wrong by the time anyone read it. |
 | Ahead of `origin/main` | **≥85 as of `bdd3389`** — a floor pinned to a sha, never a live figure. Re-run `git rev-list --count origin/main..HEAD`; this cell goes stale on the next push and on any move of `origin/main`. |
-| `origin/main` | **`c655dc2`** — unmoved for the whole run |
+| `origin/main` | ~~**`c655dc2`** — unmoved for the whole run~~ 🔴 **SUPERSEDED 2026-09-03: `973c156`, at schema 52.** It moved when **PR #36 merged all four tracks** and their branches were deleted; `.gitattributes` (`* text=auto`) landed in PR #35. This whole STATE block is a **2026-08-17 snapshot of one now-merged branch** and is kept as history — re-derive every cell before using it. |
 | Schema | **v52** — grep `public const int CurrentVersion` in `src/Apex.Persistence.Sqlite/Schema.cs`; never cite it by line, it has moved twice |
 | Gate | build **0W/0E** · Ledger **1668** · Io **414** · Sqlite **231** · Desktop **2195** |
 | PR | **#34 — OPEN, NOT MERGED**, mergeable, not a draft |
@@ -128,9 +141,14 @@ Rewritten **2026-08-17**, in full.
 migrations, not one.** *(Commit, file and line counts on an open PR move with every push — the branch is
 already at ≥85 commits as of `bdd3389`. Read those four numbers as a snapshot of the PR at open, and get the
 live figures from the PR itself. **The PR body is A12's artefact and is not edited from here (R4).**)*
-`origin/main` is at `CurrentVersion` **46**; HEAD is at **51**, so the PR spans `MigrateV46ToV47` through
+~~`origin/main` is at `CurrentVersion` **46**;~~ HEAD is at **51**, so the PR spans `MigrateV46ToV47` through
 `MigrateV50ToV51`. The main loop's brief said "one migration"; A12 re-derived it from
 `git show origin/main:…/Schema.cs` and corrected it **before it reached the PR body**. Record that as a save. *(2026-08-19: HEAD has since moved to `52` — the voucher edit log — so the span is one migration longer than this at-open snapshot says.)*
+🔴 **2026-09-03 — `origin/main` IS AT `CurrentVersion` 52, NOT 46, AND THE SPAN SENTENCE IS SPENT.** PR #34's
+whole span, and the other three tracks with it, **merged in PR #36**; `973c156` carries every one of those
+migrations. Nothing in this paragraph describes an open PR any more — it is retained only for the
+re-derivation lesson (`git show origin/main:…/Schema.cs`, never a remembered number), which is the part still
+worth having. **The command is the durable half; the figure `46` is not.**
 
 ---
 
