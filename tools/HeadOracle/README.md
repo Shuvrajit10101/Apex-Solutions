@@ -355,6 +355,21 @@ A deliberate act, never a side effect: run the oracle, take the `FULL CENSUS (he
 **why coverage changed** in the recording log at the top of that file. A census that shrinks without a
 reason is the defect the file exists to catch.
 
+### The self-audit ledger — read this before trusting any check here
+
+Audits **#3–#6** found nine ways this harness certified something it had not measured. Every one is fixed,
+and every one has an `hbite-NN-*.sh` that re-proves the fix bites — but the findings themselves are written
+up in **`plan.md` → Phase 10.8 → `NS-9`**, because a code comment beside a fix does not tell you what the
+harness used to get wrong.
+
+The one worth knowing before you add a scenario: **a scenario that throws on *both* arms is invisible to a
+symmetric-exception check, and a census recorded from that state blesses its own hole.** `G11-002` — the
+purchase-invoice half of the invoice seam — did exactly that for its whole life: no engine row existed, the
+point oracle iterates *live* keys so it judged nothing there, CHECK 11 saw a symmetric exception and passed,
+and the recorded census had been taken from that state. The string `G11-002` appeared **zero** times in the
+report while family G11 was presented as covering the seam. `BuildOutcome` is asserted in PART A now, on
+both arms — but the shape is general, so **check that a scenario you add actually appears in the report.**
+
 ---
 
 ## Reading the verdict
