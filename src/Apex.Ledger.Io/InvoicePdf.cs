@@ -63,6 +63,24 @@ public static class InvoicePdf
             // the document kind follows the transaction, not a print preference, and a knob that could re-title a
             // record into a tax invoice would issue through the print dialog the document §31(1) denies us.
         }
+        else if (data.StatesSection34Note)
+        {
+            // T0-11 slice S4 — a §34 note we ISSUE. The NATURE OF THE DOCUMENT is a mandatory Rule-53 particular, so
+            // the F12 title override does not reach it, for exactly the reason it does not reach a bill of supply or
+            // a record: the document kind follows the transaction, not a print preference, and a knob that could
+            // re-title a credit note "TAX INVOICE" would state on paper that we supplied something we did not.
+            // (A note we merely RECORD took the IsRecipientRecord branch above, which already refuses the override.)
+            title = data.DocumentTitle?.Trim() ?? string.Empty;
+            // Structural, like the two branches around it: a note may bear a NOTE title and nothing else. But unlike
+            // the record branch — whose class has exactly one title — there are TWO here, and the DTO does not say
+            // which, so a caller that supplied an outward title (or none) has named a kind this flag contradicts and
+            // there is no correct substitution to make. The page is left UNTITLED rather than titled with a guess:
+            // an untitled page states nothing false, and refusing is this codebase's settled direction wherever a
+            // document cannot be identified. Unreachable from the projector, which always sets one of the two.
+            if (!title.Equals(GstReportSupport.CreditNoteTitle, StringComparison.OrdinalIgnoreCase)
+                && !title.Equals(GstReportSupport.DebitNoteTitle, StringComparison.OrdinalIgnoreCase))
+                title = string.Empty;
+        }
         else if (data.IsBillOfSupply)
         {
             // FIX-W1h: derive STRUCTURALLY, never by trusting the DTO. `InvoicePrintData.DocumentTitle` defaulted to

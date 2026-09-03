@@ -369,6 +369,13 @@ public static class VoucherPrintProjector
         // supply" and is carried, never collapsed into "intra-state".
         bool? livePartyInterState = GstReportSupport.RoutingOf(company, partyLedger?.PartyGst?.StateCode);
 
+        // T0-11 slice S4 — a §34 / Rule-53 NOTE. It carries no stock lines (VoucherValidator refuses them on every
+        // post) and its value lives in the accounting legs, so both invoice passes would project it empty. Its
+        // entitlement, its title and its orientation all come from the ONE classification, and this gate is defined
+        // as "the classifier resolved a note" so the routing and the title cannot come from two readings.
+        if (GstReportSupport.IsCreditDebitNoteDocument(company, voucher))
+            return ProjectCreditDebitNote(company, voucher, partyLedger, livePartyInterState);
+
         // A SERVICE (Accounting Invoice) sale has no stock lines, so the item pass below would project an EMPTY
         // invoice. It takes its own projection; both passes now read the same POSTED legs for every figure.
         //
@@ -884,6 +891,116 @@ public static class VoucherPrintProjector
             RoundOff = Money.Zero,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
         };
+    }
+
+    // ---------------------------------------------------------------- T0-11 slice S4: the §34 note document
+
+    /// <summary>
+    /// Projects a <b>§34 credit or debit note</b> into an <see cref="InvoicePrintData"/> Rule-53 note document
+    /// (RQ-11b) — the third projection pass, and the only one that is deliberately <b>value level</b>.
+    ///
+    /// <para><b>Why it carries no item table, and why that is a statutory answer rather than a shortcut.</b> Rule 53
+    /// prescribes the nature of the document, a consecutive serial number and date, the supplier's and recipient's
+    /// identity, the serial number and date of the corresponding tax invoice, and the value of the taxable supply
+    /// with the rate of tax and the amount credited or debited. <b>It requires no HSN, no quantity, no unit and no
+    /// per-item line.</b> That is what decouples this document from census T0-10 entirely — and it is fortunate,
+    /// because <c>VoucherValidator</c> refuses stock lines on a note on every post, so a per-item table is not merely
+    /// unnecessary here, it is unreachable.</para>
+    ///
+    /// <para><b>Every figure is POSTED money</b>, on exactly the terms the other two passes keep: the value of the
+    /// supply from <see cref="GstReportSupport.PostedNoteAdjustedValue"/>, the rate rows and the head totals from
+    /// <see cref="ReadPostedMoney"/>, and nothing re-resolved from a live master. The classification is already a
+    /// footing conjunct (<c>NoteDocumentFoots</c>), so the assertion at the end of this method can only fire for a
+    /// caller that reached it some other way — and it is kept for exactly that caller.</para>
+    ///
+    /// <para><b>The reference pair is the ORIGINAL invoice's</b>, taken from the persisted §34 link rather than from
+    /// <c>Voucher.ReferenceNo</c>: the Rule-53 particular is the serial and date of the corresponding invoice, and
+    /// the voucher's own reference field holds whatever counterparty number the operator captured. Captioning THAT
+    /// "Original Invoice No." would swap an unhelpful label for a false statement, which is why the caption travels
+    /// with the value and the shared <see cref="ReferenceCaption"/> helper is left alone.</para>
+    ///
+    /// <para><b>No clause letter appears anywhere in this method</b>, deliberately: the substance of the Rule-53
+    /// particulars is verified at primary source but the lettering is unreached (the CBIC rules host fails TLS chain
+    /// verification and the Part-A PDF 404s), and this project has already had to strip mis-attributed statutory
+    /// citations out of shipped code once.</para>
+    /// </summary>
+    private static InvoicePrintData ProjectCreditDebitNote(
+        Company company, Voucher voucher, Apex.Ledger.Domain.Ledger? partyLedger, bool? livePartyInterState)
+    {
+        var document = GstReportSupport.ClassifyPrintedDocument(company, voucher);
+        bool record = document.Role == DocumentRole.Recorded;
+        bool weAreRecipient = document.Heads == PartyOrientation.WeAreRecipient;
+
+        // The value of the supply the note adjusts, and the tax on it — both read off the posted legs, by the SAME
+        // two methods the classification's own footing conjunct used, so the page and the gate cannot disagree.
+        var adjustedValue = GstReportSupport.PostedNoteAdjustedValue(company, voucher);
+        var money = ReadPostedMoney(voucher, livePartyInterState);
+
+        var buyerState = GstReportSupport.IssuedBuyerStateCode(company, voucher);
+        // Rule 46(a)'s rule, applied to a note: on a RECORD the counterparty is the supplier and heads the page, and
+        // his identity is stated verbatim from his own master (see the item pass for why BuyerBlock's reconciliation
+        // must not be pointed at a supplier).
+        var counterpartyBlock = weAreRecipient
+            ? RecordedSupplierBlock(partyLedger)
+            : BuyerBlock(company, partyLedger, buyerState);
+        var ourBlock = SellerBlock(company);
+
+        var link = GstReportSupport.CdnLinkFor(company, voucher);
+
+        var data = new InvoicePrintData
+        {
+            DocumentTitle = document.Title,
+            // A note is neither a tax invoice nor a bill of supply, and it states its tax either way — so the
+            // bill-of-supply suppression set has no business here. It is false by construction: ClassifyNoteDocument
+            // never returns TaxParticulars.None.
+            IsBillOfSupply = false,
+            IsRecipientRecord = record,
+            // The nature of the document is a mandatory Rule-53 particular, so the renderer must refuse the F12
+            // title override here as it already does on a bill of supply and a record. Stated structurally rather
+            // than inferred from the title string, which is how the two earlier title guards came to be bypassable.
+            StatesSection34Note = true,
+            Heads = document.Heads,
+            StatesOurDeclarationAndSignature = document.StatesOurDeclarationAndSignature,
+            IsInwardExempt = record
+                && money.TotalCgst.Amount == 0m && money.TotalSgst.Amount == 0m
+                && money.TotalIgst.Amount == 0m && money.TotalCess.Amount == 0m,
+            IsCancelled = voucher.Cancelled,
+            TopDeclaration = string.Empty,
+            Seller = weAreRecipient ? counterpartyBlock : ourBlock,
+            Buyer = weAreRecipient ? ourBlock : counterpartyBlock,
+            // The note's own consecutive serial number and date of issue.
+            InvoiceNumber = company.FormatVoucherNumber(voucher),
+            InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            // …and the corresponding invoice's, from the persisted link. Blank where the link recorded none.
+            ReferenceCaption = GstReportSupport.OriginalInvoiceCaption,
+            ReferenceNo = ReportPrintProjector.Ascii(link?.OriginalInvoiceNumber ?? string.Empty),
+            ReferenceDateText = link?.OriginalInvoiceDate is { } od
+                ? od.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty,
+            // Rule 46(n) is a supplier particular on an invoice and the same reasoning binds on a note: we do not
+            // determine the place of supply of a supply made TO us.
+            PlaceOfSupply = record ? string.Empty : StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
+            IsInterState = money.InterState,
+            // 🔴 EMPTY, and CORRECT: Rule 53 requires no per-item detail, and a note cannot carry stock lines at all.
+            Items = Array.Empty<InvoiceItemRow>(),
+            TaxRows = money.TaxRows,
+            TotalTaxable = adjustedValue,
+            TotalCgst = money.TotalCgst,
+            TotalSgst = money.TotalSgst,
+            TotalIgst = money.TotalIgst,
+            TotalCess = money.TotalCess,
+            RoundOff = Money.Zero,
+            Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+        };
+
+        // ER-4, enforced locally as well as gated. Unreachable through the app's own routing (the classification
+        // already required it), and kept for a direct caller that did not ask the classifier first — the same
+        // belt-and-braces the item pass keeps for the same reason.
+        if (GstReportSupport.PostedNotePartyLeg(company, voucher) is { } partyLeg
+            && data.GrandTotal.Amount != partyLeg.Amount)
+            throw new InvalidOperationException(FootingRefusal(data.GrandTotal.Amount, partyLeg.Amount));
+
+        return data;
     }
 
     // ---------------------------------------------------------------- W0-10: the ONE money read, shared by both passes

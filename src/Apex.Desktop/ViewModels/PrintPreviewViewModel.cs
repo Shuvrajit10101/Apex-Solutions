@@ -522,6 +522,18 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 || title.Trim().Equals(GstReportSupport.BillOfSupplyTitle, StringComparison.OrdinalIgnoreCase))
                 title = GstReportSupport.PurchaseRecordTitle;
         }
+        else if (inv.StatesSection34Note)
+        {
+            // T0-11 slice S4 — the same structural refusal InvoicePdf.Render applies to a §34 note: the NATURE OF
+            // THE DOCUMENT is a mandatory Rule-53 particular, so the F12 title override does not reach it, and a
+            // note carrying anything but a note title is left untitled rather than titled with a guess (there are
+            // two note titles and the DTO does not say which). If the mirror and the bytes disagreed here the
+            // operator would approve one document and issue another.
+            title = inv.DocumentTitle?.Trim() ?? string.Empty;
+            if (!title.Equals(GstReportSupport.CreditNoteTitle, StringComparison.OrdinalIgnoreCase)
+                && !title.Equals(GstReportSupport.DebitNoteTitle, StringComparison.OrdinalIgnoreCase))
+                title = string.Empty;
+        }
         else if (inv.IsBillOfSupply)
         {
             // FIX-W2b: case-insensitive (and trimmed), mirroring InvoicePdf.Render — an ordinal compare let the
