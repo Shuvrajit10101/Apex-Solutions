@@ -87,6 +87,18 @@
 > printing anywhere** today; this settles **WHAT**, and **does NOT reinstate** the parallelism ruling 7 lost.
 > Recorded beside the other eight in **§5** — search **`FOUR FURTHER USER RULINGS (R12, 2026-08-19)`**.
 >
+> **▶ 🔴 A THIRTEENTH STANDING RULING WAS TAKEN 2026-09-03 (R12), AND IT RAISED TWO QUESTIONS THAT ARE NOT
+> ANSWERED.** **13 · `LedgerFirst` IS HONOURED** — on books created from v51 onward the **sales/purchase ledger
+> outranks the stock item** in the GST rate hierarchy, which is the reference product's shipped default; books
+> migrated from earlier schemas are back-filled to `StockItemFirst`, so **no posted book's tax changes**. That
+> is what makes T0-4's resolver a live behaviour change on new books rather than a no-op. **🔴 TWO OPEN R12
+> QUESTIONS RIDE WITH IT AND BLOCK NOTHING ELSE BUT MUST NOT BE DECIDED BY AN AGENT:** **Q-A** the
+> statutory-cess narrowing (a cess-less ledger block wins the walk and supplies no cess — measured at
+> **₹1,200.00 → ₹0.00** on a ₹10,000.00 line) and **Q-B** the document-title flip on an untaxed voucher (the
+> same posted paper re-titles BILL OF SUPPLY ↔ TAX INVOICE, because no taxability is stamped at post time).
+> Both are pinned by named tests. Recorded beside the other twelve in **§5** — search
+> **`ONE FURTHER USER RULING (R12, 2026-09-03)`**.
+>
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
 ---
@@ -662,6 +674,51 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > at W0-2b. **Unchanged:** every git action is **A12's and no other agent's (R4)**; small conventional commits
 > (R10); **A10 review per slice, pre-merge**; and a push after every slice.
 
+> **▶ 🔴 ONE FURTHER USER RULING (R12, 2026-09-03) — SETTLED; DO NOT RE-LITIGATE.**
+>
+> **13 · `LedgerFirst` IS HONOURED: ON BOOKS CREATED FROM v51 ONWARD THE SALES/PURCHASE LEDGER OUTRANKS THE
+> STOCK ITEM.** T0-4's five-level GST rate hierarchy implements **both** published orders as data and defaults
+> new companies to `Ledger → Accounting Group → Stock Item → Stock Group → Company`, which is the reference
+> product's own shipped default and the order the v51 column was created to carry. **Books migrated from earlier
+> schemas are back-filled to `StockItemFirst`, so no posted book's tax changes.** The alternative offered — build
+> one order and treat `LedgerFirst` as a stored-but-unused label — was declined. This ruling is what makes T0-4's
+> S2b slice a **live behaviour change** on new books rather than a no-op, and it is why the two questions below
+> exist at all.
+>
+> **▶ 🔴 TWO OPEN R12 QUESTIONS RAISED BY RULING 13 AND *NOT* DECIDED (2026-09-03). BOTH ARE PINNED BY A NAMED
+> TEST — the behaviour is deterministic and recorded; what is missing is the decision about whether it is right.
+> Neither may be resolved by an agent.** Full record: `docs/full-clone-census.md` §1.3 item 15; divergence rows
+> `docs/invented-vs-cloned.md` IV-38 and IV-40.
+>
+> **Q-A · THE STATUTORY-CESS NARROWING — does a cess-less ledger block mean NO cess?** On a `LedgerFirst` book a
+> sales ledger that declares a rate but **no cess fields** wins the walk and therefore supplies the cess too,
+> which means none — even when the stock item declares one. **Measured, with literals**
+> (`GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess`): an item with ad-valorem cess
+> at **1200 bp** under a ledger at 18% with no cess, on a taxable value of **₹10,000.00**, yields cess of
+> **₹1,200.00 under `StockItemFirst`** (every pre-v51 book, unchanged) and **₹0.00 under `LedgerFirst`** (every
+> v51+ book). The rate is 1800 bp either way. **This is one-walk-one-winning-block behaving as designed** — the
+> alternative is a line RATED off the ledger while its cess is read off the item, which is the worse defect the
+> chain closed — **but whether the reference product narrows the same way is unsourced**, and `MasterGstDetails`
+> carries no cess fields at all, so the three rungs above the Stock Item can never supply one. Widening it is a
+> **schema change**. ⚠️ Two shipped Desktop fixtures had to declare the same cess on **both** masters to keep
+> their money literals; that is a fixture fix, and the book shape they no longer cover is exactly the shape
+> above. **A ruling is needed before any code moves** — the three available shapes are set out in IV-40's *Fix*
+> cell and they are not equivalent.
+>
+> **Q-B · THE DOCUMENT-TITLE FLIP ON AN UNTAXED VOUCHER — accept it, or escalate to a schema change?** No
+> taxability is stamped on a posted line, so the bill-of-supply predicate **re-resolves every stock line live**.
+> A voucher that posted **no** tax therefore has **no anchor at all**: with the item Exempt and the sales ledger
+> Taxable at 18%, the same already-issued paper is a **BILL OF SUPPLY** under `StockItemFirst` and a **TAX
+> INVOICE** under `LedgerFirst` — re-titled by a master option, months later, with no tax on it because none was
+> ever posted. Pinned by
+> `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`.
+> **Posted MONEY is immune by construction and that is separately pinned; the statutory TITLE is not.** Anchoring
+> the title to posted data is **unavailable at this schema** — a zero-rated LUT/export supply is
+> `IsTaxable = true` at 0 bp and also posts no tax legs, so *"no tax legs"* cannot tell the two apart. It needs a
+> posted taxability marker, i.e. a **column**, i.e. an escalation. The options are (a) accept the flip, document
+> it, and warn at save time when a non-taxable block is written over a master with posted vouchers — noting the
+> **warning itself would be ours**, no source says the reference product warns — or (b) take the schema change.
+>
 > **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-08-19) — SETTLED; DO NOT RE-LITIGATE. THEY AMEND THE EIGHT
 > ABOVE AND THEY CHANGE THE SHAPE OF THE REMAINING WORK.** Recorded **here**, beside the 2026-08-15 and
 > 2026-08-16 sets and pointed at from this file's header, for the reason those sets already give: a ruling
@@ -1701,6 +1758,193 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     - **THE FULL SUITE IS NOT EVIDENCE HERE.** **Eight of eight** attempts passed it; **four of eight** also
       passed the oracle. **"Green" is a floor for this phase, never a verdict** — the verdict comes from the
       oracle **plus** an adversarial design review that is **shown the eight failure modes first**.
+- **▶ NS-9 (R6 ITEM, RECORDED 2026-09-03) — THE HARNESS SELF-AUDIT LEDGER: audits #3–#6, transcribed from
+  the last oracle run so the 195 MB of scratch never has to be re-run to know what it found.** The audit
+  findings were **emitted into `.oracle-work/report.txt`** by a run that lives in a throw-away worktree, and
+  they were **carried in the harness source as code comments only** — **no governing document held any of
+  them**. `memory.md` stops at audits **#1–#2** and leaves round 6 "OPEN AT THE TIME OF WRITING";
+  `tools/HeadOracle/README.md` names the checks but records **no finding**. This item closes that gap. Each
+  finding below is **already fixed in the committed harness** and **each has a `bite/hbite-NN-*.sh`
+  regression script that re-proves the fix bites** — the value here is the **written record of what was
+  wrong**, which is the part that was about to be lost.
+  - **🔴 THE GENERAL MECHANISM, NAMED — this is the finding that outlives the harness. `AUDIT #3 FINDING [0]`
+    (HIGH): A SCENARIO THAT THROWS ON *BOTH* ARMS IS INVISIBLE TO A SYMMETRIC-EXCEPTION CHECK, AND A CENSUS
+    RECORDED FROM THAT STATE BLESSES ITS OWN HOLE.** `BuildOutcome` was emitted by the emitter and **read by
+    NOTHING**. Scenario **`G11-002`** — **the PURCHASE-invoice half of the invoice seam** — **threw on both
+    arms for its whole life**: `Emit` `continue`d, **no engine row ever existed**, the point oracle **iterates
+    LIVE keys** so it evaluated **0 subjects** there, **CHECK 11 saw a SYMMETRIC exception and PASSED**, and
+    the **RECORDED census had been recorded FROM that state**, so **the census gate BLESSED the hole**. The
+    string **`G11-002` appeared ZERO times in the report** while family G11 was presented as covering the
+    invoice seam. **The mechanism is fully general: any scenario added to cover the negative-stock fix could
+    vanish the same way** — and the same shape applies to **any** two-arm differential harness in this repo,
+    not just this one. **Closed** by asserting `BuildOutcome` in PART A on both arms (**372 declared cells**,
+    head OK 372 / live OK 372), with **a head-arm failure classed as a BROKEN CORPUS (exit 3)** and a
+    live-arm failure where head built classed as an **engine verdict**. Bite: `hbite-09-scenario-does-not-build.sh`
+    (which deliberately uses **G14-001**, not G11-002, so the bite is independent of the corpus fix it tests).
+  - **`AUDIT #3 FINDING [1]` (HIGH) — SET MEMBERSHIP WAS NOT ENOUGH.** The reference's value invariant asked
+    only *"is this rate somewhere in the admissible set?"*, which **acquits the single most likely genuine
+    mistake in the debt branch: RE-RATING the repayment surplus at the rate of the stock that ran out.**
+    Proved end to end: a poisoned reference **demanded 25 × ₹100.13 = ₹2,503.25 on the crux where the brief
+    says 25 × ₹7.91 = ₹197.75**, and PART A still printed **`INADMISSIBLE layer rates : 0 / HARNESS INTEGRITY
+    : SOUND`** — because **₹100.13 *is* in the set**. **Closed** by binding every layer to **a LOT IN THE
+    SPEC** (`FactInwardLots`, from Facts' own walk, never from `Reference.BuildStack`): the lot must exist and
+    have had the units, and **if the lot carries an EXPLICIT rate the layer must be priced at THAT rate — not
+    an admissible rate, THE rate**. Bite: `hbite-07-rerate-admissible.sh`.
+  - **`AUDIT #3 FINDING [2]` (HIGH) — A SILENT `continue` LEFT THE CONVICTING ORACLE VALIDATED BY NOTHING.**
+    CHECK 4 derived its engine twin by **STRIPPING THE `Ref` PREFIX**, so `RefClosingValueDebtAwarePaisa`
+    mapped to `ClosingValueDebtAwarePaisa` — **which NO ENGINE EMITS** — and the lookup **silently dropped it
+    with `continue`**. The **debt-aware AverageCost oracle, which is the oracle CHECK 2 convicts HEAD with,
+    was calibrated by NOTHING.** The adversary **rewrote 148 of 184 magnitudes**, **INVENTED defects on books
+    that never go negative (`N1-002`, `N5-001`, `E1-001`)** and **moved the headline `G2-004` figure**, while
+    PART A still printed **`HARNESS INTEGRITY : SOUND`**. **Closed** by **CHECK 4b**, whose calibration is
+    **forced by the semantics** (a never-negative book never carries a debt, so the debt-aware value *must*
+    equal HEAD's AverageCost exactly) and in which **a subject with NO engine twin counts as MISSING and
+    FAILS** — a silent skip being exactly how the hole existed. Bite: `hbite-06-avg-debt-aware-poison.sh`.
+  - **`AUDIT #3 FINDING [3]` (MEDIUM) — SELF-ATTESTATION IS NOT EVIDENCE.** The one test that existed was
+    **WAIVED by a tag (`RunningAverage`) that the audited code emits ABOUT ITSELF**. **Closed**: the
+    best-available-cost chain is **unreachable for a rated lot**, so a `RunningAverage` tag on one is *itself*
+    convicted; **no tag can excuse a wrong rate**. Bite: `hbite-08-rerate-plus-tag-lie.sh`. **This is the
+    finding that recurred in every single audit of this harness** — see `AUDIT #6 [1]` below for its last
+    instance.
+  - **`AUDIT #3 FINDING [4]` — structural cover lost.** Carried in `Program.cs`; bite:
+    `hbite-10-structural-cover-lost.sh`.
+  - **🔴 `AUDIT #4 FINDING [0]` (CRITICAL) — THE RECURSION, AND WHY MORE CALIBRATION CANNOT CLOSE IT.**
+    CHECK 2 issues **engine verdicts** from the debt-aware reference. CHECK 4b calibrates that reference
+    **only on `FactNeverNegative=1` books — and a never-negative book NEVER CARRIES A DEBT, so on exactly
+    those books every clause that distinguishes `RunAverageDebtAware` from `RunAverage` is DEAD CODE.** The
+    clauses deciding **all six of CHECK 2's convictions** were therefore **validated by NOTHING**, and
+    **HEAD HAS NO CORRECT DEBT BEHAVIOUR TO CALIBRATE AGAINST**. **Terminated — not closed — by CHECK 4c**:
+    **198 LITERAL hand-derived goldens (133 closing + 65 issue)**, each **derived by hand movement by
+    movement**, **cross-checked by an out-of-band Python replay sharing no line of code with the C#**, with
+    any disagreement **resolved by hand arithmetic and never by picking a side**. **The honest limit, stated
+    as the harness states it:** this does **not** make the reference provably right — it makes it wrong
+    **only if a human derivation and two independent implementations are all wrong the same way**. Bite:
+    `hbite-11-avg-debt-clause.sh`.
+  - **`AUDIT #4 FINDING [1]`(1) — the count-up exemption was a hole.** A count-up layer has **no supplying
+    lot**, so origin-binding cannot reach it and it was tested for admissibility only. **Re-pricing a count-up
+    taken WITH A DEBT OUTSTANDING moved the crux 10.25× with the whole origin-binding block reading 0/0/0/0.**
+    **Closed** by an **EXTERNAL constant** instead: goldens **GT-11 / GT-11L / GT-12** fix `G6-001` at
+    **8 × ₹9.77 = 7,816p**, and CHECK 4c further asserts that **every subject tagged INVENTED** (exactly the
+    count-with-debt and unrated-repayment population) **carries such a golden**. Bite:
+    `hbite-12-countup-reprice.sh`.
+  - **`AUDIT #4 FINDING [1]`(2) — ORDERING was asked for in audit #3, not built in round 4, and asked for
+    again.** A poison that **RESURRECTS the drained lot's units after a repayment** binds every layer
+    **TRUTHFULLY to a real lot at that lot's real spec rate**, so origin-binding **passes completely**. The
+    only thing that kills it is **a fact about ORDER**: the company-wide net quantity was ≤ 0 at the last dry
+    point (`FactPostDryLots`, a **pure quantity walk**), so the stack was empty there and **nothing created at
+    or before it can still be surviving**. **188 subjects constrained, 106 layers tested.** Bite:
+    `hbite-13-resurrect-drained-lot.sh`.
+  - **`AUDIT #4 FINDING [2]` (HIGH) — A RETRACTION: THE GATE THAT COULD NOT FAIL.** Round 4 printed
+    **`REFERENCE INTERNAL CONSISTENCY on AverageCost … 187 subjects, 0 divergences => PASS`** in the section
+    **whose whole purpose is harness-integrity EVIDENCE**. It was a **TAUTOLOGY**: `Reference.Value`'s
+    AverageCost arm is `Paisa(RunAverageDebtAware(events, chain).Average * closingQty)` and
+    `Reference.DebtAwareAverageValue` is **the same call with the same arguments**. Confirmed empirically —
+    **poisoning `RunAverageDebtAware` moved BOTH columns together and the gate still printed PASS**. **A gate
+    that cannot fail is worse than no gate.** **Closed** by demoting it: **no verdict, no census cell**,
+    retained only as a regression tripwire against the two being un-linked. **⇒ RULE: before relying on a
+    recorded PASS, check whether the two things compared can differ at all.**
+  - **`AUDIT #4 FINDING [3]` — the `ECHO-OF-HEAD` provenance tag was RETIRED (2026-07-27).** It was applied to
+    **all 187 AverageCost subjects** and **became false the moment `Reference.Value`'s AverageCost arm became
+    debt-aware**, at which point that column started **issuing CHECK 2's engine verdicts**. It also kept the
+    AverageCost subjects resting on the settled shortfall rule **OUT of the INVENTED count**. AverageCost is
+    now tagged **from the same debt flags as Fifo/Lifo**.
+  - **`AUDIT #4 FINDING [5]` (LOW) — an accumulated counter nobody read.** `perLot` was accumulated and
+    **never read**, so only a **PER-LAYER** bound existed and **a reference that split an over-claim across
+    several layers from one lot escaped with the counter still at 0**. **Closed** by an **AGGREGATE per-lot
+    bound** (**445 (subject, lot) pairs**). Bite: `hbite-14-split-lot-overclaim.sh`.
+  - **🔴 `AUDIT #5 FINDING [0]` (HIGH) — THE BALANCE SHEET WAS PINNED AND THE P&L WAS NOT.** Round 5's golden
+    table pinned **CLOSING VALUES ONLY**. **CHECK 10 is judged from `RefIssueValue`, whose Fifo/Lifo arm is a
+    SEPARATE consume loop** that CHECK 4 also calibrates only on never-negative books — so **the reference's
+    ISSUE arm was the one verdict-issuing output with NO external anchor on the debt branch**. Proved: a
+    poison issuing at the debt-aware pool average whenever the book had ever carried a debt **rewrote 68 of
+    the 120 reported CHECK 10 demands (₹197.75 → ₹7,910.00 on the crux, 40×, silently dropping the stock
+    cap)** while **CHECK 4 / 4b / 4c all printed PASS and PART A printed SOUND**. **A builder with a correct
+    Balance Sheet and a wrong P&L would have been certified.** **Closed** by **65 ISSUE goldens** *and* a
+    **STRUCTURAL assertion that needs no constants**: for Fifo/Lifo, a probe at or above the closing QUANTITY
+    must cost **exactly** the closing VALUE, because the walk runs out of layers — **868 at-or-above pairs,
+    0 violations**, and this alone convicts all 68 fabricated rows. (It deliberately does **not** cover
+    AverageCost, whose issue arm is **uncapped by design** and is pinned by constants GI-05/06/11/18/21
+    instead.) Bite: `hbite-16-issue-value-debt-branch.sh`.
+  - **`AUDIT #5 FINDING [1]` — a golden constant edited to match the code.** The abandoned round had edited
+    **GT-25 / GT-43 / GI-26 from ₹197.75 to ₹316.40** to match its gated reference; removing the gate restored
+    the reference to **₹197.75** — **the original hand derivation had been right all along, and the edit had
+    destroyed the evidence.** **⇒ RULE (already in the handover README, restated here because it is the
+    project's documented failure mode): never edit a golden's constant to match the code.** Bite:
+    `hbite-17-golden-constant-edited.sh`.
+  - **`AUDIT #5 FINDING [2]` — a ruling must be stated so a reader can evaluate it without needing the
+    ruling.** The shortfall rule is now written out in the report itself: a debt settled by a movement
+    carrying **no purchase rate** is valued through the engine's **existing** `CostContext.NoRateInwardCost`
+    chain — **running average → strictly-positive `StandardCost` → last rated inward → 0** (**"strictly
+    positive" is load-bearing**: an item whose standard cost is an explicit ₹0.00 **skips** that link, which
+    is `G10-002`'s Gadget, pinned by **GT-21**). **HEAD's divergence** is that it uses the running average
+    **alone**, which is **0 immediately after an over-draw** — so **HEAD values genuinely-held units at
+    ₹0.00**.
+  - **`AUDIT #5 FINDING [3]` — the INVENTED population must be derived from the SPEC, not read off the
+    reference's own tag.** `Facts.InventedByRule` answers it by a **pure quantity walk** touching no rate, no
+    cost and no layer arithmetic. Equivalence is **exact and measured**: **33 INVENTED per the spec, 33 per
+    the tag, 0 either way round**, and the population size is pinned as census cell
+    `CHECK4c.inventedSubjects` **so a rule that stops being reached announces itself as a changed cell rather
+    than as a quieter table**. Bite: `hbite-18-invented-partial-retag.sh`.
+  - **`AUDIT #5 FINDING [4]` — the ratio nobody had computed.** **32 constants stood behind 219
+    debt-dependent subjects**, and **only 19 of CHECK 3's 70 convictions were directly pinned**. Since the
+    numbers a reader quotes as evidence are **the convictions**, round 6 pinned **all of them**; the ratio is
+    now **printed from the run's own rows** rather than described.
+  - **`AUDIT #4 FINDING [4]` (MEDIUM) — the sentence asking the user to ratify a number was decoupled from
+    the oracle it described.** The block stated its numeric consequence as **HARD-CODED PROSE** (*"DEMANDS …
+    = 8 × ₹9.77"*). The adversary poisoned the reference so it actually demanded **8 × ₹100.13**, and **the
+    report kept printing "8 × ₹9.77" in the same document.** **Closed**: every figure in that block is now
+    **READ FROM THE EMITTED ROWS**, and an INVENTED subject that fails to appear there is a **harness
+    failure**. **⇒ RULE: a consequence stated as prose beside a computed table will drift from it.**
+  - **🔴 `AUDIT #6 [2]` (LOW severity, LIVE RISK FOR THE PRODUCTION SLICE) — THE LIFO DEBT PATH WAS PINNED BY
+    EXACTLY ONE CONSTANT AND THE CORPUS COULD NOT EXERCISE IT INDEPENDENTLY.** On **every debt subject that
+    existed, FIFO and LIFO gave the IDENTICAL closing value and the IDENTICAL issue value**, because **no debt
+    scenario left more than ONE surviving layer** — and where one layer survives **there is no oldest and no
+    newest**. `Reference.Consume` differs between the methods in **exactly one place** (index `0` vs index
+    `Count-1` of the same list), and **swapping them moved no golden**. **Closed** by new scenario **`G15-001`
+    (family G15)**: a debt created and repaid, **TWO surviving layers at different rates (25@₹7.91 and
+    20@₹12.07)**, and **an outward of 13 AFTER both exist** — the only event that consults an end of the
+    stack. **Carry this forward: the production fix must be verified on LIFO, not assumed from FIFO.**
+  - **`AUDIT #6 [1]` (LOW) — THE LAST INSTANCE OF SELF-ATTESTATION.** The clause-coverage assertion compared
+    `Goldens.RequiredClauses` against **a projection of the TABLE UNDER AUDIT**
+    (`Goldens.All.Concat(Goldens.Issue).Select(g => g.Clause)`). It proved every required tag **APPEARS**,
+    **never that any of them is TRUE** — nothing asked whether a golden tagged `issue:debt-outstanding` is
+    actually taken with a debt outstanding. **A table with the right numbers under the wrong labels reported
+    FULL clause coverage while leaving a clause genuinely unexercised, and re-tagging a single golden
+    manufactured coverage out of nothing.** **Closed** by requiring each label to be **TRUE of its own
+    subject**, judged from `FactDebtShape` — a **pure quantity walk that reads no rate, no cost and no layer,
+    so it cannot share a mistake with the debt VALUE branch whose labels it audits**. **198 of 198 labels
+    verified, 0 false.** Bite: `hbite-19-clause-label-lie.sh`.
+  - **`AUDIT H1 / H3 / H4` (the v1 harness audits, closed and still load-bearing):** **H1** — *a check that
+    evaluated nothing FAILS* (the per-check `SUBJECTS EVALUATED` block exists for this). **H3** —
+    `TotalClosingStockValue` was **emitted by v1 and excluded from every check** (now CHECK 9). **H4** —
+    provenance must be **ASSERTED, not merely printed**: the report now asserts that the **live arm IS the
+    working tree** by SHA-256 of the LF-normalised whole-tree digest.
+  - **▶ THE CENSUS GATE ITSELF — why `evaluated > 0` was never enough, recorded because it is the same shape
+    as finding [0].** Every check asserted only **`evaluated > 0`**. **The most realistic wrong-fix shape —
+    the engine refuses the voucher at posting time — makes `Corpus.Build` throw for every `G*`/`E1` scenario,
+    so those rows are simply ABSENT from the live arm**; the point oracle iterates `live.Keys`, so **absent
+    rows are neither evaluated nor counted as mismatches**. **CHECK 3 went from 332 subjects to 134 AND
+    PRINTED PASS.** Checks 5, 9, 10 passed. **Checks 6/7/8 printed `live 0/0` for E1 and every G family and
+    STILL printed PASS**, because the assertion only fired when the **whole-arm** sum was zero. **Nothing in
+    the exit code or the verdict block said "I measured 40% of what I measured last time."** **Closed** by
+    **two independent pins, both hard failures (exit 3 — the oracle has lost coverage, so judge NOTHING):**
+    **(1) RECORDED** — the head arm's counts must equal the census in `Census.cs` (catches a corpus or emitter
+    regression that shrinks **both** arms identically, which head-vs-live cannot see), re-recording being **a
+    deliberate edit to a source file, never a side effect**; **(2) LIVE vs HEAD** — cell by cell. **A correct
+    fix does not trip this**, and that was verified: the reference-conformant engine from
+    `bite/accept-probe.sh` **shrinks 0 cells and grows 0**. **363 cells** recorded and produced.
+  - **▶ THE RUN'S VERDICT, for whoever picks this up:** `HARNESS INTEGRITY : SOUND` / **`ENGINE VERDICT :
+    REJECTED`** — **CHECK 2: 12** AverageCost closing values, **CHECK 3: 82** closing values, **CHECK 10:
+    192** issue values, **CHECK 9(b): 86** company totals, all against the reference on single-key books.
+    **That is the harness working as designed at the baseline commit** (see the README's *Reading the
+    verdict*), **not a new defect**.
+- **▶ WHERE THE HARNESS SCRATCH LIVES (2026-09-03) — NOT DELETED, USER'S CALL.** The run that produced the
+  above left **`.oracle-work/` (195 MB, 2,171 files)** and **`.oracle-baseline/` (2.9 MB, 293 files — a
+  verbatim copy of `src/Apex.Ledger`)** in the throw-away worktree
+  `.claude/worktrees/mystifying-volhard-88445c`. **Both are ignored by `.gitignore:79-80`** (added in
+  `b2f6c40`), so they can never be committed by accident. **Only `report.txt` had information content and it
+  is now transcribed above; the 1,490 mutation variants and the 291-file baseline copy are regenerated
+  artefacts.** Deleting the tree is **safe and is the user's decision**.
 
 ### Phase 10.9 — Tally-gap remediation: voucher entry, voucher-type reachability, cost sets, batches & backup
 - **▶ STATUS 2026-08-03 — BUILT, REVIEWED AND MERGED on `claude/confident-ellis-dedef5`; the R9 real-app run
@@ -1980,6 +2224,45 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      did — state lines are now written commit-relative so they cannot rot the same way): the MASTERS AND THE
      PLUMBING LANDED; the
      RESOLVER DID NOT. IV-1 IS NOT FIXED AND T0-4 STAYS OPEN.** Read this before touching the row.
+     **▶ 🔴 AMENDED 2026-09-03 — THE RESOLVER HAS NOW SHIPPED, AND THE STATE LINE ABOVE IS SUPERSEDED IN ITS
+     SECOND HALF ONLY. IT IS LEFT STANDING because it is the record of what `e49b88e` did and did not do.**
+     T0-4 ran as its own three-slice chain on branch `claude/apex-t04-gst-hierarchy`, cut from `973c156`:
+     **S1** (oracle harness + drift locks D9/D10 — no production change), **S2a** (the five-level walk,
+     `MasterAncestry`, the sentinel moved behind Company, one walk / one winning block into `ResolveCess` and
+     `RcmService`) and **S2b** (both orders honoured as data). ~~*"the RESOLVER DID NOT [land]"*~~ is false
+     from 2026-09-03; ~~*"IV-1 IS NOT FIXED"*~~ is **half** false — the resolution half is fixed and the row
+     stays open for capture. **T0-4 STILL STAYS OPEN**, and that clause is unchanged.
+     🔴 **R12 — USER RULING TAKEN THIS SESSION (2026-09-03), and it is the one decision in the chain that moves
+     money:** `LedgerFirst` is **honoured** — on books created from v51 onward the **sales/purchase ledger
+     outranks the stock item**, which is the reference product's own shipped default. Books migrated from
+     earlier schemas are back-filled to `StockItemFirst` and resolve exactly as they did, so **no posted book
+     changes**. The alternative offered was to implement one order and treat `LedgerFirst` as a stored-but-unused
+     label; it was declined.
+     ⚠️ **THE R6 DEVIATION BELOW IS NOT REPEATED BY THIS CHAIN, AND THE DIFFERENCE IS WORTH ONE LINE.** S1/S2a/S2b
+     ran against a written design of record — `Apex-Review-Artifacts/T0-4-design.md`, with an oracle harness that
+     computes its expectations from the published order strings and lands **before** the resolver. That was
+     deliberate: it is the antidote to this project's documented "a green suite proves nothing here" failure.
+     🔴 **WHAT THE CHAIN STILL OWES, so it is not read as closed:**
+     - **CAPTURE — slice S3** (company `DefaultGst` + the two source pickers inside the existing F11 GST section,
+       and closing the `_company.Gst ?? new GstConfig()` fabrication that would otherwise move a back-filled book
+       onto the shipped order) and **slice S4** (Stock Group and accounting Group GST blocks — which must ALSO add
+       a Stock Group **ALTER** route, because none exists at all, or a rate typed there can never be corrected).
+       Census row **3.13** is still `ABSENT`.
+     - **THE HSN HALF — slice S5.** `SourceOfHsnSacDetails` still has no reader.
+     - **FOUR NEW TIER-0 ROWS the chain opened or unmasked:** **T0-17** (five D9 master-block bypasses,
+       unreconciled with `ResolveRate`; **two feed INV-01 and EWB-01**) · **T0-18** (`RcmService`'s
+       import-of-services rate is hierarchy-blind AND date-blind) · **T0-19** (both POS `ResolveRate` sites use
+       the date-blind overload) · **T0-20** (the dated override's hard-coded item-first HSN pick contradicts the
+       walk it sits on).
+     - **TWO DOC-ONLY R7 CORRECTIONS, scoped out of every brief and STILL OWED:** the `MasterGstDetails` class
+       doc and the `GstDetailSource` doc still carry the *"[web] and A14-UNVERIFIED … A14 never ran"* qualifier on
+       the two-toggle claim, which the design's grounding pass says is now vendor-sourced; and neither has been
+       re-read against what actually shipped.
+     - **ONE UNPINNED FALLBACK:** a book that never enabled GST holds no `GstConfig`, and the walk reads
+       `?? GstDetailSource.LedgerFirst`. Nothing asserts that default. It is harmless while such a book posts no
+       GST and it is exactly the kind of thing that stops being harmless silently.
+     🔴 **TWO LIVE BEHAVIOUR CHANGES AWAITING A USER RULING — see §5's new R12 entries; both are pinned by test
+     and NEITHER is decided.**
      **🔴 R6 DEVIATION, RECORDED WITH ITS CAUSE — this slice ran with NO design of record.** The workflow that
      produced it was scoped "W0-2 (Company Create/Alter)". **Its design agent died (connection lost) and returned
      nothing**, and the empty result was interpolated into the build prompts, so slice S1 received an **empty
@@ -4831,6 +5114,15 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   machine-checked. **Every "73 absent" in this file — here, in step 6 below, and in the wave table — reads 72
   from 2026-08-20.** Nothing else in (b) changes: 16.6 is still the one PARTIAL among ruling 10's sixteen,
   and its two named gaps still ride with breadth.
+  **▶ 🔴 AMENDED AGAIN 2026-09-03 — BREADTH IS NOW 71 ABSENT ROWS, NOT 72, AND BOTH NOTES ABOVE ARE LEFT
+  STANDING FOR THE SAME REASON THE FIRST ONE WAS.** Census row **6.4** (the GST rate hierarchy above the Stock
+  Item) moved `ABSENT` → `PARTIAL` when **T0-4 slices S1/S2a/S2b** shipped the resolution half, so the column
+  sums are now `47 + 98 + 71 = 216`, re-derived by re-running §1.2a's own counting command and machine-checked
+  (`TOTAL rows=216 C=47 P=98 A=71 U=0 sum=216`). **Every "72 absent" in this file reads 71 from 2026-09-03**,
+  and every "73 absent" reads 71. 🔴 **AND THE MOVE IS HALF A CAPABILITY — DO NOT DROP T0-4 OUT OF THE
+  CORRECTNESS WAVE ON THE STRENGTH OF IT.** Row **3.13**, the CAPTURE half of the same defect, is still
+  `ABSENT` and rides with breadth; T0-4's capture slices S3/S4 and its HSN slice S5 are unbuilt, and the chain
+  opened four new Tier-0 rows (**T0-17 … T0-20**).
   **(c) WAVE 2 IS NOT NAMED IN THE NEW ORDER, AND IT IS NOT THEREBY DELETED.** The structural wave — Voucher
   Type master, the **shared report base**, the F11/F12 configuration layer — appears nowhere in steps 1–7.
   **Ruling 1 still binds everything the new order does not name**, so Wave 2 keeps its place **between step 5

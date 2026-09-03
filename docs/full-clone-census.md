@@ -100,7 +100,7 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 3 | Inventory masters | 15 | 2 | 11 | 2 | 0 |
 | 4 | Voucher types (7.2's classic eighteen) | 18 | 5 | 13 | 0 | 0 |
 | 5 | Voucher behaviours & edit verbs | 15 | 5 | 6 | 4 | 0 |
-| 6 | Statutory, current law (GST, TDS/TCS, salary IT) | 42 | 18 | 14 | 10 | 0 |
+| 6 | Statutory, current law (GST, TDS/TCS, salary IT) | 42 | 18 | 15 | 9 | 0 |
 | 7 | Payroll | 21 | 6 | 10 | 5 | 0 |
 | 8 | Banking | 10 | 1 | 4 | 5 | 0 |
 | 9 | Inventory / manufacturing / job work (post-7.2) | 9 | 4 | 1 | 4 | 0 |
@@ -111,11 +111,29 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 | 14 | TallyPrime-only capabilities | 10 | 1 | 2 | 7 | 0 |
 | 15 | Statutory, obsolete by law (pre-GST) — **was §3** | 9 | 0 | 0 | 9 | 0 |
 | 16 | Formerly excluded by decision (security, audit, data structure) — **was §4** | 7 | 0 | 1 | 6 | 0 |
-| | **TOTAL** | **216** | **47** | **97** | **72** | **0** |
+| | **TOTAL** | **216** | **47** | **98** | **71** | **0** |
 
-**A full clone requires 216 named capabilities. We have 47 complete, 97 partial, 72 absent, 0 undetermined.**
+**A full clone requires 216 named capabilities. We have 47 complete, 98 partial, 71 absent, 0 undetermined.**
 Every `COMPLETE` still means **present and reachable**, never *correct*; §1.3 holds the fidelity figures and is
 the only place they are maintained.
+
+> **▶ 🔴 RE-SUMMED 2026-09-03 — ONE ROW MOVED, AND THE INTEGERS WERE RE-DERIVED BY RE-RUNNING §1.2a's OWN
+> COMMAND, NOT EDITED.** The sentence above previously read ~~*"We have 47 complete, 97 partial, 72 absent, 0
+> undetermined"*~~ and area 6's row previously read ~~`| 6 | Statutory, current law (GST, TDS/TCS, salary IT) |
+> 42 | 18 | 14 | 10 | 0 |`~~. **Row 6.4 (the GST rate hierarchy above the Stock Item) moved `ABSENT` →
+> `PARTIAL`**, because T0-4 slices **S1/S2a/S2b** shipped the resolution half: `GstService` now walks all five
+> rungs in the order the book's `SourceOfGstRate` selects, so that column has a reader outside persistence and
+> Io for the first time. The delta is exactly `+1 partial, −1 absent`; the denominator, every other area and
+> every other column are untouched. **Machine check re-run 2026-09-03 over this file:
+> `TOTAL rows=216 C=47 P=98 A=71 U=0 sum=216`**, and area 6's own heading matches. Anything still quoting
+> `47 / 97 / 72` is quoting the 2026-08-20 snapshot.
+> 🔴 **AND THE MOVE IS HALF A CAPABILITY, NOT ONE — DO NOT READ IT AS T0-4 CLOSING.** Row **3.13**, the CAPTURE
+> half of the same defect, is still `ABSENT` and was re-measured the same day: the Group and Stock Group master
+> screens still carry no GST view-model property and no XAML field, and `SourceOfHsnSacDetails` still has no
+> reader at all. `PARTIAL` here means *present and reachable with a named missing piece*, and row 6.4 names
+> three of them.
+> **▶ ⚠️ AND IT RIPPLES INTO `plan.md`'s BREADTH ARITHMETIC AGAIN:** *"72 absent rows"* (the Wave-3 breadth
+> figure) **is now 71**. Corrected in place there rather than left to be discovered.
 
 > **▶ 🔴 RE-SUMMED 2026-08-20 — ONE ROW MOVED, AND THE INTEGERS WERE RE-DERIVED BY RE-RUNNING §1.2a's OWN
 > COMMAND, NOT EDITED.** The sentence above previously read ~~*"We have 47 complete, 96 partial, 73 absent, 0
@@ -226,7 +244,17 @@ END{ printf "\nTOTAL rows=%d C=%d P=%d A=%d U=%d sum=%d\n",tn,tc,tp,ta,tu,tc+tp+
 this ever disagrees with §1.2, **the rows are right and §1.2 is the defect** — that is the whole point of
 deriving one from the other.
 
-**▶ 🔴 EXPECTED RUN FROM 2026-08-20 ONWARD: `TOTAL rows=216 C=47 P=97 A=72 U=0 sum=216`.** This supersedes the
+**▶ 🔴 EXPECTED RUN FROM 2026-09-03 ONWARD: `TOTAL rows=216 C=47 P=98 A=71 U=0 sum=216`.** This supersedes the
+2026-08-20 expectation quoted in the next paragraph. **One row moved and nothing else did:** row **6.4** (the GST
+rate hierarchy above the Stock Item) went `ABSENT` → `PARTIAL` when T0-4 slices **S1/S2a/S2b** shipped the
+resolution half. The command is unchanged and was not weakened to fit — the same two patterns parse the same rows;
+only one row's state token differs. Delta: `+0 rows, +0 complete, +1 partial, −1 absent`. **Run actually performed
+2026-09-03 against this file; its literal output is the line above, and area 6's own heading matches it
+(`rows=42 C=18 P=15 A= 9 U= 0`).** 🔴 **Row 3.13 — the CAPTURE half of the same defect — did NOT move and is still
+`ABSENT`;** if a later reader finds 6.4 `PARTIAL` and assumes T0-4 is closed, 3.13 is the row that says otherwise.
+
+**▶ 🔴 EXPECTED RUN FROM 2026-08-20 ONWARD (SUPERSEDED 2026-09-03 — see the paragraph above):
+`TOTAL rows=216 C=47 P=97 A=72 U=0 sum=216`.** This supersedes the
 2026-08-19 expectation quoted in the next paragraph. **One row moved and nothing else did:** row **5.1**
 (voucher alteration) went `ABSENT` → `PARTIAL` when Phase 10.11 **S5a–S5e** shipped the capability. The command
 is unchanged and was not weakened to fit — the same two patterns parse the same rows; only one row's state
@@ -287,7 +315,7 @@ weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 
 | 3.10 | Price Level master | PARTIAL | Create (name only) with an Existing list, gated on the F11 price-level flag. No Alter, no Delete route. |
 | 3.11 | Price List — dated slab rates per level and item | PARTIAL | Slab rows (from/to quantity, rate, discount), an applicable-from date and a version history. **Gap:** revision is by saving a **new dated version**, not by altering one; no route deletes a list or a version. |
 | 3.12 | Reorder Levels master | PARTIAL | Create with scope (item / group / category), simple or advanced quantities, consumption period and Higher/Lower criteria. **Gap:** alteration is an **upsert only** — creating for an existing scope+target replaces it; no Alter screen, no Delete route. |
-| 3.13 | GST details capture on the Stock Group and accounting Group masters (the v51 hierarchy levels) | ABSENT | 🔴 The **storage** shipped — `MasterGstDetails` on `Group` and `StockGroup`, `DefaultGst` on `GstConfig`, the v51 columns in `Schema` — and **`MasterGstDetails` has exactly ONE hit in `src/Apex.Desktop`, a doc comment**: `Services/CompanyStorage.cs` line 95 names `MasterGstDetails.EnsureValid` while explaining why the validation floor sits in the storage choke point. **There is no view-model property and no XAML field**, and both master screens show only name/alias/under. The only writer is the importer. **This is the UI half of T0-4** and the reason that defect is still open. *(🔴 **Wording corrected 2026-08-18. The GRADE is unchanged and correct** — ABSENT is about no view-model property, no route and no caller, and a doc comment is none of those. This cell said **"zero hits"**, which is falsifiable by one grep and was false; a reader who ran it would have had grounds to distrust the row's evidence rather than its wording. The single hit is a comment, so nothing about the capability changes.)* |
+| 3.13 | GST details capture on the Stock Group and accounting Group masters (the v51 hierarchy levels) | ABSENT | 🔴 The **storage** shipped — `MasterGstDetails` on `Group` and `StockGroup`, `DefaultGst` on `GstConfig`, the v51 columns in `Schema` — and **`MasterGstDetails` has exactly ONE hit in `src/Apex.Desktop`, a doc comment**: `Services/CompanyStorage.cs` line 95 names `MasterGstDetails.EnsureValid` while explaining why the validation floor sits in the storage choke point. **There is no view-model property and no XAML field**, and both master screens show only name/alias/under. The only writer is the importer. **This is the UI half of T0-4** and the reason that defect is still open. *(🔴 **Wording corrected 2026-08-18. The GRADE is unchanged and correct** — ABSENT is about no view-model property, no route and no caller, and a doc comment is none of those. This cell said **"zero hits"**, which is falsifiable by one grep and was false; a reader who ran it would have had grounds to distrust the row's evidence rather than its wording. The single hit is a comment, so nothing about the capability changes.)* 🔴 **RE-MEASURED 2026-09-03, AND THE GRADE IS UNCHANGED — READ THIS BEFORE INFERRING ANYTHING FROM ROW 6.4's MOVE.** T0-4 slices S1/S2a/S2b shipped the **resolution** half and row **6.4** moved `ABSENT` → `PARTIAL` on that strength. **This row did not move and must not be read as having moved with it.** Re-run this pass: `AccountGroupMasterViewModel.cs` and `StockGroupMasterViewModel.cs` contain **zero** occurrences of `Gst` or `GST` in any casing, and there is no GST field on either master template in `MainWindow.axaml`. The only writer of `Group.Gst` / `StockGroup.Gst` is still the canonical importer. **The consequence is now sharper than it was, not softer:** before S2 those blocks were written and never read, so the gap was inert; the walk now READS them at transaction time, so a rate an operator cannot type is a rate the resolver will honour only for imported books. **T0-4 is not closed while this row is `ABSENT`** — capture is slices S3 (company) and S4 (Stock Group + accounting Group, which must also add the Stock Group ALTER route that does not exist at all).)* |
 | 3.14 | Actual vs Billed quantity | COMPLETE | 🔴 **SURVEY DISAGREEMENT, RECORDED NOT RECONCILED AWAY.** One survey graded **PARTIAL** because the enabling switch is a checkbox on the **voucher-entry** screen that mutates the Company rather than an F11 Company Features row; another graded **COMPLETE** on domain member + rendered control + consuming caller. **COMPLETE is recorded, because §1.2's criterion is existence and reachability and the switch is reachable** — the placement objection is a **§1.3 fidelity** finding and is logged as one in 1.6's gap column. Was one of the eight cannot-tell rows. |
 | 3.15 | Additional Cost of Purchase (landed cost) | COMPLETE | Same disagreement and the same resolution. Apportionment service with per-purchase and per-transfer entry points, landed value and landed unit rate, UI rows, canonical IO and SQLite all present. The enabling flag is `VoucherType.TrackAdditionalCosts`, toggled **in place on the purchase-invoice screen** precisely because there is no Voucher Type master (2.4) — recorded as a fidelity departure, not as a missing capability. Was one of the eight cannot-tell rows. |
 
@@ -352,7 +380,7 @@ weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 
 | 5.14 | Cost-centre allocation on a voucher line | COMPLETE | Allocations drive the sub-panel, feed the posted entry line and are consumed by the cost reports. |
 | 5.15 | Batch / lot allocation on a voucher line (FEFO/FIFO default, expiry warning) | COMPLETE | Its own cascade column, wired from both the accounting item-invoice path and the inventory entry path, with the engine's default issue selection. |
 
-#### Area 6 — Statutory, current law (GST, TDS/TCS, salary IT) · 42 rows · 18 complete / 14 partial / 10 absent
+#### Area 6 — Statutory, current law (GST, TDS/TCS, salary IT) · 42 rows · 18 complete / 15 partial / 9 absent
 
 > **🔴 THE OLD TABLE ALLOWED THIS AREA ZERO ABSENT CAPABILITIES.** Ten are evidenced below, each on a zero-hit
 > search. That is the single largest correction in §1.2b item 2.
@@ -365,7 +393,7 @@ weakened to fit.** The delta is exactly `+16 rows, +0 complete, +1 partial, +15 
 | 6.1 | F11 Statutory & Taxation — GST enable, GSTIN, home State, registration type, periodicity, composition sub-type + opt-in date | COMPLETE | Bound fields, the F11 route and the enable path that seeds slabs and the six tax ledgers. |
 | 6.2 | GST rate / taxability / HSN-SAC on the Stock Item and on the sales-purchase ledger | COMPLETE | Both capture surfaces and the engine's resolver that consumes them. |
 | 6.3 | Dated GST rate history and dated Compensation-Cess windows (the GST 2.0 rate framework) | COMPLETE | Its own setup screen with Ctrl+R, and dated resolvers for rate and cess. |
-| 6.4 | GST rate hierarchy above the Stock Item — company default / Accounting Group / Stock Group, and the source-of-HSN and source-of-rate order options | ABSENT | Persistence exists; **no UI writes it and no service, report or view model reads it**. Resolution is still item → ledger → unresolved. **= T0-4**, and 3.13 is its capture half. |
+| 6.4 | GST rate hierarchy above the Stock Item — company default / Accounting Group / Stock Group, and the source-of-HSN and source-of-rate order options | PARTIAL | 🔴 **MOVED `ABSENT` → `PARTIAL` on 2026-09-03 — the RESOLUTION half shipped (T0-4 slices S1/S2a/S2b); the CAPTURE half and the HSN half did not.** This cell previously read, verbatim: *"Persistence exists; **no UI writes it and no service, report or view model reads it**. Resolution is still item → ledger → unresolved. **= T0-4**, and 3.13 is its capture half."* **The second clause of that sentence is now false and the first and third are still true.** What landed: `GstService` walks all five rungs — `Hierarchy` + `WalkFor` + the two `IReadOnlyList<HierarchyLevel>` order tables (`LedgerFirstWalk` / `StockItemFirstWalk`), transcribed from the two published order strings — with stop-at-first-hit, Company last, and the ER-5 unresolved sentinel moved from two rungs in to behind Company; `MasterAncestry.NearestGroupGst` / `NearestStockGroupGst` supply the two new ancestry rungs under a cycle guard; `ResolveDetailBlock` gives cess and reverse charge the same winning rung as the rate; and `SourceOfGstRate` finally has a reader outside persistence/Io (`GstService.Hierarchy`). **The named missing pieces — this is what keeps it PARTIAL, and none of them is a rounding:** (i) **no capture** — row **3.13** is still `ABSENT`, the Group and Stock Group masters still have no view-model property and no XAML field, and the importer is still the only writer, so an operator cannot type a rate at the rungs the walk now reads; (ii) `SourceOfHsnSacDetails` **still has no reader** — the HSN half is slice S5, `GstReportSupport.HsnSacOf` still takes only a stock item; (iii) the five master-block rate bypasses pinned by drift lock D9 still read ONE hard-wired rung each and **nothing asserts they agree with `ResolveRate`** — two of them feed statutory payloads (see **T0-17**). **= T0-4**, which is therefore NOT closed; see also **T0-18**, **T0-19** and **T0-20**, three hierarchy- or date-blind rate paths this chain unmasked and did not fix. **Fidelity record: §1.3 item 15.** |
 | 6.5 | GST computation on a voucher — CGST/SGST vs IGST routing, per-rate line tax, cess, round-off leg | COMPLETE | Engine entry points with both desktop callers (voucher entry and POS). |
 | 6.6 | Reverse charge (RCM) — inward dual leg, import of services, outward RCM flag, 3B tables 3.1(d) / 4(A)(2) / 4(A)(3) | COMPLETE | Service, live panel, supply-kind picker and the 3B projection. |
 | 6.7 | GST on advance receipts — tax on advance, adjustment against invoice, GSTR-1 tables 11A / 11B | COMPLETE | Service, entry wiring and both projections. |
@@ -1171,7 +1199,137 @@ impossible to blur. The real one:
     documents is corpus-silent, while the chain's **statutory** grounding is sourced throughout. What is
     settled either way, and is all this paragraph ever needed to say: it does **not** move by four, and it does
     **not** move now.
-**12 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed; the tenth and eleventh became shipped-and-compared when S3 and S4 landed; and the twelfth became shipped-and-compared on 2026-08-20, when S5a–S5e's step-5a record was written into item 12 above. ~~NO ITEM HEADER WAS ADDED, so the GROUNDED count stays at 12 — what changed is that the last grounded-but-unbuilt header is now built and compared. That leaves 204 uncompared as shipped behaviour, and 204 with no sourced verification of any kind.~~** 🔴 **AMENDED LATER THE SAME DAY (2026-08-20), BY THE T0-11 SLICE-S0 PASS, AND THE STRUCK SENTENCE IS WHY THE AMENDMENT IS NOT A CONTRADICTION.** A header WAS added afterwards — **item 14**, graded `[GRADE: GROUNDED-AHEAD]` (its header reads *"GROUNDED; PARTLY BUILT"*) — so **the grounded count is 13, and figures (3) and (4) SEPARATE AGAIN at 204 and 203.** The struck sentence predicted exactly this: *"if a later slice grounds a capability ahead of building it, they separate again."* **Figure (1) did not move**; nothing new was compared. Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **204**.
+15. **GST rate resolution above the Stock Item — the five-level walk and the two source-order options
+    (T0-4, slices S1 / S2a / S2b; capture is S3/S4, the HSN half is S5; census rows 6.4 and 3.13, gap-register
+    T0-4 and T0-17 … T0-20; register `docs/invented-vs-cloned.md` IV-1).** **BUILT — the RATE half shipped 2026-09-03.
+    PARTIAL, and the partial is named rather than glossed.** `[GRADE: COMPARED]` Written by A14 + A13 on
+    **2026-09-03**, the R5/R6/R11 documentation gate the S1/S2a/S2b chain had not paid.
+
+    🔴 **READ THE SOURCE CLASS BEFORE THE ROW — IT IS THE WHOLE OF RULING 9's DISTINCTION AND THIS ITEM IS THE
+    first to sit squarely on it.** The order the engine now walks is **VENDOR-attested and CORPUS-SILENT.**
+    Those are not the same claim, and the chain's own design records the measurement: **zero hits for
+    `hierarch*` in a GST-rate sense across all ten PDFs**, in both `-layout` and `-raw`. The corpus names four
+    of the five *levels* (see IV-1's 2026-08-15 † correction, which withdrew an earlier "corpus silent" that
+    was overstated) but **states no order anywhere**. The order comes from one vendor page. Under ruling 9 that
+    is enough to be COMPARED — items **1**, **3** and **5** rest on official vendor/authority pages in exactly
+    the same way — but it is **not** corpus verification, and this item never claims it is.
+
+    ⚠️ **AND ONE LIMIT ON THIS PASS, STATED RATHER THAN HIDDEN: A13/A14 COULD NOT RE-MEASURE THE CORPUS TODAY.**
+    The git-ignored `tally/` directory is **EMPTY** in this environment (`ls` returns nothing; the ten PDFs are
+    not on disk), so **every corpus claim in this item is RELAYED from the T0-4 design pass of 2026-08-20, which
+    did have them, and is not independently re-run here.** The vendor URLs were likewise **not re-fetched** this
+    pass. Nothing below is weakened by that — but a later reader must not mistake a relayed measurement for a
+    fresh one, and the next agent with the corpus mounted should re-run the `hierarch*` grep before this item is
+    quoted as settled.
+
+    **What IS sourced, and followed** — VENDOR [web], `help.tallysolutions.com`, *"HSN/SAC & GST Rate Hierarchy
+    in TallyPrime"*, both strings transcribed verbatim into the engine as data:
+    - **The shipped default `Ledger → Accounting Group → Stock Item → Stock Group → Company`** and the
+      selectable alternative **`Stock Item → Stock Group → Ledger → Accounting Group → Company`**. They live in
+      `GstService` as `LedgerFirstWalk` and `StockItemFirstWalk` — **two ordered lists driving ONE loop**, never
+      two hand-written code paths, because two hand-written walks are exactly how the D9 bypass readers came to
+      disagree with `ResolveRate` in the first place. The vendor's own name for the second rung is **"Accounting
+      Group"**, and that is the name the enum member carries.
+    - **Stop at the first level that carries the detail** — *"TallyPrime first checks the ledger for the
+      details. If not found there, it will move to the Group, then Stock Item, and so on."*
+    - **Company terminates BOTH strings.** That is why the ER-5 unresolved sentinel moved from two rungs in to
+      **behind** Company: the old position hard-blocked a book that had set its rate exactly where the reference
+      product tells a single-rate business to set it.
+    - **The two rungs above the Stock Item are read at transaction time, not decoration** — corpus GSTN PDF
+      **pp.130-135** works "GST on Stock Group Level" end to end (Stock Groups at 12% and 18%, items under them
+      with no item rate, vouchers computing 12%/18%). *(Relayed — see the limit above.)*
+    - 🔴 **R12 — USER RULING, THIS SESSION (2026-09-03), quoted because it is the one decision here that moves
+      money:** on books created from **v51 onward the SALES/PURCHASE LEDGER OUTRANKS THE STOCK ITEM** — honour
+      the `LedgerFirst` order the column already defaults to, flipping the item-first walk that shipped through
+      Phase 4. Pre-v51 books are back-filled to `StockItemFirst` and keep resolving exactly as before. The
+      ruling was taken on the recommendation in the design's open question 1; the alternative offered was to
+      treat `LedgerFirst` as a stored-but-unused label.
+
+    **What is OURS, or unsettled — every line names its ruling-9 category, because a row that does not name one
+    is not a discharged step 5a.** Category **(a)** = *corpus silent, ours by design*; category **(b)** = *the
+    corpus attests X and we deliberately ship a narrower Y*. Each of these carries a labelled row in
+    `docs/invented-vs-cloned.md` (IV-36 … IV-43); this item is the index, that register is the detail.
+    - **(a) ANCESTRY — the biggest one, and it changes the tax.** The Accounting Group and Stock Group rungs
+      **climb the parent chain to the nearest ancestor bearing a non-null block**, not the immediate parent
+      only. **Unattested in corpus AND in vendor — grounding UNREACHED in both directions.** We climb because
+      both parent chains are real trees and a rate typed on a grandparent group is an ordinary book setup that
+      the immediate-parent reading would silently drop. **The two readings give different tax**, so the choice
+      is pinned by named tests (`GstHierarchyAncestryTests`) rather than left to whichever line got written.
+      `MasterAncestry` carries a visited-set **cycle guard**; the only comparable walk in the tree,
+      `ReorderStatus.ResolveDefinition`, has none, and a cyclic chain can already arrive through canonical
+      import, which does not go through `InventoryService.EnsureStockGroupParentValid`. **IV-36.**
+    - **(a) WHICH LEDGER.** The "Ledger" rung is the **sales/purchase** ledger, and the Accounting Group rung is
+      **that ledger's** group ancestry, never the party's. The vendor says *"Ledger (sales/purchase)"* once and
+      never resolves the party case; the corpus sets GST details on party ledgers too. Chosen because
+      `GstReportSupport.ResolveValueLedger` already excludes the party ledger under a rule the project has
+      locked. **IV-37.**
+    - **(a) THE TAXABILITY SHORT-CIRCUIT.** An Exempt / Nil-Rated / Non-GST taxability declared at one rung
+      **stops the walk** and the line is non-taxable, even if a lower rung carries a rate. **No source says
+      whether it should.** We preserve the pre-T0-4 short-circuit, which is what keeps the existing exempt-item
+      tests meaningful instead of quietly redefining them. **IV-38.**
+    - **(a) PARTIAL-BLOCK SEMANTICS.** The two lookups walk **independently**, so a rung carrying an HSN but no
+      rate does not stop the rate walk. Implied by two separately-selectable toggles and by Rule 46 making
+      (g) HSN and (l) rate distinct mandatory particulars; **stated nowhere.** Only exercisable once S5 makes
+      the HSN half hierarchical. **IV-39.**
+    - **(b) CESS, REVERSE CHARGE AND ITC-ELIGIBILITY DO NOT WALK THE HIERARCHY — a NARROWING against an
+      attested screen, not corpus silence.** `MasterGstDetails` carries four fields (HSN/SAC, Taxability, Rate,
+      Supply Type); the cess, reverse-charge and ITC fields live only on `StockItemGstDetails`. So a rate
+      resolved at the Accounting Group, Stock Group or Company rung bears **no cess and never fires reverse
+      charge**. The corpus's own GST Classification screen carries Cess, *"Is reverse charge applicable"* and
+      *"Is ineligible for input credit"* (BOOK PDF p.234, printed 230), so the reference product does not narrow
+      this way. Widening it is a schema change and therefore an escalation, not a design decision. **IV-40 —
+      and see the first of the two OPEN R12 questions below, which is this narrowing's measured bite.**
+    - **(b) THE PER-MASTER SOURCE SELECTOR IS NOT BUILT.** TallyPrime's per-master field takes four values
+      (*Specify Details Here* / *As per Company/Group* / *Use GST Classification* / *Specify in Voucher*); our
+      nullable block collapses three into `null` and cannot express the fourth at all. **IV-41.**
+    - **(b) NO GST CLASSIFICATION MASTER EXISTS** — one of the corpus's own five *methods* of applying GST.
+      Correctly **out** of the five-level walk (it is a template applied *into* a master, not a rung), but its
+      total absence from the product is a separate divergence and was unrecorded until now. **IV-42.**
+    - **(b) NO DATED RATE HISTORY AT THESE LEVELS, AND NO GST RATE SETUP REPORT.** TallyPrime keeps a
+      per-master *"GST Rate & Related Details (History)"* with an *"Applicable from"* date; our four fields
+      carry one undated rate, and the company-level `GstRateHistory` override keys on a hard-coded item-first
+      HSN pick. The vendor's bulk-edit *GST Rate Setup* surface, with its *"GST Rate Details Not Specified"*
+      section, is not built. **IV-43.**
+    - **(a) THE FAIL-FAST WHEN EVEN COMPANY CARRIES NOTHING.** The sentinel's **position** behind Company is
+      attested; **hard-block versus zero-rate versus warn is ours**, and unchanged by this chain.
+    - **(a) THE CORPUS'S OWN FIVE IS A LIST OF METHODS, NOT AN ORDER**, and it **omits the accounting Group**
+      while **including GST Classification**. Our five and the corpus's five overlap in four. The accounting
+      Group rung has **zero** corpus support and is **[web] only**. *(Relayed — see the limit above.)*
+
+    🔴 **TWO LIVE BEHAVIOUR CHANGES ARE PINNED BY TEST AND NOT DECIDED — THEY ARE OPEN R12 QUESTIONS AND THIS
+    ITEM DOES NOT SETTLE EITHER.** Both are stated with their measured figures so a ruling can be taken on
+    numbers rather than on prose:
+    1. **THE STATUTORY-CESS NARROWING.** On a `LedgerFirst` book, a sales ledger whose block declares a rate but
+       **no cess fields** wins the walk, and it therefore supplies the cess too — which means **no cess** — even
+       when the stock item declares one. Measured, in
+       `GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess`: an item declaring
+       ad-valorem cess at 1200 bp under a ledger declaring 18% and no cess yields, on a taxable value of
+       **₹10,000.00**, cess of **₹1,200.00 under `StockItemFirst`** (every pre-v51 book, unchanged) and
+       **₹0.00 under `LedgerFirst`** (every v51+ book). The rate is 1800 bp either way. **This is one walk and
+       one winning block working as designed — the alternative is a line RATED off the ledger while its cess is
+       read off the item — but whether the reference product narrows the same way is unsourced.** Two shipped
+       Desktop fixtures had to declare the same cess on **both** masters to keep their money literals; that is a
+       fixture fix, and the book shape they no longer cover is exactly the shape above.
+    2. **THE DOCUMENT-TITLE FLIP ON AN UNTAXED VOUCHER.** No taxability is stamped on a posted line, so
+       `GstReportSupport.IsBillOfSupply` re-resolves every stock line **live**. A voucher that posted **no** tax
+       therefore has **no anchor at all**: with the item Exempt and the sales ledger Taxable at 18%, the same
+       posted paper is a **BILL OF SUPPLY** under `StockItemFirst` and a **TAX INVOICE** under `LedgerFirst` —
+       re-titled by a master option, months later, with no tax on it because none was ever posted. Pinned by
+       `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`.
+       **Posted MONEY is immune by construction** and that is separately pinned; the statutory *title* is not.
+       Anchoring the title to posted data is **unavailable at this schema** — a zero-rated LUT/export supply is
+       `IsTaxable = true` at 0 bp and also posts no tax legs, so *"no tax legs"* cannot tell the two apart; it
+       needs a posted taxability marker, i.e. a column, i.e. an escalation.
+
+    **What this item does NOT cover, so the row is not read as more than it is.** The **capture** half (census
+    row **3.13**, still `ABSENT`), the **HSN** half (`SourceOfHsnSacDetails` still has no reader), and the five
+    D9 master-block rate bypasses — **nothing asserts they agree with `ResolveRate`**, and two of them feed
+    statutory payloads. That last one is gap-register **T0-17**, opened by this pass — as are **T0-18** (the
+    import-of-services RCM rate, hierarchy-blind AND date-blind), **T0-19** (both POS resolutions use the
+    date-blind overload) and **T0-20** (the dated override's hard-coded item-first HSN pick contradicts the walk
+    it sits on). None of the four is fixed; all four are recorded so the next pass cannot inherit them silently.
+
+**12 of 216 capabilities have had their SHIPPED behaviour compared to a source — the ninth is PARTIAL, with its unsourced half enumerated rather than glossed; the tenth and eleventh became shipped-and-compared when S3 and S4 landed; and the twelfth became shipped-and-compared on 2026-08-20, when S5a–S5e's step-5a record was written into item 12 above. ~~NO ITEM HEADER WAS ADDED, so the GROUNDED count stays at 12 — what changed is that the last grounded-but-unbuilt header is now built and compared. That leaves 204 uncompared as shipped behaviour, and 204 with no sourced verification of any kind.~~** 🔴 **AMENDED LATER THE SAME DAY (2026-08-20), BY THE T0-11 SLICE-S0 PASS, AND THE STRUCK SENTENCE IS WHY THE AMENDMENT IS NOT A CONTRADICTION.** A header WAS added afterwards — **item 14**, graded `[GRADE: GROUNDED-AHEAD]` (its header reads *"GROUNDED; PARTLY BUILT"*) — so **the grounded count is 13, and figures (3) and (4) SEPARATE AGAIN at 204 and 203.** The struck sentence predicted exactly this: *"if a later slice grounds a capability ahead of building it, they separate again."* **Figure (1) did not move**; nothing new was compared. Every "COMPLETE" in §1.2 means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is ~~**204**~~ **203**. 🔴 **AMENDED AGAIN 2026-09-03 — THE OPENING COUNT OF THIS PARAGRAPH IS SUPERSEDED AND IS LEFT STANDING ONLY AS THE RECORD OF WHAT 2026-08-20 FOUND.** It opens ~~*"12 of 216 capabilities have had their SHIPPED behaviour compared to a source"*~~; **it is 13**, because **item 15** (the T0-4 rate hierarchy) was added and graded `[GRADE: COMPARED]`. The authoritative statement is the four-figure block immediately below — **13 · 14 · 203 · 202** — and `tests/Apex.Ledger.Tests/CensusFidelityDerivationTests.cs` re-derives it from the grade tokens on every run, so this paragraph can never again be the thing a reader quotes.
 
 > **▶ 🔴 THE PREVIOUS SENTENCE, QUOTED SO THE MOVE IS CHECKABLE (2026-08-19 → 2026-08-20):** ~~*"11 of 216
 > capabilities have had their SHIPPED behaviour compared to a source … Item 12 alone is still grounded ahead of
@@ -1185,9 +1343,27 @@ impossible to blur. The real one:
 > and (D) is the half no source can settle.
 
 > **▶ 🔴 THESE FOUR FIGURES ARE MAINTAINED HERE AND NOWHERE ELSE. §1.3 IS THE SINGLE DERIVATION.**
-> **As of 2026-08-20 (second pass of that day — T0-11 slice S0), against §1.2's 216 denominator:
-> 12 shipped-and-compared · 13 grounded · 204 uncompared as shipped · 203 with no sourced verification of any
+> **As of 2026-09-03 (the T0-4 S1/S2a/S2b documentation gate), against §1.2's 216 denominator:
+> 13 shipped-and-compared · 14 grounded · 203 uncompared as shipped · 202 with no sourced verification of any
 > kind.**
+> **▶ 🔴 MOVED 2026-09-03 BY ONE, AND THE OTHER THREE FOLLOW IT.** The 2026-08-20 block read
+> ~~*"12 shipped-and-compared · 13 grounded · 204 uncompared as shipped · 203 with no sourced verification of
+> any kind"*~~. **Item 15 was added** — the T0-4 rate-hierarchy fidelity record, graded `[GRADE: COMPARED]`
+> because the shipped resolution order was compared, term for term, against the vendor's two published order
+> strings via an oracle table that computes the expectations rather than reading them off the resolver. **(1)
+> goes 12 → 13, (2) 13 → 14, (3) 204 → 203 and (4) 203 → 202.** **(3) and (4) stay separated by exactly one**,
+> which is item 14 — still the only grounded-but-not-compared header. ⚠️ **Item 15 is compared in the sense
+> items 9 and 12 are: PARTIAL, with its unsourced half enumerated** — its ruling-9 categories (a) and (b) name
+> what is vendor-attested, what is ours and what is a deliberate narrowing, and its two OPEN R12 questions are
+> stated with measured figures rather than resolved. ⚠️ **AND NOTE WHAT DID NOT MOVE:** the capability itself
+> is `PARTIAL` in §1.2a, not `COMPLETE`; row **3.13** is still `ABSENT`. **Figure (1) counts comparison, never
+> completeness** — that separation is the point of maintaining the two tables apart, and this is the first item
+> where they visibly disagree.
+> 🔴 **AND THE HONEST QUALIFIER ON THIS ONE MOVE:** item 15's corpus measurements are **relayed** from the
+> 2026-08-20 design pass, because the git-ignored `tally/` corpus was **not on disk** when the item was
+> written. The vendor page was **not re-fetched** either. The comparison that earns the grade is against the
+> vendor strings **as transcribed into the oracle**, which is checkable in-tree; the corpus-silence claim
+> beneath it is not re-run here and says so.
 > **▶ 🔴 MOVED TWICE ON 2026-08-20, IN OPPOSITE HALVES OF THE BLOCK, AND BOTH MOVES ARE RECORDED.** The first
 > pass (S5a–S5e's step-5a record) moved **(1)** from 11 to 12 and read ~~*"12 shipped-and-compared · 12
 > grounded · 204 uncompared as shipped · 204 with no sourced verification of any kind"*~~. The second pass —
@@ -1242,13 +1418,16 @@ impossible to blur. The real one:
 >   docs/full-clone-census.md | sort | uniq -c
 > ```
 >
-> **Its literal output, 2026-08-21 — fourteen tokens for fourteen numbered items:**
+> **Its literal output, re-run 2026-09-03 — fifteen tokens for fifteen numbered items:**
 >
 > ```
->      12 [GRADE: COMPARED]
+>      13 [GRADE: COMPARED]
 >       1 [GRADE: GROUNDED-AHEAD]
 >       1 [GRADE: METHOD-NOTE]
 > ```
+>
+> *(Superseded — the 2026-08-21 run, before item 15 existed, was* ~~`12 [GRADE: COMPARED]` / `1 [GRADE:
+> GROUNDED-AHEAD]` / `1 [GRADE: METHOD-NOTE]`~~*. Only the COMPARED token moved, and only by one.)*
 >
 > `tests/Apex.Ledger.Tests/CensusFidelityDerivationTests.cs` is that command in C#, and it additionally
 > asserts that the four bullets below reproduce the four figures above against §1.2's denominator — so a
@@ -1266,14 +1445,18 @@ impossible to blur. The real one:
 > that is supposed to produce them was wrong — for the second time in two days, in the block that had just
 > diagnosed exactly that failure in itself.** Re-derived below by re-running the command, not by editing a digit.
 > 1. **shipped-and-compared** = the number of numbered items in this section graded `[GRADE: COMPARED]`.
->    Re-count them: items **1–12**. → **12**. *(Item 12 joined on 2026-08-20;
->    the superseded count was* ~~*items 1–11 → 11*~~*.)*
+>    Re-count them: items **1–12** and **15**. → **13**. *(Item 15 joined on 2026-09-03; item 12 on
+>    2026-08-20; the superseded counts were* ~~*items 1–12 → 12*~~ *and* ~~*items 1–11 → 11*~~*. Note the run
+>    is not a contiguous range any more — items 13 and 14 sit inside it and are graded otherwise, which is
+>    exactly why the rule counts TOKENS and not spans.)*
 > 2. **grounded** = that number, plus the items graded `[GRADE: GROUNDED-AHEAD]`. Today that is
->    item **14** alone. → **12 + 1 = 13**. *(Superseded:* ~~*item 12 alone → 11 + 1 = 12*~~*.)*
-> 3. **uncompared as shipped** = §1.2's denominator minus (1). → **216 − 12 = 204**. *(Was `216 − 11 = 205`
->    until 2026-08-20, and `200 − 11 = 189` until 2026-08-19; the denominator moved, the derivation did not.)*
+>    item **14** alone. → **13 + 1 = 14**. *(Superseded:* ~~*12 + 1 = 13*~~ *and* ~~*item 12 alone → 11 + 1 =
+>    12*~~*.)*
+> 3. **uncompared as shipped** = §1.2's denominator minus (1). → **216 − 13 = 203**. *(Was `216 − 12 = 204`
+>    until 2026-09-03, `216 − 11 = 205` until 2026-08-20, and `200 − 11 = 189` until 2026-08-19; the
+>    denominator moved, the derivation did not.)*
 > 4. **no sourced verification of any kind** = (3) minus the grounded-ahead items, i.e. (2) − (1). →
->    **204 − 1 = 203**. *(Was `205 − 1 = 204`; and `189 − 1 = 188` until 2026-08-19.)*
+>    **203 − 1 = 202**. *(Was `204 − 1 = 203`; `205 − 1 = 204`; and `189 − 1 = 188` until 2026-08-19.)*
 > ⚠️ **AND THE TRAP THESE BULLETS HAVE NEVER NAMED, WHICH IS WHY A RE-COUNTER GETS IT WRONG: item 13 is a
 > METHOD NOTE, not a capability row.** Its own header says so. It is counted in **neither** (1) nor (2), and
 > the old *"items 1–11"* phrasing dodged it only by accident. **Numbered ≠ capability — read each header.**
@@ -1454,7 +1637,7 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T0-1** | **§194Q TDS deducted on the whole transaction value, not the excess over ₹50 lakh.** Once `ThresholdCrossed` returns true, TDS = `assessableValue.Amount * rateBp / 10_000m` on the full amount. | **[V]** `src/Apex.Ledger/Services/TdsService.cs:71-75`. WF-2 is planned in Phase 10.10 but has **not landed** at `468a96e`. | Over-deducts ₹5,000 on the first qualifying transaction and compounds. Deductor liable to the deductee. Register IV-2. |
 | **T0-2** | **Closing stock valued at SELLING price.** `LastSaleCost` returns `FlatValue(closingQty, LastSaleRate(...))`. | **[V]** `src/Apex.Ledger/Services/StockValuationService.cs:85`. | Overstates closing stock → overstates gross profit → overstates taxable income. Balance Sheet and P&L both wrong. Register IV-6. |
 | **T0-3** | **`StandardCost` is offered as a valuation method whose input field does not exist**, and silently falls back to `LastPurchaseRate`. | Dropdown at `StockItemMasterViewModel.cs:333`; zero `StandardCost` hits in `MainWindow.axaml`; fallback at `StockValuationService.cs:86-87`. ~~Reachable only via JSON/XML import.~~ 🔴 **CORRECTED 2026-08-18 — that last sentence is WITHDRAWN and it made the row look milder than it is.** The dropdown **is rendered on the Stock Item master screen** (its items source and selected item are both bound there) and the create path passes the selection through **unguarded**, so an operator can pick Standard Cost in the UI and get the silent fallback. The zero-hit grep was true and the conclusion did not follow — the control binds to the *method list*, not to the literal. See §1.2a row 3.4. | Silent wrong valuation with no warning to the operator — **on the ordinary UI path, not only on import**. |
-| **T0-4** | **GST rate hierarchy inverted; the missing resolution levels now EXIST as masters but nothing READS them.** **STILL OPEN — only the master/plumbing half of WF-1 shipped (schema v51, 2026-08-15, committed and pushed as `e49b88e`).** | Register IV-1. **[V] 2026-08-15:** `MasterGstDetails` is carried by `Group`, `StockGroup` and `GstConfig.DefaultGst`, and `GstConfig` holds the two source-order options (`SourceOfHsnSacDetails`, `SourceOfGstRate`) — but those two have **no reader outside the persistence and Io layers**, and `GstService.cs` / `RcmService.cs` / `Reports/Gstr1.cs` are **unmodified**, so every rate still resolves item-first. See `plan.md` slice S4 (WF-1) for the R6 deviation this half shipped under, and — **added 2026-08-16** — for the **three-lens review that half owed, now PAID** (34 findings; the migration back-fill was being erased by the ordinary save path on non-GST books and is fixed; the missing **design** gate is not retroactively granted). | Wrong tax rate on invoices → wrong GSTR-1/3B → wrong liability. |
+| **T0-4** | **GST rate hierarchy inverted; the missing resolution levels now EXIST as masters but nothing READS them.** 🔴 **RE-GRADED 2026-09-03 — THE RESOLUTION HALF SHIPPED (T0-4 slices S1 / S2a / S2b) AND THE ROW STAYS OPEN. READ THIS BEFORE THE 2026-08-15 EVIDENCE BELOW, WHICH IS NOW HALF FALSE AND IS LEFT STANDING AS THE RECORD OF WHAT THAT DATE FOUND.** The header sentence *"nothing READS them"* is **superseded**: `GstService` now walks all five rungs as **data** — one ordered `IReadOnlyList<HierarchyLevel>` per `GstDetailSource` (`LedgerFirstWalk` / `StockItemFirstWalk`), transcribed from the two published order strings, driving ONE loop — with stop-at-first-hit, **Company last**, and the ER-5 unresolved sentinel moved from two rungs in to **behind Company** (so the old hard block can no longer fire on a book that set its rate where the reference product says to). `MasterAncestry` adds the two ancestry rungs under a **cycle guard**; `ResolveDetailBlock` gives cess and reverse charge the **same winning rung** as the rate, closing a defect the fix itself would otherwise have opened. **R12 user ruling, 2026-09-03:** `LedgerFirst` is honoured — on v51+ books the sales/purchase ledger outranks the stock item; pre-v51 books are back-filled to `StockItemFirst` and are unchanged. **A live defect closed as a side effect:** canonical import already PARSED the Group / StockGroup / Company GST blocks and **silently discarded** them; they are now read. 🔴 **WHY THE ROW IS STILL OPEN — three named pieces, none of them cosmetic:** **(1) CAPTURE DID NOT SHIP.** Census row **3.13** is still `ABSENT` — zero `Gst` hits in `AccountGroupMasterViewModel` and `StockGroupMasterViewModel`, no XAML field on either master, the importer still the only writer. **The gap is now sharper than before S2, not softer:** the walk READS those blocks at transaction time, so a rate an operator cannot type is a rate that governs imported books only. Slices S3 (company) and S4 (Stock Group + accounting Group — which must also add the Stock Group ALTER route, which does not exist at all). **(2) THE HSN HALF DID NOT SHIP.** `SourceOfHsnSacDetails` still has **no reader**; `GstReportSupport.HsnSacOf` still takes only a stock item. Slice S5. **(3) FIVE BYPASS READERS ARE UNRECONCILED — see T0-17**, and two of them feed statutory payloads. **Fidelity record: §1.3 item 15** (`[GRADE: COMPARED]`, PARTIAL, with the ruling-9 categories and two OPEN R12 questions). **Divergences: `docs/invented-vs-cloned.md` IV-36 … IV-43.** Census row 6.4 moved `ABSENT` → `PARTIAL` on this; **3.13 did not move.** | Register IV-1. **[V] 2026-08-15 — SUPERSEDED IN PART, see the re-grade above:** `MasterGstDetails` is carried by `Group`, `StockGroup` and `GstConfig.DefaultGst`, and `GstConfig` holds the two source-order options (`SourceOfHsnSacDetails`, `SourceOfGstRate`) — but those two have **no reader outside the persistence and Io layers**, and `GstService.cs` / `RcmService.cs` / `Reports/Gstr1.cs` are **unmodified**, so every rate still resolves item-first. See `plan.md` slice S4 (WF-1) for the R6 deviation this half shipped under, and — **added 2026-08-16** — for the **three-lens review that half owed, now PAID** (34 findings; the migration back-fill was being erased by the ordinary save path on non-GST books and is fixed; the missing **design** gate is not retroactively granted). | Wrong tax rate on invoices → wrong GSTR-1/3B → wrong liability. |
 | **T0-5** | **4% Health & Education Cess applied to live payroll deductions on a rate the code itself says it could not verify.** | `src/Apex.Ledger/Services/SalaryIncomeTax.cs:50-54` — the comment states the rate must be verified before the FY 2026-27 tables are relied on. | Real money deducted from real salaries on an unsourced statutory figure. **Standing user decision, highest priority.** |
 | **T0-6** | **Shipped TDS rates and thresholds cited to commercial blogs** (cleartax, disytax). | `src/Apex.Ledger/Seed/SeedTdsTcsRates.cs:7-8`. | R7 violation on figures the product applies to money. |
 | **T0-7** | ~~**A composition dealer's every printed document is an illegal tax invoice.**~~ 🔴 **CLOSED 2026-08-18 (W0-1).** The invoice PDF now branches on the bill-of-supply flag, takes its title from the shared predicate with a **structural, case-insensitive refusal of a TAX INVOICE title**, suppresses every tax head and renders the §10 / Rule 5(f) declaration; the print projector supplies the flag and the title. **What is NOT retroactive:** nothing here re-prints a document already issued. | **[V] 2026-08-10 (the original finding):** `GstReportSupport.cs:110-123`, `VoucherDetailViewModel.cs:36-43`, `MainWindow.axaml:1990` — and **zero** `BillOfSupply` hits in `Apex.Ledger.Io` or `VoucherPrintProjector.cs`. 🔴 **THAT LAST CLAUSE IS THE ONE THAT WENT STALE, AND IT WAS THE WHOLE EVIDENCE FOR THE ROW.** Two of the five 2026-08-18 surveys measured it independently and both counted the opposite: **30 hits in `Apex.Ledger.Io`** and **34 in `VoucherPrintProjector.cs`**. The row survived only because **T0-8 was updated on 2026-08-17 and T0-7 beside it was not** — the same fix pass touched both halves of the printed document. See §1.2a row 6.22. | ~~Non-compliant document issued to customers.~~ **Closed.** The residual is historical documents already issued, which no code change reaches. |
@@ -1467,6 +1650,10 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T0-14** | 🔴 **NEW 2026-08-20. The alteration screen's tax-head shape pin is BLIND to an intra-state GST rate master moved between an EVEN basis-point figure and the ODD one above it, so the ITC and the supplier's credit silently restate on an amendment that touched nothing.** The CGST and SGST legs are stamped with `integratedBp / 2`, an **integer** division, so **500 and 501 both stamp 250** and `TaxHeadSignature` — which compares `ledger｜side｜head｜rate` — sees no change. An INTER-state invoice is safe: the IGST leg carries the full basis points. | **[V] 2026-08-20**, reproduced through the REAL purchase item-invoice screen by the agent fixing the cess blocker: moved the item's rate 5.00% → 5.01% with the alteration screen open and `AcceptAlteration` returned TRUE with *"Purchase No. 1 altered."*; signature identical on both sides; **ITC moved 92.60 + 92.59 = 185.19 → 92.78 + 92.78 = 185.56 and the supplier's credit 3,888.90 → 3,889.27.** The halving is in `GstService.ComputeInvoiceTax`'s rate-group loop; the pin is `VoucherAlterationDerivedLegs.TaxHeadSignature`, whose doc comment now carries these literals under its *"WHAT THIS SIGNATURE IS BLIND TO"* enumeration. | Rs 0.37 on the measured fixture, **unbounded in principle** — the drift scales with the invoice. It was written into the book and into the filed return under the guard's own claim that *"a rate master moved since posting"* is exactly what it refuses. 🔴 **CLOSED 2026-09-03** by `VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal`, wired LAST on BOTH accept paths (`AcceptItemInvoiceAlteration` and `AcceptAlterationCore`). **Pinned by AMOUNT, not by rate**, because the integrated bp is NOT recoverable from a posted leg — 250 is 500 and it is also 501 — so "stamp the integrated bp into the signature" was not available without a schema change that could not reach already-posted vouchers. Tests: `An_intra_state_rate_moved_to_the_odd_bp_above_is_refused_at_accept_by_name` + its POS twin (2,100.49 base, 189.05 + 189.04 = 378.09 stamped against 378.30 re-derived at 1801 bp). §1.3 item 12 category (D). |
 | **T0-15** | 🔴 **NEW 2026-08-20. The same pin is BLIND to a TAXABILITY FLIP that another line of the same rate group masks.** The signature deliberately excludes the stamped `GstLineTax.TaxableValue` — right for an ordinary amendment, and it also hides a moved master. Only a flip that empties the WHOLE rate group is caught, because only then does a leg disappear. | **[V] 2026-08-20**, reproduced through the real screens: two items both at 18% (one rate group), one posted invoice; flipping ONE item Taxable → Exempt with the screen open was ACCEPTED (*"Purchase No. 1 altered."*) with the signature identical, while **the stamped taxable base fell 7,654.15 → 3,950.44, the ITC fell 688.88 + 688.87 → 355.54 + 355.54 and the supplier's credit fell 9,031.90 → 8,365.23.** | **Rs 666.67 measured on one two-line invoice**, on an alteration that touched nothing. Same class as T0-14 and as the cess blocker the same review found. 🔴 **CLOSED 2026-09-03** by the SAME `TaxMagnitudeDriftRefusal`, which pins the stamped `TaxableValue` alongside the amount. It follows the cess pin's shape — a **re-derivation over the POSTED rows** — so it cannot become a blanket refusal: holding the rows fixed removes them as a variable, and only a moved master can trip it. Two **negative controls** ship with it (`An_ordinary_quantity_amendment_of_a_same_rate_invoice_is_still_accepted` and `An_ordinary_quantity_amendment_of_a_pos_bill_is_still_accepted`), which is the dead-guard half of the proof. Test: `A_taxability_flip_masked_by_a_same_rate_sibling_is_refused_at_accept_by_name` + its POS twin (base 3,451.48 → 2,100.49, tax 621.27 → 378.09, supplier credit would have fallen 4,072.75 → 3,829.57). §1.3 item 12 category (D). |
 | **T0-16** | 🔴 **NEW 2026-08-20. A cess-bearing item sold over the counter collects ZERO Compensation Cess, while the identical item on a Sales item invoice collects it.** `PosBillingViewModel.ComputeGst` builds its taxable line with **no cess argument at all**, where the accounting item-invoice screen resolves the cess master and passes one. This is a **feature gap, not a regression** — it has been true since the POS screen was built — and it is why the cess drift-pin's POS arm is a refusal on an un-re-derivable bill rather than a master-drift comparison. | **[V] 2026-08-20**, found while wiring the POS half of the cess pin: `PosBillingViewModel.ComputeGst` vs `VoucherEntryViewModel.ComputeItemInvoiceGst` (which calls the cess resolver). The doc comment on `PosBillingViewModel.ReDerivedCessOnPostedRows` names this and states what becomes of the guard when `ComputeGst` gains cess. | Under-collected Compensation Cess on every counter sale of a cess-bearing good, and a GSTR-1 cess column that disagrees with the accounting screen for the same item. **OPEN — needs an R6 plan row, and its RATE side must be web-verified against CBIC at build time (A6/R7 mandate); no per-unit or ad-valorem cess figure may be asserted from memory.** |
+| **T0-17** | 🔴 **NEW 2026-09-03, AND IT IS THE MOST SERIOUS OPEN ITEM LEFT BY THE T0-4 CHAIN. Five master-block rate readers bypass `GstService.ResolveRate` entirely, and NOTHING ASSERTS THEY AGREE WITH IT — while TWO OF THEM FEED STATUTORY PAYLOADS.** Drift lock **D9** pins that the five exist and how many there are; it deliberately pins **nothing** about whether they answer the same question the resolver does. Each is hard-wired to **one** rung and returns `0` where `ResolveRate` returns the ER-5 sentinel: `Gstr1.LineIntegratedRate` (Stock Item only) · `Gstr1.LedgerIntegratedRate` (sales/purchase Ledger only) · **`EInvoiceJson.LineIntegratedRate` (Stock Item only — INV-01)** · `EInvoiceJson.ServiceLegsByRate` (Ledger only) · **`EWayBillJson.LineIntegratedRate` (Stock Item only — EWB-01)**. **Before T0-4 S2b these agreed with the resolver by coincidence, because the resolver was item-then-ledger too. On a `LedgerFirst` book — every book created from v51 onward — they can now disagree**, and the two item-only ones carry that disagreement into a payload filed with a government portal. | **[V] 2026-09-03**, read at HEAD: `tests/Apex.Ledger.Tests/OneRuleDriftLockTests.cs` `TheMasterRateBypassReadersAreExactlyTheFiveKnownOnes` asserts the exact inventory `{Gstr1.cs: 2, EInvoiceJson.cs: 2, EWayBillJson.cs: 1}` and its own doc comment states the open decision verbatim: *"making them hierarchy-aware is a decision S2 must take explicitly, per bypass, and record. This lock exists so that decision cannot be taken by omission."* **S2 did not take it.** All five call sites re-located by content this pass and all five are unchanged. | An INV-01 or EWB-01 payload can state a rate the book did not post, on a v51+ book whose sales ledger and stock item declare different rates. **This is not a footnote to T0-4 — it is the half of the one-rule-several-places defect that the resolver fix left standing, and it is now live rather than latent.** **OPEN.** |
+| **T0-18** | 🔴 **NEW 2026-09-03. The import-of-services RCM rate is HIERARCHY-BLIND and DATE-BLIND**, while the domestic limb fifteen lines below it is neither. `src/Apex.Ledger/Services/RcmService.cs:82` reads `supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800` — a hand-written two-rung item-then-ledger pick with a hard-coded 18% floor, **no `ResolveRate` call and no `supplyDate`** — where the domestic goods limb calls `_gst.ResolveRate(item, spLedger, supplyDate)` and gets the five rungs and the dated history. **UNMASKED, NOT CAUSED, BY THE T0-4 CHAIN:** the line is untouched by it; before S2b its two-rung pick happened to match the resolver, and now it does not. | **[V] 2026-09-03**, both limbs read at HEAD in one file: the import limb at `src/Apex.Ledger/Services/RcmService.cs:82`, the domestic limb's resolver call fifteen lines below it in the same method. | A reverse-charge import of services is self-assessed at a rate resolved off a different master than every other line in the same book, and at the **undated** rate even when the company carries a `GstRateHistory` row that moved it. Reverse charge is the recipient's own liability — the wrong figure is paid, and claimed as ITC, by us. **OPEN.** |
+| **T0-19** | 🔴 **NEW 2026-09-03. Both POS rate resolutions use the DATE-BLIND two-argument overload, so the dated `GstRateHistory` override never fires at the counter — while every accounting screen passes the date.** `src/Apex.Desktop/ViewModels/PosBillingViewModel.cs:428` and `src/Apex.Desktop/ViewModels/PosBillingViewModel.cs:465` call `_gst.ResolveRate(item, SelectedSalesLedger)`; all four `VoucherEntryViewModel` sites — `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:5073`, `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:5119`, `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:5304` and `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:5760` — call the three-argument form with `Date`. ⚠️ **Every locator here is written in full deliberately: the bare `` `:NN` `` shorthand this document used elsewhere is checked by NEITHER citation guard** (both key on `File.ext:NN`), which is how a section of stale pointers survived a repair pass on 2026-08-21. | **[V] 2026-09-03**, all six call sites enumerated at HEAD by one grep over `src/Apex.Desktop`. The two-argument overload forwards `voucherDate: null`, and the dated override is gated on `voucherDate is { } d`, so it is skipped entirely. | The same item sold over the counter and on a Sales item invoice on the same day carries **different tax** whenever a dated rate-history row is in force — and the counter takes the pre-revision rate for ever. Sits beside **T0-16** (the POS also collects zero cess), so the POS is now known to diverge from the accounting screen on **two** tax dimensions. **OPEN.** |
+| **T0-20** | 🔴 **NEW 2026-09-03. The dated rate-history override is itself HIERARCHY-BLIND — it keys on a hard-coded ITEM-FIRST HSN pick.** `GstService`'s dated overload resolves the base rate through the full five-rung walk and then looks its override up on `item?.Gst?.HsnSac ?? salesPurchaseLedger?.SalesPurchaseGst?.HsnSac` — a two-rung item-then-ledger choice that **ignores `SourceOfGstRate` entirely**. On a `LedgerFirst` book the base rate can come from the LEDGER while the override that replaces it is matched on the **ITEM's** HSN. | **[V] 2026-09-03**, read at HEAD inside `GstService.ResolveRate(StockItem?, Ledger?, DateOnly?)`: `ResolveBase` walks the hierarchy, and the override's `(item ?? ledger).HsnSac` pick sits directly beneath it, unchanged by the T0-4 chain. The T0-4 design named this as an "ours" item (*"our four fields carry one undated rate, and `GstService`'s date-aware layer keys its override on `(item ?? ledger).HsnSac` only"*); **what the design did not say is that the pick contradicts the walk it now sits on top of.** | A rate-revision row fires off the wrong master's HSN and **replaces a correctly-resolved rate with one that belongs to a different classification** — the override is not a refinement of the walk, it is a second, inconsistent resolution. Related to **IV-43** (no per-master dated history at all). **OPEN.** |
 
 ### TIER 1 — ROUTINE TASKS IMPOSSIBLE, OR DAMAGE PERMANENT
 
