@@ -944,12 +944,18 @@ public sealed class CompanyProfileScreenTests : IDisposable
 
     /// <summary>
     /// 🔴 TWO NAMES THAT SANITISE TO ONE FILENAME MUST NOT FORK THE BOOK. The <c>.db</c> path replaces every
-    /// character a filename cannot hold with <c>_</c>, so "Acme:Traders" and "Acme_Traders" share one path —
+    /// character a filename cannot hold with <c>_</c>, so "Acme/Traders" and "Acme_Traders" share one path —
     /// and creation used to write the second company as a SECOND ROW inside the first company's file, with no
     /// exception and no message. <c>CompanyStorage.Load</c> returns the first row, so everything typed into
     /// the second company became unreachable forever.
     /// <para>The alteration screen already refuses to RENAME for exactly this reason. Refusing a rename while
     /// leaving the identical hole open on create is not a coherent position.</para>
+    /// <para><b>Why the colliding pair uses '/' and not ':'.</b> This test used to pair "Acme:Traders" with
+    /// "Acme_Traders", and a colon is a Windows-ism: <c>Path.GetInvalidFileNameChars()</c> returns 41
+    /// characters on Windows but exactly two on Unix, <c>'\0'</c> and <c>'/'</c>. On Linux and macOS a colon
+    /// is a perfectly legal filename byte, so that pair mapped to two DIFFERENT files, the guard correctly did
+    /// not fire, and the test failed while the product was behaving properly. <c>'/'</c> is the only printable
+    /// character invalid on every platform, so it is the only pair that collides everywhere.</para>
     /// <para><i>Mutation that reddens it:</i> delete the <c>_storage.Exists(name)</c> guard from
     /// <c>CreateCompany</c>.</para>
     /// </summary>
@@ -962,7 +968,7 @@ public sealed class CompanyProfileScreenTests : IDisposable
         var second = NewShell();
         second.ShowCompanySelect();
         ActivateMenuItem(second, "Create Company");
-        second.NewCompanyName = "Acme:Traders";      // the colon sanitises to '_'
+        second.NewCompanyName = "Acme/Traders";      // the slash sanitises to '_' on every platform
         second.ActivateSelected();
 
         Assert.Null(second.Company);
@@ -986,7 +992,11 @@ public sealed class CompanyProfileScreenTests : IDisposable
         using (var store = new Apex.Persistence.Sqlite.SqliteCompanyStore(path))
         {
             store.Save(CompanyFactory.CreateSeeded("Forked Co", new DateOnly(2025, 4, 1)));
-            store.Save(CompanyFactory.CreateSeeded("Forked:Co", new DateOnly(2025, 4, 1)));
+            // '/' rather than ':' — the pair must read as a genuine collision on every platform. A colon is
+            // only invalid in a filename on Windows, so "Forked:Co" told a Windows-only story. (This test
+            // writes both rows through one open store rather than through PathForName, so it PASSED on POSIX
+            // either way — the name was narrative, and the narrative was wrong.)
+            store.Save(CompanyFactory.CreateSeeded("Forked/Co", new DateOnly(2025, 4, 1)));
         }
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
@@ -1232,6 +1242,11 @@ public sealed class CompanyProfileScreenTests : IDisposable
     /// <para>Measured before this was widened: deleting the Country, both dates and all four currency lines
     /// from <c>Restore</c> was green. A failed save would have left the session holding seven wrong
     /// values.</para>
+    /// <para><b>The failure is induced by an UNOPENABLE company file, not by a lock.</b> The lock this test
+    /// originally used — a <c>FileShare.None</c> hold — only shuts SQLite out on Windows; see the comment at
+    /// the Act below. What is asserted here is the BEHAVIOUR (a reportable save failure rolls every assigned
+    /// field back), so the mechanism is chosen to be the one that fails identically on all three
+    /// platforms.</para>
     /// <para><i>Mutation that reddens it:</i> delete ANY line from the screen's <c>Restore</c>, or the restore
     /// call from its catch block.</para>
     /// </summary>
@@ -1268,15 +1283,27 @@ public sealed class CompanyProfileScreenTests : IDisposable
         form.DecimalPlacesText = "4";
         form.DecimalUnitName = "Centime";
 
-        // Make the save fail the way the field does: the company file is held open for writing by someone else.
+        // ---- Make the save fail. ----
+        // 🔴 THIS USED TO BE A FileShare.None HOLD ON THE .db, AND THAT IS A WINDOWS-ISM. On Windows a
+        // share-mode denial really does shut every other writer out. On Unix, .NET emulates FileShare with an
+        // advisory flock(), while SQLite locks with fcntl(F_SETLK) POSIX record locks — two completely
+        // independent lock spaces that do not conflict. So on Linux and macOS SQLite opened the "held" file,
+        // the save SUCCEEDED, Accept() returned true, and the eleven rollback assertions below were never
+        // reached. The product was right; the obstruction was not portable.
+        //
+        // A DIRECTORY standing where the .db must be is portable — no lock, no permission bit, no dependence
+        // on the runner's uid (a root runner ignores a read-only attribute; nothing ignores EISDIR). The store
+        // constructor cannot open it on any platform, so SQLITE_CANTOPEN -> SqliteException -> DbException ->
+        // SaveFailure.IsReportable -> Restore + Refuse. The same idiom is used, and green on ubuntu today, by
+        // An_operational_failure_during_creation_is_reported_on_the_form_not_thrown above.
         var path = _storage.PathForName("Rollback Co");
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        using (var hold = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-        {
-            Assert.False(form.Accept());
-            Assert.False(string.IsNullOrWhiteSpace(form.Message));
-            Assert.True(form.MessageIsError);
-        }
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+
+        Assert.False(form.Accept());
+        Assert.False(string.IsNullOrWhiteSpace(form.Message));
+        Assert.True(form.MessageIsError);
 
         Assert.Equal("Rollback Traders", company.MailingName);
         Assert.Equal("9 Old Road", company.Address);
