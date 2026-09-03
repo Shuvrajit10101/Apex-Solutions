@@ -136,10 +136,37 @@ public class GstTests
 
     // ---------------------------------------------------------------- RQ-10: rate resolution
 
-    [Fact]
-    public void Rate_resolves_item_over_ledger_over_company_most_granular_wins()
+    /// <summary>
+    /// The project's only rate-PRECEDENCE test. It shipped as
+    /// <c>Rate_resolves_item_over_ledger_over_company_most_granular_wins</c>, typing 1800 into the fixture and 1800
+    /// into the assertion with no source order in sight; T0-4 slice S1 made it parametric over
+    /// <see cref="GstDetailSource"/> and slice S2b renamed it. <b>The rename is deliberate and it is not a
+    /// re-numbering:</b> the old name asserts "most granular wins", which is the inverted rule this slice deletes,
+    /// and a test whose NAME states the defect it is meant to catch is worse than no name at all. Substance, fixture
+    /// and coverage are preserved line for line.
+    ///
+    /// <para><b>The two expectations are COMPUTED by <see cref="GstRateHierarchy"/> from the published order
+    /// strings, never read off the resolver.</b> Simply editing 1800 to 500 when the flip landed would have deleted
+    /// this suite's only precedence coverage while leaving everything green — the documented doctored-golden failure
+    /// this project has already paid for.</para>
+    ///
+    /// <para><b>R7 grounding — VENDOR, verbatim</b> [web], help.tallysolutions.com "HSN/SAC &amp; GST Rate Hierarchy
+    /// in TallyPrime": the shipped default is <c>Ledger → Accounting Group → Stock Item → Stock Group → Company</c>
+    /// and the selectable alternative is <c>Stock Item → Stock Group → Ledger → Accounting Group → Company</c>, with
+    /// the walk stopping at the first level that carries the detail. <b>R12 — USER RULING, verbatim (this
+    /// session):</b> "on books created from v51 onward the SALES/PURCHASE LEDGER OUTRANKS THE STOCK ITEM — honour
+    /// the LedgerFirst order the column already defaults to, flipping today's item-first walk." So on the "LI"
+    /// shape below the 500 is the SALES LEDGER's rate under the shipped default, and the 1800 is the STOCK ITEM's
+    /// under the order every pre-v51 book is back-filled to. Neither number is read from
+    /// <c>GstService</c>.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(GstDetailSource.LedgerFirst)]
+    [InlineData(GstDetailSource.StockItemFirst)]
+    public void Rate_precedence_follows_the_configured_source_order(GstDetailSource source)
     {
         var c = NewGstCompany();
+        c.Gst!.SourceOfGstRate = source;
         var gst = new GstService(c);
         var inv = new InventoryService(c);
         var grp = inv.CreateStockGroup("Goods");
@@ -150,17 +177,25 @@ public class GstTests
         var salesLedger = AddLedger(c, "Sales", "Sales Accounts", openingIsDebit: false);
         salesLedger.SalesPurchaseGst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 500 };
 
-        // Item wins (1800), not the ledger (500).
+        // Both rungs carry a block ("LI"), so this is precisely the shape the source order steers.
         var r = gst.ResolveRate(item, salesLedger);
         Assert.True(r.IsTaxable);
-        Assert.Equal(1800, r.RateBasisPoints);
 
-        // No item ⇒ ledger wins (500).
+        // What the published order string says, computed from the string — the sales LEDGER's 500 under the
+        // shipped default, the STOCK ITEM's 1800 under the back-filled alternative. The engine must agree with it.
+        var published = GstRateHierarchy.OracleWinner(source, "LI");
+        Assert.Equal(source == GstDetailSource.LedgerFirst ? 500 : 1800, published);
+        Assert.Equal(published, r.RateBasisPoints);
+
+        // No item ⇒ ledger wins (500), and here the two orders and the engine agree ("L" is inside T13's
+        // no-op precondition — at most one of {item, ledger} carries a block, and no new rung does).
         var r2 = gst.ResolveRate(null, salesLedger);
         Assert.Equal(500, r2.RateBasisPoints);
+        Assert.Equal(GstRateHierarchy.OracleWinner(source, "L"), r2.RateBasisPoints);
 
         // Neither ⇒ unresolved (fail-fast sentinel).
         Assert.True(GstService.IsUnresolved(gst.ResolveRate(null, AddLedger(c, "PlainSales", "Sales Accounts", false))));
+        Assert.Null(GstRateHierarchy.OracleWinner(source, ""));
     }
 
     [Fact]

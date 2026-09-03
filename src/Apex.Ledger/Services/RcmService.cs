@@ -186,7 +186,11 @@ public sealed class RcmService
                 "Import of goods is not a reverse-charge supply — IGST is paid at customs on the Bill of Entry (GSTR-3B 4A(1)); "
                 + "refusing to raise an RCM dual leg.");
 
-        var supplyGst = item?.Gst ?? spLedger?.SalesPurchaseGst;
+        // T0-4 S2a: one walk, one winning block — consume the level GstService's hierarchy landed on instead of
+        // re-picking a level here. Under S2a's walk this is exactly the pre-S2a
+        // `item?.Gst ?? spLedger?.SalesPurchaseGst`; a supply rated at a narrow (group / company) rung yields null,
+        // and a narrow MasterGstDetails block carries no ReverseChargeApplicable field, so it never fires RCM.
+        var supplyGst = _gst.ResolveDetailBlock(item, spLedger);
         var resolution = Resolve(supplyGst, supplier, item, spLedger, supplyDate, supplyKind,
             recipientIsPromoter, recipientIsBodyCorporate);
         if (!resolution.Applies)

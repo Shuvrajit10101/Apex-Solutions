@@ -350,8 +350,10 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         Assert.Equal(112m, before.TotalCess.Amount);
         Assert.Equal(1213.31m, before.GrandTotal.Amount);
 
-        // The de-merit cess on this HSN is revised 12% -> 60% AFTER the invoice was issued.
+        // The de-merit cess on this HSN is revised 12% -> 60% AFTER the invoice was issued. Revised on BOTH masters,
+        // so the mutation lands on the winning rung whichever GstDetailSource the book carries (T0-4 S2b).
         c.FindStockItem(widgetId)!.Gst!.CessRateBasisPoints = 6000;
+        SalesLedgerGst(c).CessRateBasisPoints = 6000;
 
         var after = VoucherPrintProjector.ProjectInvoice(c, v);
         Assert.Equal(112m, after.TotalCess.Amount);          // the POSTED cess, not the new master rate
@@ -392,8 +394,10 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         Assert.Equal(150m, PostedHead(v, GstTaxHead.Cess));
         Assert.Equal(1330m, PartyLegAmount(c, v));
 
-        // The RSP is cleared on the master (re-classified, or simply corrected) AFTER the invoice was issued.
+        // The RSP is cleared on the master (re-classified, or simply corrected) AFTER the invoice was issued —
+        // on BOTH masters, so the clearing lands on the winning rung whichever source order the book carries.
         c.FindStockItem(widgetId)!.Gst!.RetailSalePrice = null;
+        SalesLedgerGst(c).RetailSalePrice = null;
 
         var data = VoucherPrintProjector.ProjectInvoice(c, v);   // must not throw
         Assert.Equal(150m, data.TotalCess.Amount);
@@ -670,6 +674,18 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
             HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
             SupplyType = GstSupplyType.Goods,
         };
+        // 🔴 T0-4 SLICE S2b — THE CESS IS DECLARED ON BOTH MASTERS, AND THAT IS A FIXTURE FIX, NOT A GOLDEN EDIT.
+        // A fresh company carries GstDetailSource.LedgerFirst (the shipped default, now honoured), so the SALES
+        // LEDGER is the first rung of the walk that declares a block and it therefore supplies the cess as well as
+        // the rate — one walk, one winning block. FIX-5 added this ledger block for an unrelated reason (to make
+        // Gstr1.ServiceLegs reachable) and it silently became the winning master when the flip landed, which would
+        // have zeroed the posted cess in every test below. Declaring the SAME cess on both masters keeps every money
+        // literal in this file exactly as it was and makes these tests independent of the source order, which is
+        // what they were always about. 🔴 The book shape they no longer cover — cess typed on the STOCK ITEM while
+        // the sales ledger carries a cess-less block — now silently charges NO cess on a v51+ book; that is pinned
+        // by Apex.Ledger.Tests' GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess and is
+        // ESCALATED as an open question, not absorbed here.
+        cess?.Invoke(salesLedger.SalesPurchaseGst);
         var customer = AddLedger(c, "Local Customer", "Sundry Debtors");
         customer.PartyGst = new PartyGstDetails
         { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };
@@ -680,6 +696,11 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         customerId = customer.Id;
         return vm;
     }
+
+    /// <summary>The sales VALUE ledger of <see cref="NewItemInvoiceKit"/> — the rung that wins the walk on a book
+    /// carrying the shipped <c>LedgerFirst</c> order, and therefore the master a "mutate it after posting" test must
+    /// mutate if it is to prove anything.</summary>
+    private static StockItemGstDetails SalesLedgerGst(Company c) => c.FindLedgerByName("Sales")!.SalesPurchaseGst!;
 
     private MainWindowViewModel NewCompany(string companyName)
     {

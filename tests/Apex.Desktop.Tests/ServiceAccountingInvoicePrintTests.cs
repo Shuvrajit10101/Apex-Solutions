@@ -821,6 +821,17 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
         {
             HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
             SupplyType = GstSupplyType.Goods,
+            // 🔴 T0-4 SLICE S2b — the SAME cess on both masters, and it is a fixture fix rather than a golden edit.
+            // A fresh company carries GstDetailSource.LedgerFirst (the shipped default, now honoured), so this
+            // ledger is the first rung of the walk that declares a block and it supplies the cess as well as the
+            // rate — one walk, one winning block. FIX-5 added this block for an unrelated reason and it silently
+            // became the winning master when the flip landed. Declaring the cess here keeps every money literal in
+            // this file byte-identical and makes the cess tests independent of the source order. 🔴 The shape they
+            // no longer cover — cess on the STOCK ITEM only, beneath a cess-less ledger block — now charges NO cess
+            // on a v51+ book; pinned in Apex.Ledger.Tests and ESCALATED, not absorbed here.
+            CessApplicable = cessBasisPoints is not null,
+            CessValuationMode = cessBasisPoints is null ? null : CessValuationMode.AdValorem,
+            CessRateBasisPoints = cessBasisPoints,
         };
         var customer = AddLedger(c, "Local Customer", "Sundry Debtors");
         customer.PartyGst = new PartyGstDetails
