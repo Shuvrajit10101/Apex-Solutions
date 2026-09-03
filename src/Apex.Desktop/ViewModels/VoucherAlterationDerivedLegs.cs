@@ -342,28 +342,34 @@ public static class VoucherAlterationDerivedLegs
     ///     signature identical. <b>Covered instead</b> by <see cref="CessMagnitudeDriftRefusal"/>, which both accept
     ///     paths run BEFORE this comparison — the cess is pinned by its AMOUNT on the posted rows because there is
     ///     no rate on the leg to pin it by.</item>
-    ///   <item>🔴 <b>An INTRA-state GST rate master moved between an even bp and the odd bp above it</b> — because
+    ///   <item><b>An INTRA-state GST rate master moved between an even bp and the odd bp above it</b> — because
     ///     the CGST/SGST legs are stamped with <c>integratedBp / 2</c>, an INTEGER division, so 500 and 501 both
-    ///     stamp 250. <b>NOT covered by anything.</b> Measured on a purchase item invoice: moving the item's rate
-    ///     5.00% → 5.01% left the signature at <c>[Central@250, State@250]</c> on both sides and the alteration was
-    ///     accepted with "Purchase No. 1 altered." while the ITC moved 185.19 → 185.56 and the supplier's credit
-    ///     3,888.90 → 3,889.27. An INTER-state invoice is safe (the IGST leg carries the full bp).</item>
-    ///   <item>🔴 <b>The stamped <see cref="GstLineTax.TaxableValue"/>, and with it a TAXABILITY flip that another
-    ///     line of the same rate group masks.</b> <b>NOT covered by anything.</b> Excluding the base is right for an
-    ///     ordinary amendment (which moves bases), but it also hides a moved MASTER: measured on a two-item invoice
-    ///     with both items at 18%, flipping ONE item Taxable → Exempt left the signature at
-    ///     <c>[Central@900, State@900]</c> while the stamped base fell 7,654.15 → 3,950.44 and the supplier's credit
-    ///     fell 9,031.90 → 8,365.23 — accepted, silently. Only a flip that empties the whole rate group is caught,
-    ///     because only then does a leg disappear.</item>
+    ///     stamp 250. Measured on a purchase item invoice: moving the item's rate 5.00% → 5.01% left the signature
+    ///     at <c>[Central@250, State@250]</c> on both sides and the alteration was accepted with "Purchase No. 1
+    ///     altered." while the ITC moved 185.19 → 185.56 and the supplier's credit 3,888.90 → 3,889.27. An
+    ///     INTER-state invoice is safe (the IGST leg carries the full bp). <b>Covered instead</b> by
+    ///     <see cref="TaxMagnitudeDriftRefusal"/>, which both accept paths run AFTER this comparison — the drift is
+    ///     invisible to a rate comparison at any precision the leg carries, so it is pinned by AMOUNT (census
+    ///     T0-14, closed).</item>
+    ///   <item><b>The stamped <see cref="GstLineTax.TaxableValue"/>, and with it a TAXABILITY flip that another
+    ///     line of the same rate group masks.</b> Excluding the base is right for an ordinary amendment (which
+    ///     moves bases), but it also hides a moved MASTER: measured on a two-item invoice with both items at 18%,
+    ///     flipping ONE item Taxable → Exempt left the signature at <c>[Central@900, State@900]</c> while the
+    ///     stamped base fell 7,654.15 → 3,950.44 and the supplier's credit fell 9,031.90 → 8,365.23 — accepted,
+    ///     silently. Only a flip that empties the whole rate group would be caught here, because only then does a
+    ///     leg disappear. <b>Covered instead</b> by <see cref="TaxMagnitudeDriftRefusal"/>, which pins the stamped
+    ///     taxable value as well as the amount (census T0-15, closed).</item>
     ///   <item><b>Everything on a leg that carries no <see cref="EntryLine.Gst"/> stamp at all</b> — the value leg,
     ///     the party leg, the additional-cost legs, a round-off leg, and the RCM expense leg (which is pinned
     ///     separately by <see cref="SignatureOf"/>).</item>
     ///   <item><b>The number of legs per (ledger, side, head, rate) key.</b> The comparison is a sorted SEQUENCE, so
     ///     two legs collapsing into one WOULD show; but two legs of the same key swapping amounts would not.</item>
     /// </list>
-    /// The two limbs marked 🔴 are OPEN — enumerated and measured here, deliberately not fixed in the change that
-    /// closed the cess limb, and reported for their own slice. Anything added to this list must arrive with a test
-    /// that reddens when the covering guard is deleted.</para>
+    /// <b>No limb of this list is OPEN.</b> The two that were (the integer half-rate collapse and the masked
+    /// taxability flip) are closed by <see cref="TaxMagnitudeDriftRefusal"/>; the remaining two are statements of
+    /// what this signature is FOR, not gaps — a leg with no stamp is not an engine tax leg, and the sequence
+    /// comparison is what makes the leg COUNT part of the shape. Anything added to this list must arrive with a
+    /// test that reddens when its covering guard is deleted.</para>
     /// </summary>
     internal static IReadOnlyList<string> TaxHeadSignature(IEnumerable<EntryLine> lines) =>
         lines
@@ -406,8 +412,6 @@ public static class VoucherAlterationDerivedLegs
     {
         if (stamped.Amount == reDerivedOnPostedRows.Amount) return null;
 
-        static string F(Money m) => m.Amount.ToString("#,##0.00", IndianMoneyFormat.Culture);
-
         return $"The Compensation Cess on this {documentWord} is not the cess it was posted with: the SAME item "
              + $"rows value at {F(reDerivedOnPostedRows)} under today's masters, against the {F(stamped)} that is "
              + $"stamped on the {documentWord}. A per-unit or retail-price cess records no rate on its tax leg, so "
@@ -416,6 +420,100 @@ public static class VoucherAlterationDerivedLegs
              + "touched, because GSTR-1 and GSTR-3B read the stamped figure. Correct the cess master, or raise a "
              + $"credit note and a fresh {documentWord}.";
     }
+
+    /// <summary>Money as the operator sees it on the screen this refusal is shown on.</summary>
+    private static string F(Money m) => m.Amount.ToString("#,##0.00", IndianMoneyFormat.Culture);
+
+    /// <summary>
+    /// 🔴 <b>THE TAX-MAGNITUDE PIN — the other half of what <see cref="TaxHeadSignature"/> structurally cannot do,
+    /// and it closes BOTH of that method's formerly-open blind spots with ONE comparison.</b>
+    ///
+    /// <para><b>T0-14, the integer half-rate collapse.</b> <c>GstService.ComputeInvoiceTax</c> stamps the CGST and
+    /// SGST legs with <c>integratedBp / 2</c> — an INTEGER division — so an intra-state rate moved from an even
+    /// basis point to the odd one above it (500 → 501, 1800 → 1801) leaves BOTH legs carrying the identical half
+    /// rate while the tax moves. <b>The integrated bp is not recoverable from the posted leg</b>: 250 is 500 and it
+    /// is also 501, and the POSTED voucher is the only record of what it was taxed at. So the "stamp the integrated
+    /// bp into the signature" shape is not available without a schema change, and even then it would only reach
+    /// vouchers posted after it — the drift has to be pinned by AMOUNT.</para>
+    ///
+    /// <para><b>T0-15, a taxability flip masked by a same-rate sibling.</b> The shape signature excludes the
+    /// stamped <see cref="GstLineTax.TaxableValue"/> — right for an ordinary amendment, which moves bases — so a
+    /// master flipped Taxable → Exempt beside another item at the same rate leaves every leg standing at the same
+    /// rate while the base and the tax collapse. Pinning the base needs the same treatment for the same reason.</para>
+    ///
+    /// <para>🔴 <b>AND IT DOES NOT REFUSE ORDINARY AMENDMENTS — the shape the cess pin proved.</b>
+    /// <paramref name="reDerivedOnPostedRows"/> is the tax today's masters put on the <b>POSTED</b> item rows, not
+    /// on the amended ones. The rows are therefore held fixed on both sides, which removes them as a variable: the
+    /// only thing that can make the two disagree is a master (or a date, or a place of supply) that moved since
+    /// posting. Amending a quantity, a rate or a line moves the tax freely and is not seen here at all. That is not
+    /// an argument, it is a test — <c>An_ordinary_quantity_amendment_of_a_same_rate_invoice_is_still_accepted</c>
+    /// and its POS twin exist so that turning this into a blanket refusal reddens the suite.</para>
+    ///
+    /// <para><b>Run this AFTER <see cref="TaxHeadSignature"/>,</b> the opposite of where the cess pin runs, and the
+    /// asymmetry is deliberate. A cess drift moves NO head and NO rate, so the shape sentence would be false on it;
+    /// every drift this method catches that ALSO moved a head or a rate is better named by the shape sentence, and
+    /// the shape check has already returned by the time control reaches here.</para>
+    /// </summary>
+    /// <param name="stamped">The posted voucher's own lines — every GST-stamped one is compared.</param>
+    /// <param name="reDerivedOnPostedRows">The tax lines today's masters produce from the POSTED item rows.</param>
+    /// <param name="documentWord">"invoice" or "bill" — the word the calling screen calls its document by.</param>
+    internal static string? TaxMagnitudeDriftRefusal(
+        IEnumerable<EntryLine> stamped, IEnumerable<EntryLine> reDerivedOnPostedRows, string documentWord)
+    {
+        var was = MagnitudeRows(stamped);
+        var now = MagnitudeRows(reDerivedOnPostedRows);
+        if (was.Count == now.Count && was.Zip(now).All(p => p.First == p.Second)) return null;
+
+        return $"The GST on this {documentWord} is not the tax it was posted with: the SAME item rows value at "
+             + $"{F(TaxTotal(now))} of tax on a taxable value of {F(BaseTotal(now))} under today's masters, against "
+             + $"the {F(TaxTotal(was))} on {F(BaseTotal(was))} stamped on the {documentWord}. The tax HEADS and "
+             + "their rates are unchanged, so nothing about the SHAPE of the tax shows this: an intra-state rate "
+             + "moved by a fraction of a point halves to the same figure on the CGST and SGST legs, and an item "
+             + "flipped to exempt beside another at the same rate leaves every leg standing. Alter re-computes the "
+             + $"AMOUNT of a posted tax leg, never restates it because a master moved under a {documentWord} nobody "
+             + "touched, because GSTR-1 and GSTR-3B read the stamped taxable value. Correct the master, or raise a "
+             + $"credit note and a fresh {documentWord}.";
+    }
+
+    /// <summary>One engine-stamped tax leg, reduced to what the magnitude comparison reads. The LEDGER is
+    /// deliberately absent: <see cref="TaxHeadSignature"/> pins it and runs first, so these rows say only what the
+    /// money is.</summary>
+    private readonly record struct MagnitudeRow(
+        GstTaxHead Head, DrCr Side, int RateBasisPoints, decimal Taxable, decimal Amount);
+
+    /// <summary>The engine-stamped tax legs as an order-independent multiset.</summary>
+    private static List<MagnitudeRow> MagnitudeRows(IEnumerable<EntryLine> lines) =>
+        lines
+            .Where(l => l.HasGst)
+            .Select(l => new MagnitudeRow(
+                l.Gst!.TaxHead, l.Side, l.Gst.RateBasisPoints, l.Gst.TaxableValue.Amount, l.Amount.Amount))
+            .OrderBy(r => (int)r.Head)
+            .ThenBy(r => (int)r.Side)
+            .ThenBy(r => r.RateBasisPoints)
+            .ThenBy(r => r.Taxable)
+            .ThenBy(r => r.Amount)
+            .ToList();
+
+    private static Money TaxTotal(List<MagnitudeRow> rows) => new(rows.Sum(r => r.Amount));
+
+    /// <summary>
+    /// Σ of the DISTINCT taxable values the tax legs are stamped with — the assessable value GSTR-1 declares.
+    ///
+    /// <para><b>Distinct by (side, rate, base), because a rate group posts its base TWICE.</b> On an intra-state
+    /// group the Central and State legs carry the SAME base at the SAME half rate, so summing every leg would
+    /// double it; keying the distinct on the head instead of dropping it would double it just as surely, which is
+    /// why the head is not in the key. Two different rate groups cannot collide (there is one group per rate, so
+    /// their rates differ), and a Cess leg is excluded outright: it repeats its group's base under a cess rate of
+    /// its own, which would add that base a second time. A 0%-rated group posts no leg at all and so contributes
+    /// nothing — the same blindness GSTR-1's own taxable-value column has, and the reason this figure is quoted
+    /// BESIDE the tax rather than instead of it.</para>
+    /// </summary>
+    private static Money BaseTotal(List<MagnitudeRow> rows) =>
+        new(rows
+            .Where(r => r.Head != GstTaxHead.Cess)
+            .Select(r => (r.Side, r.RateBasisPoints, r.Taxable))
+            .Distinct()
+            .Sum(r => r.Taxable));
 
     /// <summary>
     /// The order-independent shape signature of a reverse-charge line set: ledger, side, head, rate and ITC scheme,

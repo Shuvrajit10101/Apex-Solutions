@@ -225,6 +225,14 @@ public sealed class PurchaseAndPosAlterationTests
     private static decimal CessOn(Voucher v) =>
         v.Lines.Where(l => l.Gst is { TaxHead: GstTaxHead.Cess }).Sum(l => l.Amount.Amount);
 
+    /// <summary>Σ of the engine-stamped legs of one GST head on <paramref name="v"/>, to the paisa.</summary>
+    private static decimal HeadOn(Voucher v, GstTaxHead head) =>
+        v.Lines.Where(l => l.Gst is { } g && g.TaxHead == head).Sum(l => l.Amount.Amount);
+
+    /// <summary>The taxable (assessable) value STAMPED on the single Central leg — the figure GSTR-1 reads.</summary>
+    private static decimal StampedCentralBase(Voucher v) =>
+        v.Lines.Single(l => l.Gst is { TaxHead: GstTaxHead.Central }).Gst!.TaxableValue.Amount;
+
     private static VoucherEntryViewModel NewPurchaseEntry(PurchaseKit kit)
     {
         var entry = new VoucherEntryViewModel(
@@ -744,6 +752,213 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.Equal(600.36m, after.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
         Assert.Equal(240.30m, CessOn(after));
         Assert.Equal(870.68m, after.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+    }
+
+    // ================================================================ (B3) the two SHAPE-BLIND axes (T0-14/T0-15)
+
+    // 🔴 WHY A SECOND SPECIMEN SET EXISTS. TaxHeadSignature compares ledger · side · head · rate and nothing else,
+    // and its own enumeration records two further axes it cannot see. Neither is reachable with the fixtures above:
+    //
+    //   · T0-14 needs an INTRA-state invoice whose WHOLE rate group moves between an even bp and the odd bp above
+    //     it, because the CGST/SGST legs are stamped with integratedBp / 2 — an INTEGER division — so 1800 and 1801
+    //     both stamp 900. A group that only PARTLY moves splits into two groups and the signature sees that, so the
+    //     specimen has to be a SINGLE-ITEM invoice (Alloy alone).
+    //   · T0-15 needs TWO items in ONE rate group, because a taxability flip is only masked while a same-rate
+    //     sibling keeps the leg alive; a flip that empties the group drops the leg and the signature sees it.
+    //
+    // 🔴 EVERY FIGURE IS A FIXTURE NONCE — no rate, threshold or amount below is a statutory figure, and 1801 bp
+    // (18.01%) is deliberately not a real slab: what is under test is the integer halving, not any tax law.
+    private const string AlloyRate = "300.07";
+    private const string AlloyQty = "7";
+    private const string ResinRate = "150.11";
+    private const string ResinQty = "9";
+
+    private sealed record ShapeBlindItems(StockItem Alloy, StockItem Resin);
+
+    /// <summary>Two items sharing ONE 18% rate group, on their own group and unit so nothing above moves.</summary>
+    private static ShapeBlindItems SeedShapeBlindItems(PurchaseKit kit)
+    {
+        var masters = new InventoryService(kit.Book.Company);
+        var group = masters.CreateStockGroup("Shape-Blind Goods");
+        var kgs = masters.CreateSimpleUnit("Kgs", "Kilograms", decimalPlaces: 3);
+
+        var alloy = masters.CreateStockItem("Alloy", group.Id, kgs.Id);
+        alloy.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+
+        var resin = masters.CreateStockItem("Resin", group.Id, kgs.Id);
+        resin.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+
+        kit.Book.Storage.Save(kit.Book.Company);
+        return new ShapeBlindItems(alloy, resin);
+    }
+
+    /// <summary>Posts a plain purchase item invoice over <paramref name="rows"/> — no batch, no additional cost,
+    /// no compound unit, so every figure below is a two-step hand derivation.</summary>
+    private static Voucher PostShapeBlindInvoice(
+        PurchaseKit kit, IEnumerable<(StockItem Item, string Qty, string Rate)> rows, string narration)
+    {
+        var entry = NewPurchaseEntry(kit);
+        entry.SelectedParty = entry.Parties.Single(p => p.Ledger?.Id == kit.Supplier.Id);
+        entry.SelectedStockLedger = entry.StockLedgers.Single(l => l.Id == kit.Purchases.Id);
+        entry.Narration = narration;
+
+        var first = true;
+        foreach (var r in rows)
+        {
+            var row = first ? entry.InventoryLines[0] : entry.AddInventoryLine();
+            first = false;
+            row.SelectedItem = entry.StockItems.Single(i => i.Id == r.Item.Id);
+            row.SelectedGodown = entry.Godowns.Single(g => g.Id == kit.Main.Id);
+            row.QuantityText = r.Qty;
+            row.RateText = r.Rate;
+        }
+
+        Assert.True(entry.Accept(), entry.Message);
+        return kit.Book.Company.Vouchers.Last(v => v.TypeId == kit.PurchaseType.Id);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-14 — AN INTRA-STATE RATE MASTER MOVED TO THE ODD BASIS POINT ABOVE IS REFUSED AT ACCEPT.</b>
+    /// <c>ComputeInvoiceTax</c> stamps the CGST and SGST legs with <c>integratedBp / 2</c>, an INTEGER division, so
+    /// 1800 and 1801 both stamp <b>900</b> and <c>TaxHeadSignature</c> is byte-identical across the move — while the
+    /// tax, and the supplier's credit with it, move. An INTER-state invoice is safe: the IGST leg carries the full bp.
+    ///
+    /// <para><b>The money, derived by hand from the fixture constants — never read off the engine.</b>
+    /// Line value = round(7 × 300.07) = <b>2,100.49</b>.
+    /// Posted at 1800 bp: tax = round(2,100.49 × 1800/10000) = round(378.0882) = 378.09, split
+    /// CGST = round(378.09 / 2) = round(189.045) = <b>189.05</b> and SGST = 378.09 − 189.05 = <b>189.04</b>;
+    /// supplier credit = 2,100.49 + 189.05 + 189.04 = <b>2,478.58</b>.
+    /// Re-derived at 1801 bp: tax = round(2,100.49 × 1801/10000) = round(378.298249) = 378.30, split
+    /// CGST = round(189.15) = 189.15 and SGST = 378.30 − 189.15 = 189.15; the supplier credit would become
+    /// 2,100.49 + 189.15 + 189.15 = 2,478.79 — ₹0.21 on an alteration that touched only the narration.</para>
+    /// </summary>
+    [Fact]
+    public void An_intra_state_rate_moved_to_the_odd_bp_above_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("halfratedrift");
+        var kit = SeedPurchaseKit(book);
+        var items = SeedShapeBlindItems(kit);
+        var posted = PostShapeBlindInvoice(
+            kit, new[] { (items.Alloy, AlloyQty, AlloyRate) }, "Half-rate nonce ONE");
+
+        // The posted figures, to the paisa, every one derived by hand above.
+        Assert.Equal(2100.49m, posted.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(189.05m, HeadOn(posted, GstTaxHead.Central));
+        Assert.Equal(189.04m, HeadOn(posted, GstTaxHead.State));
+        Assert.Equal(2478.58m, posted.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+
+        // 🔴 THE BLINDNESS ITSELF, PINNED: the leg carries the HALVED rate, and 1801 / 2 is the same 900.
+        Assert.Equal(900, posted.Lines.Single(l => l.Gst is { TaxHead: GstTaxHead.Central }).Gst!.RateBasisPoints);
+
+        var before = book.Export();
+
+        var open = book.ForAlter(posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var entry = open.Entry!;
+        entry.Narration = "Half-rate nonce TWO";          // the ONLY thing the operator changes
+
+        items.Alloy.Gst!.RateBasisPoints = 1801;          // 18.00% → 18.01% after the screen opened
+
+        Assert.False(entry.AcceptAlteration());
+        // …and it is NOT the shape guard that caught it — the shape is identical, which is the whole point.
+        Assert.DoesNotContain("not the shape it was posted with", entry.Message!, StringComparison.Ordinal);
+        Assert.Contains("378.30", entry.Message!, StringComparison.Ordinal);   // today's masters on the posted rows
+        Assert.Contains("378.09", entry.Message!, StringComparison.Ordinal);   // what is stamped
+
+        // …and the refused alteration left the book exactly as it found it — including the narration.
+        items.Alloy.Gst!.RateBasisPoints = 1800;
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-15 — A TAXABILITY FLIP MASKED BY A SAME-RATE SIBLING IS REFUSED AT ACCEPT.</b> The shape signature
+    /// excludes the stamped <c>GstLineTax.TaxableValue</c> — right for an ordinary amendment, which moves bases —
+    /// but that also hides a MOVED MASTER: with two items in one 18% group, flipping ONE of them Taxable → Exempt
+    /// leaves both legs standing at the same rate, so the signature is identical while the stamped taxable base and
+    /// the tax both collapse. Only a flip that empties the WHOLE group is caught today, because only then does a
+    /// leg disappear.
+    ///
+    /// <para><b>The money, derived by hand.</b> Alloy = round(7 × 300.07) = 2,100.49, Resin = round(9 × 150.11) =
+    /// 1,350.99, so the group's taxable base = <b>3,451.48</b> and the tax = round(3,451.48 × 1800/10000) =
+    /// round(621.2664) = 621.27, split CGST = round(310.635) = <b>310.64</b>, SGST = 621.27 − 310.64 =
+    /// <b>310.63</b>; supplier credit = 3,451.48 + 621.27 = <b>4,072.75</b>.
+    /// With Resin exempt the SAME rows value at a base of 2,100.49 and a tax of round(378.0882) = 378.09
+    /// (CGST 189.05, SGST 189.04) — the goods are still bought, so the value leg stays 3,451.48 and the supplier's
+    /// credit would fall 4,072.75 → 3,451.48 + 378.09 = 3,829.57: <b>₹243.18</b> on a narration edit.</para>
+    /// </summary>
+    [Fact]
+    public void A_taxability_flip_masked_by_a_same_rate_sibling_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("maskedflip");
+        var kit = SeedPurchaseKit(book);
+        var items = SeedShapeBlindItems(kit);
+        var posted = PostShapeBlindInvoice(
+            kit,
+            new[] { (items.Alloy, AlloyQty, AlloyRate), (items.Resin, ResinQty, ResinRate) },
+            "Masked-flip nonce ONE");
+
+        Assert.Equal(3451.48m, posted.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(3451.48m, StampedCentralBase(posted));
+        Assert.Equal(310.64m, HeadOn(posted, GstTaxHead.Central));
+        Assert.Equal(310.63m, HeadOn(posted, GstTaxHead.State));
+        Assert.Equal(4072.75m, posted.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+
+        var before = book.Export();
+
+        var open = book.ForAlter(posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var entry = open.Entry!;
+        entry.Narration = "Masked-flip nonce TWO";        // the ONLY thing the operator changes
+
+        items.Resin.Gst!.Taxability = GstTaxability.Exempt;   // ONE of the two items leaves the tax base
+
+        Assert.False(entry.AcceptAlteration());
+        Assert.DoesNotContain("not the shape it was posted with", entry.Message!, StringComparison.Ordinal);
+        Assert.Contains("378.09", entry.Message!, StringComparison.Ordinal);      // re-derived tax
+        Assert.Contains("621.27", entry.Message!, StringComparison.Ordinal);      // stamped tax
+        Assert.Contains("2,100.49", entry.Message!, StringComparison.Ordinal);    // re-derived base
+        Assert.Contains("3,451.48", entry.Message!, StringComparison.Ordinal);    // stamped base
+
+        items.Resin.Gst!.Taxability = GstTaxability.Taxable;
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE NEGATIVE CONTROL — an ORDINARY amendment with the masters untouched is still ACCEPTED, and the
+    /// tax still moves.</b> A drift detector that compares AMOUNTS is only safe because it re-prices the
+    /// <b>POSTED</b> rows; one that compared the amended tax against the stamped tax would refuse every real
+    /// quantity change and become a blanket refusal wearing the costume of a guard. This drives exactly that path.
+    ///
+    /// <para><b>Derived by hand.</b> Alloy 7 → 8 units: round(8 × 300.07) = 2,400.56, so the group's base becomes
+    /// 2,400.56 + 1,350.99 = <b>3,751.55</b> and the tax round(3,751.55 × 1800/10000) = round(675.279) = 675.28,
+    /// split CGST = round(337.64) = <b>337.64</b> and SGST = 675.28 − 337.64 = <b>337.64</b>; supplier credit =
+    /// 3,751.55 + 675.28 = <b>4,426.83</b>.</para>
+    /// </summary>
+    [Fact]
+    public void An_ordinary_quantity_amendment_of_a_same_rate_invoice_is_still_accepted()
+    {
+        using var book = AlterationBook.New("maskedflipok");
+        var kit = SeedPurchaseKit(book);
+        var items = SeedShapeBlindItems(kit);
+        var posted = PostShapeBlindInvoice(
+            kit,
+            new[] { (items.Alloy, AlloyQty, AlloyRate), (items.Resin, ResinQty, ResinRate) },
+            "Masked-flip nonce ONE");
+        Assert.Equal(4072.75m, posted.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
+
+        var entry = book.ForAlter(posted.Id).Entry!;
+        var rows = entry.InventoryLines.Where(l => !l.IsBlank).ToList();
+        Assert.Equal(2, rows.Count);
+        rows[0].QuantityText = "8";                       // 7 → 8, and NO master is touched
+
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        var after = book.Company.FindVoucher(posted.Id)!;
+        Assert.Equal(3751.55m, after.Lines.Single(l => l.LedgerId == kit.Purchases.Id).Amount.Amount);
+        Assert.Equal(3751.55m, StampedCentralBase(after));
+        Assert.Equal(337.64m, HeadOn(after, GstTaxHead.Central));
+        Assert.Equal(337.64m, HeadOn(after, GstTaxHead.State));
+        Assert.Equal(4426.83m, after.Lines.Single(l => l.LedgerId == kit.Supplier.Id).Amount.Amount);
     }
 
     /// <summary>
@@ -1618,6 +1833,195 @@ public sealed class PurchaseAndPosAlterationTests
 
         Assert.Single(book.Company.Vouchers, v => v.TypeId == kit.PosType.Id);
         Assert.Equal(before, book.Export());
+    }
+
+    // ---------------------------------------------------------------- (C2) the two SHAPE-BLIND axes, POS door
+
+    // 🔴 THE SAME TWO AXES, ON THE OTHER DOOR. Both accept paths rest on ONE TaxHeadSignature, and the measured
+    // history of this pair is that a guard added to one door and not the other diverges silently. So the POS
+    // specimens mirror the purchase ones limb for limb — a single-item bill for the integer half-rate collapse, a
+    // two-item single-rate-group bill for the masked taxability flip — with their OWN nonces so a cross-wired
+    // fixture cannot pass by borrowing the other door's figures.
+    private const string CounterAlloyRate = "410.03";
+    private const string CounterAlloyQty = "6";
+    private const string CounterResinRate = "90.13";
+    private const string CounterResinQty = "4";
+
+    private static ShapeBlindItems SeedShapeBlindPosItems(PosKit kit)
+    {
+        var masters = new InventoryService(kit.Book.Company);
+        var group = masters.CreateStockGroup("Counter Goods");
+        var pcs = masters.CreateSimpleUnit("Pcs", "Pieces", decimalPlaces: 3);
+
+        var alloy = masters.CreateStockItem("Counter Alloy", group.Id, pcs.Id);
+        alloy.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+
+        var resin = masters.CreateStockItem("Counter Resin", group.Id, pcs.Id);
+        resin.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+
+        kit.Book.Storage.Save(kit.Book.Company);
+        return new ShapeBlindItems(alloy, resin);
+    }
+
+    /// <summary>Posts a SINGLE-TENDER POS bill over <paramref name="rows"/> — the cash row auto-fills to the bill
+    /// total, so an amendment that moves the tax still reconciles and the tender split cannot mask the thing under
+    /// test.</summary>
+    private static Voucher PostCounterBill(
+        PosKit kit, IEnumerable<(StockItem Item, string Qty, string Rate)> rows, string narration)
+    {
+        var vm = NewPos(kit);
+        vm.Date = kit.Book.On(4);
+        vm.Narration = narration;
+        vm.SelectedParty = vm.Parties.Single(p => p.Ledger?.Id == kit.Customer.Id);
+        vm.SelectedSalesLedger = vm.SalesLedgers.Single(l => l.Id == kit.Sales.Id);
+        vm.SelectedGodown = vm.Godowns.Single(g => g.Id == kit.Main.Id);
+
+        var first = true;
+        foreach (var r in rows)
+        {
+            var row = first ? vm.Items[0] : vm.AddItemLine();
+            first = false;
+            row.SelectedItem = vm.StockItems.Single(i => i.Id == r.Item.Id);
+            row.SelectedGodown = vm.Godowns.Single(g => g.Id == kit.Main.Id);
+            row.QuantityText = r.Qty;
+            row.RateText = r.Rate;
+        }
+
+        Assert.False(vm.IsMultiTender);            // single is the default; the cash row carries the whole bill
+        vm.CashRow.SelectedLedger = kit.Cash;
+        // 🔴 A DELIBERATE OVER-TENDER, and it is fixture mechanics rather than decoration: the rehydrated screen
+        // carries the POSTED 'tendered' figure, so a bill whose tax legitimately RISES under an amendment would
+        // otherwise be refused with "Cash tendered is less than the cash payable" before it ever reached the guard
+        // under test — a wrong-reason refusal that would make the negative control prove nothing. The cash DEBIT
+        // still posts the payable, never the tendered, so no posted figure below depends on this nonce.
+        vm.CashRow.CashTenderedText = "9999";
+
+        Assert.True(vm.Accept(), vm.Message);
+        return kit.Book.Company.Vouchers.Last(v => v.TypeId == kit.PosType.Id);
+    }
+
+    private static PosBillingViewModel AlterCounterBill(AlterationBook book, Voucher posted)
+    {
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        return open.Entry!;
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-14 ON THE POS DOOR.</b> Same defect, same shape of proof.
+    ///
+    /// <para><b>Derived by hand.</b> Value = round(6 × 410.03) = <b>2,460.18</b>. Posted at 1800 bp:
+    /// tax = round(2,460.18 × 1800/10000) = round(442.8324) = 442.83, CGST = round(221.415) = <b>221.42</b>,
+    /// SGST = 442.83 − 221.42 = <b>221.41</b>, cash taken = 2,460.18 + 442.83 = <b>2,903.01</b>. Re-derived at
+    /// 1801 bp: round(2,460.18 × 1801/10000) = round(443.078418) = 443.08, CGST = round(221.54) = 221.54,
+    /// SGST = 443.08 − 221.54 = 221.54, and the drawer would take 2,903.26 — ₹0.25 on a narration edit.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_intra_state_rate_moved_to_the_odd_bp_above_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("poshalfrate");
+        var kit = SeedPosKit(book);
+        var items = SeedShapeBlindPosItems(kit);
+        var posted = PostCounterBill(
+            kit, new[] { (items.Alloy, CounterAlloyQty, CounterAlloyRate) }, "Counter nonce ONE");
+
+        Assert.Equal(2460.18m, posted.Lines.Single(l => l.LedgerId == kit.Sales.Id).Amount.Amount);
+        Assert.Equal(221.42m, HeadOn(posted, GstTaxHead.Central));
+        Assert.Equal(221.41m, HeadOn(posted, GstTaxHead.State));
+        Assert.Equal(2903.01m, posted.Lines.Single(l => l.LedgerId == kit.Cash.Id).Amount.Amount);
+        Assert.Equal(900, posted.Lines.Single(l => l.Gst is { TaxHead: GstTaxHead.Central }).Gst!.RateBasisPoints);
+
+        var before = book.Export();
+
+        var vm = AlterCounterBill(book, posted);
+        vm.Narration = "Counter nonce TWO";
+        items.Alloy.Gst!.RateBasisPoints = 1801;
+
+        Assert.False(vm.AcceptAlteration());
+        Assert.DoesNotContain("not the shape it was posted with", vm.Message!, StringComparison.Ordinal);
+        Assert.Contains("443.08", vm.Message!, StringComparison.Ordinal);
+        Assert.Contains("442.83", vm.Message!, StringComparison.Ordinal);
+
+        items.Alloy.Gst!.RateBasisPoints = 1800;
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-15 ON THE POS DOOR.</b>
+    ///
+    /// <para><b>Derived by hand.</b> Alloy = round(6 × 410.03) = 2,460.18, Resin = round(4 × 90.13) = 360.52, so
+    /// the base = <b>2,820.70</b> and the tax = round(2,820.70 × 1800/10000) = round(507.726) = 507.73,
+    /// CGST = round(253.865) = <b>253.87</b>, SGST = 507.73 − 253.87 = <b>253.86</b>, cash taken =
+    /// 2,820.70 + 507.73 = <b>3,328.43</b>. With Resin exempt the SAME rows value at a base of 2,460.18 and a tax
+    /// of 442.83, so the drawer would take 2,820.70 + 442.83 = 3,263.53 — <b>₹64.90</b> on a narration edit.</para>
+    /// </summary>
+    [Fact]
+    public void A_pos_taxability_flip_masked_by_a_same_rate_sibling_is_refused_at_accept_by_name()
+    {
+        using var book = AlterationBook.New("posmaskedflip");
+        var kit = SeedPosKit(book);
+        var items = SeedShapeBlindPosItems(kit);
+        var posted = PostCounterBill(
+            kit,
+            new[] { (items.Alloy, CounterAlloyQty, CounterAlloyRate), (items.Resin, CounterResinQty, CounterResinRate) },
+            "Counter flip nonce ONE");
+
+        Assert.Equal(2820.70m, posted.Lines.Single(l => l.LedgerId == kit.Sales.Id).Amount.Amount);
+        Assert.Equal(2820.70m, StampedCentralBase(posted));
+        Assert.Equal(253.87m, HeadOn(posted, GstTaxHead.Central));
+        Assert.Equal(253.86m, HeadOn(posted, GstTaxHead.State));
+        Assert.Equal(3328.43m, posted.Lines.Single(l => l.LedgerId == kit.Cash.Id).Amount.Amount);
+
+        var before = book.Export();
+
+        var vm = AlterCounterBill(book, posted);
+        vm.Narration = "Counter flip nonce TWO";
+        items.Resin.Gst!.Taxability = GstTaxability.Exempt;
+
+        Assert.False(vm.AcceptAlteration());
+        Assert.DoesNotContain("not the shape it was posted with", vm.Message!, StringComparison.Ordinal);
+        Assert.Contains("442.83", vm.Message!, StringComparison.Ordinal);     // re-derived tax
+        Assert.Contains("507.73", vm.Message!, StringComparison.Ordinal);     // stamped tax
+        Assert.Contains("2,460.18", vm.Message!, StringComparison.Ordinal);   // re-derived base
+        Assert.Contains("2,820.70", vm.Message!, StringComparison.Ordinal);   // stamped base
+
+        items.Resin.Gst!.Taxability = GstTaxability.Taxable;
+        Assert.Equal(before, book.Export());
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE POS NEGATIVE CONTROL</b> — the other door's half of the dead-guard proof.
+    ///
+    /// <para><b>Derived by hand.</b> Alloy 6 → 7: round(7 × 410.03) = 2,870.21, base = 2,870.21 + 360.52 =
+    /// <b>3,230.73</b>, tax = round(3,230.73 × 1800/10000) = round(581.5314) = 581.53, CGST = round(290.765) =
+    /// <b>290.77</b>, SGST = 581.53 − 290.77 = <b>290.76</b>, cash taken = 3,230.73 + 581.53 = <b>3,812.26</b>.</para>
+    /// </summary>
+    [Fact]
+    public void An_ordinary_quantity_amendment_of_a_pos_bill_is_still_accepted()
+    {
+        using var book = AlterationBook.New("posmaskedflipok");
+        var kit = SeedPosKit(book);
+        var items = SeedShapeBlindPosItems(kit);
+        var posted = PostCounterBill(
+            kit,
+            new[] { (items.Alloy, CounterAlloyQty, CounterAlloyRate), (items.Resin, CounterResinQty, CounterResinRate) },
+            "Counter flip nonce ONE");
+        Assert.Equal(3328.43m, posted.Lines.Single(l => l.LedgerId == kit.Cash.Id).Amount.Amount);
+
+        var vm = AlterCounterBill(book, posted);
+        var rows = vm.Items.Where(l => !l.IsBlank).ToList();
+        Assert.Equal(2, rows.Count);
+        rows[0].QuantityText = "7";                       // and NO master is touched
+
+        Assert.True(vm.AcceptAlteration(), vm.Message);
+
+        var after = book.Company.FindVoucher(posted.Id)!;
+        Assert.Equal(3230.73m, after.Lines.Single(l => l.LedgerId == kit.Sales.Id).Amount.Amount);
+        Assert.Equal(3230.73m, StampedCentralBase(after));
+        Assert.Equal(290.77m, HeadOn(after, GstTaxHead.Central));
+        Assert.Equal(290.76m, HeadOn(after, GstTaxHead.State));
+        Assert.Equal(3812.26m, after.Lines.Single(l => l.LedgerId == kit.Cash.Id).Amount.Amount);
     }
 
     // ================================================================ (D) ER-13

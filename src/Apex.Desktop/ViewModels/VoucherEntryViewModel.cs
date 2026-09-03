@@ -3804,9 +3804,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // another leaves the signature identical while the re-derived cess, and the party's balance with it, moves
         // by the difference. FIRST, so the operator is told it was the CESS: on this drift the tax heads and their
         // rates are exactly what did NOT move, and the shape sentence below would say otherwise.
-        if (ReDerivedCessOnPostedRows(existing) is { } reDerivedCess
+        var reDerivedTax = ReDerivedTaxOnPostedRows(existing);
+
+        if (reDerivedTax is { } forCess
             && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
-                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), reDerivedCess, "invoice")
+                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), forCess.TotalCess, "invoice")
                is { } cessRefusal)
         {
             Message = cessRefusal;
@@ -3827,6 +3829,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     + "supply). Alter re-computes the AMOUNT of a posted tax leg, never which legs there are, "
                     + "because GSTR-1 and GSTR-3B read the stamped figures. Correct the master, or raise a "
                     + "credit note and a fresh invoice.";
+            return false;
+        }
+
+        // 🔴 …AND THE MAGNITUDE OF THOSE LEGS IS PINNED TOO, on the two axes the shape above structurally cannot
+        // see: an intra-state rate moved between an even bp and the odd one above it (the CGST/SGST legs carry
+        // integratedBp / 2, an INTEGER division, so 1800 and 1801 both stamp 900), and a master flipped
+        // Taxable → Exempt beside a same-rate sibling that keeps the leg alive. Both were MEASURED accepting a
+        // narration-only alteration that moved the ITC and the supplier's credit. LAST, so a drift that DID move a
+        // head or a rate is named by the shape sentence above rather than by this one. Held to the POSTED rows, so
+        // an ordinary amendment is not seen here at all.
+        if (reDerivedTax is { } forMagnitude
+            && VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal(
+                   existing.Lines, forMagnitude.TaxLines, "invoice")
+               is { } magnitudeRefusal)
+        {
+            Message = magnitudeRefusal;
             return false;
         }
 
@@ -5085,8 +5103,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// 🔴 The Compensation Cess today's masters put on the <b>POSTED</b> item rows — the figure the alteration
-    /// compares the STAMPED cess against (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>).
+    /// 🔴 The GST today's masters put on the <b>POSTED</b> item rows — the tax the alteration compares the STAMPED
+    /// tax against, on BOTH of the axes the shape signature cannot see: the Compensation-Cess magnitude
+    /// (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>, which reads <c>TotalCess</c>) and the
+    /// per-leg amount and taxable value (<see cref="VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal"/>, which
+    /// reads <c>TaxLines</c>). ONE re-derivation feeds both, deliberately: two would be two chances for the inputs
+    /// to drift apart, and the whole point of the comparison is that its inputs are identical to the posting's.
     ///
     /// <para><b>The posted rows, deliberately, and that is the whole design.</b> Re-deriving over the AMENDED rows
     /// would refuse every real amendment, because moving a quantity moves the cess — which alter is allowed to do.
@@ -5099,12 +5121,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <para>Returns <c>null</c> — "do not compare" — when the posted rows cannot be re-priced at all: an item that
     /// is no longer a master, or a taxable item with no resolvable rate. Both are refused by name in their own
     /// words elsewhere on this path (the rehydration for the missing item, <c>BuildItemInvoice</c>'s unresolved-rate
-    /// message for the rate), and a cess sentence about a book that cannot be priced at all would be the wrong
+    /// message for the rate), and a tax sentence about a book that cannot be priced at all would be the wrong
     /// sentence.</para>
     /// </summary>
-    private Money? ReDerivedCessOnPostedRows(Voucher existing)
+    private GstService.InvoiceTax? ReDerivedTaxOnPostedRows(Voucher existing)
     {
-        if (!IsGstInvoice) return Money.Zero;
+        if (!IsGstInvoice) return EmptyInvoiceTax();
 
         var valueLedger = SelectedStockLedger;
         var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
@@ -5124,7 +5146,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
         }
 
-        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection).TotalCess;
+        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
     }
 
     // =============================================================== batch allocation → posted lines (G-5)
