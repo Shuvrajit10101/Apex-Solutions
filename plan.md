@@ -3037,7 +3037,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
     `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
     typed into the screen is refused. Recorded here rather than left to be discovered.
-    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1043-1046`).** Country/PIN
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1207-1210`).** Country/PIN
     are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
     `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
     `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
@@ -3158,7 +3158,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
     wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
     alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
-    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1027` is
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1191` is
     `StateText = StateText(company.Gst?.HomeStateCode)`.
     **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
@@ -5064,8 +5064,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   supplier?*) is a third. **The defect is that one predicate was used to answer all three at**
   `src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`.
 - **▶ 🔴 THE THREE-CONSUMER HAZARD — THE REASON THE OBVIOUS FIX IS DANGEROUS RATHER THAN MERELY WRONG.**
-  `src/Apex.Ledger/Reports/GstReportSupport.cs:1098` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and
-  `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1148`) feeds the **NIC e-Way portal**
+  `src/Apex.Ledger/Reports/GstReportSupport.cs:1340` gates `IsBillOfSupply`'s limb 2 on `IsTaxInvoice`, and
+  `IsBillOfSupplyForFiling` (`src/Apex.Ledger/Reports/GstReportSupport.cs:1390`) feeds the **NIC e-Way portal**
   `docType` at `src/Apex.Ledger/Services/EWayBillService.cs:482`. Widening the Sales gate would **also** title
   a wholly-exempt purchase **"BILL OF SUPPLY"** (CGST **Rule 49** puts that on the supplier too) **and
   silently move a code we file with a government system.** `IsTaxInvoice` and `IsBillOfSupply` are therefore
@@ -5132,7 +5132,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     recipient blocks SWAPPED** so the supplier heads the document; place of supply, our declaration and our
     signature **suppressed** (all CGST Rule 46 *supplier* particulars); the supplier's number through the
     existing *"Supplier Invoice No."* caption at
-    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962`, and **our** number under its own caption
+    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126`, and **our** number under its own caption
     reading *"Our Record Ref."* — never *"Invoice No."*, which under the supplier's identity is a false
     statement. **Closes census row 4.6 and the purchase half of 12.2 / T0-11.**
     **▶ WHAT SHIPPED.** `GstReportSupport.ClassifyPrintedDocument`
@@ -5340,18 +5340,61 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     — four of them had been caught by `LoadBearingCitationContentTests`, the rest found by grep.
     **Tooling rule that follows, and it is not optional:** never `open(path,'w').write(s)` as one expression;
     write a temp file and rename, or the next encoding error empties a source file.
-  - **S3 — THE LEDGER-ONLY / SERVICE PURCHASE RECORD.** The same classification through the service-invoice
-    projection, so a purchase **accounting** invoice also prints as a record. **🔴 KEPT SEPARATE ON PURPOSE:**
-    this is where the existing service-invoice print test — which today asserts an **empty item set** and the
-    plain-voucher print kind as *"HEAD's behaviour"* — must be **re-pointed**. That rewrite is
-    indistinguishable in a diff from this project's documented failure mode (*a golden edited to match the
-    code*), so it gets **its own reviewed slice**, is justified by **S0's amended RQ-11 and never by the new
-    code**, and needs an **explicit reviewer callout**.
-  - **S4 — CREDIT AND DEBIT NOTES AS RULE-53 DOCUMENTS (value-level; NO dependency on T0-10).** Entitlement
-    resolved from the **original** voucher's base type behind the persisted credit/debit-note link: original
-    **Sales** ⇒ issued (*CREDIT NOTE* / *DEBIT NOTE*); original **Purchase**, or link absent ⇒ recorded
-    (*PURCHASE RETURN RECORD*). Widen the reference caption so a note reads **"Original Invoice No."** (today
-    it reads *"Reference No."* — same helper as above). **Closes census row 4.7 and the note half of 12.2.**
+  - **S3 — THE LEDGER-ONLY / SERVICE PURCHASE RECORD. ✅ SHIPPED.** The same classification through the
+    service-invoice projection, so a purchase **accounting** invoice also prints as a record: title
+    *PURCHASE RECORD*, the SAC legs as its line table, the supplier heading the page, place of supply and our
+    declaration/signature suppressed, and the whole tying to the posted supplier leg to the paisa.
+    `GstReportSupport.IsRecordedServiceAccountingInvoice` is the inward mirror of the Sales-only
+    `IsServiceAccountingInvoice`; **neither outward predicate was edited**, so the NIC e-Way `docType` is
+    unmoved. Ten tests in `tests/Apex.Desktop.Tests/PurchaseServiceRecordPrintTests.cs`, five of which were
+    red first.
+    **▶ 🔴 THE RE-POINTING THIS SLICE OWED, AND WHAT IT ACTUALLY TURNED OUT TO BE — READ BEFORE REVIEWING THE
+    DIFF.** The plan (and the design) said the existing service-invoice print test *"today asserts an empty
+    item set and the plain-voucher print kind as HEAD's behaviour"* and must be re-pointed. **Measured at
+    HEAD, that was already stale**: the T0-11 review's C1 pass had replaced the empty-item assertion with a
+    `FootingRefusal` throw, and — decisively — **its subject voucher still does not divert into either
+    projection after S3**, because its expense ledger declares a taxable supply at 18% and the voucher posted
+    no tax at all, so it fails the shared F9 conjunct. **Every assertion in that test was correct and none was
+    changed.** What WAS false after S3 was the test's NAME and its doc comment, both of which asserted a
+    universal (*"a ledger-only purchase NEVER diverts"*) that RQ-11a deliberately breaks, plus a **bite claim
+    that no longer bites** (*"delete the base-type conjunct"* moves nothing for that voucher now). The name,
+    the doc comment and the bite were re-pointed and two assertions naming the REAL reason were added —
+    justified by **RQ-11a, never by the new code**. **Reviewer callout:** the change to
+    `ServiceAccountingInvoicePrintTests.cs` is +39/−14 and touches no existing assertion; verify that.
+  - **S4 — CREDIT AND DEBIT NOTES AS RULE-53 DOCUMENTS (value-level; NO dependency on T0-10). ✅ SHIPPED.**
+    Entitlement resolved from the **original** voucher's base type behind the persisted credit/debit-note
+    link: original **Sales** ⇒ issued (*CREDIT NOTE* / *DEBIT NOTE*); original **Purchase** ⇒ recorded
+    (*PURCHASE RETURN RECORD*). The note projects at value level from `voucher.Lines` — no HSN, no quantity,
+    no item table — and the reference caption reads **"Original Invoice No."** with the serial and date taken
+    from the link. Eleven tests in `tests/Apex.Desktop.Tests/CreditDebitNotePrintTests.cs`.
+    **▶ 🔴 DIVERGENCE FROM THIS BULLET AS WRITTEN (R6, recorded with its reason): THE RULE IS THREE-VALUED,
+    NOT TWO.** This bullet said *"original Purchase, **or link absent** ⇒ recorded"*. That clause is wrong and
+    was corrected before implementation (review finding OBJ-1). `GstCreditDebitNoteLink` documents a null
+    `OriginalInvoiceVoucherId` as a **consolidated-party reference** and its constructor explicitly ACCEPTS
+    null given a denormalised original-invoice number (**ER-12**) — the entry screen offers exactly that
+    through its *"Consolidated…"* option. So an ordinary, valid, supported **sales-return** credit note can
+    carry **no discriminator at all**, and the two-valued rule would have titled **our own §34(1) credit note**
+    *PURCHASE RETURN RECORD* — our customer's document, headed by our customer's identity, with our signature
+    suppressed. That is **strictly worse than the untitled fallback**. An absent discriminator therefore
+    produces **`DocumentRole.NoStatutoryDocument`**: no title, and the plain Dr/Cr voucher. Pinned by
+    `A_consolidated_party_credit_note_is_not_titled_as_a_purchase_return`.
+    **▶ 🔴 A REACHABILITY LIMIT THIS SLICE DID NOT CLOSE, RECORDED RATHER THAN LEFT SILENT.** The note's
+    **rate** is a mandatory Rule-53 particular and its only non-invented source is the posted `GstLineTax`
+    metadata, so the classification requires the note's value + posted tax to tie to the party leg. **The
+    shipped §34 entry path is the plain Dr/Cr grid, on which the operator types the tax legs by hand and
+    nothing stamps that metadata** (`VoucherEntryViewModel.RegisterSection34Link` adds the link and nothing
+    else). So today the Rule-53 document is reached by a note posted through `CreditDebitNoteService` or
+    import, and by a note bearing **no tax at all** (an exempt or nil-rated adjustment — a real shape); a
+    **hand-typed TAXED note still prints the plain voucher**. Stamping the note's tax legs at entry is a
+    separate change to the entry screen; **deriving the rate at print time instead was refused**, because it
+    would put a figure on a statutory document that no posted leg supports. Pinned by
+    `A_note_whose_posted_tax_is_untagged_prints_the_plain_voucher`.
+    **▶ ONE GUARD ADDED BEYOND THE BULLET.** Routing notes through `InvoicePdf` put them on the branch the F12
+    **title override** reaches, and the *nature of the document* is a mandatory Rule-53 particular — an
+    operator could have re-titled a credit note *TAX INVOICE* through the print dialog. `InvoicePrintData`
+    gained one presentational flag (`StatesSection34Note`, no money) and both the renderer and the on-screen
+    mirror now refuse the override structurally, exactly as they already do for a bill of supply and a record.
+    **Closes census row 4.7 and the note half of 12.2.**
   - **S5 — DEFERRED, NOT SILENT (see the compliance-gap bullet below).** Ships in this chain only as **(i)** a
     classifier branch that **REFUSES** to title any purchase a self-invoice unless the persisted facts support
     the conjunction, and **(ii)** the recorded gaps. **The build is a LATER slice with its own grounding pass.**
