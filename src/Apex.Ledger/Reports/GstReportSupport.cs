@@ -374,6 +374,56 @@ public static class GstReportSupport
     public const string PurchaseRecordScreenLabel = "Purchase Record";
 
     /// <summary>
+    /// The printed title of a <b>§34 credit note</b> we are entitled to issue (RQ-11b; census T0-11 slice S4) — a
+    /// note adjusting a supply made BY us. CGST Act §34(1) puts the credit note on "the registered person <b>who has
+    /// supplied</b> the goods or services"; the entitlement therefore follows the ORIGINAL document, never the base
+    /// type of the note.
+    /// <para><b>🔴 OURS, ruling 9.</b> The corpus names no title for a note, shows no specimen and evidences no
+    /// law-driven title derivation. The word "Tally" appears in it nowhere (ER-11 / RQ-13).</para>
+    /// </summary>
+    public const string CreditNoteTitle = "CREDIT NOTE";
+
+    /// <summary>The drill badge's spelling of <see cref="CreditNoteTitle"/>.</summary>
+    public const string CreditNoteScreenLabel = "Credit Note";
+
+    /// <summary>
+    /// The printed title of a <b>§34 debit note</b> we are entitled — and by §34(3) obliged — to issue: a note
+    /// revising UPWARD a supply made BY us.
+    /// <para><b>🔴 OURS, ruling 9</b>, like every other title on these documents.</para>
+    /// </summary>
+    public const string DebitNoteTitle = "DEBIT NOTE";
+
+    /// <summary>The drill badge's spelling of <see cref="DebitNoteTitle"/>.</summary>
+    public const string DebitNoteScreenLabel = "Debit Note";
+
+    /// <summary>
+    /// The printed title of a <b>recipient-side record of a note adjusting an INWARD supply</b> (RQ-11b) — the
+    /// document a purchase-return debit note prints as. §34 gives the note to the person who SUPPLIED, so on a
+    /// purchase return the statutory document is our supplier's credit note; ours records it and is titled neither
+    /// <see cref="DebitNoteTitle"/> nor <see cref="CreditNoteTitle"/>, for the same reason a purchase invoice is
+    /// titled neither outward title.
+    /// <para><b>🔴 OURS, ruling 9.</b></para>
+    /// </summary>
+    public const string PurchaseReturnRecordTitle = "PURCHASE RETURN RECORD";
+
+    /// <summary>The drill badge's spelling of <see cref="PurchaseReturnRecordTitle"/>.</summary>
+    public const string PurchaseReturnRecordScreenLabel = "Purchase Return Record";
+
+    /// <summary>
+    /// The caption over the <b>corresponding original invoice's</b> serial number on a §34 note (RQ-11b) — a
+    /// MANDATORY Rule-53 particular, and one the shipped caption helper could not express: it is
+    /// Purchase-vs-everything-else, so a credit note captioned its reference "Reference No.".
+    ///
+    /// <para><b>It is deliberately NOT applied to the plain Dr/Cr voucher print of a note.</b> There the reference
+    /// VALUE is the operator's own captured counterparty reference (<c>Voucher.ReferenceNo</c>), not the original
+    /// invoice number, and captioning that "Original Invoice No." would swap a merely unhelpful label for a false
+    /// statement. The caption travels with the value, and the value comes from the persisted
+    /// <see cref="GstCreditDebitNoteLink"/>.</para>
+    /// <para><b>OURS (ruling 9)</b> as wording; the particular it states is statutory.</para>
+    /// </summary>
+    public const string OriginalInvoiceCaption = "Original Invoice No.";
+
+    /// <summary>
     /// The caption <b>our own</b> voucher number bears on a recipient-side record (RQ-11a). Under the supplier's
     /// identity a caption reading "Invoice No." is a <b>false statement</b>, not a cosmetic label — it would call our
     /// internal reference the serial of a document we did not issue. The SUPPLIER's own number rides the existing
@@ -437,8 +487,14 @@ public static class GstReportSupport
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
 
-        // ORIENTATION — read FIRST, because on a supply made TO us the entitlement question below is already answered
-        // ("nothing"), and the two outward predicates could only ever say so twice. RQ-11a.
+        // §34 NOTES — read FIRST, and read through their own three-valued rule (RQ-11b, slice S4). A note's
+        // entitlement is decided by the ORIGINAL document behind the persisted link, never by the note's own base
+        // type and never by the adjustment direction, so none of the predicates below can answer it. A note the rule
+        // cannot resolve falls through to them and is titled nothing — which is what they already say.
+        if (ClassifyNoteDocument(company, voucher) is { } note) return note;
+
+        // ORIENTATION — read FIRST among the invoice shapes, because on a supply made TO us the entitlement question
+        // below is already answered ("nothing"), and the two outward predicates could only ever say so twice. RQ-11a.
         if (IsRecipientRecordDocument(company, voucher))
             return new PrintedDocumentClass(
                 // §31(1)/(2) attach the duty to "a registered person SUPPLYING". We supply nothing here, so we issue
@@ -500,18 +556,204 @@ public static class GstReportSupport
     /// document in every one of those cases, so it is <see cref="PurchaseRecordTitle"/> either way. Reading it would
     /// ship a branch no test could distinguish. It stays where its only consumers are, the e-Way engine.</para>
     ///
-    /// <para><b>Ledger-only purchases are OUT of scope here, and that is slice S3's boundary rather than an
-    /// oversight.</b> A purchase accounting (service) invoice needs the other projection pass, so it still prints the
-    /// plain voucher; widening this predicate without widening that pass would emit an item table with no rows.</para>
+    /// <para><b>🔴 SLICE S3 CLOSED THE LEDGER-ONLY LIMB, and the two limbs mirror <see cref="IsTaxInvoice"/>'s own
+    /// shape exactly.</b> S2 shipped the ITEM limb only, because a purchase accounting (service) invoice needs the
+    /// OTHER projection pass (<c>VoucherPrintProjector.ProjectServiceInvoice</c>) and widening this predicate without
+    /// widening that pass would have emitted an item table with no rows. That pass is now reached from the inward
+    /// side too, so the ledger-only limb delegates to <see cref="IsRecordedServiceAccountingInvoice"/> — the inward
+    /// mirror of the gate the outward side has always used. The shape is reachable through the shipped screen: the
+    /// Accounting Invoice mode has been available on a Purchase since <c>CanBeAccountingInvoice</c> was widened, and
+    /// before S3 such a voucher printed a plain Dr/Cr page naming no supplier, no SAC and no tax.</para>
     /// </summary>
     private static bool IsRecipientRecordDocument(Company company, Voucher voucher)
     {
         if (company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Purchase) return false;
-        if (!voucher.HasInventoryLines) return false;
         // ER-4: every figure on the record ties to the posted voucher to the paisa, so tax the metadata cannot see
         // would make it understate what we owe the supplier. Same rule, same conservative direction, as the outward
         // side's PostedOutputTaxIsFullyTagged.
-        return PostedInputTaxIsFullyTagged(company, voucher);
+        if (voucher.HasInventoryLines) return PostedInputTaxIsFullyTagged(company, voucher);
+        // Slice S3 — the ledger-only limb. Its own gate already carries the footing invariant, so it needs no second
+        // tax-visibility test (see IsRecordedServiceAccountingInvoice for why adding one would be untestable).
+        return IsRecordedServiceAccountingInvoice(company, voucher);
+    }
+
+    // ================================================================ T0-11 slice S4: the §34 note document
+
+    /// <summary>
+    /// <b>Does this voucher print as a §34 / Rule-53 NOTE document?</b> (RQ-11b; census T0-11 slice S4.) The gate
+    /// <c>VoucherPrintProjector.ProjectInvoice</c> routes on, and it is exactly "the classifier resolved a note",
+    /// so the routing and the title can never come from two different readings.
+    /// </summary>
+    public static bool IsCreditDebitNoteDocument(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return ClassifyNoteDocument(company, voucher) is not null;
+    }
+
+    /// <summary>
+    /// <b>🔴 THE §34 NOTE CLASSIFICATION, AND IT IS THREE-VALUED</b> (RQ-11b). <c>null</c> means "this is not a note
+    /// document" — the voucher falls through to the invoice rules and is titled nothing.
+    ///
+    /// <para><b>The discriminator is the ORIGINAL voucher's base type, never the note's own.</b> CGST Act §34 puts
+    /// both notes on "the registered person <b>who has supplied</b>". A DEBIT note raised for a purchase return
+    /// adjusts a supply made TO us, so the statutory document is our supplier's credit note and ours merely RECORDS
+    /// it; a DEBIT note raised for an upward revision of our own sale is one §34(3) obliges US to issue. Same base
+    /// type, opposite entitlement. <see cref="GstCreditDebitNoteLink.CdnType"/> is not the field to key on either:
+    /// it encodes the adjustment DIRECTION, not who issues the document.</para>
+    ///
+    /// <para><b>🔴 THE THIRD VALUE IS A REFUSAL, AND GETTING IT WRONG IS WORSE THAN THE DEFECT.</b>
+    /// <see cref="GstCreditDebitNoteLink"/> documents a null <see cref="GstCreditDebitNoteLink.OriginalInvoiceVoucherId"/>
+    /// as a <i>consolidated-party reference</i> and its constructor explicitly ACCEPTS null given a denormalised
+    /// original-invoice number (ER-12) — the entry screen offers that shape through its "Consolidated…" option. So an
+    /// ordinary, valid, supported consolidated-party <b>sales-return</b> credit note carries NO discriminator at all.
+    /// A two-valued rule ("original Sales ⇒ issued, otherwise recorded") would title OUR OWN §34(1) credit note
+    /// <see cref="PurchaseReturnRecordTitle"/> — our customer's document, headed by our customer's identity, with our
+    /// signature suppressed. That is strictly worse than the untitled fallback, so an absent discriminator produces
+    /// NO document: the plain Dr/Cr voucher, which states every posted leg exactly.</para>
+    ///
+    /// <para><b>And the footing invariant is a conjunct, not a downstream check</b> (ER-4, the same rule
+    /// <see cref="ServiceInvoiceFoots"/> enforces one layer down): a note whose stated value plus posted tax does not
+    /// equal what the party's account actually moved by is not a document we can issue. That is what excludes a note
+    /// whose tax legs carry no <see cref="GstLineTax"/> metadata — and the RATE is a mandatory Rule-53 particular
+    /// whose only non-invented source IS that metadata, so a note we cannot rate is a note we cannot issue.</para>
+    ///
+    /// <para>Sources (R7): CGST Act §34(1)/(3)/(4); CGST Rule 53. <b>No clause letter is written here</b> — the
+    /// lettering is unreached (TLS failure on the CBIC rules host) and this project has already had to strip
+    /// mis-attributed citations out of shipped code once.</para>
+    /// </summary>
+    private static PrintedDocumentClass? ClassifyNoteDocument(Company company, Voucher voucher)
+    {
+        var baseType = company.FindVoucherType(voucher.TypeId)?.BaseType;
+        if (baseType is not (VoucherBaseType.CreditNote or VoucherBaseType.DebitNote)) return null;
+
+        // No link, or a link carrying only a consolidated-party reference ⇒ the discriminator is ABSENT.
+        if (CdnLinkFor(company, voucher) is not { OriginalInvoiceVoucherId: Guid originalId }) return null;
+        // A link pointing at a voucher the book no longer holds is the same absence, reached a different way.
+        var originalBase = company.FindVoucher(originalId) is { } original
+            ? company.FindVoucherType(original.TypeId)?.BaseType
+            : null;
+        if (originalBase is not (VoucherBaseType.Sales or VoucherBaseType.Purchase)) return null;
+
+        if (!NoteDocumentFoots(company, voucher)) return null;
+
+        if (originalBase == VoucherBaseType.Purchase)
+            return new PrintedDocumentClass(
+                // §34 gives the note to the supplier. On a supply made TO us that is not us.
+                Role: DocumentRole.Recorded,
+                Title: PurchaseReturnRecordTitle,
+                ScreenLabel: PurchaseReturnRecordScreenLabel,
+                // It renders as a note-shaped page — party blocks, value, rate and amount — never as a Dr/Cr list.
+                // "Item detail" is the RENDERING axis, and a Rule-53 note requires no per-item table to satisfy it.
+                RendersItemDetail: true,
+                StatesTax: TaxParticulars.AsChargedByTheSupplier,
+                Heads: PartyOrientation.WeAreRecipient,
+                StatesOurDeclarationAndSignature: false);
+
+        var isCreditNote = baseType == VoucherBaseType.CreditNote;
+        return new PrintedDocumentClass(
+            Role: DocumentRole.Issued,
+            Title: isCreditNote ? CreditNoteTitle : DebitNoteTitle,
+            ScreenLabel: isCreditNote ? CreditNoteScreenLabel : DebitNoteScreenLabel,
+            RendersItemDetail: true,
+            StatesTax: TaxParticulars.AsChargedByUs,
+            Heads: PartyOrientation.WeAreSupplier,
+            StatesOurDeclarationAndSignature: true);
+    }
+
+    /// <summary>
+    /// The side a §34 note's <b>party</b> leg sits on: a CREDIT note credits the party, a DEBIT note debits him.
+    /// That is what the two words mean in this app's own vocabulary — <c>VoucherEntryViewModel.Section34Type</c>
+    /// derives <see cref="CdnType"/> from exactly this base type — and it holds across all three shapes the design
+    /// names: a sales-return credit note credits the customer, a purchase-return debit note debits the supplier, and
+    /// an upward-revision debit note debits the customer.
+    /// <para>The VALUE legs sit opposite it. Deriving the value side from the party side rather than spelling it per
+    /// shape is what keeps the two debit-note directions — whose value legs are on the same side for opposite
+    /// reasons — from needing two rules.</para>
+    /// </summary>
+    private static DrCr NotePartySide(VoucherBaseType baseType) =>
+        baseType == VoucherBaseType.CreditNote ? DrCr.Credit : DrCr.Debit;
+
+    /// <summary>
+    /// <b>The value of the supply a §34 note adjusts</b>, read off the POSTED legs (RQ-11b: "the value of the taxable
+    /// supply"). Every non-party leg that is not one of the company's own GST tax ledgers, netted on the side
+    /// <see cref="NotePartySide"/> implies. Zero for a voucher that is not a note.
+    ///
+    /// <para><b>Why the GST ledgers are excluded by their MASTER classification and not by their metadata.</b> An
+    /// untagged tax leg — the shape the shipped hand-entry grid posts — carries no <see cref="GstLineTax"/> at all,
+    /// so a metadata test would silently fold the tax INTO the value of the supply and the document would foot while
+    /// stating a value that is not the value of anything. Read from the ledger side it is excluded either way, the
+    /// tax total then comes out zero, the footing invariant fails, and the note prints as the plain voucher.</para>
+    ///
+    /// <para><b>Known bound, stated rather than implied:</b> a leg that is neither the party, nor a GST ledger, nor
+    /// the value of the supply — a withholding, say — would be absorbed into this figure. No path posts one on a
+    /// note today; a future one must be REPRESENTED on the document before it can ride into the value, exactly as
+    /// <c>VoucherPrintProjector.PostedOtherCharges</c> had to represent the additional cost of purchase.</para>
+    /// </summary>
+    public static Money PostedNoteAdjustedValue(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        var baseType = company.FindVoucherType(voucher.TypeId)?.BaseType;
+        if (baseType is not (VoucherBaseType.CreditNote or VoucherBaseType.DebitNote)) return Money.Zero;
+
+        var valueSide = NotePartySide(baseType.Value) == DrCr.Credit ? DrCr.Debit : DrCr.Credit;
+        var total = 0m;
+        foreach (var line in voucher.Lines)
+        {
+            if (voucher.PartyId is Guid pid && line.LedgerId == pid) continue;
+            if (company.FindLedger(line.LedgerId)?.GstClassification is not null) continue;
+            total += line.Side == valueSide ? line.Amount.Amount : -line.Amount.Amount;
+        }
+        return new Money(total);
+    }
+
+    /// <summary>
+    /// What a §34 note recorded against its party, signed the way the note's own document states it (positive when
+    /// the party's account moved the way the note's base type says it should). <c>null</c> when the voucher is not a
+    /// note or names no party — there is then no adjustment for a document to state and nothing to tie to.
+    /// <para>Deliberately separate from <c>VoucherPrintProjector.PostedPartyLeg</c>, whose rule is
+    /// "Purchase ⇒ credit, everything else ⇒ debit". That is the right rule for an INVOICE and the wrong one for a
+    /// note: it reads a sales-return credit note's customer credit as a NEGATIVE debt.</para>
+    /// </summary>
+    public static Money? PostedNotePartyLeg(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        var baseType = company.FindVoucherType(voucher.TypeId)?.BaseType;
+        if (baseType is not (VoucherBaseType.CreditNote or VoucherBaseType.DebitNote)) return null;
+        if (voucher.PartyId is not Guid partyId) return null;
+
+        var chargeSide = NotePartySide(baseType.Value);
+        var total = 0m;
+        var sawPartyLeg = false;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.LedgerId != partyId) continue;
+            sawPartyLeg = true;
+            total += line.Side == chargeSide ? line.Amount.Amount : -line.Amount.Amount;
+        }
+        return sawPartyLeg ? new Money(total) : null;
+    }
+
+    /// <summary>
+    /// The note's ER-4 footing invariant: value of the supply + posted forward tax + posted cess == what the party's
+    /// account actually moved by. The direct analogue of <see cref="ServiceInvoiceFoots"/>, and a CONJUNCT of the
+    /// classification for the same reason: a document that states a different figure from the one the books carry is
+    /// worse than no document, so the conservative direction is to print the plain Dr/Cr voucher instead.
+    /// <para>A negative value of supply is refused outright — it is not a shortfall the invariant could catch (a
+    /// negative value and an inflated tax sum to the same total), and no note states one.</para>
+    /// </summary>
+    private static bool NoteDocumentFoots(Company company, Voucher voucher)
+    {
+        if (PostedNotePartyLeg(company, voucher) is not { } partyLeg) return false;
+
+        var projected = PostedNoteAdjustedValue(company, voucher).Amount;
+        if (projected < 0m) return false;
+        foreach (var g in ReadPostedRateGroups(voucher)) projected += g.Cgst + g.Sgst + g.Igst;
+        projected += PostedCessTotal(voucher).Amount;
+
+        return projected == partyLeg.Amount;
     }
 
     /// <summary>
@@ -1405,7 +1647,54 @@ public static class GstReportSupport
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
-        if (company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Sales) return false;
+        return IsAccountingInvoiceShape(company, voucher, VoucherBaseType.Sales);
+    }
+
+    /// <summary>
+    /// <b>The INWARD mirror of <see cref="IsServiceAccountingInvoice"/></b> (census T0-11 slice S3): a ledger-only
+    /// <b>PURCHASE</b> posted from the Accounting Invoice entry mode — the shape that prints as a recipient-side
+    /// RECORD of the supplier's service document (RQ-11a, which puts the "purchase accounting-(service)-invoice"
+    /// inside its scope in as many words).
+    ///
+    /// <para><b>Why it is a second predicate and not a widened first one.</b> <see cref="IsServiceAccountingInvoice"/>
+    /// answers "may we ISSUE a Rule-46 tax invoice for this ledger-only voucher?", and Sales-only is the CORRECT
+    /// answer — CGST Act §31(1)/(2) attach the duty to "a registered person <b>supplying</b>". It is also a conjunct
+    /// of <see cref="IsBillOfSupply"/>'s exempt limb, which feeds <see cref="IsBillOfSupplyForFiling"/> and through
+    /// it the NIC e-Way Part-A <c>docType</c> we file with a government portal. Widening it to make a PURCHASE print
+    /// would move that filing and would title a supplier's document as ours. So the entitlement predicate is left
+    /// byte-for-byte alone and the inward shape gets its own name, consulted only by
+    /// <see cref="ClassifyPrintedDocument"/> — the same seam slice S2 used for the item pass.</para>
+    ///
+    /// <para><b>Every conjunct is the outward one, unchanged, and each is direction-neutral for a stated reason.</b>
+    /// <see cref="Gstr1.ServiceLegs"/> yields any non-party, non-tax leg whose ledger carries a SAC block, which on a
+    /// purchase is the expense leg; <see cref="TaxedLegsCarryTheirTax"/> refuses a supply the ledger DECLARES taxable
+    /// that nonetheless posted no tax at all; <see cref="RateBreakupReconciles"/> bounds the printed rate rows by the
+    /// document's own value; and <see cref="ServiceInvoiceFoots"/> requires the projection to equal the posted party
+    /// leg to the paisa (RQ-11a ER-4). That last one is what makes a withholding purchase — where a §194J carve-out
+    /// credits TDS Payable and reduces the supplier's credit leg — print as the plain Dr/Cr voucher instead of a
+    /// record overstating what the supplier is owed: <c>InvoicePrintData</c> has no vocabulary for a withholding, and
+    /// a document that states a different figure from the one the books carry is worse than no document.</para>
+    ///
+    /// <para><b>It does NOT also test <see cref="PostedInputTaxIsFullyTagged"/>.</b> The item limb needs that guard
+    /// because its value comes from the stock lines and its tax from the metadata, so the two can disagree; here the
+    /// footing conjunct already compares the WHOLE projection against the posted party leg, so an untagged Input
+    /// leg fails it. Adding the narrower test as well would ship a branch no test could distinguish.</para>
+    /// </summary>
+    public static bool IsRecordedServiceAccountingInvoice(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return IsAccountingInvoiceShape(company, voucher, VoucherBaseType.Purchase);
+    }
+
+    /// <summary>The one body both directions share. Split out by slice S3 rather than copied: "one rule, many copies"
+    /// is the defect class that produced two disagreeing <c>IsBillOfSupply</c> predicates (W0-9), and every conjunct
+    /// below is direction-neutral, so a second body would have differed from this one only in the base type.
+    /// <b>Nothing but the base type may ever differ between the two callers</b> — the moment one side gains a
+    /// conjunct the other lacks, the outward document and the inward record are two rules again.</summary>
+    private static bool IsAccountingInvoiceShape(Company company, Voucher voucher, VoucherBaseType baseType)
+    {
+        if (company.FindVoucherType(voucher.TypeId)?.BaseType != baseType) return false;
         if (voucher.HasInventoryLines) return false;
         if (!voucher.IsAccountingInvoice) return false;
         if (!Gstr1.ServiceLegs(company, voucher).Any()) return false;

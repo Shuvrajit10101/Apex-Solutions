@@ -37,7 +37,7 @@ invoice format"* and blames the print gate. **The symptom is real and worse than
 and the row bundles two different defects under one id.**
 
 **The symptom, verified end to end.** `GstReportSupport.IsTaxInvoice`
-(`src/Apex.Ledger/Reports/GstReportSupport.cs:1346`) returns false for anything whose base type is not Sales.
+(`src/Apex.Ledger/Reports/GstReportSupport.cs:1588`) returns false for anything whose base type is not Sales.
 The printer's wrapper is a **pure forward** to it (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`),
 so `BuildPrintPreview` (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`) takes the else branch
 into the plain voucher projection, whose only loop walks the accounting `Lines`. The voucher's
@@ -54,9 +54,9 @@ missing projection at three layers.**
    *dangerous* rather than merely wrong.** `IsTaxInvoice` has **three** consumers that move together:
    - the **printer**, through the pure forward above;
    - **`IsBillOfSupply`'s limb 2**, which gates on it at
-     `src/Apex.Ledger/Reports/GstReportSupport.cs:1098` (`if (!IsTaxInvoice(company, voucher)) return false;`);
+     `src/Apex.Ledger/Reports/GstReportSupport.cs:1340` (`if (!IsTaxInvoice(company, voucher)) return false;`);
    - the **NIC e-Way portal document code**, because `IsBillOfSupplyForFiling`
-     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1148`) feeds `EWayBillService.PartACodesFor` at
+     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1390`) feeds `EWayBillService.PartACodesFor` at
      `src/Apex.Ledger/Services/EWayBillService.cs:482`.
 
    So flipping the Sales gate would **also** title a wholly-exempt purchase **"BILL OF SUPPLY"** — a document
@@ -151,7 +151,7 @@ A **record** document is headed by the **SUPPLIER**. A field captioned *"Invoice
 voucher number, under the supplier's identity, is therefore **a false statement** — not a cosmetic label.
 
 **The ruling:** the **supplier's** number goes in the existing **ReferenceNo / ReferenceCaption** pair, whose
-helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962` **already returns *"Supplier Invoice
+helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126` **already returns *"Supplier Invoice
 No."* for a Purchase**; and the number field itself **acquires a caption** so ours reads **"Our Record Ref."**
 A caption is presentational, so the *no-new-money-fields* rule survives intact.
 

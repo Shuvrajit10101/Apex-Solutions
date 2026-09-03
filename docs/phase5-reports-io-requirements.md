@@ -240,7 +240,7 @@ Stated so the Phase-5 boundary is unambiguous:
   whose place-of-supply, delivery-address, reverse-charge and signature particulars are all *supplier*
   particulars). The supplier’s own document number SHALL be carried in the existing **ReferenceNo /
   ReferenceCaption** pair, whose helper already returns *"Supplier Invoice No."* for a Purchase
-  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962`); **our** voucher number SHALL carry a caption
+  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126`); **our** voucher number SHALL carry a caption
   of its own reading *"Our Record Ref."* and SHALL **NEVER** appear under a caption reading *"Invoice No."* —
   under the supplier’s identity that caption is a **false statement**, not a cosmetic label. Every figure
   SHALL tie to the posted voucher to the paisa (ER-4). *(CGST Act §31(1) — the duty attaches to the supplier,
@@ -262,7 +262,7 @@ Stated so the Phase-5 boundary is unambiguous:
   voucher’s accounting lines and the persisted original-invoice link, with **no HSN, no quantity and no
   per-item table required**. The reference caption SHALL read **"Original Invoice No."** on a note; today it
   reads *"Reference No."*, because the caption helper is Purchase-vs-everything-else
-  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:961-962`).
+  (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126`).
   **▶ ENTITLEMENT IS NOT THE BASE TYPE OF THE NOTE.** CGST **§34** puts the note on *"the registered person
   who has supplied"*. A Debit Note raised for a **purchase return** is therefore a document our SUPPLIER
   issues (as his credit note) and ours is a **RECORD**; a Debit Note raised for an **upward revision of our
@@ -286,7 +286,7 @@ Stated so the Phase-5 boundary is unambiguous:
 > / purchase item-invoice** … render a **tax-invoice** document"*. **CGST Act §31(1) puts the tax invoice on
 > "a registered person SUPPLYING"** — the supplier. On a Purchase we are the RECIPIENT and we issue nothing.
 > 1. **THE CODE WAS RIGHT AND THE REQUIREMENT WAS WRONG.** `GstReportSupport.IsTaxInvoice`
->    (`src/Apex.Ledger/Reports/GstReportSupport.cs:1346`) returns false unless the base type is Sales, and
+>    (`src/Apex.Ledger/Reports/GstReportSupport.cs:1588`) returns false unless the base type is Sales, and
 >    **Sales-only is the CORRECT answer to the question that predicate is named for** — *"are we entitled to
 >    issue a Rule-46 tax invoice?"*. It is not the defect, and it is not edited.
 > 2. **`docs/full-clone-census.md` T0-11 INHERITED THE ERROR.** Its evidence cell reads *"Contradicts
