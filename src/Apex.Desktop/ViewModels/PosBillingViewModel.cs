@@ -435,9 +435,12 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     }
 
     /// <summary>
-    /// 🔴 The Compensation Cess <b>this screen's own derivation</b> puts on the POSTED item rows — the figure the
-    /// alteration compares the STAMPED cess against (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>).
-    /// The POSTED rows, not the amended ones, so an ordinary amendment (which moves the cess freely) is not seen
+    /// 🔴 The GST <b>this screen's own derivation</b> puts on the POSTED item rows — the tax the alteration compares
+    /// the STAMPED tax against, on BOTH of the axes the shape signature cannot see: the Compensation-Cess magnitude
+    /// (<see cref="VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal"/>, which reads <c>TotalCess</c>) and the
+    /// per-leg amount and taxable value (<see cref="VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal"/>, which
+    /// reads <c>TaxLines</c>). ONE re-derivation feeds both, as on the accounting door.
+    /// The POSTED rows, not the amended ones, so an ordinary amendment (which moves the tax freely) is not seen
     /// here and only a master that moved underneath can make the two figures disagree.
     ///
     /// <para>🔴 <b>IT MIRRORS <see cref="ComputeGst"/> LINE FOR LINE, INCLUDING THE MISSING CESS ARGUMENT</b> — and
@@ -449,9 +452,9 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// sold on an invoice), this mirror is the second half of that change and the guard becomes the same
     /// master-drift pin the accounting screen's is.</para>
     /// </summary>
-    private Money? ReDerivedCessOnPostedRows(Voucher existing)
+    private GstService.InvoiceTax? ReDerivedTaxOnPostedRows(Voucher existing)
     {
-        if (!_company.GstEnabled) return Money.Zero;
+        if (!_company.GstEnabled) return EmptyTax();
 
         var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
         var interState = _gst.IsInterState(partyState);
@@ -468,7 +471,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints));
         }
 
-        return _gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output).TotalCess;
+        return _gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output);
     }
 
     private static GstService.InvoiceTax EmptyTax() => new()
@@ -1167,9 +1170,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         // cess, so the whole cess axis is invisible to a ledger|side|head|rate comparison. Carried on this screen
         // in the SAME words and the SAME order as the accounting item invoice's accept path, deliberately: the
         // two doors consuming one guard, differently, is how the earlier asymmetries on this pair were built.
-        if (ReDerivedCessOnPostedRows(existing) is { } reDerivedCess
+        var reDerivedTax = ReDerivedTaxOnPostedRows(existing);
+
+        if (reDerivedTax is { } forCess
             && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
-                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), reDerivedCess, "bill")
+                   VoucherAlterationDerivedLegs.StampedCessTotal(existing.Lines), forCess.TotalCess, "bill")
                is { } cessRefusal)
         {
             Message = cessRefusal;
@@ -1187,6 +1192,24 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
                     + "supply). Alter re-computes the AMOUNT of a posted tax leg, never which legs there are, "
                     + "because the GST returns read the stamped figures. Correct the master, or raise a credit "
                     + "note and a fresh bill.";
+            return false;
+        }
+
+        // 🔴 …AND THE MAGNITUDE OF THOSE LEGS IS PINNED TOO, on the two axes the shape above structurally cannot
+        // see: an intra-state rate moved between an even bp and the odd one above it (the CGST/SGST legs carry
+        // integratedBp / 2, an INTEGER division, so 1800 and 1801 both stamp 900), and a master flipped
+        // Taxable → Exempt beside a same-rate sibling that keeps the leg alive. Both were MEASURED accepting a
+        // narration-only alteration that moved the tax and the drawer. LAST, so a drift that DID move a head or a
+        // rate is named by the shape sentence above rather than by this one. Held to the POSTED rows, so an
+        // ordinary amendment is not seen here at all. Carried on this screen in the SAME words and the SAME order
+        // as the accounting item invoice's accept path, deliberately: the two doors consuming one guard,
+        // differently, is how the earlier asymmetries on this pair were built.
+        if (reDerivedTax is { } forMagnitude
+            && VoucherAlterationDerivedLegs.TaxMagnitudeDriftRefusal(
+                   existing.Lines, forMagnitude.TaxLines, "bill")
+               is { } magnitudeRefusal)
+        {
+            Message = magnitudeRefusal;
             return false;
         }
 
