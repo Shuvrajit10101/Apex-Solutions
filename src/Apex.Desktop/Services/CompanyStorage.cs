@@ -62,9 +62,23 @@ public sealed class CompanyStorage
     /// <summary>
     /// The <c>.db</c> path a company of the given name maps to (name sanitised for the filename).
     /// <para><b>The mapping is NOT injective</b> — every character a filename cannot hold collapses to
-    /// <c>_</c>, so "Acme:Traders" and "Acme_Traders" share one path. That is what
+    /// <c>_</c>, so "Acme/Traders" and "Acme_Traders" share one path. That is what
     /// <see cref="Exists(string)"/> exists to catch on the creation path, and why <see cref="Load"/> refuses a
     /// file that already holds more than one company row.</para>
+    /// <para><b>🔴 WHICH characters collapse is PLATFORM-DEPENDENT, and the set is not close to the same
+    /// size.</b> <c>Path.GetInvalidFileNameChars()</c> returns <b>41</b> characters on Windows (including
+    /// <c>:</c> <c>*</c> <c>?</c> <c>"</c> <c>&lt;</c> <c>&gt;</c> <c>|</c> <c>\</c> and <c>/</c>) but exactly
+    /// <b>two</b> on Linux and macOS — <c>'\0'</c> and <c>'/'</c>. So "Acme:Traders" collides with
+    /// "Acme_Traders" on Windows and is simply a different file on Unix. That is correct rather than lossy:
+    /// the sanitiser uses the platform's own invalid set and <see cref="Exists(string)"/> uses the platform's
+    /// own namespace rules (<c>File.Exists</c>, which is case-insensitive on Windows and default APFS and
+    /// case-sensitive on Linux), so the guard catches exactly the pairs that really do land on one file HERE.
+    /// <c>'/'</c> is the only printable character invalid everywhere, which is why tests that need a
+    /// guaranteed collision use it.</para>
+    /// <para><b>The one case this does not cover</b> is a <c>.db</c> carried BETWEEN platforms: the stored
+    /// company name is re-sanitised on every write, so a book created on Windows as "Acme:Traders" (file
+    /// <c>Acme_Traders.db</c>) will, once opened on Linux, have its next save written to a brand-new
+    /// <c>Acme:Traders.db</c>. Single-platform use cannot reach it and no test covers it.</para>
     /// </summary>
     public string PathForName(string companyName)
         => Path.Combine(CompaniesDirectory, SanitiseFileName(companyName) + ".db");

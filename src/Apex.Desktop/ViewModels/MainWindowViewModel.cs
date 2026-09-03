@@ -880,13 +880,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para><b>🔴 THE NAME COLLISION IS REFUSED HERE, and it is a book-eater, not a nicety.</b> The company's
     /// <c>.db</c> path is derived from its name with the invalid filename characters replaced
     /// (<c>CompanyStorage.PathForName</c>), and <c>CompanyStorage.Load</c> takes the FIRST company row in the
-    /// file. So creating "Acme:Traders" on a machine that already has "Acme_Traders" used to write a SECOND
+    /// file. So creating "Acme/Traders" on a machine that already has "Acme_Traders" used to write a SECOND
     /// company row into the FIRST company's file, with no exception and no message — and everything typed into
     /// the second one then became unreachable forever, because the loader never returns it. Alteration already
     /// refuses to rename for exactly this reason (<c>CompanyProfileViewModel.IsNameEditable</c>); refusing a
     /// rename while leaving the identical hole open on create is not a coherent position, so the check is here
     /// too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
-    /// only the identical name.</para>
+    /// only the identical name. <b>WHICH pairs collide is platform-dependent</b> — <c>/</c> collapses
+    /// everywhere, <c>:</c> only on Windows; see <c>CompanyStorage.PathForName</c> for the full note.</para>
     ///
     /// <para><b>And the domain's own refusals are reported, not thrown.</b> <c>CreateSeeded</c> runs
     /// <c>new Company(...)</c>, whose constructor throws on an impossible pair of book dates; nothing between

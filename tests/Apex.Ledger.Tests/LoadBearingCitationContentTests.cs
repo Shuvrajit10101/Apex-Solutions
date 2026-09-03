@@ -139,7 +139,7 @@ public sealed class LoadBearingCitationContentTests
         // The desktop layer's single validation floor. The census row claims the write half is "safe" BECAUSE
         // this call exists; delete it and the claim is false while the reach check stays green.
         new("docs/full-clone-census.md",
-            "**The floor that made the write half safe - `CompanyStorage.cs:128`**",
+            "**The floor that made the write half safe - `CompanyStorage.cs:142`**",
             "CompanyStorage.cs",
             "company.EnsureValid()"),
 
