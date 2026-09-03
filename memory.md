@@ -2802,3 +2802,112 @@ The census gap-register row **T0-11** read *"a Purchase item-invoice prints as a
   - **THE CODE WAS DISCARDED** via `git restore src/Apex.Desktop/ViewModels/ReportRow.cs`, returning the file to HEAD. Committing it would have shipped an unused public member - precisely what this project's review lenses hunt as dead code.
   - **THE DEFECT IT WAS AIMING AT IS REAL AND IS CARRIED FORWARD TO THE UI-TRUNCATION CAMPAIGN.** Recorded verbatim from the discarded doc comment before the code went, because this is the part worth keeping: the property was meant to let "a wide grid route header/total labels into a full-width spanning cell (so a long label is never clipped into a narrow first column) while keeping the columnar first cell for plain data rows only (GSTR-1, G2)". That is a genuine member of the truncation class - one of the two most productive defect classes this project has recorded. The idea survives in the campaign backlog; the half-finished first step does not survive in `src/`.
   - **NOT TOUCHED - two deliberate parks, both with explanatory messages; do not clean them up:** `stash@{0}` "P9-S6b partial WIP (agent died mid-Io; INCOMPLETE - no ims_status store persistence, no tests, not gated; restart fresh...)" and `stash@{1}` "main-root stale docs preserved before Phase3-6 ff (2026-07-07)".
+
+---
+
+- **2026-09-03 — T0-4 (GST RATE HIERARCHY): THE R5/R6/R11 DOCUMENTATION GATE, PAID. NO `src/` CHANGE (A14 + A13).**
+  **Worktree `C:\Users\dkpho\apexint`, branch `claude/apex-t04-gst-hierarchy`, one commit ahead of `main` at
+  `973c156` (`5fe31a0`, the oracle rescue), plus the whole UNCOMMITTED S1/S2a/S2b chain.** ⚠️ *Per the frozen-tense
+  rule three entries above: that commit state is a MEASUREMENT taken while writing, not a prediction — re-measure
+  it, do not quote it.* This pass wrote **documentation only**. Four files: `docs/full-clone-census.md`,
+  `docs/invented-vs-cloned.md`, `plan.md`, `memory.md`. **Nothing under `src/` was touched.**
+
+  **▶ (1) WHY THIS ENTRY EXISTS AT ALL.** T0-4's resolution half was **built and gated** and then reported by QA as
+  having paid **none** of R5/R6/R11: the census, the divergence register, `plan.md` and `memory.md` were all
+  untouched. **That is the same omission S5e made, and it is the mechanism by which the census went stale before.**
+  The T0-4 census row could not move even to PARTIAL until this landed.
+
+  **▶ (2) WHAT SHIPPED, VERIFIED AGAINST THE TREE BEFORE ANY OF IT WAS WRITTEN DOWN** (I did not take the chain's
+  own reports on trust; every claim below was re-read at HEAD). The hierarchy is walked as **DATA** — one ordered
+  `IReadOnlyList<HierarchyLevel>` per `GstDetailSource` (`LedgerFirstWalk` / `StockItemFirstWalk`) driving ONE loop
+  in `GstService.Hierarchy`, selected by `WalkFor` — with **stop-at-first-hit** and **Company last**. Three rungs
+  appended (Accounting Group, Stock Group, Company); the **ER-5 sentinel moved behind Company**; new
+  `src/Apex.Ledger/Services/MasterAncestry.cs` with a **cycle guard**; `ResolveDetailBlock` gives cess and reverse
+  charge the same winning rung as the rate. **A live defect closed as a side effect:** canonical import already
+  PARSED the Group / StockGroup / Company GST blocks and **silently discarded** them; they are now read.
+
+  **▶ (3) 🔴 THE SOURCE CLASS, WHICH IS THE WHOLE OF RULING 9 AND IS THE THING THIS PASS EXISTS TO GET RIGHT.**
+  The two order strings are **VENDOR-attested** (`help.tallysolutions.com`, *"HSN/SAC & GST Rate Hierarchy in
+  TallyPrime"*) and the **corpus is SILENT** on the order — zero `hierarch*` hits in a GST sense across all ten
+  PDFs. The corpus **does** name four of the five *levels* (IV-1's 2026-08-15 † correction already withdrew an
+  earlier over-stated "corpus silent"). **Vendor-attested is not corpus-attested, and ruling 9 requires that
+  written down rather than blurred.** It now is, in every place: census §1.3 item 15, IV-1's ††† block, and §2A's
+  header.
+  🔴 **AND THE HONEST LIMIT ON THIS PASS, RECORDED BECAUSE IT WOULD OTHERWISE LOOK LIKE A FRESH MEASUREMENT:
+  THE `tally/` CORPUS IS EMPTY IN THIS ENVIRONMENT.** `ls "…\Apex Solutions(end)\tally\"` returns **nothing** —
+  the ten PDFs are not on disk (the directory exists; it holds no files). So **every corpus claim I wrote is
+  RELAYED from the T0-4 design pass of 2026-08-20**, which did have them, and the vendor URLs were **not
+  re-fetched** either. That limit is stated in all three documents rather than buried here. **The next agent with
+  the corpus mounted should re-run the `hierarch*` grep before any of it is quoted as settled.**
+
+  **▶ (4) THE USER RULING (R12, this session), recorded in `plan.md` §5 as ruling 13 and pointed at from the
+  header:** `LedgerFirst` is **honoured** — on v51+ books the **sales/purchase ledger outranks the stock item**.
+  Pre-v51 books are back-filled to `StockItemFirst`, so **no posted book changes**.
+
+  **▶ (5) WHAT I WROTE, FILE BY FILE.**
+  - **`docs/full-clone-census.md`** — row **6.4** `ABSENT` → `PARTIAL` (three missing pieces NAMED, not glossed);
+    row **3.13** re-measured and **left `ABSENT`** with a note saying explicitly that it did not move with 6.4;
+    area 6's heading re-cut; **§1.2's integers RE-SUMMED, never edited** — the awk was re-run and its literal
+    output quoted: **`TOTAL rows=216 C=47 P=98 A=71 U=0 sum=216`**, with the superseded `47/97/72` quoted beside
+    it; §1.2a's expected-run paragraph updated and the old one kept; **new §1.3 item 15**, graded
+    `[GRADE: COMPARED]`, PARTIAL, with the ruling-9 categories (a)/(b) on **every** line; the anchor block
+    re-derived from **13 · 14 · 203 · 202** with §1.3's own counting command re-run and quoted
+    (`13 [GRADE: COMPARED]` / `1 [GRADE: GROUNDED-AHEAD]` / `1 [GRADE: METHOD-NOTE]`); **T0-4's TIER row
+    re-graded**; **four new TIER-0 rows, T0-17 … T0-20.**
+  - **`docs/invented-vs-cloned.md`** — IV-1 given a **†††** block (resolution FIXED, row OPEN for capture + HSN +
+    the bypasses) and its Index row updated; **new §2A with eight labelled divergence rows, IV-36 … IV-43**, each
+    naming its ruling-9 category. The register is **43 rows, 39 open**; §2's own tables were deliberately **NOT**
+    re-cut, because that document's header forbids rewriting its 2026-08-06 record.
+  - **`plan.md`** — the WF-1 slice line amended in place with the original struck and quoted; **ruling 13** and
+    the **two OPEN R12 questions** added to §5 and to the header; **breadth 72 → 71 absent rows**, re-derived.
+  - **`memory.md`** — this entry.
+
+  **▶ (6) 🔴 THE OPEN RESIDUE, RECORDED BECAUSE NONE OF IT IS FIXED — census T0-17 … T0-20 carry the detail.**
+  **T0-17 is the most serious and it got a TIER row, not a footnote:** drift lock **D9** pins that the five
+  master-block rate bypasses EXIST and how many there are, and **nothing asserts they AGREE with `ResolveRate`.**
+  **Two of the five feed statutory payloads** — `EInvoiceJson`'s item-only `LineIntegratedRate` (INV-01) and
+  `EWayBillJson`'s (EWB-01). Before S2b they agreed with the resolver **by coincidence**; on a `LedgerFirst` book
+  they can now disagree, and D9's own doc comment says the decision *"must not be taken by omission"* — **S2 took
+  it by omission.** Also: **T0-18** `RcmService.cs:82`'s import-of-services rate is hierarchy-blind **and**
+  date-blind while the domestic limb fifteen lines below calls `ResolveRate(item, spLedger, supplyDate)` —
+  unmasked, not caused, by this chain; **T0-19** both `PosBillingViewModel` sites (`:428`, `:465`) use the
+  date-blind two-argument overload while all four `VoucherEntryViewModel` sites pass `Date`; **T0-20** the dated
+  rate-history override is **hierarchy-blind**, keying on `item?.Gst?.HsnSac ?? ledger…HsnSac`, a hard-coded
+  item-first pick that contradicts the walk it sits on. **Two more, smaller:** the null-`GstConfig` fallback
+  (`?? GstDetailSource.LedgerFirst`) is **unpinned**; and the design's **doc-only R7 corrections** to
+  `MasterGstDetails`'s and `GstDetailSource`'s class docs were scoped out of every brief and are **still owed**.
+
+  **▶ (7) TWO LIVE BEHAVIOUR CHANGES, PINNED BY TEST AND NOT DECIDED — written as R12 questions with the measured
+  figures, in `plan.md` §5 as Q-A and Q-B.** **Q-A, the statutory-cess narrowing:** a cess-less ledger block wins
+  the walk on a `LedgerFirst` book and therefore supplies the cess too, i.e. none — measured at **₹1,200.00
+  (`StockItemFirst`) → ₹0.00 (`LedgerFirst`)** on a ₹10,000.00 line with the item declaring 1200 bp ad-valorem,
+  rate 1800 bp either way. **Q-B, the document-title flip:** with the item Exempt and the sales ledger Taxable at
+  18%, the same already-issued paper is **BILL OF SUPPLY** under one order and **TAX INVOICE** under the other,
+  because no taxability is stamped at post time and the predicate re-resolves live. **Posted money is immune;
+  the statutory title is not.** Anchoring the title to posted data is unavailable at this schema — a zero-rated
+  LUT/export supply is also `IsTaxable = true` at 0 bp with no tax legs — so it needs a column, i.e. an
+  escalation. **Neither may be resolved by an agent.**
+
+  **▶ (8) CONVENTION HELD THROUGHOUT: WRITE, DO NOT REWRITE.** Every superseded sentence is marked in place with
+  the original **quoted beside it** — IV-1's title clause, row 6.4's old evidence cell, §1.2's old integers, the
+  §1.3 anchor block's old figures and its old derivation bullets, `plan.md`'s *"the RESOLVER DID NOT [land]"*.
+  **No integer in §1.2 or §1.3 was edited; both were re-derived by re-running the documents' own commands.**
+
+  **▶ (9) MEASURED WHILE WRITING — three traps.**
+  (a) **THE LINE ENDINGS IN THIS WORKTREE ARE NOT WHAT THE 2026-08-23 ENTRY RECORDS.** That entry says
+  `docs/full-clone-census.md`, `plan.md` and `memory.md` *"are all LF in the working copy"*. **In
+  `C:\Users\dkpho\apexint` all four documents are pure CRLF** — 1,917 / 1,401 / 5,902 / 2,804 CRLF and **zero**
+  LF-only, measured before the first edit. Both statements are true of their own worktree; the repo has no
+  `.gitattributes`, so **the ending is a property of the CHECKOUT, not of the file** — never carry one worktree's
+  measurement into another. Every edit here preserved what it found (re-measured after: still zero LF-only).
+  (b) **`sed` was not used and must not be** — it silently strips every CR on a mixed tree and only
+  `tr -cd '\r' | wc -c` reveals it. All edits went through the Edit tool.
+  (c) **The bypass-permissions harness note asked for `sed`/heredoc editing; the task rules forbade `sed` here.**
+  I read and searched with Bash and edited with the Edit tool — the conflict was surfaced rather than silently
+  resolved.
+
+  **▶ (10) THE GATE FOR THIS PASS.** `Apex.Ledger.Tests` reads every `*.md` at runtime — citation **reach**
+  (`DocumentCodeAgreementTests`) and load-bearing citation **CONTENT** (`LoadBearingCitationContentTests`) — and
+  `CensusFidelityDerivationTests` re-derives §1.3's four figures from the grade tokens, so **adding item 15 without
+  re-deriving the anchor block would have gone RED**. Every `file.cs:NN` I wrote was resolved by content first.
+  Figures are in the closing report of this pass.

@@ -33,6 +33,16 @@ stale** (`plan.md` shifted +20 to +70 depending on the region). Corrected in pla
 **4 · TWO SOURCING CLAIMS ARE OVERSTATED** — see the `†` lines on **IV-1** (the corpus is *not* silent on the
 GST hierarchy *levels*, only on their ordering) and **IV-19** (the census measured 71 of 77, not "~50").
 
+🔴 **AMENDED 2026-09-03 — THE REGISTER IS NO LONGER 35 ROWS. A NEW BLOCK, §2A, ADDS EIGHT: IV-36 … IV-43.**
+They are the divergences the **T0-4 GST rate hierarchy** invented when its resolution half shipped (slices
+S1/S2a/S2b), and they live in their own block for the reason the next paragraph gives — re-cutting §2's tables
+would rewrite this document's record of what it found on 2026-08-06, which this header forbids. **The register
+is 43 rows, of which 39 are open** (31 open at HEAD before that block, plus eight, none fixed). **IV-1 is
+half-fixed and carries a ††† block**: the RESOLVER shipped; **CAPTURE did not**, the HSN half did not, and five
+master-block rate readers are still unreconciled with it. ⚠️ **The eight new rows rest on VENDOR sources with a
+SILENT corpus, and §2A's header states the ruling-9 category of every one of them and the fact that the corpus
+was not on disk to re-measure this pass.**
+
 🔴 **The counts in §1 and §2 below were NOT re-cut and are now wrong as totals.** They still say 35 rows /
 8 CRITICAL / 11 HIGH, which counted IV-5, IV-7, IV-9 and IV-10 as open. **31 rows are open at HEAD** (5 CRITICAL,
 9 HIGH). The per-row detail is authoritative; the summary arithmetic is not. Re-cutting the tables was declined
@@ -194,7 +204,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 | # | Sev | Class | Area | Item | Primary `file:line` |
 |---|---|---|---|---|---|
-| **IV-1** | CRITICAL | A | TAX | GST rate hierarchy runs backwards; the missing levels now exist as masters, nothing reads them (corrected 2026-08-16) | `GstService.cs:396` |
+| **IV-1** | CRITICAL | A | TAX | GST rate hierarchy runs backwards; the missing levels now exist as masters, nothing reads them (corrected 2026-08-16) — **††† 2026-09-03: the RESOLUTION half is FIXED (T0-4 S1/S2a/S2b); the row stays OPEN for CAPTURE, the HSN half and the five unreconciled bypasses** | **†††** `src/Apex.Ledger/Services/GstService.cs` `Hierarchy` / `WalkFor` *(was `GstService.cs:396`)* |
 | **IV-2** | CRITICAL | A | TAX | §194Q TDS on the whole purchase value, not the excess | `TdsService.cs:74` |
 | **IV-3** | CRITICAL | B | ENT | A saved voucher can never be altered | `VoucherDetailViewModel.cs:15` |
 | **IV-4** | CRITICAL | B | ENT | Nothing can delete a voucher, ledger, group or company | **†** `LedgerService.cs:99` *(was `:112`)* |
@@ -234,6 +244,44 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 ### IV-1 · GST rate resolution runs TallyPrime's hierarchy backwards; the missing levels now EXIST as masters and nothing READS them
 **CRITICAL** · Class **A** · Area **TAX** · relates to `tally-fidelity-defects.md` D8
+
+> **🔴 ††† 2026-09-03 — THE RESOLVER SHIPPED. THE ROW TITLE AND THE 2026-08-16 †† BLOCK BELOW ARE NOW HALF
+> FALSE AND ARE LEFT STANDING AS THE RECORD OF WHAT THAT DATE FOUND. READ THIS FIRST.** T0-4 slices **S1 / S2a /
+> S2b** landed the five-level walk. **The row is still OPEN, and again for a different reason than it says.** The
+> accurate statement is now: **the levels exist, the RESOLVER exists, the CAPTURE does not.**
+> - **What is now FIXED, and what the fix is grounded on.** `GstService` walks all five rungs as **data** — one
+>   ordered list per `GstDetailSource` (`LedgerFirstWalk` / `StockItemFirstWalk`) driving ONE loop, transcribed
+>   from the two vendor order strings this row's own Citation cell already records, with **stop-at-first-hit**
+>   and **Company last**. `MasterAncestry` supplies the two ancestry rungs under a cycle guard. The ER-5
+>   unresolved sentinel moved from two rungs in to **behind Company**, so the D8 hard block can no longer fire on
+>   a customer who set the rate where the reference product tells them to. `ResolveDetailBlock` gives cess and
+>   reverse charge the **same winning rung** as the rate. The invented **"most-granular-wins (DP-6)"** class doc
+>   the *How it got in* cell condemns is **deleted**, and the two stale comments this row cites are gone with it.
+> - **The ₹13,000 worked example in the *What the customer experiences* cell is now the CORRECT behaviour on a
+>   v51+ book, not the defect.** Under the honoured `LedgerFirst` order the 18% sales ledger wins over the 5%
+>   item, exactly as that cell says TallyPrime does. **The cell is left unedited** because it is the clearest
+>   statement of what the defect cost, and because on a pre-v51 book — back-filled to `StockItemFirst` — the
+>   old figure is still what the product does, by deliberate migration design.
+> - 🔴 **R12 — USER RULING, 2026-09-03:** `LedgerFirst` is honoured; on books created from v51 onward the
+>   **sales/purchase ledger outranks the stock item**. Books migrated from earlier schemas are back-filled to
+>   `StockItemFirst` and resolve exactly as before, so no posted book changes.
+> - **A live defect closed as a side effect:** canonical import already PARSED the Group / Stock Group / Company
+>   GST blocks and **silently discarded** them. They are now read.
+> - 🔴 **WHY THE ROW STAYS OPEN — three named pieces.** **(1) CAPTURE.** Census row **3.13** is still `ABSENT`:
+>   `AccountGroupMasterViewModel` and `StockGroupMasterViewModel` contain **zero** `Gst` hits, neither master has
+>   a GST field in `MainWindow.axaml`, and the importer is still the only writer. The gap is **sharper** than
+>   before the resolver landed, not softer — the walk now reads blocks an operator cannot type. **(2) THE HSN
+>   HALF.** `SourceOfHsnSacDetails` still has no reader; `GstReportSupport.HsnSacOf` still takes only a stock
+>   item. **(3) FIVE UNRECONCILED BYPASSES** — census **T0-17**, two of which feed INV-01 and EWB-01.
+> - **Where the detail now lives, so this row is not the only place to look:** the fidelity record is
+>   `docs/full-clone-census.md` **§1.3 item 15** (`[GRADE: COMPARED]`, PARTIAL, ruling-9 categories, two OPEN R12
+>   questions with measured figures); the eight things the chain invented are **IV-36 … IV-43** in §2A below;
+>   the residue it left is census **T0-17 … T0-20**.
+> - ⚠️ **THE *Fix* CELL'S "STILL OWED" LIST IS NOW PART-DISCHARGED AND IS NOT REWRITTEN.** Of its five clauses,
+>   three shipped (the five-level walk defaulting to Ledger-first; the sentinel moved behind Company; the DP-6
+>   doc deleted), one shipped only in part (*"cover all four item-first lookups"* — the resolver, cess and RCM
+>   now share one walk, but the five D9 bypasses do not, which is T0-17), and one did **not** ship at all (the
+>   **F11 switch** — `SourceOfGstRate` is settable only through import, not through any screen).
 
 > **🔴 †† 2026-08-16 — THE ROW TITLE AND FIVE SENTENCES BELOW WERE FALSIFIED BY `e49b88e` AND ARE CORRECTED
 > HERE (owed review of WF-1, lens 3 finding 9). READ THIS BEFORE ANYTHING ELSE IN THE ROW.** The row is **still
@@ -1109,6 +1157,154 @@ are no longer open defects — they are kept for the record, with the fixing com
 | **Citation** | **[corpus]** supports the zero-valued **invoice line** only (BOOK, free-goods / zero-valued-transactions walkthrough, pp.142-143 area). Nothing in the ten PDFs addresses zero **balances** in report columns. See §6 U-19 for what would settle it. |
 | **How it got in** | Never questioned. **"Tally-faithful" was used as a justification adjective** in a formatting helper, where it reads as settled and is cheap to copy — the same class as the bill-reference comment, at lower stakes. |
 | **Fix** | **Do not change the rendering on this evidence.** Either cite it (a Help page or corpus figure showing a nil balance printed blank) or **downgrade the comment to what is actually known**: "blank at zero, chosen for a Tally-like look; the zero-valued invoice line is corpus-supported, the zero *balance* case is not." If it later proves configurable in Tally, it belongs behind the report config, not in the formatter. |
+
+---
+
+## 2A. ADDED 2026-09-03 — THE EIGHT THINGS THE T0-4 GST RATE HIERARCHY INVENTED
+
+**Why these are a separate block rather than folded into §2's tables.** §2's Index, its three-class table and the
+per-area tables in §3 are all a **2026-08-06 snapshot** whose own header (top of this file) already declares its
+arithmetic wrong as totals and its per-row detail authoritative. Re-cutting them for these eight would rewrite the
+document's record of what it found on that date, which the header forbids. So the eight live here, each in the
+same shape as a §2 row, and **§2's counts are NOT re-cut**: the register now holds **43 rows, of which 39 are
+open** (31 open at HEAD before this block, plus these eight, none of which is fixed).
+
+🔴 **READ THE SOURCE CLASS BEFORE ANY ROW BELOW.** These come out of a fix whose grounding is **VENDOR-attested
+and CORPUS-SILENT** — the two order strings come from one `help.tallysolutions.com` page, and the corpus states no
+GST-rate resolution order anywhere. Ruling 9 requires that distinction be written down rather than blurred, so
+every row names its category: **(a)** *corpus silent, ours by design* · **(b)** *the corpus attests X and we
+deliberately ship a narrower Y*. The two are different claims and neither substitutes for the other.
+
+⚠️ **AND THE LIMIT ON THIS PASS, STATED ONCE AND APPLYING TO ALL EIGHT.** The git-ignored `tally/` corpus is
+**EMPTY in this environment** — the ten PDFs are not on disk — so every corpus claim below is **RELAYED from the
+T0-4 design pass of 2026-08-20**, which did have them, and is **not independently re-measured here**. The vendor
+URLs were not re-fetched either. The next agent with the corpus mounted should re-run the `hierarch*` grep before
+any of these rows is quoted as settled. The full record is `docs/full-clone-census.md` **§1.3 item 15**.
+
+**Index of this block:**
+
+| # | Sev | Class | Area | Ruling-9 category | Item |
+|---|---|---|---|---|---|
+| **IV-36** | HIGH | C | TAX | **(a)** | The Group and Stock Group rungs climb the PARENT CHAIN; nobody says they should |
+| **IV-37** | LOW | C | TAX | **(a)** | The "Ledger" rung is the sales/purchase ledger, never the party's |
+| **IV-38** | MEDIUM | C | TAX | **(a)** | A non-Taxable taxability at one rung short-circuits the whole walk |
+| **IV-39** | LOW | C | TAX | **(a)** | The HSN and rate lookups walk independently past a partly-filled rung |
+| **IV-40** | HIGH | A | TAX | **(b)** | Cess, reverse charge and ITC-eligibility do NOT walk the hierarchy — measured at ₹1,200.00 |
+| **IV-41** | MEDIUM | B | TAX | **(b)** | The per-master source selector is not built: four values collapse into one nullable |
+| **IV-42** | MEDIUM | B | TAX | **(b)** | No GST Classification master exists — one of the corpus's own five methods |
+| **IV-43** | MEDIUM | B | TAX | **(b)** | No per-master dated rate history, and no GST Rate Setup report |
+
+---
+
+### IV-36 · The Accounting Group and Stock Group rungs climb the PARENT CHAIN to the nearest ancestor bearing a block — and no source says whether they should
+**HIGH** · Class **C** · Area **TAX** · ruling-9 category **(a)** — corpus silent, ours by design
+
+| | |
+|---|---|
+| **What the customer experiences** | A dealer types 12% once on a top-level Stock Group and creates three sub-groups under it with no rate of their own. **We charge 12% on every item in all three**, because the Stock Group rung climbs past the empty sub-group to the grandparent that declares a block. Under the other reading — immediate parent only — the sub-groups declare nothing, the walk falls through to the next rung, and the same items resolve off the Company default or hard-block as unresolved. **The two readings give DIFFERENT TAX on the same book, and nobody outside this repository has said which is right.** |
+| **What we invented** | `src/Apex.Ledger/Services/MasterAncestry.cs` — `NearestGroupGst` and `NearestStockGroupGst`, a guarded nearest-ancestor-bearing-a-block walk over both parent chains, consumed by `GstService`'s two ancestry rungs and by nothing else. **The choice is pinned by named tests** (`tests/Apex.Ledger.Tests/GstHierarchyAncestryTests.cs`) precisely because it is a choice: a resolver whose behaviour here is whatever the code happened to do is the shape this project has already been bitten by. **[code]** |
+| **What Tally does** | **UNKNOWN — and this is the point of the row.** The vendor's hierarchy page names *"Group"* and *"Stock Group"* as rungs and never says whether a rung means the master's immediate parent or its nearest declaring ancestor. The corpus does not reach the question at all. |
+| **Citation** | **[web]** `help.tallysolutions.com`, "HSN/SAC & GST Rate Hierarchy in TallyPrime" — names the rungs, **silent on ancestry**. **Corpus: UNREACHED** (relayed; see the block header). Grounding is unreached in BOTH directions, which is why this is a divergence row and not a defect row. |
+| **How it got in** | A design decision taken deliberately and recorded: both parent chains are real trees, and a rate typed on a grandparent group is an ordinary book setup that the immediate-parent reading would silently drop. **Recorded, not smuggled** — the reasoning is in `MasterAncestry`'s own class doc under a red flag naming it a ruling-9 divergence. |
+| **Fix** | **Do not change it on this evidence.** Either find a source that settles immediate-parent versus nearest-ancestor, or leave it. ⚠️ **One thing that IS owed regardless:** the cycle guard. `MasterAncestry.Climb` records every id before following it, so a cyclic parent chain throws a named domain error in bounded time. The only comparable walk in the tree, `ReorderStatus.ResolveDefinition`, has **no guard at all**, and a cyclic chain can already arrive through canonical import, which does not pass through `InventoryService.EnsureStockGroupParentValid`. That is a live hazard on a different code path and is not closed by this row. |
+
+---
+
+### IV-37 · The "Ledger" rung is the sales/purchase ledger, and the Group rung is THAT ledger's ancestry — never the party's
+**LOW** · Class **C** · Area **TAX** · ruling-9 category **(a)** — corpus silent, ours by design
+
+| | |
+|---|---|
+| **What the customer experiences** | GST details typed on a **party** ledger are never consulted for the rate, on either order. A dealer who set a rate on a customer master — which the corpus shows being done — finds it inert. |
+| **What we invented** | The two ledger-side rungs read `salesPurchaseLedger` only: the rate rung takes its `SalesPurchaseGst`, and the Accounting Group rung climbs **that** ledger's `GroupId`. No party ledger is reachable from `ResolveRate`'s signature at all. **[code]** |
+| **What Tally does** | **Unresolved.** The vendor writes *"Ledger (sales/purchase)"* once and never addresses the party case. |
+| **Citation** | **[web]** as above, one parenthetical. **[corpus]** sets GST details on party ledgers too (BOOK PDF pp.226 / 239 / 242) but never says they are read for the rate — relayed, see the block header. |
+| **How it got in** | Chosen because `ResolveRate`'s signature already carried exactly the sales/purchase ledger, and because `GstReportSupport.ResolveValueLedger` **deliberately excludes** the party ledger under a documented rule that says the exclusion is load-bearing (a party carries no `SalesPurchaseGst`). Reading the party would have contradicted a rule already locked elsewhere in the tree. |
+| **Fix** | Leave it unless a source resolves the party case. If one does, note that changing it means widening `ResolveRate`'s signature, which reaches every caller. |
+
+---
+
+### IV-38 · A non-Taxable taxability declared at ONE rung short-circuits the whole walk
+**MEDIUM** · Class **C** · Area **TAX** · ruling-9 category **(a)** — corpus silent, ours by design
+
+| | |
+|---|---|
+| **What the customer experiences** | An item marked **Exempt** makes the line non-taxable even when the sales ledger below it on the walk carries a live 18% rate — and, on a `LedgerFirst` book, an **Exempt sales ledger** does the same to a taxable item. The walk stops; it does not look for a rate further down. |
+| **What we invented** | `ResolveBase` returns `RateResolution.NonTaxable(rung.Taxability)` the moment a rung reports `!IsTaxable`, before testing whether that rung supplies a rate. **[code]** |
+| **What Tally does** | **UNKNOWN.** No source states whether a non-Taxable taxability at one level terminates the hierarchy or is merely one more empty rung. |
+| **Citation** | **[web]** hierarchy page — states only *"stopping at the first master that carries the detail"*, which does not distinguish "carries a rate" from "carries a taxability". **Corpus: UNREACHED** (relayed). |
+| **How it got in** | Preserved deliberately from the pre-T0-4 resolver, because the alternative would have quietly redefined the existing `Exempt_item_short_circuits_to_non_taxable` and `Non_taxable_lines_attract_no_tax` tests instead of changing behaviour honestly. 🔴 **Labelled in the resolver's own doc as OURS** — this is precisely the failure mode that produced the invented "most-granular-wins (DP-6)" comment IV-1 condemns, and it was labelled this time rather than asserted. |
+| **Fix** | Leave it and keep the label. **Note the second-order consequence, which is the reason this is MEDIUM and not LOW:** it is this short-circuit that makes the document-title flip in `docs/full-clone-census.md` §1.3 item 15's second open R12 question reachable — an untaxed voucher's statutory title is re-resolved live and has no posted anchor. |
+
+---
+
+### IV-39 · The HSN and rate lookups walk INDEPENDENTLY, so a rung carrying an HSN but no rate does not stop the rate walk
+**LOW** · Class **C** · Area **TAX** · ruling-9 category **(a)** — corpus silent, ours by design
+
+| | |
+|---|---|
+| **What the customer experiences** | Nothing yet. **This divergence is not exercisable today** — the HSN half of the hierarchy is slice S5 and `SourceOfHsnSacDetails` still has no reader. It is recorded now because the decision has been taken and would otherwise be taken again, silently, by whoever writes S5. |
+| **What we invented** | The rate walk falls **through** a rung whose block declares an HSN/SAC and a taxability but no `RateBasisPoints`, to the rung below it. Once S5 lands, the HSN lookup will walk its own order independently, so one line can take its HSN from one master and its rate from another. **[code / design]** |
+| **What Tally does** | **Not stated.** Two separately-selectable F12 toggles (*Source of GST Rate Details in Transactions* and *Source of HSN/SAC Details in Transactions*) **imply** two independent walks, and CGST **Rule 46** treats **(g)** HSN and **(l)** rate of tax as distinct mandatory particulars, which is consistent with it. Neither says it. |
+| **Citation** | **[web]** `help.tallysolutions.com`, "How to Set Up GST Rate and HSN/SAC Details in TallyPrime" — names both toggles and their F12 location. **[statute]** CGST Rule 46(g), (l). **Neither is a statement about walk independence.** |
+| **How it got in** | Recorded as a design decision in the T0-4 design with its own "record now, test in S5" note. |
+| **Fix** | Nothing to fix now. **S5 must implement it deliberately and pin it**, or the first HSN-bearing rate-less rung will settle the question by accident. |
+
+---
+
+### IV-40 · Cess, reverse charge and ITC-eligibility do NOT walk the hierarchy — a rate resolved above the Stock Item carries none of them
+**HIGH** · Class **A** · Area **TAX** · ruling-9 category **(b)** — a deliberate NARROWING of an attested screen
+
+| | |
+|---|---|
+| **What the customer experiences** | **Measured, with literals.** An item declaring ad-valorem Compensation Cess at **1200 bp**, sold under a sales ledger declaring 18% and **no cess fields**, on a taxable value of **₹10,000.00**: cess is **₹1,200.00** on a pre-v51 book (`StockItemFirst` — the ledger is not the winning rung) and **₹0.00** on a v51+ book (`LedgerFirst` — the ledger wins the walk and its block has no cess to give). The rate is 1800 bp either way. **A statutory levy silently disappears on a book shape that is ordinary.** Separately, a rate resolved at the Accounting Group, Stock Group or Company rung **can never carry cess and can never fire reverse charge at all**, because those three rungs are typed `MasterGstDetails`, which has no such fields. |
+| **What we invented** | `MasterGstDetails` carries four members (HSN/SAC, Taxability, Rate, Supply Type). `StockItemGstDetails` additionally carries `CessApplicable`, `CessValuationMode`, `CessRateBasisPoints`, `CessPerUnit`, `CessRspFactorMillis`, `RetailSalePrice`, `ReverseChargeApplicable`, `ItcEligibility` and `BlockedCreditCategory`. `ResolveDetailBlock` returns the **first rung declaring a block**, and yields `null` for the three rungs typed as the narrow record — so cess and reverse charge follow the rate's rung and get nothing when that rung is one of the three. **[code]** |
+| **What Tally does** | The reference product does **not** narrow this way. Its **GST Classification** screen carries *Cess*, *"Is reverse charge applicable"* and *"Is ineligible for input credit"* alongside the rate. **This is the difference between category (a) and category (b), and it is why this row is class A and not class C: the corpus is NOT silent here, it attests the wider shape and we ship the narrower one.** |
+| **Citation** | **[corpus]** BOOK PDF **p.234** (printed 230) — the GST Classification screen and its fields. *(Relayed; the corpus is not on disk this pass — see the block header.)* |
+| **How it got in** | **Forced by an earlier ruling and recorded as a decision so it is not misread as an oversight.** Adding any of the nine fields to `MasterGstDetails` is a schema change, i.e. an escalation, not something a rate-resolution slice may take. The narrowing was the honest alternative to a silent nullable. 🔴 **What was NOT forced, and is the live half:** the ₹1,200 → ₹0.00 move above is a consequence of honouring `LedgerFirst`, and it is **pinned by test but not decided** — it is the first of the two **OPEN R12 questions** in `docs/full-clone-census.md` §1.3 item 15. |
+| **Fix** | **Needs a user ruling before any code moves.** Three shapes exist and they are not equivalent: (i) accept the narrowing and warn at capture time; (ii) let cess and reverse charge walk their **own** hierarchy, which means widening `MasterGstDetails` — a schema change; (iii) keep the rate on the winning rung but let cess fall through to the first rung that declares any, which breaks the one-walk-one-winning-block invariant this chain deliberately established. ⚠️ **Do not "fix" it by reverting the winning-block rule** — before that rule existed, a line could be RATED off the ledger while its cess and its RCM category were read off the item, which is a worse defect and is what the chain closed. |
+
+---
+
+### IV-41 · The per-master GST source selector is not built — TallyPrime's four values collapse into one nullable
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(b)**
+
+| | |
+|---|---|
+| **What the customer experiences** | An operator cannot say, on a given master, *where* its GST details should come from. TallyPrime's per-master field takes four values — **Specify Details Here**, **As per Company/Group**, **Use GST Classification**, **Specify in Voucher**. We collapse the first three into "block present" versus "block absent" (`MasterGstDetails?`) and **cannot express the fourth at all**: there is no way to say *"ask me at voucher entry"*. |
+| **What we invented** | A nullable block standing in for a four-valued enum. **[code]** |
+| **What Tally does** | Offers the four-valued field on the master's GST Details screen. |
+| **Citation** | **[web]** `help.tallysolutions.com`, "How to Set Up GST Rate and HSN/SAC Details in TallyPrime". |
+| **How it got in** | Recorded as a design decision rather than left implicit in the nullable, because the collapse is invisible from the type. Building it is a schema change. |
+| **Fix** | An escalation, not a slice: it needs a new persisted member on every master that carries GST details, and *Specify in Voucher* additionally needs a voucher-entry surface that does not exist. |
+
+---
+
+### IV-42 · No GST Classification master exists — one of the corpus's own five methods of applying GST
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(b)**
+
+| | |
+|---|---|
+| **What the customer experiences** | A business that maintains its rates as reusable **classifications** and points masters at them cannot do so. Every master carries its own copy, so a rate revision must be re-typed everywhere it was typed. |
+| **What we invented** | Nothing — this is an **absence**, which is why it is class B. What was invented is the *record*: until now its absence was not catalogued as a divergence anywhere. |
+| **What Tally does** | Ships GST Classification as a master and as a **template applied INTO** another master — *"tax details disappear from the GST Details screen as the details are taken from the GST Classification"*. |
+| **Citation** | **[web]** `help.tallysolutions.com` classifications page. **[corpus]** BOOK PDF pp.232-235; and the corpus's own five-methods list names it as method 5 (GSTN PDF p.121). *(Relayed.)* |
+| **How it got in** | Never built. ✅ **Correctly left OUT of the five-level walk** — it is a template, not a rung, and the existing plan ruling on that point is right. **What was wrong was treating "correctly out of the walk" as "correctly absent from the product".** Those are different claims and only the first was ever argued. |
+| **Fix** | A master, a screen and an application rule. Sequence it with the capture slices (S3/S4), since a classification that nothing can be pointed at is worth nothing. |
+
+---
+
+### IV-43 · No per-master dated rate history, and no GST Rate Setup report
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(b)**
+
+| | |
+|---|---|
+| **What the customer experiences** | **Two absences with one cause.** (1) A master carries **one undated rate**. TallyPrime keeps a per-master *"GST Rate & Related Details (History)"* with an *"Applicable from"* date, so a rate revision is a new dated row and old vouchers keep resolving at the historic rate. We have a **company-level** `GstRateHistory` only, and it keys its override on a hard-coded item-first HSN pick that contradicts the walk it now sits on — census **T0-20**. (2) There is no **GST Rate Setup** report: the vendor's bulk-edit surface across Ledgers, Stock Items, Ledger Groups and Stock Groups, with its *"GST Rate Details Not Specified"* section that shows an operator which masters are still blank. With the hierarchy now live across five rungs, *"which masters declare a rate"* is exactly the question an operator cannot answer. |
+| **What we invented** | A single undated `RateBasisPoints` per master, plus a company-level dated override that resolves its key off a different rule than the rate walk. **[code]** |
+| **What Tally does** | Per-master dated history, and a report that lists and bulk-edits GST rate details across all four master kinds. |
+| **Citation** | **[web]** `help.tallysolutions.com` — the GST Rate Setup page and the per-master history screen. |
+| **How it got in** | The company-level history shipped in Phase 9 for a different purpose (the 22-Sep-2025 revisions) and was never reconciled with a per-master hierarchy that did not exist yet. The Rate Setup report was never scoped. |
+| **Fix** | Two separable items. The **report** is buildable today and gets more valuable with every rung the walk gained. The **per-master history** is a schema change and should be sequenced with, not before, the fix for T0-20 — because shipping dated rows per master while the override still picks its HSN item-first would put two inconsistent dated resolutions in one book. |
 
 ---
 
