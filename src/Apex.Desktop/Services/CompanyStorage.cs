@@ -181,7 +181,13 @@ public sealed class CompanyStorage
     }
 
     /// <summary>
-    /// Deletes a company's <c>.db</c> file. Best-effort; a locked file is left in place.
+    /// Deletes a company's <c>.db</c> file. Best-effort; a file that cannot be removed is left in place.
+    /// <para><b>The catch list must stay as wide as the ways a delete is refused, and those differ by
+    /// platform.</b> On Windows a file in use raises <see cref="IOException"/>, which is all this used to
+    /// catch. On Linux and macOS the deciding permission is on the PARENT DIRECTORY, and a refusal there
+    /// arrives as <see cref="UnauthorizedAccessException"/> — which escaped, turning a method documented as
+    /// best-effort into a crash on the platform where that refusal is most likely. The list now matches
+    /// <c>CompanyBackup.SafeDelete</c>, which had it right.</para>
     /// </summary>
     public void Delete(CompanyEntry entry)
     {
@@ -191,6 +197,9 @@ public sealed class CompanyStorage
                 File.Delete(entry.DatabasePath);
         }
         catch (IOException) { /* file in use — leave it */ }
+        catch (UnauthorizedAccessException) { /* read-only, or an unwritable parent directory on POSIX */ }
+        catch (ArgumentException) { /* an unusable path is not holding a company file */ }
+        catch (NotSupportedException) { /* ditto */ }
     }
 
     // =============================================================== RQ-8 Save View (per-company saved views)
