@@ -518,10 +518,14 @@ public sealed class CompanyBackupTests : IDisposable
         // EXCLUSIVE lock — so the .db on disk now physically contains pages of a half-applied transaction whose
         // undo information lives only in the rollback journal.
         //
-        // A file copy taken at this instant is worthless: it either carries the uncommitted data or is outright
-        // unreadable, and it says nothing about either. The backup API cannot read a database under an EXCLUSIVE
-        // lock at all, so the operation FAILS LOUDLY and writes no archive. Failing to take a backup is
-        // recoverable — "try again in a moment". Writing a backup that cannot be restored is not.
+        // A file copy taken at this instant is worthless: it either carries the uncommitted data, or is outright
+        // unreadable, or (on macOS) cannot even be taken — and it says nothing about any of those. The backup API
+        // cannot read a database under an EXCLUSIVE lock at all, so the operation FAILS LOUDLY and writes no
+        // archive. Failing to take a backup is recoverable — "try again in a moment". Writing a backup that
+        // cannot be restored is not.
+        //
+        // The REFUSAL is asserted on all three platforms. Only the copy-is-worthless demonstration is split by
+        // platform, at the bottom of this test, where the reason is written out in full.
         var company = OddPaisaCompany("Spilled Co");
         var dbPath = SaveFixture(company, "spilled.db");
         SqliteConnection.ClearAllPools();
@@ -530,6 +534,10 @@ public sealed class CompanyBackupTests : IDisposable
 
         var archive = Path_("spilled" + CompanyBackup.ArchiveExtension);
         var naive = Path_("spilled-naive-copy.db");
+
+        // Set when the OPERATING SYSTEM refuses the naive copy outright rather than letting it produce a lying
+        // file. See the DARWIN note at the bottom of this test. Null means the copy went through.
+        IOException? naiveCopyRefusedByOs = null;
 
         using (var writer = new SqliteConnection($"Data Source={dbPath}"))
         {
@@ -550,13 +558,25 @@ public sealed class CompanyBackupTests : IDisposable
                 mut.ExecuteNonQuery();
             }
 
-            // (a) what "just copy the file" produces at this instant.
-            File.Copy(dbPath, naive, overwrite: true);
-
-            // (b) what the backup produces: nothing, and it says why.
+            // (a) THE PRODUCT BEHAVIOUR — asserted FIRST and on EVERY platform, because it is the half that
+            // matters: the backup produces nothing, and it says why. It goes first deliberately. Nothing about
+            // this assertion is platform-dependent: Create never touches the source with File.Copy or a
+            // FileStream — its only contact is a SqliteConnection (CompanyBackup.cs:151-166), so the refusal is
+            // SQLite's own SQLITE_BUSY under the EXCLUSIVE lock, which is the same on all three platforms.
             var ex = Assert.Throws<CompanyBackupException>(() => CompanyBackup.Create(dbPath, archive, TakenAt));
             Assert.Contains("busy", ex.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("No backup has been written", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+            // (b) what "just copy the file" produces at this instant — judged below, after the leftovers check,
+            // because whether the OS even PERMITS the copy is itself platform-dependent.
+            try
+            {
+                File.Copy(dbPath, naive, overwrite: true);
+            }
+            catch (IOException copyRefused)
+            {
+                naiveCopyRefusedByOs = copyRefused;
+            }
 
             tx.Rollback();
         }
@@ -566,6 +586,29 @@ public sealed class CompanyBackupTests : IDisposable
         Assert.False(File.Exists(archive), "a backup archive was written despite the failure");
         Assert.False(File.Exists(archive + ".apex-backup-tmp"), "the snapshot staging file was left behind");
         Assert.False(File.Exists(archive + ".apex-backup-part"), "the partial archive was left behind");
+
+        // ---- THE "A FILE COPY WOULD LIE" HALF. This is the only part of this test that is platform-dependent,
+        // and it is split here EXPLICITLY rather than skipped: the refusal above ran on all three platforms.
+        //
+        // DARWIN CANNOT HOST THIS HALF. On macOS the EXCLUSIVE lock SQLite holds over the spilled transaction is
+        // one that .NET's File.Copy honours — Copy opens the source as FileShare.Read, which .NET implements on
+        // Unix as flock(LOCK_SH|LOCK_NB), and macOS SQLite's lock collides with it, so the copy is refused with a
+        // sharing violation before a single byte is read. On Linux the same collision does not happen (SQLite
+        // there takes fcntl() POSIX record locks, which live in a different lock space from flock()), and on
+        // Windows the share modes let the read through. So on macOS the naive copy cannot be CONSTRUCTED, and
+        // there is nothing to prove corrupt.
+        //
+        // That is not a weaker outcome — "you cannot even take the copy" teaches the same lesson — so it is
+        // asserted by name below instead of being skipped. And the guard is one-way: if a future macOS DOES let
+        // the copy through, naiveCopyRefusedByOs stays null and the corruption proof runs there too. This branch
+        // can never quietly become a no-op on Windows or Linux, because taking it there is itself a failure.
+        if (naiveCopyRefusedByOs is not null)
+        {
+            Assert.True(OperatingSystem.IsMacOS(),
+                "Only macOS is known to refuse the naive copy outright. A refusal on this platform is a new fact " +
+                "that must be investigated, not absorbed: " + naiveCopyRefusedByOs.Message);
+            return;
+        }
 
         // And the file copy is provably NOT the committed state — it is either corrupt or carries the
         // uncommitted transaction. Either way it is not a backup, and nothing about it says so.
