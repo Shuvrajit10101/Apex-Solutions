@@ -371,7 +371,17 @@ public static class VoucherPrintProjector
 
         // A SERVICE (Accounting Invoice) sale has no stock lines, so the item pass below would project an EMPTY
         // invoice. It takes its own projection; both passes now read the same POSTED legs for every figure.
-        if (IsServiceAccountingInvoice(company, voucher))
+        //
+        // T0-11 slice S3 — and so does the ledger-only PURCHASE, for the identical structural reason and with the
+        // identical consequence for getting it wrong. Before S3 a purchase accounting invoice fell through to the
+        // item pass, whose only source of value is `voucher.InventoryLines`; with none, its Grand Total came out as
+        // the tax alone and `FootingRefusal` (rightly) refused the document — so the voucher printed the plain Dr/Cr
+        // page, naming no supplier, no SAC and no tax, on a shape the shipped Accounting Invoice screen has been able
+        // to post on a Purchase ever since `CanBeAccountingInvoice` was widened. The two gates are asked separately
+        // rather than through one widened predicate because the OUTWARD one also feeds the NIC e-Way Part-A docType
+        // (see GstReportSupport.IsRecordedServiceAccountingInvoice); what they share is a private body, not a name.
+        if (IsServiceAccountingInvoice(company, voucher)
+            || GstReportSupport.IsRecordedServiceAccountingInvoice(company, voucher))
             return ProjectServiceInvoice(company, voucher, partyLedger, livePartyInterState);
 
         var items = new List<InvoiceItemRow>(voucher.InventoryLines.Count);
@@ -780,6 +790,29 @@ public static class VoucherPrintProjector
         // titled two different ways once already. Byte-identical (see the item pass for why).
         var document = GstReportSupport.ClassifyPrintedDocument(company, voucher);
         bool billOfSupply = document.StatesTax == TaxParticulars.None;
+        // T0-11 slice S3 — a ledger-only document we did NOT issue. Every branch it drives below is the SAME truth
+        // condition the item pass answers, read off the SAME classification: whose identity heads the page (CGST
+        // Rule 46(a)), whether we may state a place of supply for a supply made TO us (Rule 46(n) is a supplier
+        // particular), and whether OUR declaration and signature belong on it (Rule 46(q) puts the signature on the
+        // ISSUER). Spelled here rather than shared with the item pass only because the two passes build different
+        // DTOs; the DECISION is shared, and that is what stops them drifting.
+        bool record = document.Role == DocumentRole.Recorded;
+        bool weAreRecipient = document.Heads == PartyOrientation.WeAreRecipient;
+        // Rule 46(a). On a record the counterparty is the SUPPLIER and heads the document; we are the recipient.
+        //
+        // 🔴 It is `RecordedSupplierBlock`, NOT `BuyerBlock`, for the reason T0-11 review C2/L1-02 established on the
+        // item pass: `BuyerBlock` carries the whole FIX-3 reconciliation, every clause of which is about what an
+        // ISSUED document may state about ITS BUYER — the printed State reconciled against tax WE posted, and the
+        // GSTIN dropped when its own two-digit prefix would contradict that State. Pointed at a SUPPLIER it printed
+        // the home State over a "24…" GSTIN and then dropped the GSTIN for disagreeing with it, leaving the page
+        // asserting "GSTIN: Unregistered" beside the CGST and SGST that supplier charged — and CGST Act §32(1) bars
+        // an unregistered person from collecting any amount by way of tax, so the page refuted itself. The supplier's
+        // identity on a record is a fact ABOUT HIM, held in HIS master, and there is nothing to reconcile because we
+        // determined none of it, so it is stated verbatim.
+        var counterpartyBlock = weAreRecipient
+            ? RecordedSupplierBlock(partyLedger)
+            : BuyerBlock(company, partyLedger, buyerState);
+        var ourBlock = SellerBlock(company);
         // census T0-9: the IRP artefacts this document carries, if any.
         var eInvoice = EInvoiceArtefacts(company, voucher);
 
@@ -789,11 +822,10 @@ public static class VoucherPrintProjector
                 ? GstReportSupport.TaxInvoiceTitle
                 : document.Title,
             IsBillOfSupply = billOfSupply,
-            // T0-11 review C24/L3-10 — carried on THIS pass too, off its own classification. Every shape this pass
-            // reaches today is outward, so both are the values the DTO would have defaulted to and nothing moves;
-            // stating them is what stops slice S3 (the purchase ACCOUNTING-invoice record, the half this pass owns)
-            // from having to remember, and what keeps "read from the ONE classification" true of both passes rather
-            // than of one.
+            IsRecipientRecord = record,
+            // T0-11 review C24/L3-10 — carried on THIS pass too, off its own classification. It was already the
+            // right shape when every document this pass reached was outward; slice S3 is what makes the value
+            // actually vary here, and because it was carried rather than re-derived, S3 had nothing to remember.
             Heads = document.Heads,
             // The NoStatutoryDocument arm keeps the value the page has always had, for the SAME reason the
             // DocumentTitle arm above keeps "TAX INVOICE" on it: this method is reachable directly on a voucher for
@@ -802,21 +834,36 @@ public static class VoucherPrintProjector
             // that gives it a document of its own, not for a fix that may move nothing (ER-13).
             StatesOurDeclarationAndSignature = document.Role == DocumentRole.NoStatutoryDocument
                 || document.StatesOurDeclarationAndSignature,
+            // T0-11 review C6/L1-06, C7/L1-07 — the inward-exempt fact, carried on this pass too and read off the
+            // POSTED legs exactly as the item pass reads it: a record whose supply carries no forward tax and no cess
+            // bore none and could bear none. Nothing renders it yet (an open R12 question); stating it here keeps the
+            // two passes' records structurally identical rather than differing by a field one of them forgot.
+            IsInwardExempt = record
+                && money.TotalCgst.Amount == 0m && money.TotalSgst.Amount == 0m
+                && money.TotalIgst.Amount == 0m && money.TotalCess.Amount == 0m,
             // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
             // replacing it — cancelling a document does not change what it was issued as, and a renderer that
             // read one flag for two questions would eventually print the wrong document name.
             IsCancelled = voucher.Cancelled,
             TopDeclaration = billOfSupply ? TopDeclarationFor(company, voucher) : string.Empty,
-            Seller = SellerBlock(company),
-            Buyer = BuyerBlock(company, partyLedger, buyerState),
+            // T0-11 slice S3 — the same swap the item pass makes, off the same axis. A record printing OUR GSTIN in
+            // the supplier block would be a false statutory statement of exactly the FIX-W1e class.
+            Seller = weAreRecipient ? counterpartyBlock : ourBlock,
+            Buyer = weAreRecipient ? ourBlock : counterpartyBlock,
             InvoiceNumber = company.FormatVoucherNumber(voucher),
             InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            // Counterparty captured field (numbering §8): on a Sales tax invoice the buyer's "Reference No."; on a
+            // Purchase the helper already returns "Supplier Invoice No.", which is exactly where RQ-11a puts the
+            // SUPPLIER's own document number — so the record needs no new field for it, only a caption of its own for
+            // OURS (that one is the renderer's, see InvoicePdf).
             ReferenceNo = ReportPrintProjector.Ascii(voucher.ReferenceNo ?? string.Empty),
             ReferenceCaption = ReferenceCaption(company.FindVoucherType(voucher.TypeId)),
             ReferenceDateText = voucher.ReferenceDate is { } rd
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
-            PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
+            // CGST Rule 46(n) is a SUPPLIER particular: we do not determine the place of supply of a supply made TO
+            // us, so a record states none. Stating one would put our determination on his document.
+            PlaceOfSupply = record ? string.Empty : StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
             // census T0-9 - CGST Rule 46(r). All blank unless this voucher carries a GENERATED IRP record, so a
             // document that is not an e-invoice renders byte-identically (ER-13).
             EInvoiceSignedQr = eInvoice.SignedQr,

@@ -270,10 +270,16 @@ public sealed class LoadBearingCitationContentTests
             "on the item pass,",
             "VoucherPrintProjector.cs",
             "var ourBlock = SellerBlock(company);"),
+        // T0-11 slice S3 — the CLAIM is unchanged ("SellerBlock is called on the service pass") and so is the
+        // citation's job; only the calling EXPRESSION moved. The service pass used to stamp `Seller` from it
+        // unconditionally, which is exactly the assumption S3 had to break: on a purchase accounting-invoice RECORD
+        // the supplier heads the document (CGST Rule 46(a)), so the block is bound to `ourBlock` and lands in
+        // `Seller` or `Buyer` per the orientation axis — the same shape the item pass already had, which is why the
+        // needle is now the same one the item-pass entry above uses.
         new("docs/w0-2-company-screen-grounding.md",
             "on the service pass.",
             "VoucherPrintProjector.cs",
-            "Seller = SellerBlock(company),"),
+            "var ourBlock = SellerBlock(company);"),
         new("docs/w0-2-company-screen-grounding.md",
             "returns `Array.Empty` on null/whitespace.",
             "VoucherPrintProjector.cs",

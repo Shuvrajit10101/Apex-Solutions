@@ -500,18 +500,25 @@ public static class GstReportSupport
     /// document in every one of those cases, so it is <see cref="PurchaseRecordTitle"/> either way. Reading it would
     /// ship a branch no test could distinguish. It stays where its only consumers are, the e-Way engine.</para>
     ///
-    /// <para><b>Ledger-only purchases are OUT of scope here, and that is slice S3's boundary rather than an
-    /// oversight.</b> A purchase accounting (service) invoice needs the other projection pass, so it still prints the
-    /// plain voucher; widening this predicate without widening that pass would emit an item table with no rows.</para>
+    /// <para><b>🔴 SLICE S3 CLOSED THE LEDGER-ONLY LIMB, and the two limbs mirror <see cref="IsTaxInvoice"/>'s own
+    /// shape exactly.</b> S2 shipped the ITEM limb only, because a purchase accounting (service) invoice needs the
+    /// OTHER projection pass (<c>VoucherPrintProjector.ProjectServiceInvoice</c>) and widening this predicate without
+    /// widening that pass would have emitted an item table with no rows. That pass is now reached from the inward
+    /// side too, so the ledger-only limb delegates to <see cref="IsRecordedServiceAccountingInvoice"/> — the inward
+    /// mirror of the gate the outward side has always used. The shape is reachable through the shipped screen: the
+    /// Accounting Invoice mode has been available on a Purchase since <c>CanBeAccountingInvoice</c> was widened, and
+    /// before S3 such a voucher printed a plain Dr/Cr page naming no supplier, no SAC and no tax.</para>
     /// </summary>
     private static bool IsRecipientRecordDocument(Company company, Voucher voucher)
     {
         if (company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Purchase) return false;
-        if (!voucher.HasInventoryLines) return false;
         // ER-4: every figure on the record ties to the posted voucher to the paisa, so tax the metadata cannot see
         // would make it understate what we owe the supplier. Same rule, same conservative direction, as the outward
         // side's PostedOutputTaxIsFullyTagged.
-        return PostedInputTaxIsFullyTagged(company, voucher);
+        if (voucher.HasInventoryLines) return PostedInputTaxIsFullyTagged(company, voucher);
+        // Slice S3 — the ledger-only limb. Its own gate already carries the footing invariant, so it needs no second
+        // tax-visibility test (see IsRecordedServiceAccountingInvoice for why adding one would be untestable).
+        return IsRecordedServiceAccountingInvoice(company, voucher);
     }
 
     /// <summary>
@@ -1405,7 +1412,54 @@ public static class GstReportSupport
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
-        if (company.FindVoucherType(voucher.TypeId)?.BaseType != VoucherBaseType.Sales) return false;
+        return IsAccountingInvoiceShape(company, voucher, VoucherBaseType.Sales);
+    }
+
+    /// <summary>
+    /// <b>The INWARD mirror of <see cref="IsServiceAccountingInvoice"/></b> (census T0-11 slice S3): a ledger-only
+    /// <b>PURCHASE</b> posted from the Accounting Invoice entry mode — the shape that prints as a recipient-side
+    /// RECORD of the supplier's service document (RQ-11a, which puts the "purchase accounting-(service)-invoice"
+    /// inside its scope in as many words).
+    ///
+    /// <para><b>Why it is a second predicate and not a widened first one.</b> <see cref="IsServiceAccountingInvoice"/>
+    /// answers "may we ISSUE a Rule-46 tax invoice for this ledger-only voucher?", and Sales-only is the CORRECT
+    /// answer — CGST Act §31(1)/(2) attach the duty to "a registered person <b>supplying</b>". It is also a conjunct
+    /// of <see cref="IsBillOfSupply"/>'s exempt limb, which feeds <see cref="IsBillOfSupplyForFiling"/> and through
+    /// it the NIC e-Way Part-A <c>docType</c> we file with a government portal. Widening it to make a PURCHASE print
+    /// would move that filing and would title a supplier's document as ours. So the entitlement predicate is left
+    /// byte-for-byte alone and the inward shape gets its own name, consulted only by
+    /// <see cref="ClassifyPrintedDocument"/> — the same seam slice S2 used for the item pass.</para>
+    ///
+    /// <para><b>Every conjunct is the outward one, unchanged, and each is direction-neutral for a stated reason.</b>
+    /// <see cref="Gstr1.ServiceLegs"/> yields any non-party, non-tax leg whose ledger carries a SAC block, which on a
+    /// purchase is the expense leg; <see cref="TaxedLegsCarryTheirTax"/> refuses a supply the ledger DECLARES taxable
+    /// that nonetheless posted no tax at all; <see cref="RateBreakupReconciles"/> bounds the printed rate rows by the
+    /// document's own value; and <see cref="ServiceInvoiceFoots"/> requires the projection to equal the posted party
+    /// leg to the paisa (RQ-11a ER-4). That last one is what makes a withholding purchase — where a §194J carve-out
+    /// credits TDS Payable and reduces the supplier's credit leg — print as the plain Dr/Cr voucher instead of a
+    /// record overstating what the supplier is owed: <c>InvoicePrintData</c> has no vocabulary for a withholding, and
+    /// a document that states a different figure from the one the books carry is worse than no document.</para>
+    ///
+    /// <para><b>It does NOT also test <see cref="PostedInputTaxIsFullyTagged"/>.</b> The item limb needs that guard
+    /// because its value comes from the stock lines and its tax from the metadata, so the two can disagree; here the
+    /// footing conjunct already compares the WHOLE projection against the posted party leg, so an untagged Input
+    /// leg fails it. Adding the narrower test as well would ship a branch no test could distinguish.</para>
+    /// </summary>
+    public static bool IsRecordedServiceAccountingInvoice(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return IsAccountingInvoiceShape(company, voucher, VoucherBaseType.Purchase);
+    }
+
+    /// <summary>The one body both directions share. Split out by slice S3 rather than copied: "one rule, many copies"
+    /// is the defect class that produced two disagreeing <c>IsBillOfSupply</c> predicates (W0-9), and every conjunct
+    /// below is direction-neutral, so a second body would have differed from this one only in the base type.
+    /// <b>Nothing but the base type may ever differ between the two callers</b> — the moment one side gains a
+    /// conjunct the other lacks, the outward document and the inward record are two rules again.</summary>
+    private static bool IsAccountingInvoiceShape(Company company, Voucher voucher, VoucherBaseType baseType)
+    {
+        if (company.FindVoucherType(voucher.TypeId)?.BaseType != baseType) return false;
         if (voucher.HasInventoryLines) return false;
         if (!voucher.IsAccountingInvoice) return false;
         if (!Gstr1.ServiceLegs(company, voucher).Any()) return false;
