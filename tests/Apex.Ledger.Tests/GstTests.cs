@@ -178,7 +178,7 @@ public class GstTests
         salesLedger.SalesPurchaseGst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 500 };
 
         // Both rungs carry a block ("LI"), so this is precisely the shape the source order steers.
-        var r = gst.ResolveRate(item, salesLedger);
+        var r = gst.ResolveRate(item, salesLedger, voucherDate: null);
         Assert.True(r.IsTaxable);
 
         // What the published order string says, computed from the string — the sales LEDGER's 500 under the
@@ -189,12 +189,13 @@ public class GstTests
 
         // No item ⇒ ledger wins (500), and here the two orders and the engine agree ("L" is inside T13's
         // no-op precondition — at most one of {item, ledger} carries a block, and no new rung does).
-        var r2 = gst.ResolveRate(null, salesLedger);
+        var r2 = gst.ResolveRate(null, salesLedger, voucherDate: null);
         Assert.Equal(500, r2.RateBasisPoints);
         Assert.Equal(GstRateHierarchy.OracleWinner(source, "L"), r2.RateBasisPoints);
 
         // Neither ⇒ unresolved (fail-fast sentinel).
-        Assert.True(GstService.IsUnresolved(gst.ResolveRate(null, AddLedger(c, "PlainSales", "Sales Accounts", false))));
+        Assert.True(GstService.IsUnresolved(
+            gst.ResolveRate(null, AddLedger(c, "PlainSales", "Sales Accounts", false), voucherDate: null)));
         Assert.Null(GstRateHierarchy.OracleWinner(source, ""));
     }
 
@@ -206,7 +207,7 @@ public class GstTests
         var inv = new InventoryService(c);
         var item = inv.CreateStockItem("Exempt", inv.CreateStockGroup("G").Id, inv.CreateSimpleUnit("Nos", "Numbers").Id);
         item.Gst = new StockItemGstDetails { Taxability = GstTaxability.Exempt };
-        var r = gst.ResolveRate(item, null);
+        var r = gst.ResolveRate(item, null, voucherDate: null);
         Assert.False(r.IsTaxable);
         Assert.Equal(GstTaxability.Exempt, r.Taxability);
         Assert.False(GstService.IsUnresolved(r));
@@ -384,7 +385,7 @@ public class GstTests
         var inv = new InventoryService(c);
         var item = inv.CreateStockItem("X", inv.CreateStockGroup("G").Id, inv.CreateSimpleUnit("Nos", "Numbers").Id);
         item.Gst = new StockItemGstDetails { Taxability = taxability };
-        var r = gst.ResolveRate(item, null);
+        var r = gst.ResolveRate(item, null, voucherDate: null);
         Assert.False(r.IsTaxable);
         // No taxable lines ⇒ no tax lines produced.
         var tax = gst.ComputeInvoiceTax(Array.Empty<GstService.TaxableLine>(), interState: false, GstTaxDirection.Output);
@@ -442,7 +443,7 @@ public class GstTests
         var debtor = AddLedger(c, "Client", "Sundry Debtors", true);
         debtor.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };
 
-        var rate = gst.ResolveRate(item: null, salesPurchaseLedger: sales);
+        var rate = gst.ResolveRate(item: null, salesPurchaseLedger: sales, voucherDate: null);
         Assert.True(rate.IsTaxable);
         Assert.Equal(1800, rate.RateBasisPoints);
 

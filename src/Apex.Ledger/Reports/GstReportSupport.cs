@@ -906,6 +906,65 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// <b>T0-17 — the ONE rule for "which posted rate group does this line belong to?".</b> The single home the five
+    /// former master-block rate bypasses (drift lock D9) now delegate to: <c>Gstr1</c>'s stock-line and service-leg
+    /// bucketing, <c>EInvoiceJson</c>'s two, and <c>EWayBillJson</c>'s one.
+    ///
+    /// <para><b>Why it resolves rather than reading a master.</b> Every one of those five answers the same question,
+    /// and the POSTING ENGINE answered it with <see cref="GstService.ResolveRate"/> — every voucher path calls it
+    /// (drift lock D10 pins the call sites). A reader that answers it off a single hard-wired rung instead therefore
+    /// disagrees with the engine whenever the walk lands anywhere else, and the line's share of the invoice's posted
+    /// tax is attributed to the wrong rate group. Before T0-4 S2b the five agreed with the resolver by COINCIDENCE
+    /// (the resolver was itself item-then-ledger); the shipped <see cref="GstDetailSource.LedgerFirst"/> default and
+    /// the HSN-dated <see cref="GstConfig.RateHistory"/> override each break that coincidence on an ordinary book.</para>
+    ///
+    /// <para><b>Why the voucher DATE is passed, and why this is not the "live re-resolve" D10 warns about.</b> The
+    /// dated overload reproduces the rate <b>in force when the voucher was posted</b>, which is exactly what a filed
+    /// document must restate. The alternative — the raw master read these five used — was ALSO a read of today's
+    /// masters, and a blinder one: it could not see the dated window at all. So this is strictly less master-drift
+    /// exposure than before, not more. It is never used to COMPUTE tax: every rupee still comes from the posted legs;
+    /// this only chooses which posted group a line is counted in.</para>
+    ///
+    /// <para><b>Residual, recorded rather than hidden (Ruling 9, OURS).</b> The per-line rate is not persisted — the
+    /// domain carries the rate only on the posted <see cref="GstLineTax"/> legs, and giving each inventory line its
+    /// own posted rate is a schema change with a migration (already a <c>plan.md</c> carry-forward; see
+    /// <see cref="IntegratedRateOf"/>). Until that lands, a MULTI-rate document whose masters were edited after
+    /// posting can still re-derive a rate matching no posted group. A single-rate document is immune: every caller
+    /// collapses to the one posted group before consulting this at all.</para>
+    ///
+    /// <para><b>The unresolvable cases collapse to <c>0</c> deliberately</b>, preserving the five readers' shipped
+    /// behaviour term for term: an explicitly non-taxable line and the ER-5 unresolved sentinel both report
+    /// <c>IsTaxable == false</c>, and both previously read <c>0</c> here. <c>0</c> is not a fabricated rate — it is
+    /// "no taxable group", and every caller then finds no matching posted group and leaves the line alone.</para>
+    /// </summary>
+    /// <param name="company">The book whose hierarchy order and rate history govern the walk.</param>
+    /// <param name="voucher">The posted voucher — its <see cref="Voucher.Date"/> selects the dated window.</param>
+    /// <param name="item">The stock item for a stock line; <c>null</c> for a service (ledger) leg.</param>
+    /// <param name="salesPurchaseLedger">The value ledger for a stock line (see <see cref="BucketingValueLedger"/>),
+    /// or the service-income leg's OWN ledger for a service leg.</param>
+    public static int BucketingRateOf(
+        Company company, Voucher voucher, StockItem? item, Domain.Ledger? salesPurchaseLedger)
+    {
+        var res = new GstService(company).ResolveRate(item, salesPurchaseLedger, voucher.Date);
+        return res.IsTaxable ? res.RateBasisPoints : 0;
+    }
+
+    /// <summary>
+    /// The sales/purchase ledger a voucher's <b>stock</b> lines rate against, resolved <b>exactly</b> as
+    /// <c>VoucherPrintProjector.ProjectInvoice</c> and <see cref="IsWhollyExemptItemSupply"/> do — via
+    /// <c>partyLedger?.Id</c>, never the raw <see cref="Voucher.PartyId"/>. The two differ when the party ledger no
+    /// longer exists, and a dangling id would then admit the party's own leg as the value ledger on one path and
+    /// exclude it on another, so the printed invoice and the filed payload could rate the same line differently.
+    /// Hoisted out of the per-line loops by every caller: it is a per-VOUCHER fact, and the ancestry climb behind it
+    /// is the only part of the walk that costs anything.
+    /// </summary>
+    public static Domain.Ledger? BucketingValueLedger(Company company, Voucher voucher)
+    {
+        var partyLedger = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
+        return ResolveValueLedger(company, voucher, partyLedger?.Id);
+    }
+
+    /// <summary>
     /// The taxable value attributable to a voucher's supply: the sum, <b>over each distinct integrated rate
     /// group</b>, of the max taxable value across that group's tax lines. A voucher now posts one tax line per
     /// (head, rate) group, so within one rate group the CGST and SGST lines each record the <b>same</b> group

@@ -2264,6 +2264,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 return;
             }
 
+            // 🔴 T0-18 — a leg whose rate no rung of the hierarchy declares. BuildReverseCharge REFUSES this at
+            // accept (ER-5) rather than posting the recipient's own liability at an assumed rate, so the panel must
+            // say so here instead of arithmetic-ing on the -1 sentinel and showing a negative tax. Named, not hidden:
+            // the operator is told which ledger has no rate and on which date, while the panel stays visible.
+            // (RcmLeg is a STRUCT, so a bare FirstOrDefault would hand back a zeroed leg that reads as a match —
+            // lift it to a nullable and let "no element" be the null.)
+            var ratelessLeg = firing
+                .Where(x => x.Res.IsRateUnresolved)
+                .Select(x => (RcmLeg?)x.Leg)
+                .FirstOrDefault();
+            if (ratelessLeg is { } rateless)
+            {
+                RcmAppliesText = "Yes — reverse charge applies";
+                RcmCategoryText = string.Empty;
+                RcmRateText = "—";
+                RcmPosText = firing[0].Res.InterState ? "Inter-State (IGST)" : "Intra-State (CGST+SGST)";
+                RcmTaxText = "0.00";
+                ShowRcmCess = false;
+                RcmCessText = "0.00";
+                RcmSummary =
+                    $"Reverse charge applies, but no GST rate is declared for '{rateless.Expense.Name}' at any level "
+                    + $"of the rate hierarchy on {DateText} — set the rate on the expense ledger, its accounting "
+                    + "group, the stock item, its stock group or the company default. This voucher cannot be "
+                    + "accepted until it is: the engine will not post a self-accounting pair at an assumed rate.";
+                return;
+            }
+
             // The previewed figure must be the POSTED figure to the paisa (ER-4). BuildReverseCharge also resolves and
             // posts a Compensation-Cess pair, so previewing through ComputeLineTax alone understated the cash liability
             // — a preview that lies about the posting. The SAME dated resolver the builder uses is called here.

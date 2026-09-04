@@ -140,10 +140,12 @@ public static class EWayBillJson
         // Item-invoice: attribute each rate group's per-head tax to its stock lines by value share (last line in the
         // group absorbs the remainder so Σ line tax == the group's posted tax exactly — mirrors the INV-01 attribution).
         var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
+        // Per-VOUCHER, so it is resolved once rather than per line (see GstReportSupport.BucketingValueLedger).
+        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
         var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
         foreach (var il in inventory)
         {
-            var rate = singleRate ?? LineIntegratedRate(company, il);
+            var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
             if (!linesByRate.TryGetValue(rate, out var bucket)) linesByRate[rate] = bucket = new List<VoucherInventoryLine>();
             bucket.Add(il);
         }
@@ -206,7 +208,11 @@ public static class EWayBillJson
                 QtyMillis = (long)Math.Round(decl.Quantity * 1000m, MidpointRounding.AwayFromZero),
                 Unit = decl.Code ?? "OTH",
                 TaxableAmtPaisa = MoneyCodec.ToPaisa(il.Value),
-                GstRt = singleRate ?? LineIntegratedRate(company, il),
+                // NIC maps the e-Way item rate onto the SAME quantity the e-invoice states — igstRate = Item.GstRt,
+                // cgstRate = sgstRate = Item.GstRt/2, taxableAmount = Item.AssAmt
+                // (einv-apisandbox.nic.in/Mapping_of_ewaybill_schema.html) — so the consignment and the invoice must
+                // never name two different rates for one line.
+                GstRt = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il),
                 CgstAmtPaisa = c,
                 SgstAmtPaisa = s,
                 IgstAmtPaisa = ig,
@@ -216,8 +222,16 @@ public static class EWayBillJson
         return items;
     }
 
-    private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
-        company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+    /// <summary>
+    /// The integrated rate (basis points) a consignment line is bucketed by — and, on a multi-rate document, STATED
+    /// as that line's rate on the EWB-01.
+    /// <para><b>T0-17: this used to read the stock item's GST block directly</b>, one hard-wired rung of five, so a
+    /// checkpoint reading the e-way bill and a customer reading the invoice could see two different rates for the
+    /// same goods. It now delegates to the ONE rule, <see cref="GstReportSupport.BucketingRateOf"/>.</para>
+    /// </summary>
+    private static int LineIntegratedRate(
+        Company company, Voucher voucher, Domain.Ledger? valueLedger, VoucherInventoryLine il) =>
+        GstReportSupport.BucketingRateOf(company, voucher, company.FindStockItem(il.StockItemId), valueLedger);
 
     /// <summary>Delegates to <see cref="ProRata.Paisa"/> — the ONE apportionment rule (drift lock D1).</summary>
     private static long Apportion(long total, long value, long totalValue) =>

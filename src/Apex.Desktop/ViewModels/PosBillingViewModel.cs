@@ -432,11 +432,15 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// tenders and in the GSTR-1 cess column. It now calls the same <see cref="GstService.ResolveCess"/> with the
     /// same arguments the accounting screen passes, so the two screens agree by construction.</para>
     ///
-    /// <para><b>The cess is resolved as of <see cref="Date"/>, and the RATE deliberately is not.</b>
-    /// <c>ResolveCess</c> has no date-blind overload — a dated HSN cess row cannot be selected without one — while
-    /// <c>ResolveRate</c> does, and both POS rate resolutions still use it. That is census <b>T0-19</b>, a separate
-    /// open defect with its own row; it is named here rather than quietly fixed alongside, because closing it
-    /// changes the tax on existing counter sales and belongs to its own slice with its own tests.</para>
+    /// <para><b>The cess AND the rate are both resolved as of <see cref="Date"/>.</b>
+    /// ~~<i>"The cess is resolved as of <c>Date</c>, and the RATE deliberately is not. <c>ResolveCess</c> has no
+    /// date-blind overload — a dated HSN cess row cannot be selected without one — while <c>ResolveRate</c> does,
+    /// and both POS rate resolutions still use it. That is census <b>T0-19</b>, a separate open defect with its own
+    /// row."</i>~~ — 🟡 <b>struck at the merge, 2026-09-04: T0-19 IS CLOSED.</b> A parallel track gave both POS rate
+    /// resolutions their date and DELETED the date-blind two-argument <c>ResolveRate</c> overload outright, so the
+    /// premise of the struck sentence no longer exists. The paragraph is struck rather than deleted because it was
+    /// this method's stated reason for a deliberate asymmetry, and a reader who met the asymmetry elsewhere needs
+    /// to find out here that it is gone. Kept as the record; the behaviour it describes does not survive.</para>
     /// </summary>
     private PosGst? ComputeGst()
     {
@@ -449,7 +453,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         {
             if (l.ParsedRate is not { } rate || rate <= 0m) continue;
             var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
-            var res = _gst.ResolveRate(l.SelectedItem, SelectedSalesLedger);
+            // 🔴 T0-19 — RESOLVE AS OF THE BILL DATE. This used to call the date-blind two-argument overload, which
+            // forwarded `voucherDate: null` and so skipped the dated GstRateHistory override entirely: the same item
+            // sold at this counter and on a Sales item invoice on the SAME DAY carried different tax whenever a rate
+            // revision was in force, and the counter kept the pre-revision rate for ever. The overload is deleted.
+            var res = _gst.ResolveRate(l.SelectedItem, SelectedSalesLedger, Date);
             if (GstService.IsUnresolved(res))
                 return new PosGst(EmptyTax(), interState, l.SelectedItem);
             if (!res.IsTaxable) continue;   // Exempt/Nil/Non-GST ⇒ no cess either (ResolveCess agrees)
@@ -491,10 +499,22 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             if (posted.Rate.Amount <= 0m) continue;
             if (StockItems.FirstOrDefault(i => i.Id == posted.StockItemId) is not { } item) return null;
 
-            var res = _gst.ResolveRate(item, SelectedSalesLedger);
+            // T0-19 — the same dated resolution as ComputeGst above (this mirrors it line for line, and a mirror
+            // that resolved on a different date would refuse every dated bill as "drifted").
+            //
+            // 🔴 BOTH HALVES RESOLVE ON `Date`, AND THAT AGREEMENT IS A MERGE RESOLUTION, NOT AN INHERITED FACT.
+            // Two parallel tracks touched these two lines: one gave the RATE a date (it was date-blind, census
+            // T0-19), the other gave the line a CESS and resolved it on `existing.Date`. Git merged both cleanly,
+            // and the result resolved ONE re-derivation at TWO dates — reachable, because the POS date field is
+            // editable (`DateText`, TwoWay) and `RehydrateFrom` only SEEDS it from the voucher. The tie is broken
+            // by the ACCOUNTING DOOR'S TWIN, which both tracks cite as the reference and neither changed:
+            // `VoucherEntryViewModel.ReDerivedTaxOnPostedRows` passes `Date` to `ResolveRate` AND to `ResolveCess`.
+            // Matching it is what makes this method's own doc claim — "it mirrors ComputeGst line for line", "as on
+            // the accounting door" — true rather than aspirational.
+            var res = _gst.ResolveRate(item, SelectedSalesLedger, Date);
             if (GstService.IsUnresolved(res)) return null;
             if (!res.IsTaxable) continue;
-            var cess = _gst.ResolveCess(item, SelectedSalesLedger, existing.Date, posted.BilledQuantity);
+            var cess = _gst.ResolveCess(item, SelectedSalesLedger, Date, posted.BilledQuantity);
             taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
         }
 

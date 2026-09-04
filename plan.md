@@ -2259,11 +2259,30 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
        a Stock Group **ALTER** route, because none exists at all, or a rate typed there can never be corrected).
        Census row **3.13** is still `ABSENT`.
      - **THE HSN HALF — slice S5.** `SourceOfHsnSacDetails` still has no reader.
-     - **FOUR NEW TIER-0 ROWS the chain opened or unmasked:** **T0-17** (five D9 master-block bypasses,
-       unreconciled with `ResolveRate`; **two feed INV-01 and EWB-01**) · **T0-18** (`RcmService`'s
-       import-of-services rate is hierarchy-blind AND date-blind) · **T0-19** (both POS `ResolveRate` sites use
-       the date-blind overload) · **T0-20** (the dated override's hard-coded item-first HSN pick contradicts the
-       walk it sits on).
+     - **FOUR NEW TIER-0 ROWS the chain opened or unmasked — ALL FOUR ARE NOW CLOSED (2026-09-04), and they
+       were closed by TWO PARALLEL TRACKS, which is why both bodies of evidence are kept below rather than one
+       overwriting the other at the merge.** ✅ **T0-17 CLOSED**: the five D9 master-block bypasses now resolve
+       through the ONE rule `GstReportSupport.BucketingRateOf`; the agreement assertion D9 declined to make exists
+       and was seen RED — ₹16,800 of filed tax on the wrong HSN, and ₹1,000 of Table-12 tax dropped outright —
+       then GREEN, 7/7, in `tests/Apex.Ledger.Io.Tests/RateReaderResolverAgreementTests.cs`. D9 is now a
+       PROHIBITION rather than a count, and a new **D9b** widens the pattern to the null-conditional and
+       intermediate-local shapes D9 could not see. 🔴 **D9b mechanically re-caught `RcmService.cs:82`, which
+       T0-17 deliberately left open as T0-18 — it COMPUTES tax and its `?? 1800` floor needed an R7 verification.
+       T0-18 then closed it by DELETING that floor rather than sourcing it, so D9b's inventory came down from four
+       to THREE at the merge; the count falling is recorded at the lock, because git merged that file with no
+       conflict at all and taking the merged text as it stood would have left D9b expecting a bypass in a file
+       that no longer has one.** ✅ **T0-18 CLOSED**: `RcmService`'s import-of-services limb now calls
+       `_gst.ResolveRate(item, spLedger, supplyDate)` and the uncited `?? 1800` floor is **deleted** — an
+       unresolved rate is the ER-5 sentinel and `BuildReverseCharge` refuses to post (R7: no rate constant ships
+       without a citation). ✅ **T0-19 CLOSED**: both POS sites pass `Date`, and the **date-blind two-argument
+       `ResolveRate` overload is deleted outright** — `voucherDate` is now a required parameter, so dropping the
+       date can no longer be silent. ✅ **T0-20 CLOSED**: the dated override is keyed by
+       `GstService.ResolveHsnSac`, the first rung of the SAME `Hierarchy` walk that declares an HSN, so
+       `SourceOfGstRate` steers the override as it steers the rate. T0-18 … T0-20 ship with one invariant class,
+       `tests/Apex.Desktop.Tests/RateResolutionOneRuleTests.cs` (11 tests), which asserts the rate is the same on
+       `GstService`, the POS counter, the Sales item invoice and the reverse-charge engine for the same masters on
+       the same day — rather than three isolated pins each of which a partial fix would satisfy.
+       ⚠️ **T0-16 (the counter collects zero cess) is NOT closed by the T0-19 work**: same screen, different cause.
      - **TWO DOC-ONLY R7 CORRECTIONS, scoped out of every brief and STILL OWED:** the `MasterGstDetails` class
        doc and the `GstDetailSource` doc still carry the *"[web] and A14-UNVERIFIED … A14 never ran"* qualifier on
        the two-toggle claim, which the design's grounding pass says is now vendor-sourced; and neither has been
@@ -5167,7 +5186,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   and every "73 absent" reads 71. 🔴 **AND THE MOVE IS HALF A CAPABILITY — DO NOT DROP T0-4 OUT OF THE
   CORRECTNESS WAVE ON THE STRENGTH OF IT.** Row **3.13**, the CAPTURE half of the same defect, is still
   `ABSENT` and rides with breadth; T0-4's capture slices S3/S4 and its HSN slice S5 are unbuilt, and the chain
-  opened four new Tier-0 rows (**T0-17 … T0-20**).
+  opened four new Tier-0 rows (**T0-17 … T0-20**) — **all four were closed 2026-09-04**, T0-17 by one track and
+  T0-18 … T0-20 by another. Closing them moved no census row: they were rate-path defects inside a capability
+  already graded `PARTIAL`, not missing capabilities.
   **(c) WAVE 2 IS NOT NAMED IN THE NEW ORDER, AND IT IS NOT THEREBY DELETED.** The structural wave — Voucher
   Type master, the **shared report base**, the F11/F12 configuration layer — appears nowhere in steps 1–7.
   **Ruling 1 still binds everything the new order does not name**, so Wave 2 keeps its place **between step 5

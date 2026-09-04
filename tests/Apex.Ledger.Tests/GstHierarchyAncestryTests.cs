@@ -74,7 +74,7 @@ public sealed class GstHierarchyAncestryTests
         var nos = inv.CreateSimpleUnit("Nos", "Numbers");
         var item = inv.CreateStockItem("Deep Widget", sgC.Id, nos.Id);
 
-        var r = gst.ResolveRate(item, salesPurchaseLedger: null);
+        var r = gst.ResolveRate(item, salesPurchaseLedger: null, voucherDate: null);
 
         Assert.False(GstService.IsUnresolved(r));
         Assert.True(r.IsTaxable);
@@ -103,7 +103,7 @@ public sealed class GstHierarchyAncestryTests
         var nos = inv.CreateSimpleUnit("Nos", "Numbers");
         var item = inv.CreateStockItem("Deep Widget", sgC.Id, nos.Id);
 
-        Assert.Equal(NearerRateBp, gst.ResolveRate(item, salesPurchaseLedger: null).RateBasisPoints);
+        Assert.Equal(NearerRateBp, gst.ResolveRate(item, salesPurchaseLedger: null, voucherDate: null).RateBasisPoints);
     }
 
     // ================================================================= the Accounting Group rung climbs ancestry
@@ -128,7 +128,7 @@ public sealed class GstHierarchyAncestryTests
         var ledger = new Domain.Ledger(Guid.NewGuid(), "Deep Sales", agC.Id, Money.Zero, openingIsDebit: false);
         c.AddLedger(ledger);
 
-        var r = gst.ResolveRate(item: null, ledger);
+        var r = gst.ResolveRate(item: null, ledger, voucherDate: null);
 
         Assert.False(GstService.IsUnresolved(r));
         Assert.Equal(GrandparentRateBp, r.RateBasisPoints);
@@ -151,7 +151,7 @@ public sealed class GstHierarchyAncestryTests
         var ledger = new Domain.Ledger(Guid.NewGuid(), "Deep Sales", agC.Id, Money.Zero, openingIsDebit: false);
         c.AddLedger(ledger);
 
-        Assert.Equal(NearerRateBp, gst.ResolveRate(item: null, ledger).RateBasisPoints);
+        Assert.Equal(NearerRateBp, gst.ResolveRate(item: null, ledger, voucherDate: null).RateBasisPoints);
     }
 
     // ================================================================= T12 — the cycle guard
@@ -182,7 +182,7 @@ public sealed class GstHierarchyAncestryTests
         var item = inv.CreateStockItem("Cyclic Widget", b.Id, nos.Id);
 
         var sw = Stopwatch.StartNew();
-        var ex = Assert.Throws<InvalidOperationException>(() => gst.ResolveRate(item, salesPurchaseLedger: null));
+        var ex = Assert.Throws<InvalidOperationException>(() => gst.ResolveRate(item, salesPurchaseLedger: null, voucherDate: null));
         sw.Stop();
 
         Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -205,7 +205,7 @@ public sealed class GstHierarchyAncestryTests
         c.AddLedger(ledger);
 
         var sw = Stopwatch.StartNew();
-        var ex = Assert.Throws<InvalidOperationException>(() => gst.ResolveRate(item: null, ledger));
+        var ex = Assert.Throws<InvalidOperationException>(() => gst.ResolveRate(item: null, ledger, voucherDate: null));
         sw.Stop();
 
         Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -237,7 +237,7 @@ public sealed class GstHierarchyAncestryTests
         var item = inv.CreateStockItem("Self-Rated Widget", b.Id, nos.Id);
         item.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
 
-        Assert.Equal(1800, gst.ResolveRate(item, salesPurchaseLedger: null).RateBasisPoints);
+        Assert.Equal(1800, gst.ResolveRate(item, salesPurchaseLedger: null, voucherDate: null).RateBasisPoints);
     }
 
     /// <summary>
@@ -260,6 +260,6 @@ public sealed class GstHierarchyAncestryTests
         var nos = inv.CreateSimpleUnit("Nos", "Numbers");
         var item = inv.CreateStockItem("Orphan Widget", a.Id, nos.Id);
 
-        Assert.Equal(300, gst.ResolveRate(item, salesPurchaseLedger: null).RateBasisPoints);
+        Assert.Equal(300, gst.ResolveRate(item, salesPurchaseLedger: null, voucherDate: null).RateBasisPoints);
     }
 }
