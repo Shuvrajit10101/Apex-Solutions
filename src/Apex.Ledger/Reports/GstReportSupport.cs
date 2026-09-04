@@ -1497,13 +1497,61 @@ public static class GstReportSupport
         // the two could resolve different rates and the printed title could contradict the printed breakup.
         var partyLedger = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
         var valueLedger = ResolveValueLedger(company, voucher, partyLedger?.Id);
+
+        // 🔴 ASSUMPTION A-QB — the posted general ledger is the STAMP. See AnchorIssuedDocumentCharacter.
+        // RecordsAnyGstTax (not CarriesForwardTax) is the conservative reading: ANY sign of GST tax on the voucher,
+        // forward or reverse, tagged or plain, withdraws the anchor. Both call sites have already excluded their own
+        // narrower tax evidence before reaching here, so this only ever tightens.
+        var anchored = AnchorIssuedDocumentCharacter && !RecordsAnyGstTax(company, voucher);
+
         foreach (var il in voucher.InventoryLines)
         {
-            var res = gst.ResolveRate(company.FindStockItem(il.StockItemId), valueLedger, voucher.Date);
-            if (res.IsTaxable || GstService.IsUnresolved(res)) return false;
+            var item = company.FindStockItem(il.StockItemId);
+            var res = gst.ResolveRate(item, valueLedger, voucher.Date);
+
+            if (GstService.IsUnresolved(res)) return false;   // silence is not an exemption (ER-5)
+            if (!res.IsTaxable) continue;                     // explicitly non-taxable — an exempt line
+
+            // The live resolution says TAXABLE. Under A-QB that does not disqualify the document when the master
+            // option is the only reason it says so AND the posted ledger contradicts it — see the method doc.
+            if (!(anchored && gst.TaxabilityIsSourceOrderDependent(item, valueLedger, voucher.Date))) return false;
         }
         return true;
     }
+
+    /// <summary>
+    /// 🔴 <b>ASSUMPTION A-QB, AND IT IS AN ASSUMPTION — NOT A USER RULING AND NOT A CORPUS FACT. ONE LINE REVERSES
+    /// IT.</b> Setting this to <c>false</c> restores, exactly, the behaviour recorded as open R12 question 2 in
+    /// <c>docs/full-clone-census.md</c> §1.3 item 15: with the item Exempt and the sales ledger Taxable at 18%, the
+    /// SAME already-issued paper was a BILL OF SUPPLY under <see cref="GstDetailSource.StockItemFirst"/> and a TAX
+    /// INVOICE under <see cref="GstDetailSource.LedgerFirst"/> — re-titled by a master option, months later, carrying
+    /// no tax because none was ever posted.
+    ///
+    /// <para><b>The assumption:</b> <i>an issued document must not change its statutory character retroactively. A
+    /// document already given to a customer states what it stated.</i></para>
+    ///
+    /// <para>🔴 <b>THE STAMP ALREADY EXISTS IN POSTED DATA FOR THE MEASURED DEFECT, SO NO SCHEMA COLUMN WAS TAKEN.</b>
+    /// The census reasoned that anchoring needs a posted taxability marker because <i>"a zero-rated LUT/export supply
+    /// is IsTaxable = true at 0 bp and also posts no tax legs, so 'no tax legs' cannot tell the two apart"</i>. That
+    /// is true and is NOT refuted — it is narrowed. The ambiguity only bites where the taxable reading carries no
+    /// rate to post. Where the taxable reading carries a <b>POSITIVE</b> rate, the posted ledger is decisive by
+    /// arithmetic: an 18% supply posts tax legs, and a voucher recording no GST tax at all therefore cannot have been
+    /// issued under that reading. <see cref="GstService.TaxabilityIsSourceOrderDependent"/> encodes exactly that
+    /// clause and answers <c>false</c> for the zero-rated case, so the anchor never fires where it would be guessing.
+    /// <b>The zero-rate-versus-Exempt residual still moves with the master option and genuinely needs a column</b>;
+    /// it is pinned by
+    /// <c>GstIssuedDocumentCharacterTests.The_zero_rate_versus_exempt_residual_still_moves_with_the_option_and_that_needs_a_column</c>
+    /// and escalated rather than taken (three sibling tracks share this v52 base).</para>
+    ///
+    /// <para><b>Scope: the TITLE only, and only in one direction.</b> Posted money is immune by construction —
+    /// <see cref="Domain.GstLineTax"/> stamps the rate and the taxable value at post time and every report reads them
+    /// back (<c>GstSourceOrderExistingBookTests</c>). The opposite direction — a document that DID collect tax being
+    /// re-titled a bill of supply — was already anchored by <see cref="CarriesForwardTax"/>, this predicate's first
+    /// gate. A-QB closes the remaining direction. It cannot widen the exempt limb on its own: a supply whose masters
+    /// agree it is taxable is never re-titled, whether or not the voucher posted tax
+    /// (<c>GstIssuedDocumentCharacterTests.An_unambiguously_taxable_untaxed_voucher_is_never_re_titled</c>).</para>
+    /// </summary>
+    private const bool AnchorIssuedDocumentCharacter = true;
 
     /// <summary>The exempt limb for a SERVICE (Accounting Invoice) supply: at least one service-income leg, and every
     /// one of them declares a non-taxable supply. A <b>zero-rated</b> (0%, LUT/export) ledger declares
