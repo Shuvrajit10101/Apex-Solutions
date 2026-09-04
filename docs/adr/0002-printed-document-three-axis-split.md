@@ -37,7 +37,7 @@ invoice format"* and blames the print gate. **The symptom is real and worse than
 and the row bundles two different defects under one id.**
 
 **The symptom, verified end to end.** `GstReportSupport.IsTaxInvoice`
-(`src/Apex.Ledger/Reports/GstReportSupport.cs:1588`) returns false for anything whose base type is not Sales.
+(`src/Apex.Ledger/Reports/GstReportSupport.cs:1636`) returns false for anything whose base type is not Sales.
 The printer's wrapper is a **pure forward** to it (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`),
 so `BuildPrintPreview` (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`) takes the else branch
 into the plain voucher projection, whose only loop walks the accounting `Lines`. The voucher's

@@ -99,6 +99,21 @@
 > Both are pinned by named tests. Recorded beside the other twelve in **§5** — search
 > **`ONE FURTHER USER RULING (R12, 2026-09-03)`**.
 >
+> > 🟡 **▶ 2026-09-04 — BOTH QUESTIONS NOW SHIP A BUILT ASSUMPTION, AND NEITHER IS ANSWERED.** The user directed
+> > the track to proceed rather than stop, so each was built as the stated assumption, **labelled as an assumption
+> > everywhere and never as a ruling**, with a one-line reversal switch. **Q-A → A-QA**, *cess walks independently
+> > of the rate* — switch `GstService.CessWalksIndependentlyOfTheRate`; the ₹1,200.00 → ₹0.00 move is gone and the
+> > figure is now **₹1,200.00 under both orders**. **Q-B → A-QB**, *an issued document must not change its
+> > statutory character retroactively* — switch `GstReportSupport.AnchorIssuedDocumentCharacter`; the same paper
+> > now stays a BILL OF SUPPLY under both orders. **Both switches were flipped off and the suite re-run: exactly
+> > four tests move and nothing else, so each reversal is genuinely one line.** 🔴 **NO SCHEMA COLUMN WAS TAKEN
+> > FOR EITHER** (three sibling tracks share this v52 base). **Two escalations stand and are the reason neither
+> > question is closed:** (i) A-QB cannot separate a **zero-rated** (0 bp) supply from an Exempt one — both post
+> > no tax legs — so that title still moves with the master option and needs a **posted taxability marker on the
+> > stock line**; (ii) A-QA cannot reach the three **narrow** rungs, nor reverse charge or §17(5) ITC-eligibility,
+> > without widening **`MasterGstDetails`**. Detail and figures: `docs/full-clone-census.md` §1.3 item 15, the two
+> > ▶ blocks under the numbered questions; register `docs/invented-vs-cloned.md` **IV-40** (PARTLY closed).
+>
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
 ---
@@ -690,10 +705,21 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > Neither may be resolved by an agent.** Full record: `docs/full-clone-census.md` §1.3 item 15; divergence rows
 > `docs/invented-vs-cloned.md` IV-38 and IV-40.
 >
+> > 🟡 **▶ 2026-09-04 — STILL NOT DECIDED, BUT NO LONGER ONLY RECORDED: EACH NOW SHIPS A BUILT, LABELLED
+> > ASSUMPTION WITH A ONE-LINE REVERSAL.** The user directed the track to proceed without stopping. The two
+> > paragraphs below are **kept verbatim as the record of what was measured**; each is followed by a ▶ note
+> > naming the assumption, its switch and what it does NOT reach. **Nothing here is a ruling, and an agent has not
+> > resolved either question** — the switches exist precisely so the user's answer costs one line either way.
+> > **A-QA** = `GstService.CessWalksIndependentlyOfTheRate`; **A-QB** =
+> > `GstReportSupport.AnchorIssuedDocumentCharacter`. Both were verified reversible by flipping them off and
+> > re-running the suite: **exactly four tests move, and nothing else.**
+>
 > **Q-A · THE STATUTORY-CESS NARROWING — does a cess-less ledger block mean NO cess?** On a `LedgerFirst` book a
 > sales ledger that declares a rate but **no cess fields** wins the walk and therefore supplies the cess too,
 > which means none — even when the stock item declares one. **Measured, with literals**
-> (`GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess`): an item with ad-valorem cess
+> (`GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess` — **renamed 2026-09-04 by A-QA
+> to `…The_source_order_no_longer_decides_which_master_supplies_the_cess`, its `LedgerFirst` row inverted; grep
+> for the NEW name**): an item with ad-valorem cess
 > at **1200 bp** under a ledger at 18% with no cess, on a taxable value of **₹10,000.00**, yields cess of
 > **₹1,200.00 under `StockItemFirst`** (every pre-v51 book, unchanged) and **₹0.00 under `LedgerFirst`** (every
 > v51+ book). The rate is 1800 bp either way. **This is one-walk-one-winning-block behaving as designed** — the
@@ -705,19 +731,52 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > above. **A ruling is needed before any code moves** — the three available shapes are set out in IV-40's *Fix*
 > cell and they are not equivalent.
 >
+> > 🟡 **▶ A-QA BUILT 2026-09-04 — AN ASSUMPTION, NOT AN ANSWER TO Q-A.** *Cess walks INDEPENDENTLY of the rate:
+> > a rung silent on cess does not suppress a lower rung's declared cess* (the way HSN and rate already walk
+> > independently, IV-39). The figure above is now **₹1,200.00 under BOTH orders**. Switch:
+> > `GstService.CessWalksIndependentlyOfTheRate`. Owner test: `tests/Apex.Ledger.Tests/GstCessIndependentWalkTests.cs`.
+> > 🔴 **WHAT IT DOES NOT REACH, AND THIS IS THE LARGER HALF — the schema escalation stands:** the three **narrow**
+> > rungs still carry no cess (`MasterGstDetails` has four fields), and **reverse charge and §17(5)
+> > ITC-eligibility do not walk at all** — they read `ResolveDetailBlock`, untouched. The **rate** walk is
+> > unchanged and asserted so. ⚠️ **Forced limit:** `CessApplicable` is a non-nullable `bool`, so "cess does not
+> > apply" is indistinguishable from silence; separating them is the same escalation. **If the user answers Q-A
+> > with shape (i), flip the switch — one line.**
+>
 > **Q-B · THE DOCUMENT-TITLE FLIP ON AN UNTAXED VOUCHER — accept it, or escalate to a schema change?** No
 > taxability is stamped on a posted line, so the bill-of-supply predicate **re-resolves every stock line live**.
 > A voucher that posted **no** tax therefore has **no anchor at all**: with the item Exempt and the sales ledger
 > Taxable at 18%, the same already-issued paper is a **BILL OF SUPPLY** under `StockItemFirst` and a **TAX
 > INVOICE** under `LedgerFirst` — re-titled by a master option, months later, with no tax on it because none was
 > ever posted. Pinned by
-> `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`.
+> `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`
+> (**renamed 2026-09-04 by A-QB to `…An_issued_untaxed_document_keeps_its_title_when_the_source_order_flips`, its
+> final assertion inverted; grep for the NEW name**).
 > **Posted MONEY is immune by construction and that is separately pinned; the statutory TITLE is not.** Anchoring
 > the title to posted data is **unavailable at this schema** — a zero-rated LUT/export supply is
 > `IsTaxable = true` at 0 bp and also posts no tax legs, so *"no tax legs"* cannot tell the two apart. It needs a
 > posted taxability marker, i.e. a **column**, i.e. an escalation. The options are (a) accept the flip, document
 > it, and warn at save time when a non-taxable block is written over a master with posted vouchers — noting the
 > **warning itself would be ours**, no source says the reference product warns — or (b) take the schema change.
+>
+> > 🟡 **▶ A-QB BUILT 2026-09-04 — AN ASSUMPTION, NOT AN ANSWER TO Q-B, AND IT NARROWS THE "NEEDS A COLUMN" CLAIM
+> > ABOVE RATHER THAN REFUTING IT.** *An issued document must not change its statutory character retroactively.*
+> > The same paper now stays a **BILL OF SUPPLY** under both orders. Switch:
+> > `GstReportSupport.AnchorIssuedDocumentCharacter`. Owner test:
+> > `tests/Apex.Ledger.Tests/GstIssuedDocumentCharacterTests.cs`.
+> > 🔴 **NO COLUMN WAS TAKEN. The investigation the assignment required came back "already derivable — for part of
+> > the space".** `GstLineTax` cannot help: an Exempt line and a 0%-taxable line both post **no** tax line at all
+> > (`ComputeInvoiceTax`'s `AddHead` returns early on a zero amount), so the paragraph above is right that "no tax
+> > legs" is blind between them. **What it did not separate is that the ambiguity only bites where the taxable
+> > reading has NO RATE TO POST.** Where that reading carries a **positive** rate, the posted ledger decides by
+> > arithmetic — an 18% supply posts legs, this voucher has none. So the anchor fires only when the two published
+> > orders disagree on taxability, neither is unresolved, the taxable reading's rate is > 0, and the voucher
+> > records no GST tax at all.
+> > 🔴 **THE RESIDUAL IS REAL AND IS THE ESCALATION:** Exempt versus **zero-rated (0 bp, LUT/export)** still moves
+> > with the master option, because neither reading posts anything. **That needs a posted taxability marker on the
+> > stock line — a column — and it was NOT taken.** Pinned by
+> > `…GstIssuedDocumentCharacterTests.The_zero_rate_versus_exempt_residual_still_moves_with_the_option_and_that_needs_a_column`.
+> > ⚠️ **Side effect, intended:** `IsWhollyExemptItemSupply` also serves `IsInwardBillOfSupply`, so an inward
+> > movement's NIC e-Way `docType` is now order-independent too — it follows the recorded tax, not an F11 option.
 >
 > **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-08-19) — SETTLED; DO NOT RE-LITIGATE. THEY AMEND THE EIGHT
 > ABOVE AND THEY CHANGE THE SHAPE OF THE REMAINING WORK.** Recorded **here**, beside the 2026-08-15 and
