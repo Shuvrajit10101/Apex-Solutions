@@ -629,10 +629,12 @@ public sealed record Gstr1(
         // When the invoice is single-rate, every taxable line falls in that one group regardless of where the
         // rate resolved; for a multi-rate invoice a line's rate is read from the item's GST master.
         var singleRate = rateGroups.Count == 1 ? rateGroups[0].Rate : (int?)null;
+        // Per-VOUCHER, so it is resolved once rather than per line (see BucketingValueLedger).
+        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
         var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
         foreach (var il in voucher.InventoryLines)
         {
-            var rate = singleRate ?? LineIntegratedRate(company, il);
+            var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
             if (!linesByRate.TryGetValue(rate, out var list)) linesByRate[rate] = list = new List<VoucherInventoryLine>();
             list.Add(il);
         }
@@ -671,12 +673,17 @@ public sealed record Gstr1(
     }
 
     /// <summary>
-    /// The integrated GST rate (basis points) of an item-invoice stock line, read from its stock item's GST
-    /// master (the most-granular resolution level). Used only to bucket a multi-rate invoice's stock lines into
-    /// the matching posted rate group — not to compute tax. An item with no resolvable rate returns 0.
+    /// The integrated GST rate (basis points) of an item-invoice stock line, used only to bucket a multi-rate
+    /// invoice's stock lines into the matching posted rate group — never to compute tax.
+    /// <para><b>T0-17: this used to read the stock item's GST block directly</b>, hard-wired to one rung of a
+    /// five-rung hierarchy, and so disagreed with the rate the posting engine actually assigned on any book where
+    /// the walk landed elsewhere — the sales ledger under the shipped <c>LedgerFirst</c> default, a group or company
+    /// rung, or an HSN-dated rate-history window. It now delegates to the ONE rule,
+    /// <see cref="GstReportSupport.BucketingRateOf"/>, which resolves the line exactly as the posting did.</para>
     /// </summary>
-    private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
-        company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+    private static int LineIntegratedRate(
+        Company company, Voucher voucher, Domain.Ledger? valueLedger, VoucherInventoryLine il) =>
+        GstReportSupport.BucketingRateOf(company, voucher, company.FindStockItem(il.StockItemId), valueLedger);
 
     /// <summary>Delegates to <see cref="ProRata.Rupees"/> — the ONE apportionment rule (drift lock D1). This was a
     /// pure de-duplication: this copy carried no zero-denominator guard of its own, but it never needed one, because
@@ -811,7 +818,7 @@ public sealed record Gstr1(
         var legsByRate = new Dictionary<int, List<(Domain.Ledger Ledger, decimal Value)>>();
         foreach (var leg in taxableLegs)
         {
-            var rate = singleRate ?? LedgerIntegratedRate(leg.Ledger);
+            var rate = singleRate ?? LedgerIntegratedRate(company, voucher, leg.Ledger);
             if (!legsByRate.TryGetValue(rate, out var list)) legsByRate[rate] = list = new List<(Domain.Ledger, decimal)>();
             list.Add(leg);
         }
@@ -849,12 +856,16 @@ public sealed record Gstr1(
     }
 
     /// <summary>
-    /// The integrated GST rate (basis points) of a service-income ledger, read from its <c>SalesPurchaseGst</c> (SAC)
-    /// block — used only to bucket a multi-rate service invoice's legs into the matching posted rate group, never to
-    /// compute tax. A ledger with no resolvable taxable rate returns 0.
+    /// The integrated GST rate (basis points) of a service-income ledger leg, used only to bucket a multi-rate
+    /// service invoice's legs into the matching posted rate group, never to compute tax.
+    /// <para><b>T0-17: this used to read the ledger's <c>SalesPurchaseGst</c> (SAC) block directly.</b> A service leg
+    /// IS its own value ledger, so the walk ORDER cannot separate the two here — but an HSN/SAC-dated
+    /// rate-history window can, and did: with both legs read at their declared rate, a posted group that matched no
+    /// leg was skipped by the caller's defensive <c>continue</c> and ITS TAX WAS DROPPED FROM TABLE 12 ALTOGETHER.
+    /// It now delegates to the ONE rule, <see cref="GstReportSupport.BucketingRateOf"/>.</para>
     /// </summary>
-    private static int LedgerIntegratedRate(Domain.Ledger ledger) =>
-        ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+    private static int LedgerIntegratedRate(Company company, Voucher voucher, Domain.Ledger ledger) =>
+        GstReportSupport.BucketingRateOf(company, voucher, item: null, ledger);
 
     /// <summary>Whether a service-income ledger's SAC block declares an <b>exempt / nil-rated / non-GST</b> supply.
     /// The single discriminator for "this leg contributed nothing to the tax base, so it may never be bucketed into a

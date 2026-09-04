@@ -96,15 +96,34 @@ public sealed class OneRuleDriftLockTests
     private const string D8Routing = @"!\s*string\.Equals\([^;]*(?:[Hh]ome|[Ss]tateCode|[Ss]tate\b)";
 
     /// <summary>
-    /// D9 (T0-4 slice S1) — a GST rate read STRAIGHT OFF A MASTER'S GST BLOCK, bypassing
-    /// <c>GstService.ResolveRate</c> entirely. Five such readers ship today, each returning <c>0</c> where the
-    /// resolver returns the ER-5 unresolved sentinel, and each hard-coding its own single rung: three read only the
-    /// Stock Item, two read only the sales/purchase Ledger. They agree with the resolver today ONLY because the
-    /// resolver is itself item-then-ledger. The moment the five-level walk lands (S2) any one of them can disagree
-    /// with the tax the invoice actually posted — which is the "one rule, several places" shape D1/D3/D7/D8 all
-    /// record. Whitespace-tolerant so a re-spaced or line-split copy cannot slip past.
+    /// D9 (T0-4 slice S1; <b>CLOSED by T0-17</b>) — a GST rate read STRAIGHT OFF A MASTER'S GST BLOCK, bypassing
+    /// <c>GstService.ResolveRate</c> entirely. Five such readers used to ship, each hard-coding its own single rung
+    /// of a five-rung hierarchy: three read only the Stock Item, two read only the sales/purchase Ledger. They agreed
+    /// with the resolver ONLY because the resolver was itself item-then-ledger; T0-4 S2b's <c>LedgerFirst</c> default
+    /// and Phase 9's HSN-dated rate windows each broke that coincidence. All five now delegate to
+    /// <c>GstReportSupport.BucketingRateOf</c>, so <b>this idiom must appear nowhere in the shipped tree at all</b> —
+    /// the strongest form the lock can take, and the one that catches a sixth without anyone editing an expected
+    /// count. Whitespace-tolerant so a re-spaced or line-split copy cannot slip past.
     /// </summary>
     private const string D9MasterRateBypass = @"IsTaxable:\s*true\s*,\s*RateBasisPoints:";
+
+    /// <summary>
+    /// D9b (T0-17) — the <b>widened</b> master-rate-read pattern, added because D9's property-pattern shape was
+    /// narrower than the defect. D9 matched only <c>… is { IsTaxable: true, RateBasisPoints: … }</c>; the very same
+    /// bypass written as a null-conditional chain (<c>ledger?.SalesPurchaseGst?.RateBasisPoints ?? 1800</c>) or via
+    /// an intermediate local (<c>item?.Gst is { } g &amp;&amp; g.IsTaxable &amp;&amp; g.RateBasisPoints is { } r</c>)
+    /// slipped straight past it — the second of those was even pinned as a deliberate NON-match by D9's own
+    /// false-positive guard, i.e. the hole was documented rather than closed.
+    ///
+    /// <para>It anchors on a MASTER-block accessor (<c>SalesPurchaseGst</c>, <c>DefaultGst</c>, or <c>.Gst</c>
+    /// followed by <c>?</c>/<c>.</c>/whitespace) reaching a <c>RateBasisPoints</c> on the same statement. That
+    /// deliberately does NOT match <c>GstService.ResolveBase</c>/<c>Hierarchy</c>, which read <c>RateBasisPoints</c>
+    /// off a <c>Rung</c>/<c>block</c> local — the resolver must never trip its own lock.</para>
+    ///
+    /// <para><b>Pinned as an exact inventory rather than "nowhere", because three legitimate readers remain</b> and
+    /// each is a different reason. See <see cref="TheWidenedMasterRateReadInventoryIsExactlyTheFourKnownOnes"/>.</para>
+    /// </summary>
+    private const string D9bMasterRateRead = @"(?:SalesPurchaseGst|DefaultGst|\.Gst[?.\s])[^;]*RateBasisPoints";
 
     /// <summary>
     /// D10 (T0-4 slice S1) — a call to <c>GstService.ResolveRate</c>. Unlike D1–D9 this is not a "second copy"
@@ -355,20 +374,59 @@ public sealed class OneRuleDriftLockTests
     /// <para>All five are BUCKETING readers — they choose which posted rate group a line belongs to and never
     /// compute tax — so making them hierarchy-aware is a decision S2 must take explicitly, per bypass, and record.
     /// This lock exists so that decision cannot be taken by omission.</para>
+    ///
+    /// <para>🔴 <b>T0-17 TOOK THAT DECISION, and it went the other way from the wording above.</b> All five were
+    /// routed through <c>GstReportSupport.BucketingRateOf</c> — none was found to legitimately need a hard-wired
+    /// rung. The reasoning, per site, is one argument: each answers "which posted rate group is this line in?", the
+    /// posting engine answered that with <c>ResolveRate</c>, so any other answer mis-buckets. The "restate what was
+    /// posted, not what masters say today" concern does NOT argue for keeping them: the raw master read was itself a
+    /// read of today's masters, and a blinder one — it could not see the dated rate window at all. The genuinely
+    /// posted-rate fix is a persisted per-line rate, which is a schema change and stays a carry-forward.</para>
+    ///
+    /// <para><b>So the inventory is now ZERO and the assertion is "nowhere", not a count.</b> That is deliberate:
+    /// <c>AssertExactInventory</c> refuses an empty expectation ("an inventory that expects nothing protects
+    /// nothing"), and a count of zero would in any case be weaker than a prohibition — a sixth bypass must fail this
+    /// lock without anyone having to notice a number moved.</para>
     /// </summary>
     [Fact]
-    public void TheMasterRateBypassReadersAreExactlyTheFiveKnownOnes() =>
+    public void NoMasterBlockRateBypassSurvivesAnywhereInTheShippedTree() =>
+        AssertOnlyIn("D9 master-block rate bypass", D9MasterRateBypass);
+
+    /// <summary>
+    /// D9b — the widened pattern's exact inventory. Four sites remain, and <b>not one of them is a bucketing read</b>:
+    /// <list type="bullet">
+    ///   <item><c>VoucherAlterationDerivedLegs</c> ×2 — <c>l.Gst</c> there is an <c>EntryLine</c>'s
+    ///     <c>GstLineTax</c>, i.e. a <b>POSTED</b> leg, not a master. Reading the rate a leg actually carries is the
+    ///     opposite of a bypass; these are matched only because the property is spelled the same way.</item>
+    ///   <item><c>GstReportSupport.TaxedLegsCarryTheirTax</c> — a <b>predicate</b>, not a rate: "does this ledger
+    ///     DECLARE a non-zero rate?", used to refuse a self-contradicting tax invoice. It deliberately reads the
+    ///     DECLARATION and must not resolve — its own doc records why ("a live resolve is exactly what the projector
+    ///     refuses to do with money"). It produces no rate and spends none.</item>
+    ///   <item>🔴 <c>RcmService</c> — <b>a genuine SIXTH bypass, which D9's narrower pattern never counted.</b>
+    ///     <c>supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800</c> rates an
+    ///     import-of-services RCM leg. The fallback limb fires exactly when <c>ResolveDetailBlock</c> returned null
+    ///     — i.e. when the hierarchy landed on a group/company rung — and then reads the LEDGER, a rung the walk did
+    ///     not choose. <b>It is not a new finding</b> — census row <b>T0-18</b> already has it, found by reading the
+    ///     two RCM limbs side by side; what this entry adds is that the same line is now caught MECHANICALLY rather
+    ///     than by inspection. <b>Deliberately not fixed under T0-17:</b> unlike the five it COMPUTES tax, and its
+    ///     <c>?? 1800</c> floor is an unsourced statutory claim, so closing it needs an R7 verification of the
+    ///     import-of-services rate and belongs to T0-18. Listed here so it is countable and cannot move silently.</item>
+    /// </list>
+    /// </summary>
+    [Fact]
+    public void TheWidenedMasterRateReadInventoryIsExactlyTheFourKnownOnes() =>
         AssertExactInventory(
-            "D9 master-block rate bypass", D9MasterRateBypass,
+            "D9b widened master-rate read", D9bMasterRateRead,
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["src/Apex.Ledger/Reports/Gstr1.cs"] = 2,
-                ["src/Apex.Ledger.Io/EInvoiceJson.cs"] = 2,
-                ["src/Apex.Ledger.Io/EWayBillJson.cs"] = 1,
+                ["src/Apex.Desktop/ViewModels/VoucherAlterationDerivedLegs.cs"] = 2,
+                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 1,
+                ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
             },
-            "A sixth reader of a master's GST block would silently disagree with GstService.ResolveRate the moment "
-          + "the five-level hierarchy lands (T0-4 S2). Resolve through GstService, or — if this really is a "
-          + "posted-rate BUCKETING read — add it here deliberately and say in its doc why it may not resolve.");
+            "A new read of a master's GST block reaching RateBasisPoints is a rate resolved OUTSIDE "
+          + "GstService.ResolveRate. Route it through GstReportSupport.BucketingRateOf (bucketing) or "
+          + "GstService.ResolveRate (computing), or — if it reads a POSTED leg or tests a DECLARATION rather than "
+          + "producing a rate — add it here deliberately and say in its doc which of those it is.");
 
     /// <summary>
     /// D10 — <c>GstService.ResolveRate</c> has exactly these eight call sites. A live re-resolve added beside a
@@ -386,16 +444,23 @@ public sealed class OneRuleDriftLockTests
     /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites use the DATE-BLIND
     /// two-argument overload, so the dated <c>RateHistory</c> override never fires at the POS while every voucher
     /// path passes <c>Date</c> — a pre-existing wrong-money candidate that S2 neither causes nor fixes.</para>
+    ///
+    /// <para>🔴 <b>T0-17 added the NINTH, deliberately: <c>GstReportSupport.BucketingRateOf</c>.</b> It is a
+    /// report/payload-side call, which is the shape this lock is most suspicious of — so the reason is recorded here
+    /// as well as at the method. It does not re-rate issued paper: every rupee still comes from the posted
+    /// <c>GstLineTax</c> legs, and the resolved rate only chooses WHICH posted group a line is counted in. It
+    /// replaced five reads that were already consulting live masters and could not even see the dated rate window,
+    /// so it strictly REDUCES the live-master surface rather than widening it.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheEightKnownCallSites() =>
+    public void ResolveRateHasExactlyTheNineKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
-                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 1,
+                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 2,
                 ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
             },
             "A new ResolveRate call site re-resolves a rate from LIVE masters. On a posting path that is correct; "
@@ -530,18 +595,53 @@ public sealed class OneRuleDriftLockTests
     /// <summary>
     /// D9 must NOT fire on the shipped lines that mention taxability WITHOUT reading a rate off a master — the
     /// exempt-service-ledger discriminator and the ER-5 unresolved sentinel both test <c>IsTaxable: false</c>, and
-    /// neither is a rate bypass. The first two are VERBATIM lines from <c>src/</c> (<c>Gstr1.cs</c> and
-    /// <c>GstService.IsUnresolved</c>); the third is a constructed near-miss — the property-access form of the very
-    /// rule D9 polices, which must NOT match, or the lock would fire on <c>ResolveBase</c> itself. Its
-    /// false-positive surface is pinned as deliberately as its bite, for the reason D8's twin test states: a lock
-    /// that has to be silenced with an exemption is a lock that gets deleted.
+    /// neither is a rate bypass. Both are VERBATIM lines from <c>src/</c> (<c>Gstr1.cs</c> and
+    /// <c>GstService.IsUnresolved</c>). Its false-positive surface is pinned as deliberately as its bite, for the
+    /// reason D8's twin test states: a lock that has to be silenced with an exemption is a lock that gets deleted.
+    ///
+    /// <para>🔴 <b>A third case used to sit here and has been MOVED, not deleted</b> — see
+    /// <see cref="TheWidenedLockCatchesTheBypassShapesD9CouldNotSee"/>. It was the property-access form of the very
+    /// rule D9 polices, pinned as a deliberate non-match on the ground that catching it "would fire on
+    /// <c>ResolveBase</c> itself". That ground was sound for D9's shape and wrong as a conclusion: it recorded a
+    /// live hole in the lock as if it were a design constraint. D9b closes it by anchoring on a MASTER accessor,
+    /// which <c>ResolveBase</c> does not use, so the near-miss is caught and the resolver still is not.</para>
     /// </summary>
     [Theory]
     [InlineData(@"        ledger.SalesPurchaseGst is { IsTaxable: false };")]
     [InlineData(@"    public static bool IsUnresolved(RateResolution r) => r is { IsTaxable: false, RateBasisPoints: -1, Taxability: GstTaxability.Taxable };")]
-    [InlineData(@"        if (item?.Gst is { } itemGst && itemGst.IsTaxable && itemGst.RateBasisPoints is { } ir)")]
     public void TheMasterRateBypassLockIgnoresTaxabilityTestsThatReadNoRate(string shippedLine) =>
         Assert.False(
             Regex.IsMatch(shippedLine, D9MasterRateBypass),
             $"D9 false-positives on a line that reads no rate off a master:\n  {shippedLine}\nPattern: {D9MasterRateBypass}");
+
+    /// <summary>
+    /// D9b's BITE, asserted directly rather than inferred from an inventory count: the three bypass shapes D9's
+    /// property-pattern could not see must all match. The first is the near-miss D9's guard used to pin as a
+    /// permitted non-match; the second is the shipped <c>RcmService</c> line this widening actually surfaced; the
+    /// third is the plainest re-introduction of a reader T0-17 just removed. Without this, "the inventory is
+    /// unchanged" would be indistinguishable from "the pattern silently stopped matching".
+    /// </summary>
+    [Theory]
+    [InlineData(@"        if (item?.Gst is { } itemGst && itemGst.IsTaxable && itemGst.RateBasisPoints is { } ir)")]
+    [InlineData(@"            var importRate = supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800;")]
+    [InlineData(@"        company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;")]
+    public void TheWidenedLockCatchesTheBypassShapesD9CouldNotSee(string bypassLine) =>
+        Assert.True(
+            Regex.IsMatch(bypassLine, D9bMasterRateRead),
+            $"D9b fails to bite on a master-block rate read:\n  {bypassLine}\nPattern: {D9bMasterRateRead}");
+
+    /// <summary>
+    /// D9b must NOT fire on the resolver itself, or the ONE home would be locked out of doing its own job. These are
+    /// VERBATIM lines from <c>GstService</c>'s <c>Hierarchy</c>/<c>ResolveBase</c>: they reach <c>RateBasisPoints</c>
+    /// through a <c>Rung</c>/<c>block</c> local, never through a master accessor on the same statement. This is the
+    /// property that lets D9b be widened at all.
+    /// </summary>
+    [Theory]
+    [InlineData(@"            if (rung.RateBasisPoints is { } bp)")]
+    [InlineData(@"            : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints, block.ValuationBasis, block);")]
+    [InlineData(@"                HierarchyLevel.Company => Narrow(_company.Gst?.DefaultGst),")]
+    public void TheWidenedLockDoesNotFireOnTheResolverItself(string resolverLine) =>
+        Assert.False(
+            Regex.IsMatch(resolverLine, D9bMasterRateRead),
+            $"D9b false-positives on the resolver's own walk:\n  {resolverLine}\nPattern: {D9bMasterRateRead}");
 }

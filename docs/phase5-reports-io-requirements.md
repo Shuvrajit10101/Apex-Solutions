@@ -286,7 +286,7 @@ Stated so the Phase-5 boundary is unambiguous:
 > / purchase item-invoice** … render a **tax-invoice** document"*. **CGST Act §31(1) puts the tax invoice on
 > "a registered person SUPPLYING"** — the supplier. On a Purchase we are the RECIPIENT and we issue nothing.
 > 1. **THE CODE WAS RIGHT AND THE REQUIREMENT WAS WRONG.** `GstReportSupport.IsTaxInvoice`
->    (`src/Apex.Ledger/Reports/GstReportSupport.cs:1636`) returns false unless the base type is Sales, and
+>    (`src/Apex.Ledger/Reports/GstReportSupport.cs:1695`) returns false unless the base type is Sales, and
 >    **Sales-only is the CORRECT answer to the question that predicate is named for** — *"are we entitled to
 >    issue a Rule-46 tax invoice?"*. It is not the defect, and it is not edited.
 > 2. **`docs/full-clone-census.md` T0-11 INHERITED THE ERROR.** Its evidence cell reads *"Contradicts
