@@ -3,6 +3,45 @@
 **Paste the COPY-PASTE PROMPT below as your first message in the new session.**
 Rewritten **2026-08-17**, in full.
 
+> # 🔴 READ THIS BEFORE ANYTHING ELSE — THE `tally/` CORPUS IS GONE (USER RULING 14, R12, 2026-09-04)
+>
+> **DO NOT GO LOOKING FOR THE PDFs. THERE IS NOTHING TO FIND, AND A SESSION HAS ALREADY LOST ITS OPENING HOUR
+> TO THIS.** One earlier session reported the corpus as *UNREACHED*, which reads like *retry later*. It is not.
+>
+> **THE MEASUREMENT.** `tally/` **exists and is EMPTY** — `find tally/ -mindepth 1` returns **zero** entries,
+> hidden files included. Verified independently by three agents and the main loop on 2026-09-04, across the
+> base tree **and every live worktree**, and re-verified since. **And it cannot be restored by anyone:**
+> `git log --all -- tally/` returns **no commits on any ref** and `git ls-files tally/` returns **zero**,
+> because **R4 correctly git-ignored the folder as third-party IP** (`.gitignore`, line 73). **Git has never
+> tracked it** — no branch, no worktree, no stash, no reflog. A Desktop-wide sweep found no corpus-shaped PDF.
+> ⇒ **Unreachable BY CONSTRUCTION, not by effort. A12 cannot help. Do not file it under "unreached" again.**
+>
+> **THE USER HAS RULED: PROCEED, ON THE OFFICIAL VENDOR DOCUMENTATION.** The grounding order, first source
+> that speaks, always cited:
+> 1. **`help.tallysolutions.com`** — the vendor's own published product documentation. **This is now the
+>    fidelity ground truth** for product behaviour, navigation and keyboard shortcuts.
+> 2. **Official statutory sources** for law and rate facts — `cbic-gst.gov.in`, `incometaxindia.gov.in`,
+>    `epfo.gov.in`, `esic.gov.in`, `indiacode.nic.in`.
+> 3. **`docs/tally-feature-catalog.md` + its verification report** — **INTERNAL**, only where 1 and 2 are
+>    silent. An internal restatement is never an independent source.
+>
+> **WHAT THIS MEANS FOR YOUR WORK.** **A capability verified against the vendor documentation IS VERIFIED**
+> and joins the compared set — that was open question **U-3** and ruling 14 settles it **YES, by necessity**;
+> **no existing item is downgraded.** Ruling 9's *"done = full parity AND corpus verification"* now reads
+> **"AND vendor-documentation verification"** — only the source's name changed. 🔴 **THE BAR DID NOT MOVE, AND
+> IT IS THE WHOLE POINT: never mark anything verified that you have not COMPARED.** The fidelity figure is
+> small because that bar has been held; inflating it would make the one honest number in the project
+> dishonest. Where **no** admissible source speaks, ship it as a **documented divergence labelled as ours**.
+> **A blog, cleartax, taxguru or an undated rate chart is NOT a source** — shipped code has already had such
+> citations stripped out. **Full text:** `plan.md` §5 (`A FOURTEENTH STANDING USER RULING (R12, 2026-09-04)`) ·
+> `CLAUDE.md` **R7** (amended in place, original struck) · `docs/full-clone-census.md` §1.3 **METHOD NOTE**.
+>
+> **▶ AND THE STANDING-RULING COUNT IN THIS FILE IS NOW WRONG BY TWO.** The COPY-PASTE PROMPT below tells you
+> to read *"the **TWELVE** standing rulings"*. **There are FOURTEEN** — 13 (`LedgerFirst`, 2026-09-03) and 14
+> (this one). **Ten user rulings are still OWED and are held as ONE BATCH** in `plan.md` §5 — search
+> **`TEN RULINGS ARE STILL OWED`** — with full text in `docs/full-clone-census.md` §7. **Nothing may be
+> dispatched into any of them**, and they go to the user together, not one at a time.
+
 > 🔴 **WHAT THE PREVIOUS VERSION OF THIS FILE (2026-08-14/15) GOT WRONG — recorded, because this file has now
 > gone stale twice and the pattern is the point.** It said schema **v50** (it is **v51**), gate
 > **1555 / 389 / 215 / 2013** (it is **1668 / 414 / 231 / 2195**), *"nothing pushed, no PR, no upstream"*
@@ -120,8 +159,14 @@ Rewritten **2026-08-17**, in full.
 > three are **historical snapshots**: their pointers were rewritten to `file.ext line NN` on purpose and are
 > **not maintained**. Re-derive before use.
 >
-> **▶ Clone, never invent.** The corpus is readable from every worktree via a `tally` junction. Use
-> `pdftotext -raw` as the second pass on any tabular page — `-layout` scrambles multi-column tables.
+> **▶ Clone, never invent.** ~~The corpus is readable from every worktree via a `tally` junction. Use
+> `pdftotext -raw` as the second pass on any tabular page — `-layout` scrambles multi-column tables.~~
+> 🔴 **SUPERSEDED 2026-09-04 BY RULING 14 — AND THIS IS THE SINGLE MOST MISLEADING LINE LEFT IN THIS FILE, so
+> it is struck rather than left to be acted on. The junction resolves to an EMPTY directory** and `pdftotext`
+> has nothing to read. **Clone-never-invent is UNCHANGED and is the point that survives**; only the source
+> moved — ground it in the **vendor documentation** (`help.tallysolutions.com`), then official statutory
+> sources, then the internal catalog. *(The `pdftotext -raw` lesson is retained as a tooling note for any
+> future PDF: `-layout` scrambles multi-column tables. It has no corpus to apply to today.)*
 
 ---
 
@@ -210,9 +255,13 @@ one page, 10 against 11 on the other — **so any pairing read off a `-layout` d
   display-only drill-down."* The corpus read with `-raw` says the opposite — `Ctrl+Enter` →
   *"To alter a master during voucher entry or from drilldown of a report."* **That R7 line is owed a
   correction**, and our binding is a *smaller* divergence than the plan records.
-- **🔴 RE-TEST A REJECTED SOURCE.** The corpus PDF `659947760-Tally-Prime-Short-Key.pdf` was rejected earlier in
+- ~~**🔴 RE-TEST A REJECTED SOURCE.** The corpus PDF `659947760-Tally-Prime-Short-Key.pdf` was rejected earlier in
   this project because its table was *"misaligned by ~2 rows"*. **That rejection may itself be a `-layout`
-  artefact.** Re-test it with `-raw` before the source stays discarded.
+  artefact.** Re-test it with `-raw` before the source stays discarded.~~
+  🔴 **UNACTIONABLE FROM 2026-09-04 (RULING 14) — THAT PDF NO LONGER EXISTS ANYWHERE.** Do not go looking for
+  it. **The underlying question is still live and now has a better source:** the shortcut map is published on
+  `help.tallysolutions.com`, which is the fidelity ground truth under ruling 14, and the wave-2 passes have
+  already used it to establish the `Ctrl+I` / `Ctrl+E` / `Alt+I` / `Alt+A` collisions held open as **U-6**.
 - **Proposed standing instruction:** `-raw` is the mandatory second pass for any tabular corpus page, and a
   `-layout` pairing whose column counts disagree is **not evidence**.
 
