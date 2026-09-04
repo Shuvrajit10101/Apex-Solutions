@@ -403,7 +403,7 @@ public sealed class GstService
         // when off, and the walk is the only clause here that can cost or throw.
         if (voucherDate is { } d && baseRes.IsTaxable
             && _company.Gst?.RateHistory is { Count: > 0 } history
-            && ResolveHsnSac(item, salesPurchaseLedger) is { } hsn)
+            && ResolveHsnSac(item, salesPurchaseLedger, source) is { } hsn)
         {
             var hit = history
                 .Where(h => h.HsnSac == hsn && h.IsEffectiveOn(d))
@@ -595,11 +595,20 @@ public sealed class GstService
     /// cycle strictly below the answer — and the consequence of swallowing it is the correct one: no dated
     /// override, the base rate stands, the line posts.</para>
     /// </summary>
-    private string? ResolveHsnSac(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+    /// <param name="source">🔴 <b>THE ORDER THE RATE WAS RESOLVED UNDER, threaded through rather than re-read from
+    /// the config — added at the merge of the T0-20 fix with <see cref="TaxabilityIsSourceOrderDependent"/>, which
+    /// arrived on a different branch.</b> Both changes merged cleanly and compiled, and together they reintroduced
+    /// the exact defect T0-20 exists to prevent, in one arm: <see cref="ResolveRateUnder"/> resolved the BASE under
+    /// its named <paramref name="source"/> while this walk still keyed on <see cref="ConfiguredSource"/>, so the
+    /// counterfactual ("what would the OTHER published order say?") walked the rate item-first and the HSN
+    /// ledger-first — a second, inconsistent resolution, which is T0-20's own words for the bug. Production is
+    /// unaffected either way, because <see cref="ResolveRate"/> passes <see cref="ConfiguredSource"/> and the two
+    /// were already equal there; what changes is only that the counterfactual is now answered by ONE walk.</param>
+    private string? ResolveHsnSac(StockItem? item, Domain.Ledger? salesPurchaseLedger, GstDetailSource source)
     {
         try
         {
-            foreach (var rung in Hierarchy(item, salesPurchaseLedger))
+            foreach (var rung in Hierarchy(item, salesPurchaseLedger, source))
                 if (!string.IsNullOrWhiteSpace(rung.HsnSac)) return rung.HsnSac;
         }
         catch (InvalidOperationException)
