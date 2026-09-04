@@ -925,6 +925,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > statutory-cess narrowing) and **Q-B** (the document-title flip), both immediately above and both pinned by a
 > named test. **Put them with this batch** — they are R12 questions of the same kind and the user is being
 > asked to sit down with the list once.
+>
+> **▶ 🔴 AND ONE MORE, ADDED BY THE WAVE-3 FOLD-IN AFTER THIS BATCH WAS WRITTEN, SO THE HEADING'S COUNT OF
+> TEN IS ALREADY ONE SHORT: U-11** - does the 216 denominator gain a *Migrate-as-an-operator-action* row (and
+> an *Extract / Share* one)? Full text in `docs/full-clone-census.md` §7. **The heading is left reading TEN
+> because two other places search for the literal `TEN RULINGS ARE STILL OWED`; the batch is ELEVEN.** Recorded
+> in place rather than by re-typing the heading, 2026-09-05.
 
 > **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-08-19) — SETTLED; DO NOT RE-LITIGATE. THEY AMEND THE EIGHT
 > ABOVE AND THEY CHANGE THE SHAPE OF THE REMAINING WORK.** Recorded **here**, beside the 2026-08-15 and
