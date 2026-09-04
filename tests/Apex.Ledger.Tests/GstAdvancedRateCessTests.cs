@@ -90,7 +90,7 @@ public sealed class GstAdvancedRateCessTests
         Assert.Equal(1800, gst.ResolveRate(plain, null, PreCutover).RateBasisPoints);
         Assert.Equal(1800, gst.ResolveRate(plain, null, PostCutover).RateBasisPoints);
         // And with no date at all — pure Phase-4 behaviour.
-        Assert.Equal(1800, gst.ResolveRate(plain, null).RateBasisPoints);
+        Assert.Equal(1800, gst.ResolveRate(plain, null, voucherDate: null).RateBasisPoints);
     }
 
     [Fact]

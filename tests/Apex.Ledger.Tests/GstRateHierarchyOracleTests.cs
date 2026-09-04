@@ -382,13 +382,13 @@ public sealed class GstRateHierarchyOracleTests
     public void TheSentinelSitsBehindTheCompanyRungAndNotInFrontOfIt(GstDetailSource source)
     {
         var (withCompany, cItem, cLedger) = GstRateHierarchy.BuildFixture("C", source);
-        var resolved = withCompany.ResolveRate(cItem, cLedger);
+        var resolved = withCompany.ResolveRate(cItem, cLedger, voucherDate: null);
         Assert.False(GstService.IsUnresolved(resolved));
         Assert.True(resolved.IsTaxable);
         Assert.Equal(300, resolved.RateBasisPoints);
 
         var (empty, eItem, eLedger) = GstRateHierarchy.BuildFixture("", source);
-        Assert.True(GstService.IsUnresolved(empty.ResolveRate(eItem, eLedger)));
+        Assert.True(GstService.IsUnresolved(empty.ResolveRate(eItem, eLedger, voucherDate: null)));
     }
 
     // ================================================================= fixture matrix

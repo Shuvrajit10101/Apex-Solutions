@@ -261,7 +261,7 @@ internal static class GstRateHierarchy
     /// </summary>
     public static int? EngineRate(GstService gst, StockItem? item, Domain.Ledger? ledger)
     {
-        var r = gst.ResolveRate(item, ledger);
+        var r = gst.ResolveRate(item, ledger, voucherDate: null);
         if (GstService.IsUnresolved(r)) return null;
         if (!r.IsTaxable)
             throw new InvalidOperationException(
