@@ -164,22 +164,30 @@ public sealed class GstWinningBlockTests
     /// ad-valorem cess of 1200 bp declared on the ITEM. The rate is 1800 either way — under
     /// <see cref="GstDetailSource.StockItemFirst"/> because the rate walk falls THROUGH the rate-less item block to
     /// the ledger, under <see cref="GstDetailSource.LedgerFirst"/> because the ledger is simply first. <b>The CESS
-    /// is what moves:</b>
+    /// used to move, and under assumption A-QA it no longer does:</b>
     /// <list type="bullet">
     ///   <item><b><c>StockItemFirst</c> (every pre-v51 book) — 1,200.00.</b> The item declares the first block on
     ///     the walk, so it supplies the cess: 1200 bp of 10,000.00. This is the pre-S2a figure, unchanged.</item>
-    ///   <item><b><c>LedgerFirst</c> (every v51+ book) — NO CESS.</b> The ledger declares the first block on the
-    ///     walk, and its block carries no cess fields, so the line bears none. One walk, one winning block.</item>
+    ///   <item><b><c>LedgerFirst</c> (every v51+ book) — was NO CESS, is now 1,200.00.</b> The ledger declares the
+    ///     first block on the walk and wins the RATE, but it is <b>silent</b> on cess, and under
+    ///     <c>GstService.CessWalksIndependentlyOfTheRate</c> silence no longer suppresses the item's declared
+    ///     cess.</item>
     /// </list>
     ///
-    /// <para>Both figures are DERIVED from the published order strings and the user ruling, not read off the
-    /// resolver: 10,000.00 x 1200/10000 = 1,200.00 exactly, and a block that declares no cess charges none.</para>
+    /// <para>🔴 <b>THE `LedgerFirst` ROW WAS INVERTED BY ASSUMPTION A-QA — AN ASSUMPTION, NOT A USER RULING.</b>
+    /// The R12 question it was written to record stays open; flipping the one constant restores the 0.00 figure and
+    /// this row with it. The assumption, its scope and the half of IV-40 that CANNOT be closed without widening
+    /// <see cref="MasterGstDetails"/> (a schema change, hence an escalation) are owned by
+    /// <c>GstCessIndependentWalkTests</c>. The narrow-rung half of the narrowing is untouched and is still pinned
+    /// immediately below by
+    /// <see cref="A_rate_resolved_at_a_narrow_rung_bears_no_cess_even_on_a_cess_bearing_HSN"/>.</para>
+    ///
+    /// <para>The figure is DERIVED, not read off the resolver: 10,000.00 x 1200/10000 = 1,200.00 exactly.</para>
     /// </summary>
     [Theory]
-    [InlineData(GstDetailSource.StockItemFirst, true)]
-    [InlineData(GstDetailSource.LedgerFirst, false)]
-    public void The_source_order_decides_which_master_supplies_the_cess(
-        GstDetailSource source, bool itemSuppliesTheCess)
+    [InlineData(GstDetailSource.StockItemFirst)]
+    [InlineData(GstDetailSource.LedgerFirst)]
+    public void The_source_order_no_longer_decides_which_master_supplies_the_cess(GstDetailSource source)
     {
         var c = GstCompany();
         c.Gst!.SourceOfGstRate = source;
@@ -205,17 +213,16 @@ public sealed class GstWinningBlockTests
 
         Assert.Equal(1800, gst.ResolveRate(item, ledger, VoucherDate).RateBasisPoints);
 
+        // A-QA: 1,200.00 under BOTH orders. Under LedgerFirst this was 0.00 before the assumption shipped.
         var cess = gst.ResolveCess(item, ledger, VoucherDate, quantity: 1m);
-        if (itemSuppliesTheCess)
-        {
-            Assert.NotNull(cess);
-            Assert.Equal(CessValuationMode.AdValorem, cess!.Value.Mode);
-            Assert.Equal(new Money(1_200.00m), cess.Value.ComputeCess(new Money(10_000.00m)));
-        }
-        else
-        {
-            Assert.Null(cess);
-        }
+        Assert.NotNull(cess);
+        Assert.Equal(CessValuationMode.AdValorem, cess!.Value.Mode);
+        Assert.Equal(new Money(1_200.00m), cess.Value.ComputeCess(new Money(10_000.00m)));
+
+        // 🔴 AND THE RATE IS UNMOVED BY A-QA — the RATE walk is still one walk with one winning block, so the
+        // ledger's 1800 bp answers under both orders. Independent means "cess does not stop where the rate stops",
+        // not "cess and rate read different masters by default".
+        Assert.Equal(1800, gst.ResolveRate(item, ledger, VoucherDate).RateBasisPoints);
     }
 
     // ================================================================= the named narrowing

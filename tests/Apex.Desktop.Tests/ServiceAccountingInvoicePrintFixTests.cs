@@ -682,9 +682,15 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         // have zeroed the posted cess in every test below. Declaring the SAME cess on both masters keeps every money
         // literal in this file exactly as it was and makes these tests independent of the source order, which is
         // what they were always about. 🔴 The book shape they no longer cover — cess typed on the STOCK ITEM while
-        // the sales ledger carries a cess-less block — now silently charges NO cess on a v51+ book; that is pinned
-        // by Apex.Ledger.Tests' GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess and is
-        // ESCALATED as an open question, not absorbed here.
+        // the sales ledger carries a cess-less block — used to charge NO cess on a v51+ book.
+        // 🟡 CORRECTED 2026-09-04: that is no longer true. Assumption A-QA (GstService.CessWalksIndependentlyOfTheRate,
+        // one line, reversible) makes cess walk past a rung that is SILENT on it, so the shape now charges the item's
+        // cess under both source orders. Pinned by Apex.Ledger.Tests' GstCessIndependentWalkTests and by
+        // GstWinningBlockTests.The_source_order_no_longer_decides_which_master_supplies_the_cess (renamed and its
+        // LedgerFirst row inverted; the OLD name was …The_source_order_decides_which_master_supplies_the_cess).
+        // 🔴 A-QA is an ASSUMPTION, not a ruling: the R12 question is still open, and the narrow-rung half of the
+        // narrowing is still ESCALATED, not absorbed here. Declaring the cess on both masters remains correct and is
+        // now merely redundant rather than load-bearing.
         cess?.Invoke(salesLedger.SalesPurchaseGst);
         var customer = AddLedger(c, "Local Customer", "Sundry Debtors");
         customer.PartyGst = new PartyGstDetails
