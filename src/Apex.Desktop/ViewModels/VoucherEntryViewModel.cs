@@ -3533,6 +3533,20 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var valueLeg = valueLegs[0];
         SelectedStockLedger = StockLedgers.First(sl => sl.Id == valueLeg.LedgerId);
 
+        // 🔴 T1-23 — the VALUE leg's bill-wise flag, checked AT THE DOOR, exactly as RehydrateInvoiceBillWise
+        // checks the party's and for the same measured reason. The split itself is CARRIED (see
+        // CaptureDerivedLegChildren), but a carried split whose ledger no longer maintains balances bill-by-bill
+        // is refused by the ENGINE — "Ledger 'X' does not maintain balances bill-by-bill" — after the operator has
+        // re-keyed the whole invoice. Only ONE direction is checkable here, and the asymmetry with the party is
+        // deliberate: the party's panel can ACQUIRE a split the posted leg never had, so its rehydration compares
+        // both ways; the value leg has no panel at all, so it can only ever lose one.
+        if (valueLeg.HasBillAllocations && _company.FindLedger(valueLeg.LedgerId) is { } valueMaster
+            && !valueMaster.MaintainBillByBill)
+            return $"its {StockLedgerCaption} leg on '{valueMaster.Name}' carries "
+                 + $"{valueLeg.BillAllocations.Count} bill-wise allocation(s) and '{valueMaster.Name}' no longer "
+                 + "maintains balances bill-by-bill, so they could not be written back — re-accepting would drop "
+                 + "them and leave that ledger's bill-wise outstanding unallocated.";
+
         var costLegs = new List<EntryLine>();
         foreach (var line in voucher.Lines)
         {
@@ -3581,20 +3595,52 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     ///
     /// <para>🔴 <b>WHAT IS CARRIED, AND WHAT IS STILL NOT.</b> <c>EntryLine</c>'s optional payload is
     /// <c>BillAllocations · CostAllocations · BankAllocation · Forex · Gst · Tds · Tcs · Payroll</c>.
-    /// The bill-wise split is RE-KEYED (the screen has a panel for it — <see cref="RehydrateInvoiceBillWise"/>);
     /// <c>Gst</c> is deliberately RE-DERIVED and its shape pinned; a <c>Tds</c>, a non-below-threshold <c>Tcs</c>
     /// or a <c>Payroll</c> detail on any leg is refused at the door by
-    /// <see cref="RehydrateItemInvoiceFrom"/>'s own arms or by the derived-leg refusals beside them.
-    /// <c>CostAllocations</c> and <c>Forex</c> are what this record carries. <c>BankAllocation</c> is NOT carried:
-    /// it cannot exist on the value leg (that ledger is restricted to Purchase/Sales Accounts and Stock-in-Hand,
-    /// and <c>EnsureBankAllocationValid</c> demands a bank ledger), and on the party leg it is an unexamined
-    /// limb — if one is ever proved reachable it belongs here, beside these two, not in a fourth mechanism.</para>
+    /// <see cref="RehydrateItemInvoiceFrom"/>'s own arms or by the derived-leg refusals beside them. The other
+    /// FOUR are what this record carries.</para>
+    ///
+    /// <para>🔴 <b>The bill-wise split is carried on EVERY leg BUT the party's</b> (census T1-23). On the party leg
+    /// it is RE-KEYED, because that is the one leg the screen has a panel for
+    /// (<see cref="RehydrateInvoiceBillWise"/>) — carrying it there too would post the split twice. Everywhere else
+    /// there is no panel at all, and the shipped code simply dropped it: a Purchase Accounts ledger with
+    /// <c>MaintainBillByBill</c> set is legal (<c>EnsureBillAllocationsValid</c> gates only on that flag and on the
+    /// split footing the line, neither of which is party-specific), and re-accepting silently left that ledger's
+    /// bill-wise outstanding unallocated under a plain "… altered." message.</para>
+    ///
+    /// <para>🔴 <b>And the bank allocation is carried too</b> (census T1-22) — the limb this comment used to call
+    /// "unexamined" and argue was unreachable. It IS reachable: the party picker offers <i>"(none)" + every
+    /// ledger</i>, so a bank ledger can be the party of a cash-and-carry invoice, and a canonical import (or any
+    /// <c>LedgerService.Replace</c> caller) can put an allocation on that leg. Measured, a re-accept destroyed the
+    /// cheque number, its type, its instrument date AND the bank date a human had reconciled.</para>
     /// </summary>
     private sealed record CarriedLegChildren(
-        Guid LedgerId, Money Amount, IReadOnlyList<CostAllocation> CostAllocations, ForexInfo? Forex)
+        Guid LedgerId,
+        Money Amount,
+        IReadOnlyList<BillAllocation> BillAllocations,
+        IReadOnlyList<CostAllocation> CostAllocations,
+        BankAllocation? Bank,
+        ForexInfo? Forex)
     {
         /// <summary>Nothing to carry — the ordinary invoice, which therefore posts byte-identically (ER-13).</summary>
-        public bool IsEmpty => CostAllocations.Count == 0 && Forex is null;
+        public bool IsEmpty =>
+            BillAllocations.Count == 0 && CostAllocations.Count == 0 && Bank is null && Forex is null;
+
+        /// <summary>
+        /// 🔴 <b>The children whose soundness depends on the leg's AMOUNT</b>, which is what separates them from the
+        /// bank allocation. A bill-wise split must sum exactly to the line (<c>EnsureBillAllocationsValid</c>), a
+        /// cost split must total it per category (<c>EnsureCostAllocationsValid</c>) and a forex pair must
+        /// reproduce it to the paisa (<c>EnsureForexValid</c>) — so carrying one onto a leg the amendment moved
+        /// either gets refused by the engine in words the operator never saw, or (for a split that happens still to
+        /// foot) restates an attribution nobody re-cut. A <see cref="Domain.BankAllocation"/> carries no amount at
+        /// all — <c>EnsureBankAllocationValid</c> does no split-sum check, it only demands a bank ledger — so it
+        /// stays sound across an amount change and is carried regardless. Its <c>BankDate</c> is a separate
+        /// question, and deliberately NOT this screen's: putting the allocation back is exactly what gives
+        /// <c>LedgerService.Replace</c>'s <c>CarryBankDatesForward</c> a line to pair against, so §3.4's own
+        /// carry-when-unmoved / clear-with-a-warning rule applies unchanged rather than being re-implemented here.
+        /// </summary>
+        public bool HasFootingChildren =>
+            BillAllocations.Count > 0 || CostAllocations.Count > 0 || Forex is not null;
     }
 
     private CarriedLegChildren? _carriedValueLegChildren;
@@ -3608,31 +3654,46 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private void CaptureDerivedLegChildren(EntryLine partyLeg, EntryLine valueLeg, List<EntryLine> costLegs)
     {
-        _carriedPartyLegChildren = Capture(partyLeg);
-        _carriedValueLegChildren = Capture(valueLeg);
-        _carriedCostLegChildren = costLegs.Select(Capture).ToList();
+        // 🔴 The PARTY leg's bill-wise split is captured as EMPTY, and that is the one asymmetry in this method.
+        // RehydrateInvoiceBillWise re-keys it into the invoice Bill-wise panel and BuildItemInvoice writes the
+        // panel's own rows back, so capturing it here as well would carry AND re-key one split — the party leg
+        // would post it twice. Every other leg has no panel at all, which is why it is captured there (T1-23).
+        _carriedPartyLegChildren = Capture(partyLeg, carryBills: false);
+        _carriedValueLegChildren = Capture(valueLeg, carryBills: true);
+        _carriedCostLegChildren = costLegs.Select(l => Capture(l, carryBills: true)).ToList();
 
         // Copied, not aliased: the posted lines are replaced wholesale by the build, and a captured reference to
         // a collection on a discarded object is the kind of thing that survives a review and not a refactor.
-        static CarriedLegChildren Capture(EntryLine leg) =>
-            new(leg.LedgerId, leg.Amount, leg.CostAllocations.ToList(), leg.Forex);
+        static CarriedLegChildren Capture(EntryLine leg, bool carryBills) =>
+            new(leg.LedgerId, leg.Amount,
+                carryBills ? leg.BillAllocations.ToList() : Array.Empty<BillAllocation>(),
+                leg.CostAllocations.ToList(), leg.BankAllocation, leg.Forex);
     }
 
     /// <summary>
     /// Hands back the children <paramref name="carried"/> holds so the rebuilt leg can be stamped with them — or
     /// sets <see cref="Message"/> and returns <c>false</c> when the leg has moved out from under them.
     ///
-    /// <para>The rule is one line: <b>carry while the leg is the same ledger at the same amount; otherwise refuse
-    /// BY NAME.</b> An ordinary amendment is still free to move a figure — that is what amending is — but on an
-    /// invoice whose derived legs carry an attribution this screen cannot re-cut, moving it is refused rather than
-    /// silently dropped, which is the whole finding. Both directions are covered: a fresh entry (nothing captured)
-    /// and a leg that carried nothing both fall straight through, so an ordinary invoice is unchanged.</para>
+    /// <para>The rule is two lines, and the second is the one T1-22 added. <b>(1) The LEDGER must not move</b> —
+    /// every one of these children belongs to the ledger it was posted against (a cheque was drawn on the bank it
+    /// names; a bill reference is that ledger's outstanding), and this screen has no panel to re-key any of them
+    /// on, so a re-point is refused BY NAME. <b>(2) The AMOUNT must not move — for the FOOTING children only</b>
+    /// (see <see cref="CarriedLegChildren.HasFootingChildren"/>). A bank allocation carries no amount and is
+    /// therefore carried across an ordinary amendment, which is what keeps a cheque-paid invoice amendable at all;
+    /// a bill-wise split, a cost split or a forex pair must reproduce the leg, so moving it is refused rather than
+    /// dropped silently. Both directions are covered: a fresh entry (nothing captured) and a leg that carried
+    /// nothing both fall straight through, so an ordinary invoice is unchanged (ER-13).</para>
     /// </summary>
     private bool TryCarryDerivedLegChildren(
         CarriedLegChildren? carried, string legCaption, Guid rebuiltLedgerId, Money rebuiltAmount,
-        out IReadOnlyList<CostAllocation>? costAllocations, out ForexInfo? forex)
+        out IReadOnlyList<BillAllocation>? billAllocations,
+        out IReadOnlyList<CostAllocation>? costAllocations,
+        out BankAllocation? bank,
+        out ForexInfo? forex)
     {
+        billAllocations = null;
         costAllocations = null;
+        bank = null;
         forex = null;
         if (carried is null || carried.IsEmpty) return true;
 
@@ -3649,29 +3710,59 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return false;
         }
 
-        if (carried.Amount != rebuiltAmount)
+        if (carried.HasFootingChildren && carried.Amount != rebuiltAmount)
         {
-            Message = $"The {legCaption} on '{postedName}' carries {CarriedChildrenCaption(carried)} stated "
-                    + $"against {carried.Amount}, and this alteration moves that leg to {rebuiltAmount}. A cost "
-                    + "allocation must foot its own leg and a forex amount must reproduce it to the paisa, and "
-                    + "this screen has no panel to re-cut either on, so accepting would silently drop them. "
-                    + "Restore the posted total, or cancel this invoice and raise a fresh one.";
+            Message = $"The {legCaption} on '{postedName}' carries {FootingChildrenCaption(carried)} stated "
+                    + $"against {carried.Amount}, and this alteration moves that leg to {rebuiltAmount}. A "
+                    + "bill-wise split and a cost allocation must each foot their own leg and a forex amount must "
+                    + "reproduce it to the paisa, and this screen has no panel to re-cut them on, so accepting "
+                    + "would silently drop them. Restore the posted total, or cancel this invoice and raise a "
+                    + "fresh one.";
             return false;
         }
 
+        billAllocations = carried.BillAllocations.Count > 0 ? carried.BillAllocations : null;
         costAllocations = carried.CostAllocations.Count > 0 ? carried.CostAllocations : null;
+        bank = carried.Bank;
         forex = carried.Forex;
         return true;
     }
 
-    /// <summary>Names what a leg carries, in the operator's terms, for the two refusals above.</summary>
+    /// <summary>Names everything a leg carries, in the operator's terms, for the re-point refusal above.</summary>
     private static string CarriedChildrenCaption(CarriedLegChildren carried) =>
-        carried switch
+        JoinCaption(FootingCaptionParts(carried).Concat(
+            carried.Bank is null
+                ? Array.Empty<string>()
+                : new[] { "a bank instrument reference (its type, number and instrument date)" }));
+
+    /// <summary>
+    /// Names only the children that have to FOOT the leg, for the moved-amount refusal — which the bank allocation
+    /// never reaches, so naming it there would describe a loss that is not happening.
+    /// </summary>
+    private static string FootingChildrenCaption(CarriedLegChildren carried) =>
+        JoinCaption(FootingCaptionParts(carried));
+
+    private static IEnumerable<string> FootingCaptionParts(CarriedLegChildren carried)
+    {
+        if (carried.BillAllocations.Count > 0)
+            yield return $"a bill-wise split across {carried.BillAllocations.Count} bill reference(s)";
+        if (carried.CostAllocations.Count > 0)
+            yield return $"{carried.CostAllocations.Count} cost-centre allocation(s)";
+        if (carried.Forex is not null)
+            yield return "a foreign-currency amount and rate";
+    }
+
+    /// <summary>"a", "a and b", "a, b and c" — so the refusal reads as a sentence at any count.</summary>
+    private static string JoinCaption(IEnumerable<string> parts)
+    {
+        var list = parts.ToList();
+        return list.Count switch
         {
-            { CostAllocations.Count: 0 } => "a foreign-currency amount and rate",
-            { Forex: null } => $"{carried.CostAllocations.Count} cost-centre allocation(s)",
-            _ => $"{carried.CostAllocations.Count} cost-centre allocation(s) and a foreign-currency amount and rate",
+            0 => "nothing",
+            1 => list[0],
+            _ => string.Join(", ", list.Take(list.Count - 1)) + " and " + list[^1],
         };
+    }
 
     /// <summary>
     /// Re-keys the additional-cost rows from the posted debits that are neither the value leg, the party leg nor an
@@ -6216,18 +6307,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     return null;
                 }
                 var costAmount = new Money(amt);
+                IReadOnlyList<BillAllocation>? carriedCostBills = null;
                 IReadOnlyList<CostAllocation>? carriedCostAllocations = null;
+                BankAllocation? carriedCostBank = null;
                 ForexInfo? carriedCostForex = null;
                 if (unmatchedCostChildren?.FirstOrDefault(ch => ch.LedgerId == led.Id && ch.Amount == costAmount)
                     is { } matched)
                 {
+                    carriedCostBills = matched.BillAllocations.Count > 0 ? matched.BillAllocations : null;
                     carriedCostAllocations = matched.CostAllocations.Count > 0 ? matched.CostAllocations : null;
+                    carriedCostBank = matched.Bank;
                     carriedCostForex = matched.Forex;
                     unmatchedCostChildren.Remove(matched);
                 }
                 additionalCostLines.Add(new EntryLine(
-                    led.Id, costAmount, DrCr.Debit,
-                    costAllocations: carriedCostAllocations, forex: carriedCostForex));
+                    led.Id, costAmount, DrCr.Debit, billAllocations: carriedCostBills,
+                    costAllocations: carriedCostAllocations, bankAllocation: carriedCostBank,
+                    forex: carriedCostForex));
                 additionalTotal += costAmount;
             }
         }
@@ -6315,21 +6411,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // party leg moves with it and would otherwise report the same amendment in the supplier's terms.
         if (!TryCarryDerivedLegChildren(
                 _carriedValueLegChildren, "value leg", valueLedger.Id, taxable,
-                out var valueCostAllocations, out var valueForex)) return null;
+                out var valueBills, out var valueCostAllocations, out var valueBank, out var valueForex))
+            return null;
         if (!TryCarryDerivedLegChildren(
                 _carriedPartyLegChildren, "party leg", party.Id, partyAmount,
-                out var partyCostAllocations, out var partyForex)) return null;
+                out _, out var partyCostAllocations, out var partyBank, out var partyForex))
+            return null;
 
+        // The party's bill-wise comes from the PANEL (invoiceBills), never from the carry — see
+        // CaptureDerivedLegChildren for why the party leg is the one leg whose split is captured empty.
         var partyLine = IsPurchaseInvoice
             ? new EntryLine(party.Id, partyAmount, DrCr.Credit, billAllocations: invoiceBills,
-                            costAllocations: partyCostAllocations, forex: partyForex)
+                            costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex)
             : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills,
-                            costAllocations: partyCostAllocations, forex: partyForex, tcs: belowThresholdDetail);
+                            costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex,
+                            tcs: belowThresholdDetail);
         var stockLine = IsPurchaseInvoice
-            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit,
-                            costAllocations: valueCostAllocations, forex: valueForex)
-            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit,
-                            costAllocations: valueCostAllocations, forex: valueForex);
+            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit, billAllocations: valueBills,
+                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex)
+            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit, billAllocations: valueBills,
+                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex);
 
         var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count + tcsPayableLines.Count)
             { stockLine, partyLine };
