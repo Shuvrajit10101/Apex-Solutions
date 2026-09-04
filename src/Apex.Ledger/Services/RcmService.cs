@@ -58,6 +58,18 @@ public sealed class RcmService
     {
         /// <summary>A non-applicable resolution (no reverse charge).</summary>
         public static RcmResolution NotApplicable => new(false, null, 0, false, RcmItcScheme.OtherRcm);
+
+        /// <summary>
+        /// The ER-5 <b>unresolved-rate</b> sentinel, shaped like <see cref="GstService.IsUnresolved"/>'s: reverse
+        /// charge applies but no rung of the rate hierarchy declares a rate for the supply date. Kept as a value
+        /// rather than an exception because <see cref="RcmService.Resolve"/> is <b>pure and total</b> — the entry
+        /// screen re-resolves it on every keystroke to refresh the RCM panel, so a throw there would crash typing.
+        /// <see cref="RcmService.BuildReverseCharge"/>, which is the POSTING path, fails fast on it.
+        /// </summary>
+        public const int UnresolvedRateBasisPoints = -1;
+
+        /// <summary>True iff reverse charge applies but the rate is the ER-5 unresolved sentinel (T0-18).</summary>
+        public bool IsRateUnresolved => Applies && RateBasisPoints == UnresolvedRateBasisPoints;
     }
 
     /// <summary>
@@ -77,9 +89,27 @@ public sealed class RcmService
         if (supplyKind == SupplyKind.ImportOfGoods) return RcmResolution.NotApplicable;
 
         // Import of services is reverse charge by law (§5(3)) — always IGST, scheme ImportOfServices, no category needed.
+        //
+        // 🔴 T0-18 — THE RATE IS RESOLVED BY THE SAME RULE AS EVERY OTHER LINE IN THE BOOK. This limb used to read
+        // `supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800`: a hand-written
+        // two-rung item-then-ledger pick, blind to the other three rungs of the hierarchy, blind to `supplyDate`
+        // and therefore to every dated GstRateHistory row — while the DOMESTIC limb fifteen lines below, in this
+        // same method, called `_gst.ResolveRate(item, spLedger, supplyDate)`. Reverse charge is the recipient's
+        // own liability, so a wrong figure here is paid in cash by us AND claimed back by us as ITC.
+        //
+        // 🔴 THE `?? 1800` FLOOR IS DELETED, NOT RE-SOURCED. R7 forbids a rate constant with no citation, and this
+        // project has already had to strip such constants out of shipped code once. Nothing replaces it: where no
+        // rung declares a rate the result carries the ER-5 unresolved sentinel and the POSTING path
+        // (BuildReverseCharge) refuses, exactly as a forward-charge line with no rate anywhere already does. A
+        // missing rate is a domain error to be shown to the operator, never a figure invented by the engine.
         if (supplyKind == SupplyKind.ImportOfServices)
         {
-            var importRate = supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800;
+            var res = _gst.ResolveRate(item, spLedger, supplyDate);
+            // An explicitly Exempt/Nil/Non-GST supply resolves to zero tax (not "unresolved") — the pair then
+            // computes ₹0 and no lines are emitted, which is the same answer the forward-charge path gives.
+            var importRate = GstService.IsUnresolved(res)
+                ? RcmResolution.UnresolvedRateBasisPoints
+                : res.RateBasisPoints;
             return new RcmResolution(true, null, importRate, InterState: true, RcmItcScheme.ImportOfServices);
         }
 
@@ -195,6 +225,16 @@ public sealed class RcmService
             recipientIsPromoter, recipientIsBodyCorporate);
         if (!resolution.Applies)
             return new RcmPosting(resolution, Array.Empty<EntryLine>());
+
+        // T0-18 — ER-5 on the reverse-charge path. Reverse charge applies, but no rung of the rate hierarchy
+        // declares a rate for this supply on this date. Refuse: the alternative is to post the recipient's own cash
+        // liability (and the matching ITC claim) at a rate the book never stated.
+        if (resolution.IsRateUnresolved)
+            throw new InvalidOperationException(
+                "Reverse charge applies to this supply but no GST rate is declared at any level of the rate hierarchy "
+                + $"on {supplyDate:yyyy-MM-dd} — set the rate on the purchase/expense ledger, its accounting group, "
+                + "the stock item, its stock group or the company default. Refusing to post a reverse-charge pair at "
+                + "an assumed rate.");
 
         var lines = new List<EntryLine>();
         var tax = GstService.ComputeLineTax(taxableValue, resolution.RateBasisPoints, resolution.InterState);

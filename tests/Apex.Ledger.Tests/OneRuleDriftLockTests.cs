@@ -371,7 +371,7 @@ public sealed class OneRuleDriftLockTests
           + "posted-rate BUCKETING read — add it here deliberately and say in its doc why it may not resolve.");
 
     /// <summary>
-    /// D10 — <c>GstService.ResolveRate</c> has exactly these eight call sites. A live re-resolve added beside a
+    /// D10 — <c>GstService.ResolveRate</c> has exactly these nine call sites. A live re-resolve added beside a
     /// report, a payload or a print projector would re-rate an already-issued document off TODAY's masters rather
     /// than off its posted legs — the failure this project has already paid for once, and the reason the print
     /// money block was moved wholly onto posted legs (W0-10).
@@ -381,14 +381,21 @@ public sealed class OneRuleDriftLockTests
     /// It is the single place where master drift is genuinely visible on issued paper, and S2 widens what it can
     /// see. Pinning it here is what makes that exposure countable instead of incidental.</para>
     ///
-    /// <para>🔴 <b>Also recorded, because the count is what surfaced it:</b> the design's survey named six call
-    /// sites; there are EIGHT. The two extra are <c>PosBillingViewModel</c>'s second call and
-    /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites use the DATE-BLIND
-    /// two-argument overload, so the dated <c>RateHistory</c> override never fires at the POS while every voucher
-    /// path passes <c>Date</c> — a pre-existing wrong-money candidate that S2 neither causes nor fixes.</para>
+    /// <para>🔴 <b>NINE, not eight — the ninth is DELIBERATE and is the T0-18 fix.</b> <c>RcmService</c> now calls
+    /// the resolver twice: the long-standing domestic-goods call, and a new one on the IMPORT-OF-SERVICES limb
+    /// which previously carried a hand-written two-rung <c>item ?? ledger</c> pick with a hard-coded <c>1800</c>
+    /// floor and no supply date. Both are POSTING paths re-resolving a rate for a voucher being entered, which is
+    /// what this lock permits; the count is raised here rather than the lock loosened.</para>
+    ///
+    /// <para>🔴 <b>Historical note, kept because the count is what surfaced it:</b> the T0-4 design's survey named
+    /// six call sites; there were EIGHT. The two extra were <c>PosBillingViewModel</c>'s second call and
+    /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites then used the
+    /// DATE-BLIND two-argument overload, so the dated <c>RateHistory</c> override never fired at the POS while
+    /// every voucher path passed <c>Date</c> — that was <b>T0-19</b>, now fixed: both pass <c>Date</c> and the
+    /// two-argument overload is deleted outright.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheEightKnownCallSites() =>
+    public void ResolveRateHasExactlyTheNineKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
@@ -396,7 +403,7 @@ public sealed class OneRuleDriftLockTests
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
                 ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 1,
-                ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
+                ["src/Apex.Ledger/Services/RcmService.cs"] = 2,
             },
             "A new ResolveRate call site re-resolves a rate from LIVE masters. On a posting path that is correct; "
           + "on a report, a payload or a print path it re-rates issued paper and must instead read the posted "

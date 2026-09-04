@@ -425,7 +425,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         {
             if (l.ParsedRate is not { } rate || rate <= 0m) continue;
             var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
-            var res = _gst.ResolveRate(l.SelectedItem, SelectedSalesLedger);
+            // 🔴 T0-19 — RESOLVE AS OF THE BILL DATE. This used to call the date-blind two-argument overload, which
+            // forwarded `voucherDate: null` and so skipped the dated GstRateHistory override entirely: the same item
+            // sold at this counter and on a Sales item invoice on the SAME DAY carried different tax whenever a rate
+            // revision was in force, and the counter kept the pre-revision rate for ever. The overload is deleted.
+            var res = _gst.ResolveRate(l.SelectedItem, SelectedSalesLedger, Date);
             if (GstService.IsUnresolved(res))
                 return new PosGst(EmptyTax(), interState, l.SelectedItem);
             if (!res.IsTaxable) continue;
@@ -465,7 +469,9 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             if (posted.Rate.Amount <= 0m) continue;
             if (StockItems.FirstOrDefault(i => i.Id == posted.StockItemId) is not { } item) return null;
 
-            var res = _gst.ResolveRate(item, SelectedSalesLedger);
+            // T0-19 — the same dated resolution as ComputeGst above (this mirrors it line for line, and a mirror
+            // that resolved on a different date would refuse every dated bill as "drifted").
+            var res = _gst.ResolveRate(item, SelectedSalesLedger, Date);
             if (GstService.IsUnresolved(res)) return null;
             if (!res.IsTaxable) continue;
             taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints));
