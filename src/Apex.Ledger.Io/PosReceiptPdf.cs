@@ -136,6 +136,11 @@ public static class PosReceiptPdf
                 Total("CGST", Fmt(data.TotalCgst), false);
                 Total("SGST", Fmt(data.TotalSgst), false);
             }
+
+            // 🔴 The ring-fenced Compensation Cess, printed on its own line and ONLY when there is one, so an
+            // ordinary bill's slip is byte-identical (ER-13). Without it the Grand Total below would exceed the
+            // head lines above it by an unexplained figure — the receipt has to say what the customer paid for.
+            if (data.TotalCess.Amount != 0m) Total("Compensation Cess", Fmt(data.TotalCess), false);
         }
         writer.Line(qtyR, y + page.RowHeight - 2, right, y + page.RowHeight - 2, 0.6);
         Total(data.IsBillOfSupply ? "Total" : "Grand Total", Fmt(data.GrandTotal), true);
