@@ -906,12 +906,22 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > not small: every keyboard claim in this project that could have been corroborated by that source has been
 > decided without it.** **Reinstating an excluded corpus source is an R12 user decision, not an agent call.**
 >
-> **C · TWO DESIGN QUESTIONS THAT TRAVEL WITH THE TWO OPEN DATA-LOSS DEFECTS** (Phase 10.11's
-> `▶ THE S5d+S5e REVIEW CARRY-FORWARD` items 4 and 5; census **T1-22** / **T1-23**). **(i)** Closing the
-> `BankAllocation` limb requires a ruling on whether `LedgerService.Replace`'s `CarryBankDatesForward` warning
-> stays, because today that warning is **appended to the success message** — the operator is told *"altered"*
-> and the loss rides on the same line. **(ii)** The bill-wise VALUE-leg limb is *carry the children, or refuse
-> at the door?* — a contract question about what an alteration is allowed to re-attribute, not a fixer's call.
+> **C · ~~TWO DESIGN QUESTIONS THAT TRAVEL WITH THE TWO OPEN DATA-LOSS DEFECTS~~ — BOTH SETTLED 2026-09-04, AND
+> THE SETTLEMENTS ARE DIVERGENCES LABELLED AS OURS (Ruling 9; the corpus is silent on both).** (Phase 10.11's
+> `▶ THE S5d+S5e REVIEW CARRY-FORWARD` items 4 and 5; census **T1-22** / **T1-23**, now CLOSED.)
+> **(i) The `CarryBankDatesForward` warning STAYS where it is, and the allocation is CARRIED.** The loss it
+> warned about is gone, so on the item-invoice path only the `BankDateCleared` arm can now fire — and that is a
+> **recoverable** consequence of an amount the operator just keyed: the instrument is still on the line, so the
+> BRS still lists the row and they can re-tick it. `BankDateLineRemoved` was **not** recoverable (the allocation
+> itself was gone, the row vanished from BRS, and `SetBankDate` would throw). **Recoverability is the line
+> between warning on a success and refusing** — that is the justification, and it is what makes "the notice rides
+> on the success sentence" acceptable here and unacceptable before.
+> **(ii) The bill-wise VALUE-leg limb is BOTH: carry AND refuse, chosen by what moved.** Carry while the leg is
+> unmoved; refuse **by name** when the leg's amount moves (a split must foot its line EXACTLY and the screen's one
+> bill-wise panel is bound to the PARTY); refuse **at the door** when the ledger's `MaintainBillByBill` was turned
+> off after posting, because at the door the operator has not yet spent the work of re-keying.
+> ⚠️ **Both rulings are recorded here as OURS and remain open to a user override; nothing about them was taken
+> from the corpus, which is silent on what an alteration may re-attribute.**
 
 > **▶ 🔴 TEN PHASE-10.11 DESIGN DECISIONS (R12, 2026-08-17) — ALL ADOPTED EXACTLY AS THE DESIGN RECOMMENDS.
 > SETTLED; DO NOT RE-LITIGATE.** Source: `docs/design-records/phase-10-11-voucher-lifecycle-design.md` — a
@@ -3018,22 +3028,57 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      alongside the amount, built on the cess pin's shape (a **re-derivation over the POSTED rows**, so the rows
      are held fixed and only a moved master can trip it). Two **negative controls** ship with it, one per door,
      so it cannot silently become a blanket refusal. Census **T0-15**.
-  3. **🔴 WRONG MONEY (feature gap) — `PosBillingViewModel.ComputeGst` resolves NO Compensation Cess**, so a
-     cess-bearing item sold over the counter collects **zero** cess while the identical item on a Sales item
-     invoice collects it. **Needs its own slice, not a fix slipped into a defect pass.** ⚠️ **R7/A6 mandate: its
-     RATE side must be WEB-VERIFIED against CBIC at build time — no per-unit or ad-valorem cess figure may be
-     asserted from memory.** The rate instrument is Notification 1/2017-Compensation Cess (Rate) dated
-     28-06-2017 under the GST (Compensation to States) Act, 2017. **OPEN.** Census **T0-16**.
-  4. **🔴 DATA LOSS — a `BankAllocation` on the PARTY leg of an item invoice is destroyed on re-accept, and the
-     RECONCILIATION DATE goes with it**, while the warning rides on the **success** message. 🔴 **THIS
-     CONTRADICTS THE S5d/S5e VERIFIER, WHO TOLD THE FIXER TO DROP THIS LIMB AND ASSERTED THE RECONCILIATION
-     DATE WAS NOT AT RISK. THE FIXER PROBED INSTEAD OF ASSUMING AND THE VERIFIER WAS WRONG — recorded
-     explicitly, because a verifier being wrong is exactly what this project loses.** **OPEN.** Census
-     **T1-22**. ⚠️ **Carries a user/design question: does `Replace`'s `CarryBankDatesForward` warning stay?**
-  5. **🔴 DATA LOSS, AND SILENT — `BillAllocations` on a bill-wise VALUE leg are destroyed on re-accept with no
-     warning at all.** **Nobody had enumerated this**: the finding, the verifier and the completeness critic
-     all discuss bill-wise only on the party leg. **OPEN.** Census **T1-23**. ⚠️ **Carries a design question —
-     carry the children, or refuse at the door? — which is not a fixer's to settle.**
+  3. ✅ **DONE 2026-09-04 — `PosBillingViewModel.ComputeGst` now resolves the Compensation Cess**, so a
+     cess-bearing item sold over the counter collects the same cess as the identical item on a Sales item
+     invoice. *(Was: it resolved none, and collected zero.)* The change is four coupled edits — the resolver
+     call; `BillTotal` + `BuildPosBill` adding `TotalCess` so the tenders FUND the Cess leg; `PosReceiptData`
+     gaining `TotalCess` (in `GrandTotal`, zero on a bill of supply) and the receipt PDF a cess line; and
+     `ReDerivedTaxOnPostedRows`, the drift mirror, resolving it too — **without which the fix would have refused
+     every narration-only alteration of a cess-bearing bill.** Tests:
+     `tests/Apex.Desktop.Tests/PosCompensationCessTests.cs` (6). ⚠️ **R7 — the RATE side is UNTOUCHED and no
+     figure is asserted.** The instrument was web-verified at the official CBIC portal
+     (`https://cbic-gst.gov.in/hindi/compensation-tax.html`, re-verified 2026-09-04): **Notification No.
+     1/2017-Compensation Cess (Rate) dated 28-06-2017**, *"Seeks to notify Rates of goods and services tax
+     compensation cess under Goods and Services Tax (Compensation to States) Act, 2017 (15 of 2017)"*. The
+     amending notifications that page lists against it are **03/2017 (18-07-2017), 02/2018 (26-07-2018),
+     01/2019 (29-06-2019), 02/2019 (30-09-2019), 01/2021 (30-09-2021) and 02/2021 (28-12-2021)** — recorded from
+     the source rather than from memory, because an earlier draft of this very line said *"amended by 02–07/2017
+     and later notifications"*, which that page does **not** support. **The fix wires the resolver that reads the
+     operator's OWN cess master; it ships no rate**,
+     and seeding a cess rate table from that notification remains a separate, unstarted item. Census **T0-16**.
+     🔴 **TWO NEW DEFECTS FOUND while closing it.** **(a) Census T0-21** — on the POS screen the tax SHAPE and
+     MAGNITUDE drift pins are unreachable behind `BuildPosBill`'s TENDER reconciliation, so a moved rate master
+     produces *"Cash tendered is less than the cash payable"* on a bill nobody touched. The CESS pin was hoisted
+     above the build (it reads only the posted voucher); the other two need their own slice. **OPEN.**
+     **(b) Census T0-22, PRE-EXISTING** — `VoucherEntryViewModel.AcceptItemInvoiceAlteration` calls
+     `ReDerivedTaxOnPostedRows` with no try/catch while the accounting screen's two other cess sites are both
+     wrapped, so an RSP-factor cess master with no Retail Sale Price CRASHES Ctrl+A instead of refusing. The POS
+     twin of that exact line was measured throwing in this slice and fixed there; the accounting door was left
+     alone deliberately, being outside the three defects this slice owns. **The fix is three lines and its shape
+     is already written.** **OPEN.**
+  4. ✅ **DONE 2026-09-04 — the `BankAllocation` on the PARTY leg of an item invoice is CARRIED**, instrument
+     detail and reconciliation date alike. *(Was: destroyed on re-accept, with the warning riding on the success
+     message.)* 🔴 **THE S5d/S5e VERIFIER'S CLAIM THAT THE RECONCILIATION DATE WAS NOT AT RISK STAYS RECORDED AS
+     WRONG** — the fixer probed instead of assuming, and that is the part this project loses.
+     ⚠️ **THE DESIGN QUESTION IS SETTLED AND LABELLED AS OURS (Ruling 9; the corpus is silent).**
+     **(a) CARRY, not refuse** — refusing would block a narration-only amendment of any invoice ever paid by
+     cheque, which the operator has no other route to make. **(b) The carry rule is NOT the cost/forex rule**: a
+     `BankAllocation` carries no amount (`EnsureBankAllocationValid` does no split-sum check), so it survives an
+     amount change and is gated on the LEDGER only; applying the amount gate would have made a cheque-paid
+     invoice permanently un-amendable. **(c) `Replace`'s `CarryBankDatesForward` warning STAYS where it is** —
+     the loss it warned about is gone, so on this path only the `BankDateCleared` arm can now fire, and that is
+     RECOVERABLE (the instrument is still on the line, so the BRS lists the row and the operator can re-tick
+     it), whereas `BankDateLineRemoved` was not (the row vanished from BRS entirely). Recoverability is the line
+     between warning on a success and refusing. Census **T1-22**.
+  5. ✅ **DONE 2026-09-04 — `BillAllocations` on a bill-wise VALUE leg are CARRIED, and a leg that MOVES is
+     refused by name.** *(Was: destroyed on re-accept with no warning at all.)* ⚠️ **THE DESIGN QUESTION IS
+     SETTLED AS BOTH, and the split is the point (Ruling 9, labelled as ours):** carry while the leg is
+     unmoved · refuse by name when it moves, because a bill-wise split must foot its line EXACTLY and the value
+     leg is what an amendment moves, and the screen's one bill-wise panel is bound to the PARTY so there is
+     nothing to re-cut it on · refuse AT THE DOOR when the value ledger's `MaintainBillByBill` was turned off
+     after posting, because at the door the operator has not yet spent the work. The party leg is deliberately
+     EXCLUDED from the carry (its split is re-keyed by the panel; carrying it too would post it twice —
+     mutation-checked, that one flag reddens 7 existing tests). Census **T1-23**.
   6. **🔴 WORK LOSS — the type F-keys destroy an in-progress POS bill AND an unsaved POS ALTERATION.** Same root
      as the accounting-screen defect fixed in this pass; the fix is scoped to `Screen.VoucherEntry` per its
      brief and does not cover `Screen.PosBilling`. One plain **F8** replaced a keyed bill of 3 × Rs 849.37 with
