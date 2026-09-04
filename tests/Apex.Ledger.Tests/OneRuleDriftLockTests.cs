@@ -393,7 +393,7 @@ public sealed class OneRuleDriftLockTests
         AssertOnlyIn("D9 master-block rate bypass", D9MasterRateBypass);
 
     /// <summary>
-    /// D9b — the widened pattern's exact inventory. Four sites remain, and <b>not one of them is a bucketing read</b>:
+    /// D9b — the widened pattern's exact inventory. THREE sites remain, and <b>not one of them is a bucketing read</b>:
     /// <list type="bullet">
     ///   <item><c>VoucherAlterationDerivedLegs</c> ×2 — <c>l.Gst</c> there is an <c>EntryLine</c>'s
     ///     <c>GstLineTax</c>, i.e. a <b>POSTED</b> leg, not a master. Reading the rate a leg actually carries is the
@@ -402,26 +402,31 @@ public sealed class OneRuleDriftLockTests
     ///     DECLARE a non-zero rate?", used to refuse a self-contradicting tax invoice. It deliberately reads the
     ///     DECLARATION and must not resolve — its own doc records why ("a live resolve is exactly what the projector
     ///     refuses to do with money"). It produces no rate and spends none.</item>
-    ///   <item>🔴 <c>RcmService</c> — <b>a genuine SIXTH bypass, which D9's narrower pattern never counted.</b>
-    ///     <c>supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800</c> rates an
-    ///     import-of-services RCM leg. The fallback limb fires exactly when <c>ResolveDetailBlock</c> returned null
-    ///     — i.e. when the hierarchy landed on a group/company rung — and then reads the LEDGER, a rung the walk did
-    ///     not choose. <b>It is not a new finding</b> — census row <b>T0-18</b> already has it, found by reading the
-    ///     two RCM limbs side by side; what this entry adds is that the same line is now caught MECHANICALLY rather
-    ///     than by inspection. <b>Deliberately not fixed under T0-17:</b> unlike the five it COMPUTES tax, and its
-    ///     <c>?? 1800</c> floor is an unsourced statutory claim, so closing it needs an R7 verification of the
-    ///     import-of-services rate and belongs to T0-18. Listed here so it is countable and cannot move silently.</item>
     /// </list>
+    ///
+    /// <para>🔴 <b>WAS FOUR — <c>RcmService</c> IS GONE, AND THE COUNT COMING DOWN IS THE POINT.</b> T0-17 recorded a
+    /// genuine SIXTH bypass here that D9's narrower pattern never counted:
+    /// <c>supplyGst?.RateBasisPoints ?? spLedger?.SalesPurchaseGst?.RateBasisPoints ?? 1800</c>, rating an
+    /// import-of-services RCM leg off a rung the walk did not choose. T0-17 listed it rather than fixing it, because
+    /// unlike the five it COMPUTES tax and its <c>?? 1800</c> floor was an unsourced statutory claim — closing it
+    /// needed an R7 verification and belonged to <b>T0-18</b>. <b>T0-18 then closed it:</b> the limb calls
+    /// <c>_gst.ResolveRate(item, spLedger, supplyDate)</c> and the floor was DELETED rather than re-sourced, so the
+    /// line the entry pointed at no longer exists and the inventory is three.
+    ///
+    /// <para>🔴 <b>This entry is written out rather than deleted because the two changes landed from SEPARATE
+    /// parallel tracks and git merged this file with no conflict at all.</b> Taking the merged text as it stood
+    /// would have left the lock expecting a bypass in a file that no longer has one — a lock that fails for the
+    /// right reason only by accident. The count was re-derived by re-running D9b's own pattern over the merged
+    /// tree, not by trusting either side.</para></para>
     /// </summary>
     [Fact]
-    public void TheWidenedMasterRateReadInventoryIsExactlyTheFourKnownOnes() =>
+    public void TheWidenedMasterRateReadInventoryIsExactlyTheThreeKnownOnes() =>
         AssertExactInventory(
             "D9b widened master-rate read", D9bMasterRateRead,
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["src/Apex.Desktop/ViewModels/VoucherAlterationDerivedLegs.cs"] = 2,
                 ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 1,
-                ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
             },
             "A new read of a master's GST block reaching RateBasisPoints is a rate resolved OUTSIDE "
           + "GstService.ResolveRate. Route it through GstReportSupport.BucketingRateOf (bucketing) or "
@@ -429,7 +434,7 @@ public sealed class OneRuleDriftLockTests
           + "producing a rate — add it here deliberately and say in its doc which of those it is.");
 
     /// <summary>
-    /// D10 — <c>GstService.ResolveRate</c> has exactly these eight call sites. A live re-resolve added beside a
+    /// D10 — <c>GstService.ResolveRate</c> has exactly these ten call sites. A live re-resolve added beside a
     /// report, a payload or a print projector would re-rate an already-issued document off TODAY's masters rather
     /// than off its posted legs — the failure this project has already paid for once, and the reason the print
     /// money block was moved wholly onto posted legs (W0-10).
@@ -439,21 +444,32 @@ public sealed class OneRuleDriftLockTests
     /// It is the single place where master drift is genuinely visible on issued paper, and S2 widens what it can
     /// see. Pinning it here is what makes that exposure countable instead of incidental.</para>
     ///
-    /// <para>🔴 <b>Also recorded, because the count is what surfaced it:</b> the design's survey named six call
-    /// sites; there are EIGHT. The two extra are <c>PosBillingViewModel</c>'s second call and
-    /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites use the DATE-BLIND
-    /// two-argument overload, so the dated <c>RateHistory</c> override never fires at the POS while every voucher
-    /// path passes <c>Date</c> — a pre-existing wrong-money candidate that S2 neither causes nor fixes.</para>
+    /// <para>🔴 <b>TEN, and the count arrived in TWO independent steps that both had to be kept.</b> Two parallel
+    /// tracks each raised this lock from eight to nine, for different reasons and on different files, and a merge
+    /// that took either side alone would have silently under-counted by one. Both reasons stand:</para>
+    /// <list type="bullet">
+    ///   <item>🔴 <b>T0-17 added the NINTH: <c>GstReportSupport.BucketingRateOf</c>.</b> It is a report/payload-side
+    ///     call, which is the shape this lock is most suspicious of — so the reason is recorded here as well as at
+    ///     the method. It does not re-rate issued paper: every rupee still comes from the posted <c>GstLineTax</c>
+    ///     legs, and the resolved rate only chooses WHICH posted group a line is counted in. It replaced five reads
+    ///     that were already consulting live masters and could not even see the dated rate window, so it strictly
+    ///     REDUCES the live-master surface rather than widening it.</item>
+    ///   <item>🔴 <b>T0-18 added the TENTH: <c>RcmService</c>'s second call.</b> The long-standing domestic-goods
+    ///     call is now joined by one on the IMPORT-OF-SERVICES limb, which previously carried a hand-written
+    ///     two-rung <c>item ?? ledger</c> pick with a hard-coded <c>1800</c> floor and no supply date. Both are
+    ///     POSTING paths re-resolving a rate for a voucher being entered, which is what this lock permits; the
+    ///     count is raised rather than the lock loosened.</item>
+    /// </list>
     ///
-    /// <para>🔴 <b>T0-17 added the NINTH, deliberately: <c>GstReportSupport.BucketingRateOf</c>.</b> It is a
-    /// report/payload-side call, which is the shape this lock is most suspicious of — so the reason is recorded here
-    /// as well as at the method. It does not re-rate issued paper: every rupee still comes from the posted
-    /// <c>GstLineTax</c> legs, and the resolved rate only chooses WHICH posted group a line is counted in. It
-    /// replaced five reads that were already consulting live masters and could not even see the dated rate window,
-    /// so it strictly REDUCES the live-master surface rather than widening it.</para>
+    /// <para>🔴 <b>Historical note, kept because the count is what surfaced it:</b> the T0-4 design's survey named
+    /// six call sites; there were EIGHT. The two extra were <c>PosBillingViewModel</c>'s second call and
+    /// <c>VoucherEntryViewModel</c>'s ledger-only call. Both <c>PosBillingViewModel</c> sites then used the
+    /// DATE-BLIND two-argument overload, so the dated <c>RateHistory</c> override never fired at the POS while
+    /// every voucher path passed <c>Date</c> — that was <b>T0-19</b>, now fixed: both pass <c>Date</c> and the
+    /// two-argument overload is deleted outright.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheNineKnownCallSites() =>
+    public void ResolveRateHasExactlyTheTenKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
@@ -461,7 +477,7 @@ public sealed class OneRuleDriftLockTests
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
                 ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 2,
-                ["src/Apex.Ledger/Services/RcmService.cs"] = 1,
+                ["src/Apex.Ledger/Services/RcmService.cs"] = 2,
             },
             "A new ResolveRate call site re-resolves a rate from LIVE masters. On a posting path that is correct; "
           + "on a report, a payload or a print path it re-rates issued paper and must instead read the posted "

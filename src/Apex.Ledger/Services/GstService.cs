@@ -363,23 +363,26 @@ public sealed class GstService
     }
 
     /// <summary>
-    /// Resolves the effective GST rate for a line by walking the master hierarchy (see <see cref="ResolveBase"/>
-    /// for the walk, its order and its grounding). An Exempt/Nil/Non-GST taxability at the first level that
-    /// declares one short-circuits to a non-taxable result (zero tax, RQ-15). A taxable line whose rate cannot be
-    /// resolved at <b>any</b> level — the company default included — is an explicit "unresolved" and the caller
-    /// fails fast (ER-5); it is never a silent zero. This date-agnostic overload delegates to the dated overload
-    /// with <c>voucherDate = null</c>, so a caller with no date is unchanged.
-    /// </summary>
-    public RateResolution ResolveRate(StockItem? item, Domain.Ledger? salesPurchaseLedger)
-        => ResolveRate(item, salesPurchaseLedger, voucherDate: null);
-
-    /// <summary>
-    /// Resolves the effective GST rate <b>as of a voucher date</b> (Phase 9 slice 1; RQ-1). It first resolves exactly
-    /// as Phase-4/8 (<see cref="ResolveBase"/>), then applies a <b>pure date override</b>: only when a voucher date
-    /// <b>and</b> a matching HSN-dated <see cref="GstConfig.RateHistory"/> row both exist does it return the dated
-    /// rate (most-recently-effective wins). Absent either — every existing fixture (a date but no history rows) — it
-    /// returns the base result unchanged, byte-identical to Phase-4/8 (ER-13). Legacy 12/28% rows retained
-    /// inactive-by-date let a pre-22-Sep-2025 voucher reprint at the historic rate.
+    /// Resolves the effective GST rate for a line <b>as of a voucher date</b> (Phase 9 slice 1; RQ-1) by walking
+    /// the master hierarchy (see <see cref="ResolveBase"/> for the walk, its order and its grounding). An
+    /// Exempt/Nil/Non-GST taxability at the first level that declares one short-circuits to a non-taxable result
+    /// (zero tax, RQ-15). A taxable line whose rate cannot be resolved at <b>any</b> level — the company default
+    /// included — is an explicit "unresolved" and the caller fails fast (ER-5); it is never a silent zero.
+    ///
+    /// <para>It first resolves exactly as Phase-4/8 (<see cref="ResolveBase"/>), then applies a <b>pure date
+    /// override</b>: only when a voucher date <b>and</b> a matching HSN-dated <see cref="GstConfig.RateHistory"/>
+    /// row both exist does it return the dated rate (most-recently-effective wins). Absent either — every existing
+    /// fixture (a date but no history rows) — it returns the base result unchanged, byte-identical to Phase-4/8
+    /// (ER-13). Legacy 12/28% rows retained inactive-by-date let a pre-22-Sep-2025 voucher reprint at the historic
+    /// rate.</para>
+    ///
+    /// <para>🔴 <b>T0-19 — THE DATE IS A REQUIRED ARGUMENT, and the date-blind two-argument overload that used to
+    /// sit here is DELETED.</b> It forwarded <c>voucherDate: null</c>, and its whole observable behaviour was to
+    /// silently skip the dated override — which is how both POS resolutions came to bill the counter at the
+    /// pre-revision rate while every accounting screen billed the same item, on the same day, at the revised one.
+    /// An overload whose only effect is to drop the date is a trap for the next caller, and it left no trace at
+    /// the call site for a reader (or a grep) to catch. A caller that genuinely has no date must now write
+    /// <c>voucherDate: null</c> and mean it.</para>
     /// </summary>
     public RateResolution ResolveRate(StockItem? item, Domain.Ledger? salesPurchaseLedger, DateOnly? voucherDate)
         => ResolveRateUnder(ConfiguredSource, item, salesPurchaseLedger, voucherDate);
@@ -395,9 +398,12 @@ public sealed class GstService
     {
         var baseRes = ResolveBase(item, salesPurchaseLedger, source);
 
+        // The RateHistory test comes FIRST on purpose: a book with no dated rows (every Phase-4/8 company, and any
+        // advanced book that never opted in) must not pay for the classification walk at all — ER-13 byte-identical
+        // when off, and the walk is the only clause here that can cost or throw.
         if (voucherDate is { } d && baseRes.IsTaxable
-            && (item?.Gst?.HsnSac ?? salesPurchaseLedger?.SalesPurchaseGst?.HsnSac) is { } hsn
-            && _company.Gst?.RateHistory is { Count: > 0 } history)
+            && _company.Gst?.RateHistory is { Count: > 0 } history
+            && ResolveHsnSac(item, salesPurchaseLedger) is { } hsn)
         {
             var hit = history
                 .Where(h => h.HsnSac == hsn && h.IsEffectiveOn(d))
@@ -415,7 +421,7 @@ public sealed class GstService
     /// <see cref="ResolveDetailBlock"/> for why that distinction is load-bearing.</summary>
     private readonly record struct Rung(
         bool IsTaxable, GstTaxability Taxability, int? RateBasisPoints,
-        GstValuationBasis ValuationBasis, StockItemGstDetails? Detailed);
+        GstValuationBasis ValuationBasis, StockItemGstDetails? Detailed, string? HsnSac);
 
     /// <summary>The five masters that can declare a GST block, named so an ORDER can be expressed as data.</summary>
     private enum HierarchyLevel { Ledger, AccountingGroup, StockItem, StockGroup, Company }
@@ -546,13 +552,62 @@ public sealed class GstService
 
         static Rung? Detailed(StockItemGstDetails? block) => block is null
             ? null
-            : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints, block.ValuationBasis, block);
+            : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints, block.ValuationBasis, block,
+                block.HsnSac);
 
-        // MasterGstDetails declares no valuation basis — a narrow rung is always transaction-valued.
+        // MasterGstDetails declares no valuation basis — a narrow rung is always transaction-valued. It DOES carry
+        // an HSN/SAC, which is why the dated override's key (ResolveHsnSac) can see three rungs the old two-rung
+        // `item ?? ledger` pick never could.
         static Rung? Narrow(MasterGstDetails? block) => block is null
             ? null
             : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints,
-                GstValuationBasis.TransactionValue, Detailed: null);
+                GstValuationBasis.TransactionValue, Detailed: null, block.HsnSac);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-20 — THE CLASSIFICATION THE DATED OVERRIDE IS KEYED BY: the HSN/SAC of the first rung along
+    /// <see cref="Hierarchy"/> that declares one.</b> The same walk, in the same order, that resolved the rate.
+    ///
+    /// <para><b>What this replaces and why it was wrong.</b> The dated override used to key on the hard-coded
+    /// <c>item?.Gst?.HsnSac ?? salesPurchaseLedger?.SalesPurchaseGst?.HsnSac</c> — a two-rung, item-first choice
+    /// that ignored <see cref="GstConfig.SourceOfGstRate"/> entirely and could not see the three narrow rungs at
+    /// all. On a <see cref="GstDetailSource.LedgerFirst"/> book (the shipped default, and what every v51+ book
+    /// carries) the base rate came from the LEDGER while the row that REPLACED it was matched on the ITEM's HSN.
+    /// That is not a refinement of the walk; it is a second, inconsistent resolution, and it can substitute a rate
+    /// belonging to a classification the line never resolved through.</para>
+    ///
+    /// <para><b>"First rung DECLARING an HSN", not "the rung that supplied the rate"</b> — the same rule
+    /// <see cref="ResolveDetailBlock"/> already applies to cess and reverse charge, and for the same reason: the
+    /// rate walk falls THROUGH a taxable, rate-less block to the rung below it, and a master that declares its
+    /// classification but leaves its rate to the rung below is an ordinary shape. Keying "whichever rung supplied
+    /// the rate" would read no HSN at all there.</para>
+    ///
+    /// <para>Whitespace-only is treated as absent, matching every other HSN reader in the tree.</para>
+    ///
+    /// <para>🔴 <b>THE CYCLE CATCH IS NARROW AND IT IS LOAD-BEARING — do not widen it and do not delete it.</b>
+    /// <see cref="Hierarchy"/> is lazy precisely so that a corrupt (cyclic) group chain BELOW the rung that
+    /// answered never makes an otherwise-fine line unpostable — a correctness property, not a performance one,
+    /// pinned by <c>GstHierarchyAncestryTests.A_cycle_below_an_answering_item_rung_is_never_reached</c>. This walk
+    /// looks one question further than the rate walk did, so on its own it would resurrect exactly that
+    /// unpostable-book shape for any book carrying dated rows. It cannot mask a cycle at or above the answering
+    /// rung: <see cref="ResolveBase"/> runs FIRST in <see cref="ResolveRate"/> and walks the same rungs, so such a
+    /// chain has already thrown before this method is entered. What is swallowed here is therefore only ever a
+    /// cycle strictly below the answer — and the consequence of swallowing it is the correct one: no dated
+    /// override, the base rate stands, the line posts.</para>
+    /// </summary>
+    private string? ResolveHsnSac(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+    {
+        try
+        {
+            foreach (var rung in Hierarchy(item, salesPurchaseLedger))
+                if (!string.IsNullOrWhiteSpace(rung.HsnSac)) return rung.HsnSac;
+        }
+        catch (InvalidOperationException)
+        {
+            // A cyclic ancestry strictly BELOW the rung that answered the rate — see the note above.
+        }
+
+        return null;
     }
 
     /// <summary>
