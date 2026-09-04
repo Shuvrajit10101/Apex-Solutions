@@ -430,10 +430,12 @@ public static class EInvoiceJson
         // Item-invoice: attribute each rate group's per-head tax to its stock lines by value share (last line in the
         // group absorbs the remainder so Σ line tax == the group's posted tax exactly — mirrors Gstr1's HSN attribution).
         var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
+        // Per-VOUCHER, so it is resolved once rather than per line (see GstReportSupport.BucketingValueLedger).
+        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
         var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
         foreach (var il in inventory)
         {
-            var rate = singleRate ?? LineIntegratedRate(company, il);
+            var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
             if (!linesByRate.TryGetValue(rate, out var bucket)) linesByRate[rate] = bucket = new List<VoucherInventoryLine>();
             bucket.Add(il);
         }
@@ -501,7 +503,12 @@ public static class EInvoiceJson
                 // Qty x UnitPrice == AssAmt holds exactly rather than within a tolerance.
                 unitPricePaisa: MoneyCodec.ToPaisa(new Money(decl.Rate)),
                 taxablePaisa: valuePaisa,
-                rateBasisPoints: singleRate ?? LineIntegratedRate(company, il),
+                // NIC types GstRt as "the GST rate … that applies to the invoiced item", validated by
+                // CGST Value = Taxable Value x GstRt / 2 and IGST Value = Taxable Value x GstRt
+                // (einv-apisandbox.nic.in/version1.01/generate-irn.html). It is therefore the rate that must
+                // reproduce THIS item's own attributed tax from THIS item's own AssAmt — the same figure the line
+                // was bucketed by, never a fresh single-rung master read that could contradict it.
+                rateBasisPoints: singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il),
                 cgstPaisa: t.Cgst, sgstPaisa: t.Sgst, igstPaisa: t.Igst,
                 cessRateBasisPoints: t.CessRateBasisPoints,
                 cessAdValoremPaisa: t.CessAdValorem, cessNonAdValoremPaisa: t.CessNonAdValorem));
@@ -513,8 +520,18 @@ public static class EInvoiceJson
     private readonly record struct LineTax(
         long Cgst, long Sgst, long Igst, int CessRateBasisPoints, long CessAdValorem, long CessNonAdValorem);
 
-    private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
-        company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+    /// <summary>
+    /// The integrated rate (basis points) an item-invoice stock line is bucketed by — and, on a multi-rate invoice,
+    /// STATED as that item's <c>GstRt</c>.
+    /// <para><b>T0-17: this used to read the stock item's GST block directly</b>, hard-wired to one rung of the
+    /// five-rung hierarchy, so on a <c>LedgerFirst</c> book — the shipped default since T0-4 S2b — or under an
+    /// HSN-dated rate window it could declare to the IRP a rate that contradicts the item's own stated tax, and a
+    /// different rate than the invoice in the customer's hand. It now delegates to the ONE rule,
+    /// <see cref="GstReportSupport.BucketingRateOf"/>, which resolves exactly as the posting did.</para>
+    /// </summary>
+    private static int LineIntegratedRate(
+        Company company, Voucher voucher, Domain.Ledger? valueLedger, VoucherInventoryLine il) =>
+        GstReportSupport.BucketingRateOf(company, voucher, company.FindStockItem(il.StockItemId), valueLedger);
 
     /// <summary>
     /// The TAXABLE service-income ledger legs of a ledger-only voucher, bucketed into the posted rate group each
@@ -536,7 +553,11 @@ public static class EInvoiceJson
         foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
         {
             if (Gstr1.IsNonTaxableServiceLedger(ledger)) continue;
-            var rate = singleRate ?? (ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0);
+            // T0-17: the ONE bucketing rule, not a direct read of the ledger's SAC block. A leg whose declared rate
+            // and whose RESOLVED rate differ (an HSN/SAC-dated window) used to leave its posted group unmatched, and
+            // that group then fell through to the synthetic HsnCd "" item below — an INV-01 line declaring a supply
+            // with no SAC at all, beside another line whose stated tax contradicted its own assessable amount.
+            var rate = singleRate ?? GstReportSupport.BucketingRateOf(company, voucher, item: null, ledger);
             if (!byRate.TryGetValue(rate, out var list)) byRate[rate] = list = new List<(Domain.Ledger, long)>();
             list.Add((ledger, MoneyCodec.ToPaisa(new Money(value))));
         }
