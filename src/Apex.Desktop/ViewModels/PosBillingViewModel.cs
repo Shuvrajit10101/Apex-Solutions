@@ -212,6 +212,15 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     [ObservableProperty] private string _gstCgstText = "0.00";
     [ObservableProperty] private string _gstSgstText = "0.00";
     [ObservableProperty] private string _gstIgstText = "0.00";
+
+    /// <summary>
+    /// The Compensation Cess on the bill (census T0-16). Ring-fenced out of the GST heads exactly as
+    /// <c>GstService.InvoiceTax.TotalTax</c> ring-fences it (ER-2), and shown on its own row so the operator can
+    /// see WHY a cess-bearing bill totals more than its heads — but it IS part of the bill total the tenders must
+    /// reconcile to, because the customer pays it.
+    /// </summary>
+    [ObservableProperty] private string _gstCessText = "0.00";
+
     [ObservableProperty] private string _billTotalText = "0.00";
     [ObservableProperty] private string _tendersTotalText = "0.00";
     [ObservableProperty] private string _tenderBalanceText = "Balanced";
@@ -413,7 +422,22 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         public bool HasUnresolved => Unresolved is not null;
     }
 
-    /// <summary>Computes GST over the complete item lines (Output direction) — identical to a normal sales invoice (RQ-43).</summary>
+    /// <summary>
+    /// Computes GST over the complete item lines (Output direction) — identical to a normal sales invoice (RQ-43).
+    ///
+    /// <para>🔴 <b>INCLUDING the Compensation Cess (census T0-16).</b> This method used to build
+    /// <c>TaxableLine(value, rate)</c> with no cess argument at all, where
+    /// <c>VoucherEntryViewModel.ComputeItemInvoiceGst</c> resolves one and passes it — so the SAME cess-bearing
+    /// item collected the cess on a Sales item invoice and ZERO of it over the counter, on the bill, on the
+    /// tenders and in the GSTR-1 cess column. It now calls the same <see cref="GstService.ResolveCess"/> with the
+    /// same arguments the accounting screen passes, so the two screens agree by construction.</para>
+    ///
+    /// <para><b>The cess is resolved as of <see cref="Date"/>, and the RATE deliberately is not.</b>
+    /// <c>ResolveCess</c> has no date-blind overload — a dated HSN cess row cannot be selected without one — while
+    /// <c>ResolveRate</c> does, and both POS rate resolutions still use it. That is census <b>T0-19</b>, a separate
+    /// open defect with its own row; it is named here rather than quietly fixed alongside, because closing it
+    /// changes the tax on existing counter sales and belongs to its own slice with its own tests.</para>
+    /// </summary>
     private PosGst? ComputeGst()
     {
         if (!_company.GstEnabled) return null;
@@ -428,8 +452,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             var res = _gst.ResolveRate(l.SelectedItem, SelectedSalesLedger);
             if (GstService.IsUnresolved(res))
                 return new PosGst(EmptyTax(), interState, l.SelectedItem);
-            if (!res.IsTaxable) continue;
-            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints));
+            if (!res.IsTaxable) continue;   // Exempt/Nil/Non-GST ⇒ no cess either (ResolveCess agrees)
+            // Specific / RSP-factor cess is valued per UNIT, so it takes the BILLED quantity — the same figure the
+            // taxable value is built from, never the actual.
+            var cess = _gst.ResolveCess(l.SelectedItem, SelectedSalesLedger, Date, l.ParsedBilledQuantity);
+            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints, cess));
         }
         return new PosGst(_gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output), interState, null);
     }
@@ -443,14 +470,13 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// The POSTED rows, not the amended ones, so an ordinary amendment (which moves the tax freely) is not seen
     /// here and only a master that moved underneath can make the two figures disagree.
     ///
-    /// <para>🔴 <b>IT MIRRORS <see cref="ComputeGst"/> LINE FOR LINE, INCLUDING THE MISSING CESS ARGUMENT</b> — and
-    /// that is the point, not an oversight to be tidied away. <see cref="ComputeGst"/> builds
-    /// <c>TaxableLine(value, rate)</c> with no resolved cess, so this screen DERIVES no cess; the comparison
-    /// therefore refuses, by name, a posted bill that carries a cess leg this screen would silently drop on
-    /// re-accept — a shape only an import or a hand-built voucher can produce today. The day <see cref="ComputeGst"/>
-    /// resolves a cess (which it should — a cess-bearing item sold over the counter attracts the same cess as one
-    /// sold on an invoice), this mirror is the second half of that change and the guard becomes the same
-    /// master-drift pin the accounting screen's is.</para>
+    /// <para>🔴 <b>IT MIRRORS <see cref="ComputeGst"/> LINE FOR LINE, CESS INCLUDED — and that is now what makes
+    /// the cess arm a real master-drift pin</b> (census T0-16, closed). This paragraph used to record the opposite:
+    /// <c>ComputeGst</c> resolved no cess, so this mirror resolved none either, and the cess comparison could only
+    /// ever refuse a posted bill carrying a cess leg the screen would have dropped. Now that the counter collects
+    /// the cess, both halves resolve it through the same <c>GstService.ResolveCess</c> as of the posted bill's own
+    /// date, and the comparison says what its accounting twin says: a cess master that moved under a bill nobody
+    /// touched is refused by name, while an ordinary amendment moves the cess freely.</para>
     /// </summary>
     private GstService.InvoiceTax? ReDerivedTaxOnPostedRows(Voucher existing)
     {
@@ -468,7 +494,8 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             var res = _gst.ResolveRate(item, SelectedSalesLedger);
             if (GstService.IsUnresolved(res)) return null;
             if (!res.IsTaxable) continue;
-            taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints));
+            var cess = _gst.ResolveCess(item, SelectedSalesLedger, existing.Date, posted.BilledQuantity);
+            taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
         }
 
         return _gst.ComputeInvoiceTax(taxable, interState, GstTaxDirection.Output);
@@ -480,15 +507,22 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         LineBreakdown = Array.Empty<GstService.LineTax>(),
     };
 
-    /// <summary>The current bill total = Σ item value + Σ GST (the amount the tenders must reconcile to).</summary>
-    private decimal BillTotal(out decimal taxable, out decimal cgst, out decimal sgst, out decimal igst)
+    /// <summary>
+    /// The current bill total = Σ item value + Σ GST + Compensation Cess (the amount the tenders must reconcile
+    /// to). The cess is ADDED here although it is ring-fenced out of <c>InvoiceTax.TotalTax</c>: the ring-fence is
+    /// about which GST head a figure belongs to, not about who pays it, and <c>BuildPosBill</c> posts a Cess tax
+    /// leg that the tender debits have to fund or the voucher does not balance (census T0-16).
+    /// </summary>
+    private decimal BillTotal(
+        out decimal taxable, out decimal cgst, out decimal sgst, out decimal igst, out decimal cess)
     {
         taxable = ItemsTotal();
         var gst = ComputeGst();
         cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
         sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
         igst = gst?.Tax.TotalIgst.Amount ?? 0m;
-        return taxable + cgst + sgst + igst;
+        cess = gst?.Tax.TotalCess.Amount ?? 0m;
+        return taxable + cgst + sgst + igst + cess;
     }
 
     /// <summary>
@@ -515,11 +549,30 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         _recomputing = true;
         try
         {
-            var bill = BillTotal(out var taxable, out var cgst, out var sgst, out var igst);
+            // 🔴 An unresolvable-cess input (an RSP-factor cess item with no declared Retail Sale Price) is a
+            // fail-fast domain error inside ResolveCess, and this method is reached from a KEYSTROKE handler — so
+            // it must surface as a message and a closed Accept gate, never as an unhandled crash of the counter.
+            // The accounting screen's RecalculateAccountingInvoice guards its own cess resolution the same way.
+            decimal bill, taxable, cgst, sgst, igst, cess;
+            try
+            {
+                bill = BillTotal(out taxable, out cgst, out sgst, out igst, out cess);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = ex.Message;
+                ItemsTotalText = IndianFormat.AmountAlways(ItemsTotal());
+                GstCgstText = GstSgstText = GstIgstText = GstCessText = "0.00";
+                BillTotalText = ItemsTotalText;
+                CanAccept = false;
+                return;
+            }
+
             ItemsTotalText = IndianFormat.AmountAlways(taxable);
             GstCgstText = IndianFormat.AmountAlways(cgst);
             GstSgstText = IndianFormat.AmountAlways(sgst);
             GstIgstText = IndianFormat.AmountAlways(igst);
+            GstCessText = IndianFormat.AmountAlways(cess);
             BillTotalText = IndianFormat.AmountAlways(bill);
 
             // Non-cash tenders (only in multi mode).
@@ -738,7 +791,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             taxLines.AddRange(gst.Tax.TaxLines);
             invoiceTax = gst.Tax;
             interState = gst.InterState;
-            billTotal = new Money(taxable.Amount + gst.Tax.TotalTax.Amount);
+            // 🔴 + TotalCess (census T0-16). TaxLines already CONTAINS the Cess leg, so a bill total that added
+            // only TotalTax — which ring-fences the cess out (ER-2) — funded the tender debits short by exactly
+            // the cess and the voucher could not balance. The accounting item invoice adds it to the party total
+            // for the same reason.
+            billTotal = new Money(taxable.Amount + gst.Tax.TotalTax.Amount + gst.Tax.TotalCess.Amount);
         }
 
         // W0-13 S2a — the DERIVED bill total is a persisted paisa figure too (it becomes the Cash tender amount),
@@ -1163,14 +1220,46 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             return false;
         }
 
-        if (BuildPosBill() is not { } built) return false;
-
         // 🔴 THE COMPENSATION-CESS MAGNITUDE IS PINNED SEPARATELY, AND FIRST — the shape signature below cannot see
         // it. A Cess leg's stamped rate is a SENTINEL 0 for a per-unit, an RSP-factor and any mixed ad-valorem
         // cess, so the whole cess axis is invisible to a ledger|side|head|rate comparison. Carried on this screen
         // in the SAME words and the SAME order as the accounting item invoice's accept path, deliberately: the
         // two doors consuming one guard, differently, is how the earlier asymmetries on this pair were built.
-        var reDerivedTax = ReDerivedTaxOnPostedRows(existing);
+        //
+        // 🔴 …AND ON THIS SCREEN IT RUNS **BEFORE THE BUILD**, WHICH IT DID NOT (census T0-16, measured). It reads
+        // only the POSTED voucher and today's masters — never `built` — and running it after the build made it
+        // STRUCTURALLY UNREACHABLE HERE: a cess master that moved moves the live bill total while the posted
+        // TENDERS stay where they are, so BuildPosBill refused the reconciliation first and the operator was told
+        // "Cash tendered is less than the cash payable" on a bill nobody touched — exactly the "a refusal in the
+        // engine's words the operator never saw" failure the eligibility re-run above exists to avoid. The
+        // ACCOUNTING door needs no hoist (its party leg is DERIVED, so a drift moves it instead of refusing) and
+        // its order is left alone; this is the one place the two doors legitimately differ, and the cess sentence
+        // is the same sentence in both.
+        //
+        // ⚠️ THE SHAPE AND MAGNITUDE PINS BELOW ARE STILL BEHIND THAT SAME TENDER REFUSAL, and the SHAPE one
+        // genuinely needs `built`, so it cannot simply be hoisted the way this one was. Named here and reported
+        // rather than fixed in passing: it is a different defect from T0-16 and wants its own slice and its own
+        // tests, and the magnitude pin's documented position (AFTER the shape pin, so a drift that moved a head
+        // or a rate is named by the shape sentence) must survive whatever closes it.
+        //
+        // 🔴 AND IT IS WRAPPED, because wiring the cess in put a THROW on this line that was not here before.
+        // GstService.ResolveCess FAILS FAST on an RSP-factor cess whose item declares no Retail Sale Price — it
+        // refuses to value a legitimately cess-bearing good at a silent ₹0 (ER-5's contract). That input is not
+        // POSTABLE (the same fail-fast refuses it at Accept) but it is certainly CREATABLE under an already-posted
+        // bill, which is exactly what an alteration re-prices against. BuildPosBill has carried its own catch for
+        // this since the beginning; this call had none, so the counter would have gone down on Ctrl+A.
+        GstService.InvoiceTax? reDerivedTax;
+        try
+        {
+            reDerivedTax = ReDerivedTaxOnPostedRows(existing);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"This bill cannot be re-priced under today's masters: {ex.Message} Alter has to compare the "
+                    + "tax it would derive now against the tax stamped on the bill, and it cannot derive one. "
+                    + "Correct the master, or raise a credit note and a fresh bill.";
+            return false;
+        }
 
         if (reDerivedTax is { } forCess
             && VoucherAlterationDerivedLegs.CessMagnitudeDriftRefusal(
@@ -1180,6 +1269,8 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             Message = cessRefusal;
             return false;
         }
+
+        if (BuildPosBill() is not { } built) return false;
 
         // 🔴 THE SHAPE OF THE ENGINE'S TAX LEGS IS PINNED — the amounts are not. An alteration is ALLOWED to move a
         // tax figure (that is what amending a quantity does); what it must never do is silently restate the tax
@@ -1376,6 +1467,10 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             TotalCgst = tax?.TotalCgst ?? Money.Zero,
             TotalSgst = tax?.TotalSgst ?? Money.Zero,
             TotalIgst = tax?.TotalIgst ?? Money.Zero,
+            // Gated on billOfSupply exactly as the head lines are — a §31(3)(c) document states no tax particular
+            // of any kind, and a composition dealer may collect none (§10(4)). Mirrors ProjectInvoice's own
+            // `billOfSupply ? Money.Zero : money.TotalCess`.
+            TotalCess = billOfSupply ? Money.Zero : tax?.TotalCess ?? Money.Zero,
             CashTendered = cashTender?.Tendered ?? Money.Zero,
             Change = new Money(change),
             Message1 = _type.PosConfig?.Message1 ?? string.Empty,
