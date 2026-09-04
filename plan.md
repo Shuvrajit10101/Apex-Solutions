@@ -99,6 +99,21 @@
 > Both are pinned by named tests. Recorded beside the other twelve in **§5** — search
 > **`ONE FURTHER USER RULING (R12, 2026-09-03)`**.
 >
+> > 🟡 **▶ 2026-09-04 — BOTH QUESTIONS NOW SHIP A BUILT ASSUMPTION, AND NEITHER IS ANSWERED.** The user directed
+> > the track to proceed rather than stop, so each was built as the stated assumption, **labelled as an assumption
+> > everywhere and never as a ruling**, with a one-line reversal switch. **Q-A → A-QA**, *cess walks independently
+> > of the rate* — switch `GstService.CessWalksIndependentlyOfTheRate`; the ₹1,200.00 → ₹0.00 move is gone and the
+> > figure is now **₹1,200.00 under both orders**. **Q-B → A-QB**, *an issued document must not change its
+> > statutory character retroactively* — switch `GstReportSupport.AnchorIssuedDocumentCharacter`; the same paper
+> > now stays a BILL OF SUPPLY under both orders. **Both switches were flipped off and the suite re-run: exactly
+> > four tests move and nothing else, so each reversal is genuinely one line.** 🔴 **NO SCHEMA COLUMN WAS TAKEN
+> > FOR EITHER** (three sibling tracks share this v52 base). **Two escalations stand and are the reason neither
+> > question is closed:** (i) A-QB cannot separate a **zero-rated** (0 bp) supply from an Exempt one — both post
+> > no tax legs — so that title still moves with the master option and needs a **posted taxability marker on the
+> > stock line**; (ii) A-QA cannot reach the three **narrow** rungs, nor reverse charge or §17(5) ITC-eligibility,
+> > without widening **`MasterGstDetails`**. Detail and figures: `docs/full-clone-census.md` §1.3 item 15, the two
+> > ▶ blocks under the numbered questions; register `docs/invented-vs-cloned.md` **IV-40** (PARTLY closed).
+>
 > **▶ 🔴 A FOURTEENTH STANDING RULING WAS TAKEN 2026-09-04 (R12), AND IT CHANGES THE GROUNDING SOURCE FOR THE
 > WHOLE PROJECT.** **14 · THE `tally/` CORPUS IS GONE — PROCEED ON THE OFFICIAL VENDOR DOCUMENTATION.** The
 > directory exists and is **EMPTY** (zero entries, hidden files included), and **git has NEVER tracked it** —
@@ -718,10 +733,21 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > Neither may be resolved by an agent.** Full record: `docs/full-clone-census.md` §1.3 item 15; divergence rows
 > `docs/invented-vs-cloned.md` IV-38 and IV-40.
 >
+> > 🟡 **▶ 2026-09-04 — STILL NOT DECIDED, BUT NO LONGER ONLY RECORDED: EACH NOW SHIPS A BUILT, LABELLED
+> > ASSUMPTION WITH A ONE-LINE REVERSAL.** The user directed the track to proceed without stopping. The two
+> > paragraphs below are **kept verbatim as the record of what was measured**; each is followed by a ▶ note
+> > naming the assumption, its switch and what it does NOT reach. **Nothing here is a ruling, and an agent has not
+> > resolved either question** — the switches exist precisely so the user's answer costs one line either way.
+> > **A-QA** = `GstService.CessWalksIndependentlyOfTheRate`; **A-QB** =
+> > `GstReportSupport.AnchorIssuedDocumentCharacter`. Both were verified reversible by flipping them off and
+> > re-running the suite: **exactly four tests move, and nothing else.**
+>
 > **Q-A · THE STATUTORY-CESS NARROWING — does a cess-less ledger block mean NO cess?** On a `LedgerFirst` book a
 > sales ledger that declares a rate but **no cess fields** wins the walk and therefore supplies the cess too,
 > which means none — even when the stock item declares one. **Measured, with literals**
-> (`GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess`): an item with ad-valorem cess
+> (`GstWinningBlockTests.The_source_order_decides_which_master_supplies_the_cess` — **renamed 2026-09-04 by A-QA
+> to `…The_source_order_no_longer_decides_which_master_supplies_the_cess`, its `LedgerFirst` row inverted; grep
+> for the NEW name**): an item with ad-valorem cess
 > at **1200 bp** under a ledger at 18% with no cess, on a taxable value of **₹10,000.00**, yields cess of
 > **₹1,200.00 under `StockItemFirst`** (every pre-v51 book, unchanged) and **₹0.00 under `LedgerFirst`** (every
 > v51+ book). The rate is 1800 bp either way. **This is one-walk-one-winning-block behaving as designed** — the
@@ -733,19 +759,53 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > above. **A ruling is needed before any code moves** — the three available shapes are set out in IV-40's *Fix*
 > cell and they are not equivalent.
 >
+> > 🟡 **▶ A-QA BUILT 2026-09-04 — AN ASSUMPTION, NOT AN ANSWER TO Q-A.** *Cess walks INDEPENDENTLY of the rate:
+> > a rung silent on cess does not suppress a lower rung's declared cess* (the way HSN and rate already walk
+> > independently, IV-39). The figure above is now **₹1,200.00 under BOTH orders**. Switch:
+> > `GstService.CessWalksIndependentlyOfTheRate`. Owner test: `tests/Apex.Ledger.Tests/GstCessIndependentWalkTests.cs`.
+> > 🔴 **WHAT IT DOES NOT REACH, AND THIS IS THE LARGER HALF — the schema escalation stands:** the three **narrow**
+> > rungs still carry no cess (`MasterGstDetails` has four fields), and **reverse charge and §17(5)
+> > ITC-eligibility do not walk at all** — they read `ResolveDetailBlock`, untouched. The **rate** walk is
+> > unchanged and asserted so. ⚠️ **Forced limit:** `CessApplicable` is a non-nullable `bool`, so "cess does not
+> > apply" is indistinguishable from silence; separating them is the same escalation. **If the user answers Q-A
+> > with shape (i), flip the switch — one line.**
+>
 > **Q-B · THE DOCUMENT-TITLE FLIP ON AN UNTAXED VOUCHER — accept it, or escalate to a schema change?** No
 > taxability is stamped on a posted line, so the bill-of-supply predicate **re-resolves every stock line live**.
 > A voucher that posted **no** tax therefore has **no anchor at all**: with the item Exempt and the sales ledger
 > Taxable at 18%, the same already-issued paper is a **BILL OF SUPPLY** under `StockItemFirst` and a **TAX
 > INVOICE** under `LedgerFirst` — re-titled by a master option, months later, with no tax on it because none was
 > ever posted. Pinned by
-> `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`.
+> `GstSourceOrderExistingBookTests.Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher`
+> (**renamed 2026-09-04 by A-QB to `…An_issued_untaxed_document_keeps_its_title_when_the_source_order_flips`, its
+> final assertion inverted; grep for the NEW name**).
 > **Posted MONEY is immune by construction and that is separately pinned; the statutory TITLE is not.** Anchoring
 > the title to posted data is **unavailable at this schema** — a zero-rated LUT/export supply is
 > `IsTaxable = true` at 0 bp and also posts no tax legs, so *"no tax legs"* cannot tell the two apart. It needs a
 > posted taxability marker, i.e. a **column**, i.e. an escalation. The options are (a) accept the flip, document
 > it, and warn at save time when a non-taxable block is written over a master with posted vouchers — noting the
 > **warning itself would be ours**, no source says the reference product warns — or (b) take the schema change.
+
+> > 🟡 **▶ A-QB BUILT 2026-09-04 — AN ASSUMPTION, NOT AN ANSWER TO Q-B, AND IT NARROWS THE "NEEDS A COLUMN" CLAIM
+> > ABOVE RATHER THAN REFUTING IT.** *An issued document must not change its statutory character retroactively.*
+> > The same paper now stays a **BILL OF SUPPLY** under both orders. Switch:
+> > `GstReportSupport.AnchorIssuedDocumentCharacter`. Owner test:
+> > `tests/Apex.Ledger.Tests/GstIssuedDocumentCharacterTests.cs`.
+> > 🔴 **NO COLUMN WAS TAKEN. The investigation the assignment required came back "already derivable — for part of
+> > the space".** `GstLineTax` cannot help: an Exempt line and a 0%-taxable line both post **no** tax line at all
+> > (`ComputeInvoiceTax`'s `AddHead` returns early on a zero amount), so the paragraph above is right that "no tax
+> > legs" is blind between them. **What it did not separate is that the ambiguity only bites where the taxable
+> > reading has NO RATE TO POST.** Where that reading carries a **positive** rate, the posted ledger decides by
+> > arithmetic — an 18% supply posts legs, this voucher has none. So the anchor fires only when the two published
+> > orders disagree on taxability, neither is unresolved, the taxable reading's rate is > 0, and the voucher
+> > records no GST tax at all.
+> > 🔴 **THE RESIDUAL IS REAL AND IS THE ESCALATION:** Exempt versus **zero-rated (0 bp, LUT/export)** still moves
+> > with the master option, because neither reading posts anything. **That needs a posted taxability marker on the
+> > stock line — a column — and it was NOT taken.** Pinned by
+> > `…GstIssuedDocumentCharacterTests.The_zero_rate_versus_exempt_residual_still_moves_with_the_option_and_that_needs_a_column`.
+> > ⚠️ **Side effect, intended:** `IsWhollyExemptItemSupply` also serves `IsInwardBillOfSupply`, so an inward
+> > movement's NIC e-Way `docType` is now order-independent too — it follows the recorded tax, not an F11 option.
+>
 
 > **▶ 🔴 A FOURTEENTH STANDING USER RULING (R12, 2026-09-04) — SETTLED; DO NOT RE-LITIGATE. IT CHANGES THE
 > GROUNDING SOURCE FOR THE WHOLE PROJECT, AND IT AMENDS RULING 9 ABOVE.**
@@ -1053,12 +1113,22 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > not small: every keyboard claim in this project that could have been corroborated by that source has been
 > decided without it.** **Reinstating an excluded corpus source is an R12 user decision, not an agent call.**
 >
-> **C · TWO DESIGN QUESTIONS THAT TRAVEL WITH THE TWO OPEN DATA-LOSS DEFECTS** (Phase 10.11's
-> `▶ THE S5d+S5e REVIEW CARRY-FORWARD` items 4 and 5; census **T1-22** / **T1-23**). **(i)** Closing the
-> `BankAllocation` limb requires a ruling on whether `LedgerService.Replace`'s `CarryBankDatesForward` warning
-> stays, because today that warning is **appended to the success message** — the operator is told *"altered"*
-> and the loss rides on the same line. **(ii)** The bill-wise VALUE-leg limb is *carry the children, or refuse
-> at the door?* — a contract question about what an alteration is allowed to re-attribute, not a fixer's call.
+> **C · ~~TWO DESIGN QUESTIONS THAT TRAVEL WITH THE TWO OPEN DATA-LOSS DEFECTS~~ — BOTH SETTLED 2026-09-04, AND
+> THE SETTLEMENTS ARE DIVERGENCES LABELLED AS OURS (Ruling 9; the corpus is silent on both).** (Phase 10.11's
+> `▶ THE S5d+S5e REVIEW CARRY-FORWARD` items 4 and 5; census **T1-22** / **T1-23**, now CLOSED.)
+> **(i) The `CarryBankDatesForward` warning STAYS where it is, and the allocation is CARRIED.** The loss it
+> warned about is gone, so on the item-invoice path only the `BankDateCleared` arm can now fire — and that is a
+> **recoverable** consequence of an amount the operator just keyed: the instrument is still on the line, so the
+> BRS still lists the row and they can re-tick it. `BankDateLineRemoved` was **not** recoverable (the allocation
+> itself was gone, the row vanished from BRS, and `SetBankDate` would throw). **Recoverability is the line
+> between warning on a success and refusing** — that is the justification, and it is what makes "the notice rides
+> on the success sentence" acceptable here and unacceptable before.
+> **(ii) The bill-wise VALUE-leg limb is BOTH: carry AND refuse, chosen by what moved.** Carry while the leg is
+> unmoved; refuse **by name** when the leg's amount moves (a split must foot its line EXACTLY and the screen's one
+> bill-wise panel is bound to the PARTY); refuse **at the door** when the ledger's `MaintainBillByBill` was turned
+> off after posting, because at the door the operator has not yet spent the work of re-keying.
+> ⚠️ **Both rulings are recorded here as OURS and remain open to a user override; nothing about them was taken
+> from the corpus, which is silent on what an alteration may re-attribute.**
 
 > **▶ 🔴 TEN PHASE-10.11 DESIGN DECISIONS (R12, 2026-08-17) — ALL ADOPTED EXACTLY AS THE DESIGN RECOMMENDS.
 > SETTLED; DO NOT RE-LITIGATE.** Source: `docs/design-records/phase-10-11-voucher-lifecycle-design.md` — a
@@ -2396,11 +2466,30 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
        a Stock Group **ALTER** route, because none exists at all, or a rate typed there can never be corrected).
        Census row **3.13** is still `ABSENT`.
      - **THE HSN HALF — slice S5.** `SourceOfHsnSacDetails` still has no reader.
-     - **FOUR NEW TIER-0 ROWS the chain opened or unmasked:** **T0-17** (five D9 master-block bypasses,
-       unreconciled with `ResolveRate`; **two feed INV-01 and EWB-01**) · **T0-18** (`RcmService`'s
-       import-of-services rate is hierarchy-blind AND date-blind) · **T0-19** (both POS `ResolveRate` sites use
-       the date-blind overload) · **T0-20** (the dated override's hard-coded item-first HSN pick contradicts the
-       walk it sits on).
+     - **FOUR NEW TIER-0 ROWS the chain opened or unmasked — ALL FOUR ARE NOW CLOSED (2026-09-04), and they
+       were closed by TWO PARALLEL TRACKS, which is why both bodies of evidence are kept below rather than one
+       overwriting the other at the merge.** ✅ **T0-17 CLOSED**: the five D9 master-block bypasses now resolve
+       through the ONE rule `GstReportSupport.BucketingRateOf`; the agreement assertion D9 declined to make exists
+       and was seen RED — ₹16,800 of filed tax on the wrong HSN, and ₹1,000 of Table-12 tax dropped outright —
+       then GREEN, 7/7, in `tests/Apex.Ledger.Io.Tests/RateReaderResolverAgreementTests.cs`. D9 is now a
+       PROHIBITION rather than a count, and a new **D9b** widens the pattern to the null-conditional and
+       intermediate-local shapes D9 could not see. 🔴 **D9b mechanically re-caught `RcmService.cs:82`, which
+       T0-17 deliberately left open as T0-18 — it COMPUTES tax and its `?? 1800` floor needed an R7 verification.
+       T0-18 then closed it by DELETING that floor rather than sourcing it, so D9b's inventory came down from four
+       to THREE at the merge; the count falling is recorded at the lock, because git merged that file with no
+       conflict at all and taking the merged text as it stood would have left D9b expecting a bypass in a file
+       that no longer has one.** ✅ **T0-18 CLOSED**: `RcmService`'s import-of-services limb now calls
+       `_gst.ResolveRate(item, spLedger, supplyDate)` and the uncited `?? 1800` floor is **deleted** — an
+       unresolved rate is the ER-5 sentinel and `BuildReverseCharge` refuses to post (R7: no rate constant ships
+       without a citation). ✅ **T0-19 CLOSED**: both POS sites pass `Date`, and the **date-blind two-argument
+       `ResolveRate` overload is deleted outright** — `voucherDate` is now a required parameter, so dropping the
+       date can no longer be silent. ✅ **T0-20 CLOSED**: the dated override is keyed by
+       `GstService.ResolveHsnSac`, the first rung of the SAME `Hierarchy` walk that declares an HSN, so
+       `SourceOfGstRate` steers the override as it steers the rate. T0-18 … T0-20 ship with one invariant class,
+       `tests/Apex.Desktop.Tests/RateResolutionOneRuleTests.cs` (11 tests), which asserts the rate is the same on
+       `GstService`, the POS counter, the Sales item invoice and the reverse-charge engine for the same masters on
+       the same day — rather than three isolated pins each of which a partial fix would satisfy.
+       ⚠️ **T0-16 (the counter collects zero cess) is NOT closed by the T0-19 work**: same screen, different cause.
      - **TWO DOC-ONLY R7 CORRECTIONS, scoped out of every brief and STILL OWED:** the `MasterGstDetails` class
        doc and the `GstDetailSource` doc still carry the *"[web] and A14-UNVERIFIED … A14 never ran"* qualifier on
        the two-toggle claim, which the design's grounding pass says is now vendor-sourced; and neither has been
@@ -3165,22 +3254,57 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      alongside the amount, built on the cess pin's shape (a **re-derivation over the POSTED rows**, so the rows
      are held fixed and only a moved master can trip it). Two **negative controls** ship with it, one per door,
      so it cannot silently become a blanket refusal. Census **T0-15**.
-  3. **🔴 WRONG MONEY (feature gap) — `PosBillingViewModel.ComputeGst` resolves NO Compensation Cess**, so a
-     cess-bearing item sold over the counter collects **zero** cess while the identical item on a Sales item
-     invoice collects it. **Needs its own slice, not a fix slipped into a defect pass.** ⚠️ **R7/A6 mandate: its
-     RATE side must be WEB-VERIFIED against CBIC at build time — no per-unit or ad-valorem cess figure may be
-     asserted from memory.** The rate instrument is Notification 1/2017-Compensation Cess (Rate) dated
-     28-06-2017 under the GST (Compensation to States) Act, 2017. **OPEN.** Census **T0-16**.
-  4. **🔴 DATA LOSS — a `BankAllocation` on the PARTY leg of an item invoice is destroyed on re-accept, and the
-     RECONCILIATION DATE goes with it**, while the warning rides on the **success** message. 🔴 **THIS
-     CONTRADICTS THE S5d/S5e VERIFIER, WHO TOLD THE FIXER TO DROP THIS LIMB AND ASSERTED THE RECONCILIATION
-     DATE WAS NOT AT RISK. THE FIXER PROBED INSTEAD OF ASSUMING AND THE VERIFIER WAS WRONG — recorded
-     explicitly, because a verifier being wrong is exactly what this project loses.** **OPEN.** Census
-     **T1-22**. ⚠️ **Carries a user/design question: does `Replace`'s `CarryBankDatesForward` warning stay?**
-  5. **🔴 DATA LOSS, AND SILENT — `BillAllocations` on a bill-wise VALUE leg are destroyed on re-accept with no
-     warning at all.** **Nobody had enumerated this**: the finding, the verifier and the completeness critic
-     all discuss bill-wise only on the party leg. **OPEN.** Census **T1-23**. ⚠️ **Carries a design question —
-     carry the children, or refuse at the door? — which is not a fixer's to settle.**
+  3. ✅ **DONE 2026-09-04 — `PosBillingViewModel.ComputeGst` now resolves the Compensation Cess**, so a
+     cess-bearing item sold over the counter collects the same cess as the identical item on a Sales item
+     invoice. *(Was: it resolved none, and collected zero.)* The change is four coupled edits — the resolver
+     call; `BillTotal` + `BuildPosBill` adding `TotalCess` so the tenders FUND the Cess leg; `PosReceiptData`
+     gaining `TotalCess` (in `GrandTotal`, zero on a bill of supply) and the receipt PDF a cess line; and
+     `ReDerivedTaxOnPostedRows`, the drift mirror, resolving it too — **without which the fix would have refused
+     every narration-only alteration of a cess-bearing bill.** Tests:
+     `tests/Apex.Desktop.Tests/PosCompensationCessTests.cs` (6). ⚠️ **R7 — the RATE side is UNTOUCHED and no
+     figure is asserted.** The instrument was web-verified at the official CBIC portal
+     (`https://cbic-gst.gov.in/hindi/compensation-tax.html`, re-verified 2026-09-04): **Notification No.
+     1/2017-Compensation Cess (Rate) dated 28-06-2017**, *"Seeks to notify Rates of goods and services tax
+     compensation cess under Goods and Services Tax (Compensation to States) Act, 2017 (15 of 2017)"*. The
+     amending notifications that page lists against it are **03/2017 (18-07-2017), 02/2018 (26-07-2018),
+     01/2019 (29-06-2019), 02/2019 (30-09-2019), 01/2021 (30-09-2021) and 02/2021 (28-12-2021)** — recorded from
+     the source rather than from memory, because an earlier draft of this very line said *"amended by 02–07/2017
+     and later notifications"*, which that page does **not** support. **The fix wires the resolver that reads the
+     operator's OWN cess master; it ships no rate**,
+     and seeding a cess rate table from that notification remains a separate, unstarted item. Census **T0-16**.
+     🔴 **TWO NEW DEFECTS FOUND while closing it.** **(a) Census T0-21** — on the POS screen the tax SHAPE and
+     MAGNITUDE drift pins are unreachable behind `BuildPosBill`'s TENDER reconciliation, so a moved rate master
+     produces *"Cash tendered is less than the cash payable"* on a bill nobody touched. The CESS pin was hoisted
+     above the build (it reads only the posted voucher); the other two need their own slice. **OPEN.**
+     **(b) Census T0-22, PRE-EXISTING** — `VoucherEntryViewModel.AcceptItemInvoiceAlteration` calls
+     `ReDerivedTaxOnPostedRows` with no try/catch while the accounting screen's two other cess sites are both
+     wrapped, so an RSP-factor cess master with no Retail Sale Price CRASHES Ctrl+A instead of refusing. The POS
+     twin of that exact line was measured throwing in this slice and fixed there; the accounting door was left
+     alone deliberately, being outside the three defects this slice owns. **The fix is three lines and its shape
+     is already written.** **OPEN.**
+  4. ✅ **DONE 2026-09-04 — the `BankAllocation` on the PARTY leg of an item invoice is CARRIED**, instrument
+     detail and reconciliation date alike. *(Was: destroyed on re-accept, with the warning riding on the success
+     message.)* 🔴 **THE S5d/S5e VERIFIER'S CLAIM THAT THE RECONCILIATION DATE WAS NOT AT RISK STAYS RECORDED AS
+     WRONG** — the fixer probed instead of assuming, and that is the part this project loses.
+     ⚠️ **THE DESIGN QUESTION IS SETTLED AND LABELLED AS OURS (Ruling 9; the corpus is silent).**
+     **(a) CARRY, not refuse** — refusing would block a narration-only amendment of any invoice ever paid by
+     cheque, which the operator has no other route to make. **(b) The carry rule is NOT the cost/forex rule**: a
+     `BankAllocation` carries no amount (`EnsureBankAllocationValid` does no split-sum check), so it survives an
+     amount change and is gated on the LEDGER only; applying the amount gate would have made a cheque-paid
+     invoice permanently un-amendable. **(c) `Replace`'s `CarryBankDatesForward` warning STAYS where it is** —
+     the loss it warned about is gone, so on this path only the `BankDateCleared` arm can now fire, and that is
+     RECOVERABLE (the instrument is still on the line, so the BRS lists the row and the operator can re-tick
+     it), whereas `BankDateLineRemoved` was not (the row vanished from BRS entirely). Recoverability is the line
+     between warning on a success and refusing. Census **T1-22**.
+  5. ✅ **DONE 2026-09-04 — `BillAllocations` on a bill-wise VALUE leg are CARRIED, and a leg that MOVES is
+     refused by name.** *(Was: destroyed on re-accept with no warning at all.)* ⚠️ **THE DESIGN QUESTION IS
+     SETTLED AS BOTH, and the split is the point (Ruling 9, labelled as ours):** carry while the leg is
+     unmoved · refuse by name when it moves, because a bill-wise split must foot its line EXACTLY and the value
+     leg is what an amendment moves, and the screen's one bill-wise panel is bound to the PARTY so there is
+     nothing to re-cut it on · refuse AT THE DOOR when the value ledger's `MaintainBillByBill` was turned off
+     after posting, because at the door the operator has not yet spent the work. The party leg is deliberately
+     EXCLUDED from the carry (its split is re-keyed by the panel; carrying it too would post it twice —
+     mutation-checked, that one flag reddens 7 existing tests). Census **T1-23**.
   6. **🔴 WORK LOSS — the type F-keys destroy an in-progress POS bill AND an unsaved POS ALTERATION.** Same root
      as the accounting-screen defect fixed in this pass; the fix is scoped to `Screen.VoucherEntry` per its
      brief and does not cover `Screen.PosBilling`. One plain **F8** replaced a keyed bill of 3 × Rs 849.37 with
@@ -5269,7 +5393,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   and every "73 absent" reads 71. 🔴 **AND THE MOVE IS HALF A CAPABILITY — DO NOT DROP T0-4 OUT OF THE
   CORRECTNESS WAVE ON THE STRENGTH OF IT.** Row **3.13**, the CAPTURE half of the same defect, is still
   `ABSENT` and rides with breadth; T0-4's capture slices S3/S4 and its HSN slice S5 are unbuilt, and the chain
-  opened four new Tier-0 rows (**T0-17 … T0-20**).
+  opened four new Tier-0 rows (**T0-17 … T0-20**) — **all four were closed 2026-09-04**, T0-17 by one track and
+  T0-18 … T0-20 by another. Closing them moved no census row: they were rate-path defects inside a capability
+  already graded `PARTIAL`, not missing capabilities.
   **▶ 🔴 AMENDED AGAIN 2026-09-04 — BREADTH IS NOW 68 ABSENT ROWS, NOT 71, AND ALL THREE NOTES ABOVE ARE LEFT
   STANDING FOR THE SAME REASON.** Census rows **12.8** (print-engine capability floor), **16.3** (Tally Audit /
   Edit Log) and **16.4** (attribution on the lifecycle verbs) moved `ABSENT` → `PARTIAL` when the wave-2 breadth

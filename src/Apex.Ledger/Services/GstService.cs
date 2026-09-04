@@ -363,31 +363,47 @@ public sealed class GstService
     }
 
     /// <summary>
-    /// Resolves the effective GST rate for a line by walking the master hierarchy (see <see cref="ResolveBase"/>
-    /// for the walk, its order and its grounding). An Exempt/Nil/Non-GST taxability at the first level that
-    /// declares one short-circuits to a non-taxable result (zero tax, RQ-15). A taxable line whose rate cannot be
-    /// resolved at <b>any</b> level — the company default included — is an explicit "unresolved" and the caller
-    /// fails fast (ER-5); it is never a silent zero. This date-agnostic overload delegates to the dated overload
-    /// with <c>voucherDate = null</c>, so a caller with no date is unchanged.
-    /// </summary>
-    public RateResolution ResolveRate(StockItem? item, Domain.Ledger? salesPurchaseLedger)
-        => ResolveRate(item, salesPurchaseLedger, voucherDate: null);
-
-    /// <summary>
-    /// Resolves the effective GST rate <b>as of a voucher date</b> (Phase 9 slice 1; RQ-1). It first resolves exactly
-    /// as Phase-4/8 (<see cref="ResolveBase"/>), then applies a <b>pure date override</b>: only when a voucher date
-    /// <b>and</b> a matching HSN-dated <see cref="GstConfig.RateHistory"/> row both exist does it return the dated
-    /// rate (most-recently-effective wins). Absent either — every existing fixture (a date but no history rows) — it
-    /// returns the base result unchanged, byte-identical to Phase-4/8 (ER-13). Legacy 12/28% rows retained
-    /// inactive-by-date let a pre-22-Sep-2025 voucher reprint at the historic rate.
+    /// Resolves the effective GST rate for a line <b>as of a voucher date</b> (Phase 9 slice 1; RQ-1) by walking
+    /// the master hierarchy (see <see cref="ResolveBase"/> for the walk, its order and its grounding). An
+    /// Exempt/Nil/Non-GST taxability at the first level that declares one short-circuits to a non-taxable result
+    /// (zero tax, RQ-15). A taxable line whose rate cannot be resolved at <b>any</b> level — the company default
+    /// included — is an explicit "unresolved" and the caller fails fast (ER-5); it is never a silent zero.
+    ///
+    /// <para>It first resolves exactly as Phase-4/8 (<see cref="ResolveBase"/>), then applies a <b>pure date
+    /// override</b>: only when a voucher date <b>and</b> a matching HSN-dated <see cref="GstConfig.RateHistory"/>
+    /// row both exist does it return the dated rate (most-recently-effective wins). Absent either — every existing
+    /// fixture (a date but no history rows) — it returns the base result unchanged, byte-identical to Phase-4/8
+    /// (ER-13). Legacy 12/28% rows retained inactive-by-date let a pre-22-Sep-2025 voucher reprint at the historic
+    /// rate.</para>
+    ///
+    /// <para>🔴 <b>T0-19 — THE DATE IS A REQUIRED ARGUMENT, and the date-blind two-argument overload that used to
+    /// sit here is DELETED.</b> It forwarded <c>voucherDate: null</c>, and its whole observable behaviour was to
+    /// silently skip the dated override — which is how both POS resolutions came to bill the counter at the
+    /// pre-revision rate while every accounting screen billed the same item, on the same day, at the revised one.
+    /// An overload whose only effect is to drop the date is a trap for the next caller, and it left no trace at
+    /// the call site for a reader (or a grep) to catch. A caller that genuinely has no date must now write
+    /// <c>voucherDate: null</c> and mean it.</para>
     /// </summary>
     public RateResolution ResolveRate(StockItem? item, Domain.Ledger? salesPurchaseLedger, DateOnly? voucherDate)
-    {
-        var baseRes = ResolveBase(item, salesPurchaseLedger);
+        => ResolveRateUnder(ConfiguredSource, item, salesPurchaseLedger, voucherDate);
 
+    /// <summary>
+    /// <see cref="ResolveRate(StockItem?, Domain.Ledger?, DateOnly?)"/> under an <b>explicitly named</b> walk order
+    /// rather than the one <see cref="GstConfig.SourceOfGstRate"/> currently carries. Introduced for
+    /// <see cref="TaxabilityIsSourceOrderDependent"/>, which has to ask what the OTHER published order would say;
+    /// nothing else may use it to resolve a figure, because the order a book resolves by is the one its config names.
+    /// </summary>
+    private RateResolution ResolveRateUnder(
+        GstDetailSource source, StockItem? item, Domain.Ledger? salesPurchaseLedger, DateOnly? voucherDate)
+    {
+        var baseRes = ResolveBase(item, salesPurchaseLedger, source);
+
+        // The RateHistory test comes FIRST on purpose: a book with no dated rows (every Phase-4/8 company, and any
+        // advanced book that never opted in) must not pay for the classification walk at all — ER-13 byte-identical
+        // when off, and the walk is the only clause here that can cost or throw.
         if (voucherDate is { } d && baseRes.IsTaxable
-            && (item?.Gst?.HsnSac ?? salesPurchaseLedger?.SalesPurchaseGst?.HsnSac) is { } hsn
-            && _company.Gst?.RateHistory is { Count: > 0 } history)
+            && _company.Gst?.RateHistory is { Count: > 0 } history
+            && ResolveHsnSac(item, salesPurchaseLedger, source) is { } hsn)
         {
             var hit = history
                 .Where(h => h.HsnSac == hsn && h.IsEffectiveOn(d))
@@ -405,7 +421,7 @@ public sealed class GstService
     /// <see cref="ResolveDetailBlock"/> for why that distinction is load-bearing.</summary>
     private readonly record struct Rung(
         bool IsTaxable, GstTaxability Taxability, int? RateBasisPoints,
-        GstValuationBasis ValuationBasis, StockItemGstDetails? Detailed);
+        GstValuationBasis ValuationBasis, StockItemGstDetails? Detailed, string? HsnSac);
 
     /// <summary>The five masters that can declare a GST block, named so an ORDER can be expressed as data.</summary>
     private enum HierarchyLevel { Ledger, AccountingGroup, StockItem, StockGroup, Company }
@@ -449,6 +465,10 @@ public sealed class GstService
         GstDetailSource.StockItemFirst => StockItemFirstWalk,
         _ => throw new ArgumentOutOfRangeException(nameof(source), source, "unknown GstDetailSource"),
     };
+
+    /// <summary>The order THIS book resolves by — the single reading of <see cref="GstConfig.SourceOfGstRate"/>, with
+    /// the shipped default for a book that carries no <see cref="GstConfig"/> at all.</summary>
+    private GstDetailSource ConfiguredSource => _company.Gst?.SourceOfGstRate ?? GstDetailSource.LedgerFirst;
 
     /// <summary>
     /// THE GST RATE HIERARCHY — the rungs that declare a block, in walk order, top first. Rungs that declare
@@ -499,6 +519,14 @@ public sealed class GstService
     /// <c>GstWinningBlockTests</c>.</para>
     /// </summary>
     private IEnumerable<Rung> Hierarchy(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+        => Hierarchy(item, salesPurchaseLedger, ConfiguredSource);
+
+    /// <inheritdoc cref="Hierarchy(StockItem?, Domain.Ledger?)"/>
+    /// <remarks>The <paramref name="source"/> overload exists so <see cref="TaxabilityIsSourceOrderDependent"/> can
+    /// ask what the OTHER published order string would resolve to. Every production resolution passes
+    /// <see cref="ConfiguredSource"/>, so there is still exactly one answer to "what order does this book use?".</remarks>
+    private IEnumerable<Rung> Hierarchy(
+        StockItem? item, Domain.Ledger? salesPurchaseLedger, GstDetailSource source)
     {
         // 🔴 LAZY ON PURPOSE, and it is a correctness property rather than a performance one. The two group rungs
         // are the only ones that COST anything (an ancestry climb) and the only ones that can THROW (a cyclic
@@ -506,7 +534,7 @@ public sealed class GstService
         // on lines whose own stock item answers immediately — a behaviour change on an existing book. This method
         // is an iterator and ResolveBase returns on the first hit, so a rung below the answer is never built.
         // Pinned by GstHierarchyAncestryTests.A_cycle_below_an_answering_item_rung_is_never_reached.
-        foreach (var level in WalkFor(_company.Gst?.SourceOfGstRate ?? GstDetailSource.LedgerFirst))
+        foreach (var level in WalkFor(source))
         {
             var rung = level switch
             {
@@ -524,13 +552,71 @@ public sealed class GstService
 
         static Rung? Detailed(StockItemGstDetails? block) => block is null
             ? null
-            : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints, block.ValuationBasis, block);
+            : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints, block.ValuationBasis, block,
+                block.HsnSac);
 
-        // MasterGstDetails declares no valuation basis — a narrow rung is always transaction-valued.
+        // MasterGstDetails declares no valuation basis — a narrow rung is always transaction-valued. It DOES carry
+        // an HSN/SAC, which is why the dated override's key (ResolveHsnSac) can see three rungs the old two-rung
+        // `item ?? ledger` pick never could.
         static Rung? Narrow(MasterGstDetails? block) => block is null
             ? null
             : new Rung(block.IsTaxable, block.Taxability, block.RateBasisPoints,
-                GstValuationBasis.TransactionValue, Detailed: null);
+                GstValuationBasis.TransactionValue, Detailed: null, block.HsnSac);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T0-20 — THE CLASSIFICATION THE DATED OVERRIDE IS KEYED BY: the HSN/SAC of the first rung along
+    /// <see cref="Hierarchy"/> that declares one.</b> The same walk, in the same order, that resolved the rate.
+    ///
+    /// <para><b>What this replaces and why it was wrong.</b> The dated override used to key on the hard-coded
+    /// <c>item?.Gst?.HsnSac ?? salesPurchaseLedger?.SalesPurchaseGst?.HsnSac</c> — a two-rung, item-first choice
+    /// that ignored <see cref="GstConfig.SourceOfGstRate"/> entirely and could not see the three narrow rungs at
+    /// all. On a <see cref="GstDetailSource.LedgerFirst"/> book (the shipped default, and what every v51+ book
+    /// carries) the base rate came from the LEDGER while the row that REPLACED it was matched on the ITEM's HSN.
+    /// That is not a refinement of the walk; it is a second, inconsistent resolution, and it can substitute a rate
+    /// belonging to a classification the line never resolved through.</para>
+    ///
+    /// <para><b>"First rung DECLARING an HSN", not "the rung that supplied the rate"</b> — the same rule
+    /// <see cref="ResolveDetailBlock"/> already applies to cess and reverse charge, and for the same reason: the
+    /// rate walk falls THROUGH a taxable, rate-less block to the rung below it, and a master that declares its
+    /// classification but leaves its rate to the rung below is an ordinary shape. Keying "whichever rung supplied
+    /// the rate" would read no HSN at all there.</para>
+    ///
+    /// <para>Whitespace-only is treated as absent, matching every other HSN reader in the tree.</para>
+    ///
+    /// <para>🔴 <b>THE CYCLE CATCH IS NARROW AND IT IS LOAD-BEARING — do not widen it and do not delete it.</b>
+    /// <see cref="Hierarchy"/> is lazy precisely so that a corrupt (cyclic) group chain BELOW the rung that
+    /// answered never makes an otherwise-fine line unpostable — a correctness property, not a performance one,
+    /// pinned by <c>GstHierarchyAncestryTests.A_cycle_below_an_answering_item_rung_is_never_reached</c>. This walk
+    /// looks one question further than the rate walk did, so on its own it would resurrect exactly that
+    /// unpostable-book shape for any book carrying dated rows. It cannot mask a cycle at or above the answering
+    /// rung: <see cref="ResolveBase"/> runs FIRST in <see cref="ResolveRate"/> and walks the same rungs, so such a
+    /// chain has already thrown before this method is entered. What is swallowed here is therefore only ever a
+    /// cycle strictly below the answer — and the consequence of swallowing it is the correct one: no dated
+    /// override, the base rate stands, the line posts.</para>
+    /// </summary>
+    /// <param name="source">🔴 <b>THE ORDER THE RATE WAS RESOLVED UNDER, threaded through rather than re-read from
+    /// the config — added at the merge of the T0-20 fix with <see cref="TaxabilityIsSourceOrderDependent"/>, which
+    /// arrived on a different branch.</b> Both changes merged cleanly and compiled, and together they reintroduced
+    /// the exact defect T0-20 exists to prevent, in one arm: <see cref="ResolveRateUnder"/> resolved the BASE under
+    /// its named <paramref name="source"/> while this walk still keyed on <see cref="ConfiguredSource"/>, so the
+    /// counterfactual ("what would the OTHER published order say?") walked the rate item-first and the HSN
+    /// ledger-first — a second, inconsistent resolution, which is T0-20's own words for the bug. Production is
+    /// unaffected either way, because <see cref="ResolveRate"/> passes <see cref="ConfiguredSource"/> and the two
+    /// were already equal there; what changes is only that the counterfactual is now answered by ONE walk.</param>
+    private string? ResolveHsnSac(StockItem? item, Domain.Ledger? salesPurchaseLedger, GstDetailSource source)
+    {
+        try
+        {
+            foreach (var rung in Hierarchy(item, salesPurchaseLedger, source))
+                if (!string.IsNullOrWhiteSpace(rung.HsnSac)) return rung.HsnSac;
+        }
+        catch (InvalidOperationException)
+        {
+            // A cyclic ancestry strictly BELOW the rung that answered the rate — see the note above.
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -545,8 +631,13 @@ public sealed class GstService
     /// line with a rate at no level at all is still an explicit domain error and never a silent zero.</para>
     /// </summary>
     private RateResolution ResolveBase(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+        => ResolveBase(item, salesPurchaseLedger, ConfiguredSource);
+
+    /// <inheritdoc cref="ResolveBase(StockItem?, Domain.Ledger?)"/>
+    private RateResolution ResolveBase(
+        StockItem? item, Domain.Ledger? salesPurchaseLedger, GstDetailSource source)
     {
-        foreach (var rung in Hierarchy(item, salesPurchaseLedger))
+        foreach (var rung in Hierarchy(item, salesPurchaseLedger, source))
         {
             if (!rung.IsTaxable) return RateResolution.NonTaxable(rung.Taxability);
             if (rung.RateBasisPoints is { } bp)
@@ -603,19 +694,32 @@ public sealed class GstService
         var gst = ResolveDetailBlock(item, salesPurchaseLedger);
 
         // An Exempt/Nil/Non-GST (or absent) block attracts no tax at all — and therefore no cess — even on a cess HSN.
+        // 🔴 THIS GATE STILL READS THE RUNG THE **RATE** WALK LANDED ON, and A-QA does not move it: "does cess apply
+        // at all?" is answered by the supply's taxability, "which master states the cess figures?" by the cess walk.
         if (gst is null || !gst.IsTaxable) return null;
 
-        // Per-item explicit override (the item declares its own cess mode + figures).
-        if (gst is { CessApplicable: true, CessValuationMode: { } mode })
+        // 🔴 ASSUMPTION A-QA — CESS WALKS INDEPENDENTLY OF THE RATE. See ResolveCessBlock. One line reverses it.
+        var cessBlock = CessWalksIndependentlyOfTheRate
+            ? ResolveCessBlock(item, salesPurchaseLedger) ?? gst
+            : gst;
+
+        // Per-item explicit override (the winning cess rung declares its own cess mode + figures).
+        if (cessBlock is { CessApplicable: true, CessValuationMode: { } mode })
             return BuildCess(mode,
-                gst.CessRateBasisPoints ?? 0,
-                gst.CessPerUnit ?? Money.Zero,
-                gst.CessRspFactorMillis ?? 0,
-                gst.RetailSalePrice,
+                cessBlock.CessRateBasisPoints ?? 0,
+                cessBlock.CessPerUnit ?? Money.Zero,
+                cessBlock.CessRspFactorMillis ?? 0,
+                cessBlock.RetailSalePrice,
                 quantity);
 
         // Else inherit from the dated cess master by HSN.
-        if (gst.HsnSac is { } hsn && _company.Gst?.CessRates is { Count: > 0 } rates)
+        //
+        // 🔴 THE HSN-INHERIT PATH IS UNCHANGED WHERE NO RUNG DECLARES CESS AT ALL — ResolveCessBlock answers null
+        // there, so `cessBlock` IS `gst` and this is the same expression it always was. Where a rung DOES declare
+        // cess but leaves the figures to the dated master (`CessApplicable` with no `CessValuationMode`), A-QA makes
+        // that rung supply the HSN and the RSP, which is the point: the rung that said "cess applies" is the rung
+        // whose HSN the inheritance should key on.
+        if (cessBlock.HsnSac is { } hsn && _company.Gst?.CessRates is { Count: > 0 } rates)
         {
             var hit = rates
                 .Where(r => r.HsnSac == hsn && r.IsEffectiveOn(voucherDate))
@@ -623,9 +727,63 @@ public sealed class GstService
                 .FirstOrDefault();
             if (hit is not null)
                 return BuildCess(hit.ValuationMode, hit.CessRateBasisPoints, hit.CessPerUnit,
-                    hit.CessRspFactorMillis, gst.RetailSalePrice, quantity);
+                    hit.CessRspFactorMillis, cessBlock.RetailSalePrice, quantity);
         }
 
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>ASSUMPTION A-QA, AND IT IS AN ASSUMPTION — NOT A USER RULING AND NOT A CORPUS FACT. ONE LINE REVERSES
+    /// IT.</b> Setting this to <c>false</c> restores, exactly, the one-winning-block behaviour recorded as open R12
+    /// question 1 in <c>docs/full-clone-census.md</c> §1.3 item 15: on a <see cref="GstDetailSource.LedgerFirst"/>
+    /// book, a sales ledger declaring 18% and no cess suppressed an item's ad-valorem cess of 1200 bp, so a taxable
+    /// value of 10,000.00 bore cess of 0.00 instead of 1,200.00.
+    ///
+    /// <para><b>The assumption:</b> <i>cess walks INDEPENDENTLY of the rate — a rung silent on cess does not suppress
+    /// a lower rung's declared cess</i>, the same way the design already lets HSN and rate walk independently
+    /// (register <c>docs/invented-vs-cloned.md</c> IV-39).</para>
+    /// </summary>
+    private const bool CessWalksIndependentlyOfTheRate = true;
+
+    /// <summary>
+    /// The <see cref="StockItemGstDetails"/> at the <b>first rung of <see cref="Hierarchy"/> that DECLARES
+    /// Compensation-Cess</b>, or <c>null</c> when no rung declares any. Assumption A-QA, see
+    /// <see cref="CessWalksIndependentlyOfTheRate"/>.
+    ///
+    /// <para>🔴 <b>"DECLARES" IS <c>CessApplicable</c> ALONE, AND THE MISSING <c>CessValuationMode</c> IS NOT
+    /// SILENCE.</b> <see cref="ResolveCess"/> has two routes: a rung carrying <c>CessApplicable</c> AND a
+    /// <c>CessValuationMode</c> states its own figures, while a rung carrying <c>CessApplicable</c> with NO mode
+    /// says "cess applies here, take the figures from the dated cess master by my HSN" — which
+    /// <see cref="StockItemGstDetails.EnsureValid"/> deliberately permits. Both are answers to the cess question,
+    /// so both stop this walk; only <c>CessApplicable == false</c> is silence. Requiring a mode here would let a
+    /// LOWER rung's explicit figures overrule a higher rung that had already said cess applies — a re-ordering A-QA
+    /// never claimed and the opposite of "the first rung that declares wins".</para>
+    ///
+    /// <para><b>It is still the SAME ordered walk</b> — independent does not mean item-first. A rung ABOVE that
+    /// declares cess wins it, exactly as it wins the rate; what changes is only that a rung which says
+    /// <em>nothing</em> about cess no longer terminates the cess question on the strength of having answered the
+    /// rate question.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS CANNOT REACH, AND WHY IT IS AN ESCALATION RATHER THAN A DESIGN CHOICE.</b> Only the two
+    /// DETAILED rungs (Stock Item and Sales/Purchase Ledger) carry <see cref="StockItemGstDetails"/> at all. The
+    /// three NARROW rungs carry <see cref="MasterGstDetails"/> — HSN/SAC, taxability, rate, supply type and nothing
+    /// else — so they can neither declare cess nor be made to, and IV-40's narrowing against the attested GST
+    /// Classification screen (BOOK PDF p.234, printed 230) survives untouched for them. Widening
+    /// <see cref="MasterGstDetails"/> is a schema change; three sibling tracks share this v52 base, so it is NOT
+    /// taken here. Reverse charge and §17(5) ITC eligibility are in the same position and are likewise unmoved:
+    /// they are read off <see cref="ResolveDetailBlock"/>, which this method deliberately does not touch.</para>
+    ///
+    /// <para><b>A FORCED LIMIT OF THE FIELD SHAPE, stated so it is not read as a decision.</b>
+    /// <see cref="StockItemGstDetails.CessApplicable"/> is a non-nullable <c>bool</c>, so a rung asserting "cess does
+    /// NOT apply here" is indistinguishable from one that never mentioned cess. Under A-QA both read as SILENT and
+    /// the walk continues past them. Separating the two needs a nullable column — the same escalation.</para>
+    /// </summary>
+    private StockItemGstDetails? ResolveCessBlock(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+    {
+        foreach (var rung in Hierarchy(item, salesPurchaseLedger))
+            if (rung.Detailed is { CessApplicable: true } declaring)
+                return declaring;
         return null;
     }
 
@@ -650,6 +808,39 @@ public sealed class GstService
 
     /// <summary>True iff <paramref name="r"/> is the "unresolved" sentinel (a taxable line with no rate anywhere).</summary>
     public static bool IsUnresolved(RateResolution r) => r is { IsTaxable: false, RateBasisPoints: -1, Taxability: GstTaxability.Taxable };
+
+    /// <summary>
+    /// 🔴 <b>ASSUMPTION A-QB SUPPORT — "would this line's TAXABILITY have been the opposite one had the book carried
+    /// the other <see cref="GstConfig.SourceOfGstRate"/>, in a way the posted ledger can arbitrate?"</b> True iff all
+    /// three hold: (1) the two published order strings disagree on <see cref="RateResolution.IsTaxable"/>;
+    /// (2) NEITHER order leaves the line unresolved (silence is not an exemption — ER-5); and (3) the TAXABLE reading
+    /// carries a <b>POSITIVE</b> rate.
+    ///
+    /// <para><b>Clause (3) is what makes this a derivation instead of a guess, and it is the whole reason no schema
+    /// column is needed for the measured defect.</b> A positive rate posts tax legs. So on a voucher that recorded no
+    /// GST tax at all, the taxable reading is contradicted by the general ledger and the non-taxable reading is the
+    /// one the document was issued under. Where the taxable reading is <b>zero-rated</b> (LUT/export, 0 bp) it posts
+    /// no legs either, nothing distinguishes it from Exempt, and this method answers <c>false</c> so no caller can
+    /// pretend otherwise — that residual genuinely needs a posted taxability column and is recorded, not taken.</para>
+    ///
+    /// <para><b>This is a QUESTION ABOUT THE MASTERS, not a resolution.</b> It never supplies a rate, a taxability or
+    /// a figure, and no posting path consults it; its only consumer is
+    /// <c>GstReportSupport.IsWhollyExemptItemSupply</c>, which uses it to keep an already-issued document's statutory
+    /// TITLE from moving when an F11 master option is changed. See that method, and the assumption's reversal switch
+    /// <c>GstReportSupport.AnchorIssuedDocumentCharacter</c>.</para>
+    /// </summary>
+    public bool TaxabilityIsSourceOrderDependent(
+        StockItem? item, Domain.Ledger? salesPurchaseLedger, DateOnly? voucherDate)
+    {
+        var ledgerFirst = ResolveRateUnder(GstDetailSource.LedgerFirst, item, salesPurchaseLedger, voucherDate);
+        var itemFirst = ResolveRateUnder(GstDetailSource.StockItemFirst, item, salesPurchaseLedger, voucherDate);
+
+        if (IsUnresolved(ledgerFirst) || IsUnresolved(itemFirst)) return false;
+        if (ledgerFirst.IsTaxable == itemFirst.IsTaxable) return false;
+
+        var taxable = ledgerFirst.IsTaxable ? ledgerFirst : itemFirst;
+        return taxable.RateBasisPoints > 0;
+    }
 
     // ---- RQ-12/13/19: per-line tax computation + split + rounding ----
 

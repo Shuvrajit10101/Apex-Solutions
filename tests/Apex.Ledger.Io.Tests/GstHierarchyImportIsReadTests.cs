@@ -95,7 +95,7 @@ public class GstHierarchyImportIsReadTests
         var c = ExportAndImport();
         var item = c.StockItems.Single(i => i.Name == "Handset");
 
-        var r = new GstService(c).ResolveRate(item, salesPurchaseLedger: null);
+        var r = new GstService(c).ResolveRate(item, salesPurchaseLedger: null, voucherDate: null);
 
         Assert.False(GstService.IsUnresolved(r));
         Assert.True(r.IsTaxable);
@@ -109,7 +109,7 @@ public class GstHierarchyImportIsReadTests
         var c = ExportAndImport();
         var ledger = c.Ledgers.Single(l => l.Name == "Consultancy Income");
 
-        var r = new GstService(c).ResolveRate(item: null, ledger);
+        var r = new GstService(c).ResolveRate(item: null, ledger, voucherDate: null);
 
         Assert.False(GstService.IsUnresolved(r));
         Assert.Equal(GroupRateBp, r.RateBasisPoints);
@@ -126,7 +126,7 @@ public class GstHierarchyImportIsReadTests
         var c = ExportAndImport();
         var item = c.StockItems.Single(i => i.Name == "Lanyard");
 
-        var r = new GstService(c).ResolveRate(item, salesPurchaseLedger: null);
+        var r = new GstService(c).ResolveRate(item, salesPurchaseLedger: null, voucherDate: null);
 
         Assert.False(GstService.IsUnresolved(r));
         Assert.Equal(CompanyRateBp, r.RateBasisPoints);
@@ -148,6 +148,6 @@ public class GstHierarchyImportIsReadTests
         var sg = inv.CreateStockGroup("Bare Group");
         var item = inv.CreateStockItem("Bare Widget", sg.Id, nos.Id);
 
-        Assert.True(GstService.IsUnresolved(new GstService(c).ResolveRate(item, salesPurchaseLedger: null)));
+        Assert.True(GstService.IsUnresolved(new GstService(c).ResolveRate(item, salesPurchaseLedger: null, voucherDate: null)));
     }
 }

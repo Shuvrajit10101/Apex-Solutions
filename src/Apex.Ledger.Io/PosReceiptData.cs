@@ -123,6 +123,18 @@ public sealed class PosReceiptData
     /// <summary>Σ IGST over the bill.</summary>
     public Money TotalIgst { get; init; }
 
+    /// <summary>
+    /// 🔴 Σ <b>Compensation Cess</b> over the bill (census T0-16). Ring-fenced out of <see cref="TotalTax"/> for
+    /// the same reason <c>GstService.InvoiceTax.TotalTax</c> ring-fences it (ER-2) — cess is not a GST head — but
+    /// it IS in <see cref="GrandTotal"/>, because it is part of what the customer pays and the tenders printed on
+    /// the same slip foot to it. This field did not exist while the counter collected no cess; the moment it
+    /// started to, a receipt without it would have printed a grand total short of its own tender lines. The
+    /// accounting invoice print already carried the equivalent (<c>VoucherPrintProjector</c>'s FIX-1).
+    /// <para>Zero on a bill of supply, exactly as the GST heads are — CGST Rule 49 prescribes no tax particular of
+    /// any kind, and §10(4) bars a composition dealer from collecting one.</para>
+    /// </summary>
+    public Money TotalCess { get; init; }
+
     /// <summary>Cash tendered by the customer (0 when no cash tender).</summary>
     public Money CashTendered { get; init; }
 
@@ -141,6 +153,6 @@ public sealed class PosReceiptData
     /// <summary>Σ all tax (CGST+SGST+IGST).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
-    /// <summary>The bill grand total = taxable + tax (paisa-exact) — the sum the tenders reconcile to.</summary>
-    public Money GrandTotal => new(TotalTaxable.Amount + TotalTax.Amount);
+    /// <summary>The bill grand total = taxable + tax + cess (paisa-exact) — the sum the tenders reconcile to.</summary>
+    public Money GrandTotal => new(TotalTaxable.Amount + TotalTax.Amount + TotalCess.Amount);
 }

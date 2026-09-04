@@ -7676,6 +7676,11 @@
                                       <TextBlock Grid.Column="0" Text="IGST" FontSize="12.5"/>
                                       <TextBlock Grid.Column="1" Text="{Binding GstIgstText}" TextAlignment="Right" FontSize="12.5"/>
                                     </Grid>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="Compensation Cess" FontSize="12.5"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding GstCessText}" TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
                                     <Border BorderBrush="{StaticResource BrandNavy}" BorderThickness="0,1,0,0" Padding="0,4,0,0">
                                       <Grid ColumnDefinitions="*,150">
                                         <TextBlock Grid.Column="0" Text="Bill total" FontWeight="Bold" FontSize="13"
