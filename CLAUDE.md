@@ -7,8 +7,11 @@
 ## What we are building
 A faithful clone of **Tally Prime** with the same features. The authoritative description of those
 features is **`docs/tally-feature-catalog.md`** (with sourced corrections in
-`docs/tally-feature-catalog-verification-report.md`). The primary source corpus is the **git-ignored
-PDFs in `tally/`**. The code repository is **https://github.com/Shuvrajit10101/Apex-Solutions**.
+`docs/tally-feature-catalog-verification-report.md`). ~~The primary source corpus is the **git-ignored
+PDFs in `tally/`**.~~ 🔴 **SUPERSEDED 2026-09-04 BY RULING 14 — `tally/` IS EMPTY AND WAS NEVER GIT-TRACKED,
+so there is nothing to restore. The primary source is now the vendor's own published documentation at
+`help.tallysolutions.com`. See R7 below for the full grounding order and the measurement.** The code
+repository is **https://github.com/Shuvrajit10101/Apex-Solutions**.
 
 ---
 
@@ -48,9 +51,40 @@ be recorded in `memory.md` with the reason. No work is done outside `plan.md` wi
 
 ## ADDITIONAL RULES (engineering discipline — added by Claude)
 
-**R7 — Fidelity to Tally.** Every feature is grounded in `docs/tally-feature-catalog.md` and the
+**R7 — Fidelity to Tally.** ~~Every feature is grounded in `docs/tally-feature-catalog.md` and the
 `tally/` PDFs, cited. The Tally Domain/Corpus Expert agent resolves any fidelity doubt against the
-corpus; edition/law facts are web-verified against official sources, never asserted from memory.
+corpus; edition/law facts are web-verified against official sources, never asserted from memory.~~
+
+> **▶ 🔴 AMENDED 2026-09-04 BY USER RULING 14 (R12). THE CORPUS HALF OF THE RULE ABOVE IS INOPERATIVE, AND
+> THE ORIGINAL IS STRUCK RATHER THAN DELETED so a reader can see what the rule was and why it changed.**
+>
+> **THE MEASUREMENT THAT FORCED IT.** `tally/` **exists and is EMPTY** — `find tally/ -mindepth 1` returns
+> **zero** entries, hidden files included; verified independently by three agents and by the main loop on
+> 2026-09-04, and re-verified first-hand for this amendment. **And there is nothing to restore from:**
+> `git log --all -- tally/` returns **no commits on any ref** and `git ls-files tally/` returns **zero** —
+> because **R4 correctly git-ignored the folder as third-party IP** (the rule is in `.gitignore`, line 73,
+> `tally/`), **git has NEVER tracked it**. No branch, no worktree, no stash holds it. A Desktop-wide sweep
+> found no corpus-shaped PDF anywhere. **This is not a retrieval problem an agent can solve by trying harder.**
+>
+> **THE NEW GROUNDING ORDER — use the first source that speaks, and cite it:**
+> 1. **`help.tallysolutions.com` — the vendor's own published product documentation.** This is now the
+>    **fidelity ground truth** for product behaviour, navigation and keyboard shortcuts.
+> 2. **Official statutory sources** for law and rate facts: `cbic-gst.gov.in`, `incometaxindia.gov.in`,
+>    `epfo.gov.in`, `esic.gov.in`, `indiacode.nic.in`.
+> 3. **`docs/tally-feature-catalog.md` and its verification report** — **INTERNAL**, and only where 1 and 2
+>    are silent. Internal restatement is not an independent source and may never be cited as one.
+>
+> **WHAT IS UNCHANGED.** Citation is still mandatory, and a citation must still resolve **by content**.
+> **A blog, cleartax, taxguru or an undated rate chart is NOT a source** — this project has already had to
+> strip such citations out of shipped code. Law facts are still web-verified, never asserted from memory.
+>
+> **WHAT CHANGES FOR EVERY AGENT.** **A capability verified against the vendor documentation IS VERIFIED**
+> and joins the compared set; it is no longer a lesser grade than a corpus page. **Do NOT report the corpus
+> as UNREACHED, missing, or pending restoration** — it is gone, the user knows, and the decision is taken.
+> **Do not spend time looking for it.** A14 remains the fidelity authority; its primary source is now the
+> vendor documentation rather than the corpus. **Where NO source in the order above speaks, the capability
+> still ships as a documented divergence labelled as ours** — that half of the discipline is untouched.
+> **The bar is unchanged and is the whole point: nothing is marked verified that was not COMPARED.**
 
 **R8 — Test-driven & verified.** Every feature ships with tests (unit + integration). Nothing is
 declared "done" without running it and showing evidence. The two deterministic fixtures from the study —
@@ -87,7 +121,8 @@ Expert manages repo authentication.
 | `memory.md` | The running log — **read first** in a new session. |
 | `docs/tally-feature-catalog.md` | What Tally Prime does — the requirements reference. |
 | `docs/tally-feature-catalog-verification-report.md` | Sourced corrections & enrichments. |
-| `tally/` | Source PDFs — **never commit**. |
+| ~~`tally/`~~ | ~~Source PDFs — **never commit**.~~ 🔴 **EMPTY since at latest 2026-09-04 and never git-tracked; ruling 14 replaced it with the vendor documentation. The never-commit rule stands if the PDFs ever return.** |
+| `help.tallysolutions.com` | **The vendor's published product documentation — the fidelity ground truth for behaviour, navigation and shortcuts (R7, ruling 14).** |
 
 ## New-session bootstrap
 1. Read `memory.md` (full history) → `plan.md` (current phase) → this file.

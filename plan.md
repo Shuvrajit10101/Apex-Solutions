@@ -114,6 +114,34 @@
 > > without widening **`MasterGstDetails`**. Detail and figures: `docs/full-clone-census.md` §1.3 item 15, the two
 > > ▶ blocks under the numbered questions; register `docs/invented-vs-cloned.md` **IV-40** (PARTLY closed).
 >
+> **▶ 🔴 A FOURTEENTH STANDING RULING WAS TAKEN 2026-09-04 (R12), AND IT CHANGES THE GROUNDING SOURCE FOR THE
+> WHOLE PROJECT.** **14 · THE `tally/` CORPUS IS GONE — PROCEED ON THE OFFICIAL VENDOR DOCUMENTATION.** The
+> directory exists and is **EMPTY** (zero entries, hidden files included), and **git has NEVER tracked it** —
+> `git log --all -- tally/` returns no commits on any ref, because R4 correctly git-ignored it as third-party
+> IP — **so there is nothing to restore from, by anyone.** The new grounding order is
+> **`help.tallysolutions.com` → official statutory sources → `docs/tally-feature-catalog.md` (internal, last)**.
+> **A capability verified against the vendor documentation IS VERIFIED and joins the compared set.** Ruling 9's
+> *"done = full parity AND corpus verification"* becomes **"AND vendor-documentation verification"** — only the
+> source's name changes; **both halves and the COMPARED bar survive intact.** 🔴 **Do NOT report the corpus as
+> UNREACHED or pending restoration, and do not go looking for it** — one session already did and lost time.
+> Recorded beside the other thirteen in **§5** — search **`A FOURTEENTH STANDING USER RULING (R12, 2026-09-04)`**;
+> `CLAUDE.md` **R7** is amended in place with the same text.
+>
+> **▶ 🔴 TEN RULINGS ARE OWED TO THE USER AS OF 2026-09-04 AND NOTHING SHOULD BE DISPATCHED INTO ANY OF THEM.
+> THEY ARE HELD AS ONE BATCH IN §5 — search **`TEN RULINGS ARE STILL OWED`** — with the full text and trade-offs
+> in `docs/full-clone-census.md` §7 (U-0 … U-10).** ~~The first one dominates the rest: **U-0 — the `tally/`
+> corpus is EMPTY** (zero PDFs, base tree and all seven worktrees, measured independently by three agents on
+> 2026-09-04), **so R7's corpus-first half is inoperative for every agent, and ruling 9's *"done = full parity
+> AND corpus verification"* is currently unreachable by construction rather than by effort.**~~ 🔴 **U-0 AND U-3
+> ARE BOTH CLOSED BY RULING 14 ABOVE — eleven became ten.** U-0 is answered *proceed without it*; **U-3 is
+> answered YES by necessity**, so the items already admitted on vendor and primary-legal sources are **not
+> downgraded**. The remaining ten in one line each: **U-1** which product's voucher-kind set the clone targets ·
+> **U-2** the counting unit for the fidelity figure · ~~**U-3**~~ *(closed)* · **U-4** wave-2 depth vs breadth ·
+> **U-5** Fringe Benefit Tax, build or strike · **U-6** a single chord-map ruling for three collisions ·
+> **U-7** physical printer output · **U-8** JPEG report export · **U-9** TallyVault, which collides with our
+> company-per-`.db`-named-after-the-company storage layout · **U-10** the nine architecture/scope carry-overs —
+> **plus ruling 13's Q-A and Q-B**, which belong with the same batch.
+>
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
 ---
@@ -757,7 +785,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > posted taxability marker, i.e. a **column**, i.e. an escalation. The options are (a) accept the flip, document
 > it, and warn at save time when a non-taxable block is written over a master with posted vouchers — noting the
 > **warning itself would be ours**, no source says the reference product warns — or (b) take the schema change.
->
+
 > > 🟡 **▶ A-QB BUILT 2026-09-04 — AN ASSUMPTION, NOT AN ANSWER TO Q-B, AND IT NARROWS THE "NEEDS A COLUMN" CLAIM
 > > ABOVE RATHER THAN REFUTING IT.** *An issued document must not change its statutory character retroactively.*
 > > The same paper now stays a **BILL OF SUPPLY** under both orders. Switch:
@@ -778,6 +806,132 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > > ⚠️ **Side effect, intended:** `IsWhollyExemptItemSupply` also serves `IsInwardBillOfSupply`, so an inward
 > > movement's NIC e-Way `docType` is now order-independent too — it follows the recorded tax, not an F11 option.
 >
+
+> **▶ 🔴 A FOURTEENTH STANDING USER RULING (R12, 2026-09-04) — SETTLED; DO NOT RE-LITIGATE. IT CHANGES THE
+> GROUNDING SOURCE FOR THE WHOLE PROJECT, AND IT AMENDS RULING 9 ABOVE.**
+>
+> **14 · THE `tally/` CORPUS IS GONE. PROCEED ON THE OFFICIAL VENDOR DOCUMENTATION.**
+>
+> **▶ THE MEASUREMENT THAT FORCED IT — recorded first, because this ruling is a response to a fact and not a
+> preference.** `tally/` **exists and is EMPTY**: `find tally/ -mindepth 1` returns **zero** entries, hidden
+> files included. It was measured independently by **three agents and the main loop on 2026-09-04**, across
+> the base tree and every live worktree, and re-verified first-hand when this block was written. **And there
+> is nothing to restore from:** `git log --all -- tally/` returns **no commits on any ref**, `git ls-files
+> tally/` returns **zero**, and `.gitignore` line 73 carries the entry `tally/`. **Because R4 correctly
+> git-ignored the folder as third-party IP, GIT HAS NEVER TRACKED IT** — so no branch, worktree, stash or
+> reflog holds it, and no A12 action can bring it back. A Desktop-wide sweep found no corpus-shaped PDF.
+> ⇒ **This is unreachable BY CONSTRUCTION, not by effort.** No agent is to go looking for it again.
+>
+> **▶ THE NEW GROUNDING ORDER (R7 is amended in place in `CLAUDE.md` with the same text).** Use the first
+> source that speaks, and cite it:
+> **(1) `help.tallysolutions.com`** — the vendor's own published product documentation, now the **fidelity
+> ground truth** for product behaviour, navigation and keyboard shortcuts. **(2) Official statutory sources**
+> for law and rate facts — `cbic-gst.gov.in`, `incometaxindia.gov.in`, `epfo.gov.in`, `esic.gov.in`,
+> `indiacode.nic.in`. **(3) `docs/tally-feature-catalog.md` and its verification report** — **INTERNAL**, and
+> only where (1) and (2) are silent; internal restatement is never an independent source.
+>
+> **▶ 🔴 WHAT THIS DOES TO RULING 9, STATED PLAINLY BECAUSE RULING 9 IS THE DEFINITION OF DONE.** Ruling 9's
+> *"done = full parity **AND** corpus verification"* becomes **"done = full parity AND VENDOR-DOCUMENTATION
+> VERIFICATION"**. **Only the NAME OF THE SOURCE changes. Both halves survive, and so does the bar:** a
+> capability is still done only when it is present and working **and** its **shipped behaviour has been
+> COMPARED** to a source. **Nothing is marked verified that was not compared** — the fidelity figure is small
+> precisely because that bar has been held, and inflating it would make the one honest number in the project
+> dishonest. Ruling 9's *"honest limit"* clause is **untouched in substance, and only its subject changes**:
+> where **no** source in the order above speaks, the capability still ships as a **documented divergence
+> labelled as OURS**, never as a fidelity claim. **The floor is still not zero — it has merely moved**, and it
+> moved in the harder direction for product-behaviour questions, which the vendor site covers unevenly.
+>
+> **▶ 🔴 THIS SETTLES OPEN QUESTION U-3, AND IT SETTLES IT *YES* — BY NECESSITY RATHER THAN BY PREFERENCE.**
+> U-3 asked whether **an item verified against official vendor or primary-legal sources, with NO corpus page,
+> belongs in the compared set**. **It does. It always did, and now it is the ONLY way an item can get there.**
+> **Items already admitted on that basis REMAIN VERIFIED and are NOT downgraded** — census §1.3 items 1, 3, 5
+> and 15 rest on official pages with no corpus page at all, and items 16, 17 and 18 were folded in on that
+> same precedent. **Ruling 14 makes that precedent the rule.** ⚠️ **Read the counterfactual before treating
+> this as a formality:** had U-3 been answered *no*, those seven items would have come **out** and the anchor
+> would have fallen to single digits. **A capability verified against the vendor documentation IS VERIFIED.**
+>
+> **▶ WHAT DOES NOT CHANGE.** Citation stays mandatory and must resolve **by content**. **A blog, cleartax,
+> taxguru or an undated rate chart is NOT a source** — shipped code has already had such citations stripped
+> out of it. A14 remains the fidelity authority, with a new primary source rather than a new mandate. **R4's
+> never-commit rule stands** should the PDFs ever return. **And no agent may report the corpus as UNREACHED,
+> missing or pending restoration any more** — it is gone, the user knows, and the decision is taken. One
+> session has already reported it as UNREACHED and lost time to it; that is what this block exists to prevent.
+
+> **▶ 🔴 TEN RULINGS ARE STILL OWED TO THE USER AS OF 2026-09-04 — HELD HERE AS ONE BATCH SO THEY CAN BE PUT
+> TOGETHER RATHER THAN DRIBBLED OUT. NOTHING MAY BE DISPATCHED INTO ANY OF THEM (R12).**
+>
+> **▶ HOW TO READ THIS BLOCK.** It is the **index**; the full text of each, with its trade-off, is the table in
+> `docs/full-clone-census.md` §7. **U-0 (restore the corpus) IS NOW CLOSED — ruling 14 above answered it**, and
+> it is struck below rather than deleted so a reader can see the batch shrink from eleven to ten. A
+> recommendation is stated first where there is one, per this project's standing preference; **no agent may
+> decide any of these**, and several constrain each other, which is why they go up as a batch.
+>
+> - ~~**U-0 · Restore the `tally/` corpus.**~~ 🔴 **CLOSED 2026-09-04 BY RULING 14 — proceed on the vendor
+>   documentation. Not restorable: never git-tracked.** It also **settles U-3 YES** (see ruling 14), so U-3
+>   stays listed only for the record of what was asked.
+> - **U-1 · WHICH PRODUCT'S VOUCHER-KIND SET does the clone target?** The official Statistics report enumerates
+>   a larger default set than census Area 4 is titled for, and we seed a third figure. These are two different
+>   products' defaults, so a Statistics report built to the smaller list would be **wrong against the source
+>   while matching our own Area 4**. The question is **upstream of Area 4**, not of Area 11. *No recommendation
+>   — this is a scope decision. It is cheap to ask now and expensive to discover after Area 11 ships.*
+> - **U-2 · THE COUNTING UNIT FOR THE FIDELITY FIGURE.** Census §1.3 has always counted **items**; the three
+>   wave-2 passes compared ~80 capabilities across ~40 rows and were folded in as **+3**. *Recommend: keep the
+>   **item** as the unit. If the user rules otherwise the RULE changes in §1.3 and every item is re-counted
+>   under it — **no digit is ever edited**.*
+> - **U-3 · Does an item verified against official vendor / primary-legal sources, with no corpus page, belong
+>   in the compared set?** ✅ **ANSWERED YES BY RULING 14, BY NECESSITY** — it is now the only route in.
+>   Listed here so the batch is complete and so the answer is not re-opened by accident.
+> - **U-4 · DEPTH vs BREADTH for wave 2.** 68 absent rows against 42 designed slices plus seventeen rulings,
+>   several XL. The only lever on a short horizon is the quality bar, and the corpus loss has already moved it.
+>   *Recommend: close the cheap no-schema rows and stop, rather than opening an XL track that will not land.*
+> - **U-5 · Fringe Benefit Tax (census row 15.9) — build it, or strike it?** Ruling 10 said build Area 15, but
+>   FBT was abolished by the Finance Act 2009 and has **no reference-product behaviour left to clone**; current
+>   vendor documentation does not mention it. *Recommend: **strike it**. A build agent handed this row will
+>   invent a feature — the failure mode this project has the most scar tissue about.*
+> - **U-6 · 🔴 THE CHORD-MAP RULING — ONE RULING OVER THE WHOLE MAP, NOT THREE PIECEMEAL ANSWERS.** Three
+>   attested chords are occupied by unattested verbs: `Alt+I` (Insert Voucher) by the POS tender toggle;
+>   `Alt+K` (Company menu) by Saved Views; `Ctrl+I` (More Details) by the item-invoice toggle. `Alt+A`'s
+>   attested arm is **third in arbitration** behind two unattested ones. Register rows **T2-14**, **T2-15**,
+>   **T2-17** and **T2-18**. **Three collisions surfaced in one wave — that is a pattern, not three
+>   coincidences**, a build agent must not pick a replacement chord alone, and each answer constrains the
+>   others. *Recommend: take **one** ruling over the whole map. Note the asymmetry — for `Ctrl+I` the mode
+>   toggle **already has its correct chord (`Ctrl+H`)**, so releasing that one costs nothing.*
+> - **U-7 · Physical printer output (census row 12.5).** Avalonia ships no printing API, so delivering it means
+>   a platform dependency or a P/Invoke to the Win32 spooler. W2-31's *"number of copies"* is meaningless until
+>   this is answered and 12.4 is blocked behind it. *Recommend: decide either way and **record it** — "print
+>   means PDF" is a defensible product choice, but it must be a recorded divergence rather than an accident.*
+> - **U-8 · JPEG report export (inside census row 13.6).** HTML, XML, JSON and ASCII are writers over the
+>   **existing** tabular projection, and the XML and JSON writers already exist on the whole-company surface.
+>   **JPEG alone needs a rasteriser** — a dependency, or a hand-rolled encoder. *Recommend: carve JPEG out,
+>   take the other four cheaply, and **record that 13.6 cannot then be marked closed**.*
+> - **U-9 · TallyVault (census row 16.1).** Company-data encryption behind a passphrase means SQLCipher or an
+>   equivalent crypto dependency. 🔴 **And there is an architecture collision:** the source says the password
+>   encrypts the company *"including the company name"*, while our companies live in a `.db` **named after the
+>   company** — the same constraint that puts rename out of scope. **It cannot be bolted on: the filename leaks
+>   the plaintext the feature exists to hide.** *Decide the dependency **and** the storage-layout change
+>   together, or defer both. R13 applies.*
+> - **U-10 · The nine architecture / scope carry-overs**, listed together only so the batch is complete:
+>   multiple GSTIN registrations (6.23) · multi-company shell (14.2 Switch To, 16.7 Group Company) · WhatsApp
+>   sharing (14.10) · e-Payments file format (8.10) · GST Classification master (6.25) · Kerala Flood Cess
+>   (6.26) · `IntegrateAccountsWithInventory` · charting approach (14.3) · Show-Inactive scope (2.13). Each is
+>   carried over from the wave-2 breadth design's rulings **R2–R17**, whose full text is in this file's wave-2
+>   block. *Recommend: take them **with** U-4, not before it — several become moot if U-4 says "cheap rows
+>   only".* ⚠️ **Two carry a specific warning: `IntegrateAccountsWithInventory` is behaviour-bearing and needs
+>   an oracle harness FIRST** (three negative-stock attempts produced three **different** unbounded
+>   Balance-Sheet errors that each passed the full suite), **and 14.3 already CONTRADICTS this file's claim of
+>   a delivered graphical dashboard.**
+>
+> **▶ AND TWO MORE DECISIONS ARE OPEN ELSEWHERE IN §5, NOT DUPLICATED HERE:** ruling 13's **Q-A** (the
+> statutory-cess narrowing) and **Q-B** (the document-title flip), both immediately above and both pinned by a
+> named test. **Put them with this batch** — they are R12 questions of the same kind and the user is being
+> asked to sit down with the list once.
+>
+> **▶ 🔴 AND ONE MORE, ADDED BY THE WAVE-3 FOLD-IN AFTER THIS BATCH WAS WRITTEN, SO THE HEADING'S COUNT OF
+> TEN IS ALREADY ONE SHORT: U-11** - does the 216 denominator gain a *Migrate-as-an-operator-action* row (and
+> an *Extract / Share* one)? Full text in `docs/full-clone-census.md` §7. **The heading is left reading TEN
+> because two other places search for the literal `TEN RULINGS ARE STILL OWED`; the batch is ELEVEN.** Recorded
+> in place rather than by re-typing the heading, 2026-09-05.
+
 > **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-08-19) — SETTLED; DO NOT RE-LITIGATE. THEY AMEND THE EIGHT
 > ABOVE AND THEY CHANGE THE SHAPE OF THE REMAINING WORK.** Recorded **here**, beside the 2026-08-15 and
 > 2026-08-16 sets and pointed at from this file's header, for the reason those sets already give: a ruling
@@ -5248,6 +5402,46 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   opened four new Tier-0 rows (**T0-17 … T0-20**) — **all four were closed 2026-09-04**, T0-17 by one track and
   T0-18 … T0-20 by another. Closing them moved no census row: they were rate-path defects inside a capability
   already graded `PARTIAL`, not missing capabilities.
+  **▶ 🔴 AMENDED AGAIN 2026-09-04 — BREADTH IS NOW 68 ABSENT ROWS, NOT 71, AND ALL THREE NOTES ABOVE ARE LEFT
+  STANDING FOR THE SAME REASON.** Census rows **12.8** (print-engine capability floor), **16.3** (Tally Audit /
+  Edit Log) and **16.4** (attribution on the lifecycle verbs) moved `ABSENT` → `PARTIAL` when the wave-2 breadth
+  pass re-measured them, so the column sums are now `47 + 101 + 68 = 216`, re-derived by re-running §1.2a's own
+  counting command and machine-checked (`TOTAL rows=216 C=47 P=101 A=68 U=0 sum=216`). **Every "71 absent" in
+  this file reads 68 from 2026-09-04**, and so does every "72 absent" and every "73 absent".
+  **▶ 🔴 AMENDED ONCE MORE, LATER ON 2026-09-04, BY THE WAVE-3 FIDELITY FOLD-IN — AND THE COMPLETE COLUMN WENT
+  DOWN, NOT UP. The sums are now `46 + 102 + 68 = 216`**, re-derived by re-running §1.2a's own counting command:
+  literal output `TOTAL rows=216 C=46 P=102 A=68 U=0 sum=216`. The line above says ~~*"`47 + 101 + 68`"*~~ and is
+  kept as the record of what the wave-2 fold-in found. **Census row 9.3 (Job Work registers) moved `COMPLETE` →
+  `PARTIAL`** when five wave-3 A14 passes gave 98 rows their first comparison against the vendor documentation and
+  counted **four shipped Job Work reports against the vendor's eleven** (census §1.3 item 23, gap-register
+  **T1-28**). **Absent is UNCHANGED at 68 — nothing was built and nothing was un-built; the census was wrong about
+  9.3**, as it had been about 16.6, 5.1, 12.8, 16.3 and 16.4. 🔴 **THE SAME FOLD-IN MOVED §1.3's FIDELITY ANCHOR
+  FROM `16 · 17 · 200 · 199` TO `21 · 22 · 195 · 194`, AND THOSE DIGITS ARE MAINTAINED IN THE CENSUS AND NOWHERE
+  ELSE — do not copy them into this file.** It filed **2 new TIER 0, 8 new TIER 1, 16 new TIER 2 and 3 new TIER 3**
+  rows, six new labelled divergences (`docs/invented-vs-cloned.md` **IV-56 … IV-61**), four new §6a UNREACHED rows
+  (**U-M … U-P**) and one new user ruling (**U-11**, whether the 216 denominator gains a *Migrate-as-an-operator-
+  action* row). ⚠️ **AND THE PLANNING CONSEQUENCE THAT OUTRANKS ALL OF IT, because it re-shapes work already in
+  this file: gap-register T2-20 shows the reference product's THREE top-level output menus (`Alt+P`, `Alt+E`,
+  `Alt+M`) are 0-for-3 in our shell, and NINE census rows — 12.3, 12.4, 12.5, 12.6, 12.7, 13.3, 13.5, 13.6, 13.7 —
+  are written here as nine independent builds when they are ONE shared menu shell plus one shared `Others` report
+  list plus per-leaf configuration.** The Area-12 order **12.8 → 12.5 → 12.4** stays correct and **gains a
+  predecessor**. **Similarly T1-32: *Ledger Monthly Summary* is one missing primitive that blocks five report rows
+  (11.5, 11.6, 11.7, 11.10, 11.12) — build it once and five rows move.** ⇒ **Both are R6 amendments owed to this
+  plan before any of those eleven rows is scheduled.**
+  🔴 **AND THIS MOVE IS NOT LIKE THE OTHER TWO — READ THE DIFFERENCE BEFORE READING IT AS PROGRESS. NOTHING WAS
+  BUILT.** The 2026-08-20 and 2026-09-03 moves each followed a shipped slice. **These three rows were ALREADY
+  `PARTIAL` in the product and the census had not noticed**: the voucher edit log shipped at schema v52, and
+  raster images ship in the PDF writer with a production caller on the invoice path. **A census row that is wrong
+  about its own state is a defect in the census**, and all three are filed as such in census §2 TIER 3 rather
+  than absorbed quietly into a better-looking number.
+  🔴 **AND ONE OF THE THREE RETIRES A PLANNING GATE THAT THIS FILE AND THE CENSUS BOTH SEQUENCE A WAVE ON.**
+  Census row **12.8** is named as *"what blocks T0-9"*, and the print wave is gated behind it. **The QR / barcode
+  / monochrome-logo half of that gate is OPEN** — `src/Apex.Ledger.Io/PdfWriter.cs:238` emits
+  `<< /Type /XObject /Subtype /Image`, `src/Apex.Ledger.Io/PdfWriter.cs:93` is a public `Image(...)` method, and
+  `src/Apex.Ledger.Io/InvoicePdf.cs:359` is a production caller. **The genuine residual is font embedding (so
+  still no non-Latin script) and colour, and nothing among the 68 depends on either.** ⇒ **the five banking and
+  customer documents, cheque printing and multi-account printing are NO LONGER GATED and may be dispatched
+  without waiting for anything.** See §5a.
   **(c) WAVE 2 IS NOT NAMED IN THE NEW ORDER, AND IT IS NOT THEREBY DELETED.** The structural wave — Voucher
   Type master, the **shared report base**, the F11/F12 configuration layer — appears nowhere in steps 1–7.
   **Ruling 1 still binds everything the new order does not name**, so Wave 2 keeps its place **between step 5
@@ -5914,6 +6108,155 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > is the statutory centrepiece and the highest-risk fidelity work; GST breadth (Phase 9) waits until reports
 > and advanced inventory exist to support it. Security/data-management (Phase 10) precedes release so the
 > shipped product is safe by default. This mirrors the catalog §23 MVP-core vs Phase-2+ split.
+
+---
+
+## 5a. WAVE 2 — THE BREADTH WORK ITEMS (R6). ADDED 2026-09-04.
+
+> **R6 status.** This block exists so that **no breadth work is done outside `plan.md`**. It folds in the wave-2
+> breadth design (read-only, `1adb5f9`, schema 52), which turned the then-**71** ABSENT census rows into 42 named
+> slices plus a ruling list. **Nothing here is dispatched by writing it down** — U-4 (depth vs breadth) and the
+> schema-allocation rule below both gate dispatch.
+
+### 5a.0 🔴 THREE THINGS TO READ BEFORE ANY SLICE IS DISPATCHED
+
+1. **THE CORPUS IS EMPTY, AND IT CHANGES WHAT "DONE" CAN MEAN FOR EVERY SLICE BELOW.** `tally/` held **zero
+   PDFs** on 2026-09-04 in the base tree and in all seven worktrees, and no Tally PDF exists anywhere under the
+   Desktop. Under R7's own silence rule **every capability shipped from today lands in the DOCUMENTED
+   DIVERGENCE, LABELLED AS OURS bucket by default**, and under ruling 9 those **can never join the verified set
+   retroactively without a real comparison**. **This must reach the user before the build wave starts — census
+   §7, ruling U-0.** ⚠️ **And the design pass did NOT paper over it:** it declined to substitute
+   `docs/tally-feature-catalog.md` for the corpus, because the catalogue is a **derived** document we wrote —
+   fine for *shaping* a slice, **not a source under R7**. **Nothing in this block is corpus-verified and no
+   row's fidelity state may be changed on the strength of it.**
+2. **THE ROW COUNT MOVED UNDER THIS BLOCK AFTER IT WAS WRITTEN, AND THE BLOCK IS NOT RE-CUT.** The design
+   enumerated **71** absent rows and the count is now **68** (rows 12.8, 16.3 and 16.4 re-graded the same day —
+   see the amendment in §5). **The enumeration is left as written because it is the record of what was measured
+   on its own day**, and only its consequences are corrected: **W2-21 now closes a RESIDUAL rather than two
+   absent rows, and W2-33 always did.** Their *value* is unchanged — W2-21 is still the difference between an
+   audit trail that exists and one an auditor can read.
+3. **W2-01 IS ALREADY OWNED BY A LIVE TRACK. DO NOT DISPATCH IT.** Rows 3.13 + 2.2 (GST capture on the two Group
+   masters) **are T0-4 slices S3/S4**, and worktree `apexint` holds T0-4. Row 3.13 was re-measured at `1adb5f9`
+   and is **still correctly ABSENT**. It is listed only for completeness of the enumeration. **Dispatching it is
+   how this project loses blocks.**
+
+### 5a.1 THE ORDER
+
+RULING 1's bands first — **stop active harm → correctness → structure → breadth** — and **within each band by
+rows closed per unit of work**, with hard dependencies respected.
+
+```
+BAND 1  W2-02 · W2-03 · W2-04 · W2-05                       (W2-01 excluded — live T0-4 track)
+BAND 2  W2-06 · W2-07 · W2-08 · W2-09 · W2-10 · W2-11
+BAND 3  W2-12 · W2-14 · W2-15 · W2-20 · W2-18 · W2-13 · W2-16 · W2-17 · W2-19 · W2-21 · W2-22
+BAND 4  W2-29 · W2-25 · W2-23 · W2-24 · W2-31 · W2-32 · W2-34 · W2-42 · W2-26 · W2-27 · W2-28 ·
+        W2-33 · W2-35 · W2-30 · W2-36 · W2-37 · W2-38 · W2-39 · W2-40 · W2-41
+```
+
+**Row-placement check, re-derived rather than trusted.** The 42 slices close **61** of the enumerated 71; the
+remaining **10** (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) sit behind a user ruling and have
+**no slice at all** until it lands. `61 + 10 = 71` ✓, and **no row appears in two slices**.
+
+**Leverage, best first:** **W2-03** (4 rows, and it unblocks T1-4 — an entire shipped module that cannot post
+because the one screen that could activate its voucher type does not exist) · **W2-12** (3 rows, 8 report
+surfaces, no schema, pattern proven many times over) · **W2-06** (3 rows, and the only artefacts that actually
+get filed) · **W2-36** (4 rows but XL and schema-heavy — the leverage is real, the cost is not).
+🔴 **AND ONE OUT-OF-RANK ITEM THAT SHOULD GO FIRST REGARDLESS: W2-02**, the file-and-folder chooser. One row
+looks like poor leverage, and it is **T1-20** — *"a user restoring from a backup must type the full archive path
+from memory."* **A mistyped restore path is the difference between a backup feature and a data-loss event.** It
+is half a day, needs no schema, blocks nothing and is blocked by nothing. **Highest value per hour in all 71.**
+
+### 5a.2 THE SLICES
+
+| Slice | Rows closed | Schema? | Depends on | Size |
+|---|---|---|---|---|
+| **W2-01 GST capture on the two Group masters** ⚠️ **DO NOT DISPATCH — live T0-4 S3/S4** | 3.13, 2.2 | conditional | — | M |
+| **W2-02 File & folder chooser, everywhere** — one picker service + ~6 call sites (backup destination, restore source, import source, export destination, `.eml` path) | 13.10 | no | — | **S** |
+| **W2-03 Voucher Type master** — and it is **T1-3 + T1-5 + the only route that can flip `VoucherType.IsActive`, i.e. T1-4** | 2.4, 5.10, 5.11, 2.13 | **YES** | — | **L → re-split** into (a) master CRUD + Screen + route · (b) the numbering-method picker · (c) user flags + Show-Inactive/activate |
+| **W2-04 Payroll master Alter & Delete, all eight kinds** | 7.16 | no | — | M |
+| **W2-05 Credit limits with the over-limit save block** | 10.1 | **YES** | ideally W2-16; ships standalone | M |
+| **W2-06 GST return JSON — emit GSTR-1/3B and wire all seven writers to screens** | 6.10, 6.13, 6.20 | no | — | **L → re-split** |
+| **W2-07 PF & ESI statutory return forms** | 7.20, 7.21 | no | — | M |
+| **W2-08 Form 12BA (perquisites)** | 6.42 | no | rides W2-07's surface | **S** |
+| **W2-09 NPS pay head (§80CCD(1B) / §80CCD(2))** — **`PayHeadType` ordinals are PERSISTED: append, never renumber** | 7.18 | **YES** | — | M |
+| **W2-10 Labour Welfare Fund** | 7.19 | **YES** | — | M |
+| **W2-11 The TDS long tail** — 🔴 **not a slice, a TRACK**: one census row hides ~14 sections, Form 27Q, a §197 certificate register, §234E and Forms 16B/26QB | 6.35 | **YES** | W2-03 (T1-21) | **XL → re-split into ≥5**: (a) the extra sections in the nature-of-payment seed · (b) Form 27Q · (c) §197 certificates — **the schema-taking piece** · (d) §234E · (e) 16B/26QB |
+| **W2-12 Report families — registers, group summary, statistics** | 11.6, 11.7, 11.8 | no | shared report base if it lands first | M |
+| **W2-13 The eight standard report button-bar options** | 14.5 | no | W2-12 | **L → re-split** |
+| **W2-14 Go To (`Alt+G`) jump-anywhere overlay** — **`Key.G` is free, 0 hits** | 14.1 | no | — | M |
+| **W2-15 Voucher Duplicate (`Alt+2`) and Insert** | 5.4, 5.5 | no | — | M ⚠️ **chord ruling U-6** |
+| **W2-16 F11 Accounting Features group** | 1.7 | **YES** | — | **L → re-split** ⚠️ **ruling U-10 (`IntegrateAccountsWithInventory`)** |
+| **W2-17 F12 global configuration tree** | 1.8 | **YES** | W2-16 | **L** |
+| **W2-18 Company menu, rename, delete** — `CompanyStorage.Delete` exists with **zero callers**; rename does not exist | 1.4, 14.9 | no | — | M ⚠️ **chord ruling U-6** |
+| **W2-19 Voucher Class** | 2.6 | **YES** | W2-03 | **L** |
+| **W2-20 Multi-master create (Multi Ledger / Multi Group)** | 2.12 | no | — | M |
+| **W2-21 Edit-log viewer + master and inventory coverage** | **residual of 16.3 / 16.4** | conditional | — | M |
+| **W2-22 Security Control — users, roles, levels, password policy** — 🔴 **this is the identity model everything else waits on: zero of the 182 tables names a user, role or permission, and it is the only route by which 16.3/16.4 can EVER be fully closed** | 16.2 | **YES** | — | **XL** |
+| **W2-23 Banking & customer documents** — deposit slip, supplier payment advice, delivery challan, reminder letter, confirmation of accounts | 8.6, 8.7, 12.7 | no | **no longer gated** | M |
+| **W2-24 Cheque printing + Cheque Register** — the two ledger fields already persist with **zero `src/Apex.Desktop` hits** | 8.4, 8.5 | conditional | **no longer gated** | M |
+| **W2-25 Report export in HTML / XML / JSON / ASCII** — **the XML and JSON writers already exist** on the whole-company surface | 13.6 | no | — | M ⚠️ **JPEG carved out — ruling U-8** |
+| **W2-26 Tracking Numbers** | 9.8 | **YES** | — | **L** |
+| **W2-27 Alternate units per stock item** | 3.6 | **YES** | — | **L** |
+| **W2-28 Multi Address** | 10.2 | **YES** | — | **L** |
+| **W2-29 Transfer Journal as a named voucher kind** — the *function* already exists (godown in/out on a Stock Journal) | 9.9 | no (seed data) | — | **S** |
+| **W2-30 Job Costing + Item Cost Tracking** | 9.6, 9.7 | **YES** | — | **XL → re-split** |
+| **W2-31 Print format selector, copies, page range** — 🔴 **build it to the CORRECTED three-value `F8` list plus three separate controls, NOT census 12.4's old five-item list** | 12.4 | no | **U-7 for "copies" to mean anything on paper** | M |
+| **W2-32 Multi-account / multi-voucher range printing** | 12.6 | no | W2-12; **no longer gated** | M |
+| **W2-33 Print engine: embedded fonts + colour** | **residual of 12.8** | no | — | **L** |
+| **W2-34 Split Company Data by financial year** | 16.5 | no | — | M |
+| **W2-35 Graphical dashboard / charts** — the main view has **zero** vector elements | 14.3 | no | — | **L** ⚠️ **ruling U-10** |
+| **W2-36 VAT core — enable, dealer, TIN, classifications, slabs, composition** | 15.1, 15.2, 15.3, 15.4 | **YES** | — | **XL → re-split** |
+| **W2-37 VAT reports (Computation + state return forms)** | 15.5 | no | W2-36 | **L** |
+| **W2-38 Central Sales Tax + C/F/H declaration forms** | 15.6 | **YES** | W2-36 | **L** |
+| **W2-39 Service Tax + Form ST3** | 15.7 | **YES** | — | **L** |
+| **W2-40 Excise — dealers (RG23D / Form 2) and manufacturers** | 15.8 | **YES** | — | **XL → re-split** |
+| **W2-41 Input Service Distributor** | 6.24 | **YES** | **U-10 (multiple GSTIN) must be ruled first** | **XL** |
+| **W2-42 More Details — the optional-field side panel** | 14.4 | no | — | M ⚠️ **chord ruling U-6** |
+
+🔴 **AND A CORRECTION TO THE SCOPE OF W2-36 … W2-40 THAT THE VERIFICATION PASS SUPPLIED AND THE DESIGN COULD
+NOT.** Census §3 note 1 says only that real TallyPrime ships the pre-GST stack as downloadable *"Extension for
+Tax"* modules. **The vendor's actual split is REPORTS versus EVERYTHING ELSE** — *"the masters and transactions
+will continue as is in the product"* — so **rows 15.1, 15.2, 15.3 and 15.4 are BASE-PRODUCT fidelity**, not
+optional-module work. **Scoping Area 15 as "one module, defer it" scopes it against a source that says
+otherwise.** Full detail in census §1.3 item 18.
+
+### 5a.3 🔴 THE SCHEMA CONSTRAINT IS THE REAL SEQUENCER, NOT RULING 1
+
+**Eighteen slices must take a schema version**, and `Schema.CurrentVersion` is a **single `const int` at
+`src/Apex.Persistence.Sqlite/Schema.cs:168`**. **Two branches cut from v52 that both bump it conflict on that
+line every time.** Must take a version: W2-03, W2-05, W2-09, W2-10, W2-11(c), W2-16, W2-17, W2-19, W2-22, W2-26,
+W2-27, W2-28, W2-30, W2-36, W2-38, W2-39, W2-40, W2-41. Conditional: W2-01, W2-21, W2-24.
+
+**The rule, and it needs a decision before dispatch:**
+1. **Pre-allocate version numbers AT DISPATCH TIME**, in writing, before either agent starts. **Nobody discovers
+   the number by reading `Schema.cs`.**
+2. **At most two schema-taking slices in flight**, never two touching the same table.
+3. **Every migration additive-only** — new tables, new nullable columns; never a renumber, never a column drop.
+4. **The integrator owns `Schema.CurrentVersion` and the downgrade path.** Slice branches write their DDL and
+   their migration step and **leave the constant at the value the integrator hands them**.
+
+**Practical shape:** run the no-schema slices in parallel and serialize the schema slices behind them. The
+no-schema set — W2-02, W2-04, W2-06, W2-07, W2-08, W2-12, W2-13, W2-14, W2-15, W2-18, W2-20, W2-23, W2-25,
+W2-29, W2-31, W2-32, W2-33, W2-34, W2-35, W2-37, W2-42 — covers **30** of the enumerated rows with no version
+contention at all, of which **29 are dispatchable in parallel right now** (W2-37 is dependency-blocked behind
+schema-taking W2-36). **That is the parallelisable half, it should go first, and it is also — not coincidentally
+— the half that survives if the corpus is never restored**, because none of it needs a migration anyone would
+later have to unpick.
+
+### 5a.4 WHAT THIS BLOCK DOES NOT CLAIM
+
+- **Nothing here is corpus-verified**, and no census fidelity state may move on the strength of it. See 5a.0.
+- **No law or edition fact is asserted.** Where a slice needs one (W2-07 EPFO/ESIC forms, W2-08 Form 12BA,
+  W2-09 §80CCD, W2-10 LWF state rates, W2-11 every TDS section, W2-36 … W2-40 the whole pre-GST area), **the
+  slice carries official-source verification as part of its own definition of done** — CBIC, EPFO, ESIC,
+  incometaxindia via the browser pane, using the **Year** field on each section page as the discriminator and
+  **never grepping a section page for a number** (its footnotes quote repealed text verbatim). **Not a blog, not
+  cleartax, not taxguru, not an undated chart.**
+- **Sizes are estimates, not measurements.** Every `L` and `XL` is marked *re-split before dispatch*.
+- **State claims rest on grep, not on a build.** No build or test was run — sibling agents held the machine.
+  **Grep proves a symbol's presence or absence; it does not prove a feature works.** ⚠️ **One measured trap worth
+  keeping: an early sweep without `--exclude-dir=bin --exclude-dir=obj` produced four false positives off
+  compiled DLLs. This repo will spring that again.**
 
 ---
 

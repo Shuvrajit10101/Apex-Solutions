@@ -1308,6 +1308,337 @@ any of these rows is quoted as settled. The full record is `docs/full-clone-cens
 
 ---
 
+## 2B. ADDED 2026-09-04 — THE TWELVE THINGS THE WAVE-2 VERIFICATION PASSES FOUND WE OWN
+
+**Why these are a separate block, and why the block matters more than its size.** Three read-only A14 verification
+passes ran on 2026-09-04 across all sixteen census areas. Their **verified** and **divergent** findings went into
+`docs/full-clone-census.md` §1.3 items **16**, **17** and **18** and into the gap register. **What lands HERE is
+the third bucket, and under ruling 9 it is the one that can never be undone: behaviour the admissible sources do
+not settle, which therefore ships as a DOCUMENTED DIVERGENCE LABELLED AS OURS and can never join the compared
+set.** §2's counts are **NOT re-cut**, for the reason §2A gives: the register now holds **55 rows, of which 51 are
+open** (39 open at HEAD before this block, plus these twelve, none of which is fixed).
+
+🔴 **READ THIS BEFORE ANY ROW, BECAUSE IT CHANGES WHAT SOME OF THESE ROWS MEAN AND ONE OF THEM IS A TRAP.**
+`tally/` — the git-ignored corpus R7 names as the fidelity authority — **held ZERO PDFs on 2026-09-04**, measured
+independently by three agents, in the base tree and in all seven worktrees. So there are **two different reasons a
+row can be here**, and they are not interchangeable:
+
+- **Category (a) — CORPUS SILENT, ours by design.** A reader opened the source and the source says nothing.
+  **Permanent under ruling 9.** Only rows whose silence was established when the corpus was readable, or whose
+  authority is a law or a vendor page that demonstrably does not cover the point, may carry this.
+- **Category (b) — the source attests X and we deliberately ship a narrower Y.** Also permanent, but a different
+  claim: the attestation exists and we departed from it.
+- 🔴 **NEITHER — "UNREACHED".** *"The corpus might settle this and I could not look"* is **not silence**, and
+  writing it as silence would manufacture a **permanent, unfalsifiable** verdict out of a **temporary** tooling
+  failure. Those rows are **NOT in this block**; they are in `docs/full-clone-census.md` **§6a**, each with what
+  would settle it, and they come back the moment the PDFs do.
+
+**Index of this block:**
+
+| # | Sev | Class | Area | Ruling-9 category | Item |
+|---|---|---|---|---|---|
+| **IV-44** | MEDIUM | B | TAX | **(a)** | The ESI contribution BASE is uncapped actual wages — and a secondary summary points the other way |
+| **IV-45** | LOW | C | TAX | **(a)** | ESI rounding ceilings each side independently, on an in-code "Rule 51" citation that is currently an assertion |
+| **IV-46** | MEDIUM | B | TAX | **(a)** | Statutory bonus — every figure, and a pro-rating rule the code labels as our own |
+| **IV-47** | MEDIUM | B | TAX | **(a)** | Gratuity — every figure, and a provision that accrues BEFORE vesting |
+| **IV-48** | HIGH | A | TAX | **(a)** | Five professional-tax state slab tables with no citation, under an "A14-verified" label |
+| **IV-49** | LOW | C | TAX | **(a)** | The four EPFO conditions for the reduced 10% EPF rate are not encoded — a free config toggle |
+| **IV-50** | LOW | C | VOUCHER | **(a)** | Attendance is deliberately not seeded while its enum ordinal is deliberately retained |
+| **IV-51** | MEDIUM | B | UX | **(b)** | Our `F10` opens an "Other Vouchers" menu; the attested `F10` lists **all** vouchers or masters |
+| **IV-52** | LOW | C | UX | **(a)** | Bare `E` opens the export panel — an unattested third binding beside two attested chords |
+| **IV-53** | LOW | C | UX | **(a)** | Bare `P` opens print preview — no source attests a bare-`P` print |
+| **IV-54** | LOW | C | UX | **(a)** | The SORT half of `Alt+F12` is ours; only the filter half is attested |
+| **IV-55** | HIGH | A | BANKING | **(a)** | The whole of Banking — ten capabilities with no admissible source of any kind |
+
+---
+
+### IV-44 · The ESI contribution BASE is uncapped actual wages, and this is a MONEY question we could not settle
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(a)** — silent in every source reached
+
+| | |
+|---|---|
+| **What the customer experiences** | For a member who starts a contribution period at ₹20,000 and rises to ₹25,000 mid-period, we charge 0.75% / 3.25% on **₹25,000**. |
+| **What we invented** | `EsiContribution`'s doc asserts contribution is charged *"on the **actual** wages with **no ₹21,000 cap** on the base"*. |
+| **What Tally does / what the law says** | **Unknown.** ESIC's `/contribution` and `/coverage` pages state the **coverage** ceiling and say **nothing** about the base once a covered member's wages rise mid-period. |
+| **Citation** | **[web]** `esic.gov.in/contribution` and `/coverage`, both read 2026-09-04. |
+| **How it got in** | Chosen when the ceiling was read as a coverage test rather than a base cap; never revisited. |
+| **Fix** | 🔴 **DO NOT TREAT THIS ROW AS VERIFIED IN EITHER DIRECTION.** A secondary summary of **Rule 50** states that where wages exceed the limit after a period starts, contribution is paid *"on the wage limit prescribed"* — **which would contradict our rule**. That summary is **NOT recorded as a source** (aggregated, inadmissible under R7). **What settles it: the literal text of ESI (Central) Rules 1950, Rule 50 — see census §6a row U-B, which also records the two retrieval routes that failed and the one that would work.** |
+
+---
+
+### IV-45 · ESI rounding is a CEILING applied to each side independently, on an in-code citation that is currently an assertion
+**LOW** · Class **C** · Area **TAX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | On ₹17,500 the two sides round to 132 + 569 = **701**, not 700. |
+| **What we invented** | `CeilRupee`, and the deliberate refusal to compute 4% and then split it. |
+| **What Tally does / what the law says** | **Unretrieved.** The code cites *"ESI Central Rules 1950, Rule 51"*. |
+| **Citation** | **[in-code assertion]** — 🔴 **and that is the finding. Rule 51 could not be retrieved** (census §6a, U-B). The rule is *plausible* and the worked example is self-consistent, but **a citation nobody has opened is an assertion**, and this project has already had to strip such citations out of shipped code once. |
+| **How it got in** | Written from the rule's reputation rather than its text. |
+| **Fix** | Read Rule 51 and either confirm the citation or replace it. **OURS until then.** |
+
+---
+
+### IV-46 · Statutory bonus — every shipped figure, and a pro-rating rule the code itself labels as our own
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | Bonus computed on §2(13)/§8 eligibility **₹21,000**, §8 **30 days**, the §12 calculation ceiling **₹7,000**, the §10–§11 band **8.33%–20%**, the §10 floor **₹100**, and a pro-rating rule. |
+| **What we invented** | All of the above as shipped constants — **and the pro-rating rule explicitly, which the code annotates "(DP-4)", i.e. our own design decision rather than a statutory one.** |
+| **What Tally does / what the law says** | **Unretrieved.** |
+| **Citation** | **none** — the Payment of Bonus Act 1965 could not be reached: `labour.gov.in` 403s and **`indiacode.nic.in` was down** throughout (census §6a, U-C). |
+| **How it got in** | Figures written from general knowledge of the Act at a time when the source was assumed reachable. |
+| **Fix** | Retrieve the Act and compare figure by figure. **Until then all of it is OURS** — recorded so that nobody reads familiar-looking numbers as verified ones. |
+
+---
+
+### IV-47 · Gratuity — every shipped figure, and a provision that accrues BEFORE vesting
+**MEDIUM** · Class **B** · Area **TAX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | Gratuity on §4(2) **15/26**, the **≥6-month round-up**, §4(1) **five-year** vesting and the §4(3) cap **₹20,00,000** — **and the provision accrues for all active members *before* vesting.** |
+| **What we invented** | All the figures, **and the before-vesting accrual explicitly: the code labels it "(DP-4)", ours.** |
+| **What Tally does / what the law says** | **Unretrieved** — same hosts, same failure as IV-46. |
+| **Citation** | **none** (census §6a, U-C). |
+| **How it got in** | As IV-46. |
+| **Fix** | Retrieve the Payment of Gratuity Act 1972. **The before-vesting accrual is a genuine accounting choice and may well survive verification — but it must be recorded as a choice, not inherited as a fact.** |
+
+---
+
+### IV-48 · Five professional-tax state slab tables ship as a live monthly deduction with NO citation, under an "A14-verified" label
+**HIGH** · Class **A** · Area **TAX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | A monthly salary deduction driven by five seeded slab tables — Maharashtra men, Maharashtra women (annotated *"(2023 amendment)"*), Karnataka, West Bengal — including a **February over-charge** and a ₹25,000 women's exemption. |
+| **What we invented** | Every one of those tables, the February rule and the exemption. |
+| **What Tally does / what the law says** | **Unknown from anything in the repo.** |
+| **Citation** | 🔴 **NONE — and the file's doc comment says *"A14-verified FY 2025-26"*. A14 ran the 2026-09-04 verification pass and reports there is nothing here to verify against**: no URL, no Act section, no page, for any of the five tables. **The only sourced figure in the file is the ₹2,500 annual cap, correctly attributed to Article 276(2) of the Constitution.** |
+| **How it got in** | Phase 8 slice 6, under a label that asserted verification instead of performing it. |
+| **Fix** | **Remove the label or source the tables.** This is **the T0-6 pattern one step worse** — T0-6's rates at least cited something inadmissible; these cite nothing while carrying an agent's name as warrant. **Mitigations are real but partial:** the tables are per-company editable and the annual cap bounds even a mis-configured table, so exposure is **capped at ₹2,500 per employee per year, not unbounded.** Gap register **T0-25**. |
+
+---
+
+### IV-49 · The four EPFO conditions for the reduced 10% EPF rate are not encoded — the rate is a free config toggle
+**LOW** · Class **C** · Area **TAX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | Any company can select the reduced 10% EPF rate. |
+| **What we invented** | Accepting it as a configuration choice with **no eligibility rule at all**. |
+| **What Tally does / what the law says** | EPFO's own contribution sheet lists **four** qualifying conditions (fewer than twenty employees; a BIFR sick company; accumulated losses ≥ net worth; jute / beedi / brick / coir / guar-gum). **It does not say what software must do about them.** |
+| **Citation** | **[web]** EPFO *"PRESENT RATES OF CONTRIBUTION"*, read 2026-09-04 with `pdftotext -layout` **and** `-raw`, outputs compared and in agreement. |
+| **How it got in** | A deliberate simplification. |
+| **Fix** | Optional. **Recorded because it is a simplification, not a divergence** — it under-collects only if an operator sets it wrongly — but the distinction between *"we chose not to enforce"* and *"nobody noticed"* is exactly what this register exists to preserve. |
+
+---
+
+### IV-50 · Attendance is deliberately NOT seeded while its enum ordinal is deliberately RETAINED
+**LOW** · Class **C** · Area **VOUCHER** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | No predefined Attendance voucher type. |
+| **What we invented** | Decision **D24 option B** — do not seed it — **while keeping the enum member**, because `voucher_types.base_type` persists the **ordinal** and removing it would renumber `Payroll` and silently reinterpret every stored Payroll type. |
+| **What Tally does** | **Unknown.** The official shortcut page does not list Attendance. `docs/tally-feature-catalog-verification-report.md`'s claim about it is `[model-knowledge]`-adjacent, and on the Physical Stock evidence (census §1.3 item 16) **that report item is not reliable and must not be used as a source.** |
+| **Citation** | **[web]** the vendor shortcut page, read 2026-09-04 — **the source is silent on whether a predefined Attendance type must exist.** |
+| **How it got in** | An argued decision, documented in-code at the point of decision. |
+| **Fix** | None owed. 🔴 **Recorded here specifically because the in-code comment is EXEMPLARY and must not be mistaken for a sourced claim** — the ordinal-safety reasoning is ours, and reasoning that good is exactly the kind a later reader promotes to fact. |
+
+---
+
+### IV-51 · Our `F10` opens an "Other Vouchers" menu; the attested `F10` lists ALL vouchers or masters
+**MEDIUM** · Class **B** · Area **UX** · ruling-9 category **(b)** — attested, and we ship narrower
+
+| | |
+|---|---|
+| **What the customer experiences** | `F10` offers a short "Other Vouchers" list. |
+| **What we invented** | The narrowing. |
+| **What Tally does** | `F10` = *"view list of all vouchers **or masters**"* — a far wider object. |
+| **Citation** | **[web]** the vendor keyboard-shortcut page, read 2026-09-04, asked directly. |
+| **How it got in** | Built to serve the voucher-type menu it was needed for. |
+| **Fix** | Widen the object. **Category (b), not (a): the attestation exists and we departed from it** — which is a different and more actionable claim than silence. |
+
+---
+
+### IV-52 · Bare `E` opens the export panel — an unattested third binding beside two attested chords
+**LOW** · Class **C** · Area **UX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | Pressing `E` on an exportable page opens the export panel. |
+| **What we invented** | The bare-letter binding. Its own code comment states the intent: *"Accepts both the bare E and Alt+E (the header hint reads \"E: Export\"). No Ctrl."* |
+| **What Tally does** | Attests **two** chords and neither is bare `E`: `Ctrl+E` (current object) and `Alt+E` (bulk menu). |
+| **Citation** | **[web]** the vendor shortcut page and the Export-Data page, read 2026-09-04. |
+| **How it got in** | The cascade's bare-letter convention, which is itself ours (**IV-30**). |
+| **Fix** | Defensible under that convention and **may stay** — but it must be **logged as ours rather than counted as fidelity**, and it must not be confused with the real defect on the same handler: **`Ctrl+E` is INERT and `Alt+E` is doing `Ctrl+E`'s job**, which is gap-register **T2-17** and census row 13.5. |
+
+---
+
+### IV-53 · Bare `P` opens print preview — no source attests a bare-`P` print
+**LOW** · Class **C** · Area **UX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | Pressing `P` on a printable page opens print preview. |
+| **What we invented** | The bare-letter binding. |
+| **What Tally does** | Attests `Ctrl+P` — *"To print the current voucher or report"* — **which we also ship correctly**, and which is one of the four AGREES rows in census §1.3 item 18. |
+| **Citation** | **[web]** the vendor shortcut page, read 2026-09-04. |
+| **How it got in** | As IV-52. |
+| **Fix** | As IV-52 — log as ours, do not count as fidelity. *(There is a second bare-`P` arm, a menu quick-jump to Profit & Loss; the two do not collide because the print arm is checked first and requires a printable page.)* |
+
+---
+
+### IV-54 · The SORT half of `Alt+F12` is ours; only the filter half is attested
+**LOW** · Class **C** · Area **UX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | `Alt+F12` opens a combined sort-and-filter panel. |
+| **What we invented** | The **sort** half. |
+| **What Tally does** | `Alt+F12` = *"To filter data in a report, with a selected range of conditions"* — **filter only**, on this page. |
+| **Citation** | **[web]** the vendor shortcut page, read 2026-09-04. |
+| **How it got in** | Two related report operations were merged onto one panel. |
+| **Fix** | None urgent. **Recorded because the FILTER half is one of only four verified-AGREES rows in the whole reports/printing area, and a reader must not let the verified half launder the unverified one.** |
+
+---
+
+### IV-55 · The whole of Banking ships with no admissible source of any kind
+**HIGH** · Class **A** · Area **BANKING** · ruling-9 category **(a)** — silent by necessity
+
+| | |
+|---|---|
+| **What the customer experiences** | BRS mechanics, cheque layout, deposit slip, post-dated-cheque handling and the Banking menu's row set — census rows **8.1 – 8.10**, ten capabilities. |
+| **What we invented** | **All of it**, in the sense that nothing in it has ever been compared to anything. |
+| **What Tally does** | **Unknown and, today, unknowable from the sources this project admits.** |
+| **Citation** | **none, and the reason is structural rather than an omission: nothing in Area 8 is law-shaped**, so unlike TDS/TCS/PF/ESI there is **no official-web substitute** for the corpus — and the corpus is empty. **Area 8 contributed ZERO verified rows to the 2026-09-04 passes and could not have contributed any.** |
+| **How it got in** | Built to a reasonable reading of what a banking module does. |
+| **Fix** | 🔴 **Nothing an agent can do. This row is here so that Area 8's absence from the verified set is never read as an oversight, and so that it is the FIRST place to look the day `tally/` is restored (U-0).** Ten capabilities in one row is the largest single block of unverified behaviour this register holds. |
+
+---
+
+## 2C. ADDED 2026-09-04 (LATER THE SAME DAY) — THE SIX THINGS THE **WAVE-3** VERIFICATION PASSES FOUND WE OWN
+
+**Why this block is SMALL, and the smallness is the finding.** Five read-only A14 wave-3 passes ran on 2026-09-04
+across census areas **1, 2, 3, 6 (GST), 9, 10, 11, 12 and 13** — 98 rows examined, **78 capabilities compared**
+against cited sources. Their verified and divergent findings went into `docs/full-clone-census.md` §1.3 items
+**19–23** and into the gap register (**2 new TIER 0, 8 new TIER 1, 16 new TIER 2, 3 new TIER 3**). **Only SIX
+findings land here.**
+
+🔴 **That ratio — 78 compared, 63 diverging, and only 6 vendor-silent — is the single most useful thing this block
+says, and it says it about RULING 14 rather than about us.** Section 2B's twelve rows were written when the
+question was *"is the corpus silent?"* and the corpus was gone. **Under ruling 14 the question is *"is the VENDOR
+DOCUMENTATION silent?"*, and the vendor documentation turns out to be far less silent than the block above
+assumed.** Most of what wave 2 could only call *ours by necessity* in areas 11–13, wave 3 was able to **compare
+and find divergent** — which is a strictly better verdict, because a divergence is fixable and silence is not.
+⚠️ **Do NOT read that as a licence to re-open section 2B's rows wholesale.** Areas 7 and 8 (payroll statute and
+banking) are where 2B's silence rows actually live, and wave 3 did not touch either. **IV-55 in particular stands
+exactly as written** — with its *"the day `tally/` is restored"* clause now dead under ruling 14, so the honest
+reading of IV-55 is that **Area 8 has no admissible source at all, full stop, not that one is awaited.**
+
+**Category discipline is unchanged and is repeated because it is the whole value of this file.** **(a)** = the
+source was opened and says nothing — permanent. **(b)** = the source attests X and we deliberately ship a narrower
+Y — also permanent, different claim. **NEITHER** = *"I could not reach a source"*, which is **§6a UNREACHED** and
+**must never be written here**; wave 3 filed 4 new §6a rows rather than let a non-retrieval harden into silence.
+
+| # | Sev | Class | Area | Ruling-9 category | Item |
+|---|---|---|---|---|---|
+| **IV-56** | LOW | C | UX | **(a)** | The two Cost Category allocation-field LABELS — the vendor attests the concept, never the strings |
+| **IV-57** | LOW | C | UX | **(a)** | The PLACEMENT of our two BOM switches on the F11 page |
+| **IV-58** | MEDIUM | B | UX | **(a)** | Six payroll-statutory switches as TOP-LEVEL F11 rows |
+| **IV-59** | LOW | C | REPORT | **(a)** | The Forex Gain/Loss REPORT SURFACE — the vendor documents a Balance-Sheet head, not a report |
+| **IV-60** | MEDIUM | B | PRINT | **(a)** | Whether an e-invoiced supply is RENDERING-ELIGIBLE without its IRN and signed QR |
+| **IV-61** | LOW | C | DATA | **(a)** | Our backup archive naming and timestamp default — invented, and defensibly better |
+
+---
+
+### IV-56 · The two Cost Category allocation-field LABELS are ours; the vendor attests only the concept
+**LOW** · Class **C** · Area **UX** · ruling-9 category **(a)** — silent in the source reached
+
+| | |
+|---|---|
+| **What the customer experiences** | The Cost Category master offers `Allocate Revenue Items` and `Allocate Non-Revenue Items`. |
+| **What we invented** | **The exact field strings.** |
+| **What Tally does** | The vendor's cost-centre page attests the **concept** — revenue items are incomes and expenses; non-revenue items are assets and liabilities — and **does not quote the field labels**. |
+| **Citation** | **[web]** `help.tallysolutions.com/cost-centre-or-profit-centre-tally/`, read 2026-09-04 (§1.3 item 19). |
+| **How it got in** | The labels were derived from the attested concept, which is a defensible derivation and is exactly why it must be labelled rather than assumed correct. |
+| **Fix** | None. **Recorded so a later reader does not "confirm" these labels off a page that never carried them** — the failure mode that put an unsourced field name into rows 2.2 and 3.7 for three weeks before wave 3 discharged them. |
+
+---
+
+### IV-57 · The PLACEMENT of our two BOM switches on the F11 page is ours
+**LOW** · Class **C** · Area **UX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | `_setComponentsBom` and `_defineBomComponentType` appear as rows on the F11 Company Features page. |
+| **What we invented** | **Where they live.** The switches themselves are not in question. |
+| **What Tally does** | The vendor's **F11 Inventory list does not include a BOM toggle at all**, and the stock-item page puts *"Set Components List (Bill of Materials) in Stock Items"* on the **stock-item F12**. |
+| **Citation** | **[web]** `…/company-features-f11-tally/` and `…/manage-stock-item-tally/`, read 2026-09-04 (§1.3 item 19). |
+| **How it got in** | Every company-wide inventory switch was collected onto one page. |
+| **Fix** | Low priority. ⚠️ **Stated with its exact honest limit, which the pass insisted on: this is NOT enough to call a divergence from the pages read — but it is NOT attested where we put it either.** That is precisely the state category (a) exists to record. |
+
+---
+
+### IV-58 · Six payroll-statutory switches ship as TOP-LEVEL F11 rows; the vendor names only two at that level
+**MEDIUM** · Class **B** · Area **UX** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | PF, ESI, Professional Tax, salary TDS, gratuity and bonus each have their own row directly on F11. |
+| **What we invented** | **The flat, six-wide top level.** |
+| **What Tally does** | The vendor's F11 page names only **`Maintain Payroll`** and **`Enable Payroll Statutory`** at the top level; everything else sits **below Payroll Statutory**. Separately, the same page places *Enable Job Order Processing* and *Enable Cost Tracking* behind **Show All Features** — **our F11 panel shows every row at once** (`MainWindow.axaml:9764-9782`), so the progressive-disclosure mechanism is absent generally. |
+| **Citation** | **[web]** `…/company-features-f11-tally/`, read 2026-09-04 (§1.3 items 19 and 23). |
+| **How it got in** | Each payroll statute was added as its own toggle as it shipped, with no parent to hang it under. |
+| **Fix** | 🔴 **Graded MEDIUM rather than LOW deliberately: this is a genuine navigation-hierarchy divergence on the product's most-visited configuration screen, and it collides with the standing "professional UI hierarchy" preference — never a flat dump.** ⚠️ **Honest limit stated by the pass and kept: the PAYROLL pages themselves were not read.** If they attest a different structure this row becomes category (b), or falls away. **Do not upgrade or retire it without reading them.** |
+
+---
+
+### IV-59 · The Forex Gain/Loss REPORT SURFACE is ours; the vendor documents a Balance-Sheet head, not a report
+**LOW** · Class **C** · Area **REPORT** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | A dedicated Forex Gain/Loss report screen. |
+| **What we invented** | **The report surface.** |
+| **What Tally does** | The vendor's page describes forex gain/loss as an **unadjusted-difference head that appears on the Balance Sheet** and is journalised; it documents **no report screen** for it. ✅ **Our ACCOUNTING AGREES with the vendor** — that half is compared and is inside §1.3 item 21's count. |
+| **Citation** | **[web]** `help.tallysolutions.com/account-for-forex-gain-or-loss/`, read 2026-09-04 (§1.3 item 21). |
+| **How it got in** | Built alongside Interest Calculation and Budget Variance, which do have surfaces. |
+| **Fix** | None. **Recorded because it is the ONE vendor-silent finding among fifteen comparisons in Area 11** — and because the pass could easily have called the whole row DIVERGES and did not. **The accounting is verified; the surface is ours. Keep the two apart.** |
+
+---
+
+### IV-60 · Whether an e-invoiced supply is RENDERING-ELIGIBLE without its IRN and signed QR
+**MEDIUM** · Class **B** · Area **PRINT** · ruling-9 category **(a)**
+
+| | |
+|---|---|
+| **What the customer experiences** | We render and hand over a printed invoice for an e-invoiced supply **without** the IRN and without the signed QR, because `PdfWriter` has no image primitive (**T0-9**, **T2-4**). |
+| **What we invented** | **The decision to render it at all.** |
+| **What Tally does** | **Unknown from the pages read.** The vendor documents *that* the IRN and QR are printed; it does **not** state what the product does when they cannot be. |
+| **Citation** | **[web]** the print/export/share and print-invoices pages, read 2026-09-04 (§1.3 item 22). **This is the entire residual of census row 12.2** — every other question on that row is answered. |
+| **How it got in** | The print path has no concept of a document being ineligible to render. |
+| **Fix** | 🔴 **This is NOT the same question as T0-9, and conflating them is the trap.** T0-9 is *"we cannot draw the QR"* — a **capability** defect with a known fix (a raster primitive). **IV-60 is *"and therefore, should we refuse?"*** — a **policy** question the vendor does not answer, so it ships as ours either way. **A reader closing T0-9 must not assume IV-60 closed with it.** |
+
+---
+
+### IV-61 · Our backup archive naming and timestamp default are ours — and defensibly better
+**LOW** · Class **C** · Area **DATA** · ruling-9 category **(b)** — the source attests a different shape and we departed from it on purpose
+
+| | |
+|---|---|
+| **What the customer experiences** | Archives are named `Name[_yyyyMMdd-HHmm].apexbak`, with the timestamp **on** by default, so successive backups never collide. |
+| **What we invented** | **The naming scheme and the timestamp default.** |
+| **What Tally does** | Auto-names the backup `TBK1800_******.***` and raises an **overwrite-or-rename prompt** on conflict. |
+| **Citation** | **[web]** `help.tallysolutions.com/backup-restore-company-data-tally/`, read 2026-09-04 (§1.3 item 22). |
+| **How it got in** | Deliberate: a timestamped name makes accidental overwrite of the previous backup impossible. |
+| **Fix** | 🔴 **None, and this row exists to say so explicitly: record it as INVENTED, not as a defect.** It is filed here rather than in the gap register because the wave-3 pass drew that line itself, and because **a register that files every departure as harm loses the ability to say which departures are harm.** ⚠️ **The rest of row 13.1 IS harm and is filed as T2-30** — no company picker, no multi-company backup, no persisted path. **Do not let this row launder that one.** |
+
+---
+
 ## 3. Grouped by area
 
 ### TAX — tax & money (7)
