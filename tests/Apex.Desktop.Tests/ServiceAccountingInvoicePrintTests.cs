@@ -852,8 +852,13 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
             // rate — one walk, one winning block. FIX-5 added this block for an unrelated reason and it silently
             // became the winning master when the flip landed. Declaring the cess here keeps every money literal in
             // this file byte-identical and makes the cess tests independent of the source order. 🔴 The shape they
-            // no longer cover — cess on the STOCK ITEM only, beneath a cess-less ledger block — now charges NO cess
-            // on a v51+ book; pinned in Apex.Ledger.Tests and ESCALATED, not absorbed here.
+            // no longer cover — cess on the STOCK ITEM only, beneath a cess-less ledger block — used to charge NO
+            // cess on a v51+ book.
+            // 🟡 CORRECTED 2026-09-04: no longer true. Assumption A-QA (GstService.CessWalksIndependentlyOfTheRate,
+            // one line, reversible) walks the cess question past a rung SILENT on cess, so that shape now charges
+            // the item's cess under both orders. Pinned by Apex.Ledger.Tests' GstCessIndependentWalkTests. A-QA is
+            // an ASSUMPTION, not a ruling — the R12 question and the narrow-rung half stay ESCALATED. Declaring the
+            // cess here is now redundant rather than load-bearing, and is kept so the literals stay comparable.
             CessApplicable = cessBasisPoints is not null,
             CessValuationMode = cessBasisPoints is null ? null : CessValuationMode.AdValorem,
             CessRateBasisPoints = cessBasisPoints,

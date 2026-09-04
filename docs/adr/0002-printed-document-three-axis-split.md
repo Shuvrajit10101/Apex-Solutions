@@ -37,7 +37,7 @@ invoice format"* and blames the print gate. **The symptom is real and worse than
 and the row bundles two different defects under one id.**
 
 **The symptom, verified end to end.** `GstReportSupport.IsTaxInvoice`
-(`src/Apex.Ledger/Reports/GstReportSupport.cs:1647`) returns false for anything whose base type is not Sales.
+(`src/Apex.Ledger/Reports/GstReportSupport.cs:1695`) returns false for anything whose base type is not Sales.
 The printer's wrapper is a **pure forward** to it (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`),
 so `BuildPrintPreview` (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`) takes the else branch
 into the plain voucher projection, whose only loop walks the accounting `Lines`. The voucher's
@@ -238,7 +238,10 @@ the **first** category.
   weakening its case-insensitive refusal to print "TAX INVOICE" on a non-entitled document.
 - **A crash on the new route was considered and RETIRED.** The invoice projection refuses a §10 contradiction
   by throwing; a Purchase now reaches that line. It cannot fire: the composition predicate requires
-  `BaseType == Sales` (`src/Apex.Ledger/Reports/GstReportSupport.cs:552`). *Mitigation:* pin it with a test
+  `BaseType == Sales` (`src/Apex.Ledger/Reports/GstReportSupport.cs:794`, in `IsCompositionBillOfSupply`).
+  🟡 **Re-anchored 2026-09-04: this read `:552`, which was stale on BOTH merged branches and on their base** — it
+  was not drift either track introduced, it was found while re-deriving the two anchors above from the merged file
+  rather than picking a side. *Mitigation:* pin it with a test
   so a future edit to the composition limb cannot silently make purchase printing throw.
 
 **Neutral / explicitly not decided here**

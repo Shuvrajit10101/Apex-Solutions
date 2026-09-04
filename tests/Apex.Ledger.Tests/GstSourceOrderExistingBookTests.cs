@@ -24,11 +24,14 @@ namespace Apex.Ledger.Tests;
 /// flips the order underneath it, and shows every posted figure byte-identical while the LIVE resolver visibly
 /// moves — which is what makes the immutability claim non-vacuous.</para>
 ///
-/// <para>🔴 <b>The exception is REAL and is pinned here rather than left to be discovered.</b> The DOCUMENT TITLE
-/// is not posted data: <c>GstReportSupport.IsBillOfSupply</c> re-resolves every stock line LIVE, so on a voucher
-/// that posted NO tax the flip can change an already-issued document from BILL OF SUPPLY to TAX INVOICE. Money is
-/// immune; the statutory title on the paper is not. The second test states that exposure in the direction the user
-/// ruling forces, so it is a decision of record instead of a surprise on a reprint.</para>
+/// <para>🔴 <b>The exception WAS real and is now anchored — the second test's final assertion is inverted from what
+/// it originally pinned.</b> The DOCUMENT TITLE is not posted data: <c>GstReportSupport.IsBillOfSupply</c>
+/// re-resolves every stock line LIVE, so on a voucher that posted NO tax the flip used to change an already-issued
+/// document from BILL OF SUPPLY to TAX INVOICE. <b>Assumption A-QB</b>
+/// (<c>GstReportSupport.AnchorIssuedDocumentCharacter</c>, one line, reversible) now reads the posted ledger as the
+/// stamp: a positive-rate supply posts tax legs, so a voucher with none cannot have been issued under the taxable
+/// reading. Money was always immune; the statutory title now is too, <b>except</b> where the taxable reading is
+/// zero-rated — see <c>GstIssuedDocumentCharacterTests</c>, which owns the whole assumption and its residual.</para>
 /// </summary>
 public sealed class GstSourceOrderExistingBookTests
 {
@@ -104,25 +107,28 @@ public sealed class GstSourceOrderExistingBookTests
     // ================================================================= the title is NOT posted data
 
     /// <summary>
-    /// 🔴 THE ONE PLACE THE FLIP REACHES ALREADY-ISSUED PAPER, PINNED IN THE DIRECTION THE RULING FORCES.
+    /// 🔴 THE ONE PLACE THE FLIP REACHED ALREADY-ISSUED PAPER — <b>NOW ANCHORED UNDER ASSUMPTION A-QB, AND THE
+    /// ASSERTION ON THE LAST LINE IS INVERTED FROM WHAT THIS TEST USED TO PIN.</b>
     /// <c>GstReportSupport.IsBillOfSupply</c>'s exempt limb calls <c>IsWhollyExemptItemSupply</c>, which resolves
-    /// every stock line LIVE against the current masters; no taxability is stamped on a voucher line, so there is
-    /// nothing posted for it to read back. A voucher that posted NO forward tax therefore has no anchor at all.
+    /// every stock line LIVE against the current masters. The fixture is the minimal shape that exposed it: the
+    /// Widget is declared <b>Exempt</b> and the Sales ledger <b>Taxable at 18%</b>. Under the migrated order the item
+    /// answers first, the supply is wholly exempt, no tax is posted, and §31(3)(c) makes the document a BILL OF
+    /// SUPPLY. <b>Before A-QB, flipping to the shipped default re-printed the same paper as a TAX INVOICE</b> — with
+    /// no tax on it, because none was ever posted.
     ///
-    /// <para>The fixture is the minimal shape that exposes it: the Widget is declared <b>Exempt</b> and the Sales
-    /// ledger <b>Taxable at 18%</b>. Under the migrated order the item answers first, the supply is wholly exempt,
-    /// no tax is posted, and §31(3)(c) makes the document a BILL OF SUPPLY. Flip to the shipped default and the
-    /// ledger answers first, the same voucher's line reads taxable, and the same paper re-prints as a TAX INVOICE —
-    /// with no tax on it, because none was ever posted.</para>
-    ///
-    /// <para><b>This is an EXPOSURE, not a fix, and it is deliberately not silenced.</b> Anchoring the title to
-    /// posted data is unavailable at this schema (a zero-rated LUT/export supply is <c>IsTaxable = true</c> at 0 bp
-    /// and posts no tax legs either, so "no tax legs" cannot tell the two apart) — it needs a posted taxability
-    /// marker, i.e. a column, i.e. an escalation. Recorded as a named test so a later slice deletes it
-    /// deliberately.</para>
+    /// <para>🔴 <b>WHAT CHANGED, AND WHAT DID NOT.</b> The name and the final assertion moved because the behaviour
+    /// moved; the fixture is untouched, so the two versions are directly comparable. A-QB
+    /// (<c>GstReportSupport.AnchorIssuedDocumentCharacter</c>) reads the posted ledger as the stamp: an 18% supply
+    /// posts tax legs, this voucher has none, so it cannot have been issued under the taxable reading. The claim
+    /// this test's doc used to carry — <i>"anchoring the title to posted data is unavailable at this schema"</i> —
+    /// is <b>narrowed, not refuted</b>: it still holds where the taxable reading is <b>zero-rated</b> (0 bp posts no
+    /// legs either), and that residual is pinned in
+    /// <c>GstIssuedDocumentCharacterTests.The_zero_rate_versus_exempt_residual_still_moves_with_the_option_and_that_needs_a_column</c>
+    /// and escalated rather than fixed. <b>A-QB is an ASSUMPTION, not a user ruling</b>; the R12 question stays
+    /// open, and flipping the one constant restores exactly what this test used to assert.</para>
     /// </summary>
     [Fact]
-    public void Flipping_the_source_order_DOES_move_the_document_title_on_an_untaxed_voucher()
+    public void An_issued_untaxed_document_keeps_its_title_when_the_source_order_flips()
     {
         var c = CompanyFactory.CreateSeeded("Title Drift Co", FyStart);
         var gst = new GstService(c);
@@ -164,7 +170,8 @@ public sealed class GstSourceOrderExistingBookTests
 
         c.Gst!.SourceOfGstRate = GstDetailSource.LedgerFirst;
 
-        Assert.False(GstReportSupport.IsBillOfSupply(c, voucher));  // the SAME paper, re-titled by a master option
+        // A-QB: the SAME paper, NOT re-titled by a master option. Was Assert.False before the anchor shipped.
+        Assert.True(GstReportSupport.IsBillOfSupply(c, voucher));
     }
 
     // ================================================================= fixture
