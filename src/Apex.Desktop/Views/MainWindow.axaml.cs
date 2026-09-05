@@ -355,6 +355,9 @@ public partial class MainWindow : Window
         {
             if (vm.CurrentScreen == Screen.ReportConfig)
                 vm.ApplyReportConfig();
+            // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
+            else if (vm.CurrentScreen == Screen.BasisOfValues)
+                vm.ApplyBasisOfValues();
             else if (vm.CurrentScreen == Screen.ReportSortFilter)
                 vm.ApplyReportSortFilter();
             else if (vm.CurrentScreen == Screen.AddComparisonColumn)
@@ -951,11 +954,45 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W2-13a (census row 14.5) — Ctrl+B opens BASIS OF VALUES (the report Scale Factor) over the live report.
+        // help.tallysolutions.com gives Ctrl+B as "To views values in different ways in a report"; the chord was
+        // verified free before it was taken (every other Key.B arm in this file carries Alt, and the bare-B menu
+        // quick-jump at the bottom is guarded by CanQuickJump, which excludes a report page).
+        // 🔴 The guard is the EXACT condition the button-bar row is enabled on, and that is deliberate. Guarding
+        // only on IsReportContext would leave the arm consuming Ctrl+B on a report that cannot scale, i.e. a key
+        // that is swallowed and fires nothing beside a badge that is honestly dimmed — the two would disagree,
+        // which is the defect SettlementFromOutstandingsTests exists to keep out. Here they cannot.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Reports is { SupportsScaleFactor: true })
+        {
+            vm.OpenBasisOfValues();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+K (RQ-8) opens the "Saved Views" list — the company's saved report views (open/apply or delete one).
         // Available over any report page; needs a company. Checked before the global Alt shortcuts.
         if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
         {
             vm.OpenSavedViews();
+            e.Handled = true;
+            return;
+        }
+
+        // W2-14 (census row 14.1) — Alt+G opens GO TO, the jump-anywhere index. Available wherever a company is
+        // open, deliberately NOT gated to the Gateway: the vendor's own definition is "in the flow of work"
+        // (help.tallysolutions.com keyboard shortcuts, Alt+G). It is checked HERE, ahead of the generic Alt
+        // menu-mnemonic block further down, so the letter G is never consumed by a menu quick-jump first.
+        // 🔴 Ctrl+G ("Switch To") is a DIFFERENT verb in that same source and is deliberately unbound — census
+        // row 14.2 stays ABSENT rather than being conflated with this one. The Control exclusion below is what
+        // keeps that true: Ctrl+Alt+G must not open Go To either.
+        if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.Company is not null && !IsTyping(e))
+        {
+            vm.OpenGoTo();
+            Dispatcher.UIThread.Post(FocusGoToQueryBox, DispatcherPriority.Loaded);
             e.Handled = true;
             return;
         }
@@ -1949,6 +1986,33 @@ public partial class MainWindow : Window
 
     private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSelectedSavedView();
+
+    /// <summary>"Go" on the Alt+G Go To panel (W2-14 / census 14.1) — the SAME door Enter runs, so the button and
+    /// the key can never travel to two different places.</summary>
+    private void OnGoToClick(object? sender, RoutedEventArgs e)
+        => Vm?.RunSelectedGoTo();
+
+    /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
+    private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyBasisOfValues();
+
+    /// <summary>
+    /// Focuses the Go To query box so the panel is usable with the keyboard alone the instant it opens — Alt+G
+    /// then type is the whole interaction. Deferred to the next layout pass because the box is still
+    /// materialising when the chord is handled (the same reason F2's date-box focus is deferred).
+    /// </summary>
+    private void FocusGoToQueryBox()
+    {
+        foreach (var box in this.GetVisualDescendants().OfType<TextBox>())
+        {
+            if (!box.Classes.Contains("go-to-query")) continue;
+            if (!box.IsEffectivelyVisible || !box.IsEffectivelyEnabled) continue;
+
+            box.Focus();
+            box.SelectAll();
+            return;
+        }
+    }
 
     /// <summary>
     /// "Save PDF" on the Print-Preview panel: writes the rendered bytes to a file. The renderer is disk-free;

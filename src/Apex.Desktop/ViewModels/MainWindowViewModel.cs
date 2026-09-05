@@ -35,7 +35,17 @@ public enum Screen
     // report-config column), so picking a type opens that entry over the Day Book and Esc pops back to it.
     AddVoucherPicker,
 
+    // W2-14 (census 14.1) — Go To (Alt+G): the jump-anywhere index over the shell's own openers, pushed as a
+    // cascade column over whatever surface was open. Ctrl+G "Switch To" (row 14.2) is a DIFFERENT verb in the
+    // vendor documentation and is deliberately NOT built here.
+    GoTo,
+
     ReportConfig,
+
+    // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
+    // column over the live report exactly like the F12 config panel beside it.
+    BasisOfValues,
+
     ReportSortFilter,
     AddComparisonColumn,
     AutoColumns,
@@ -546,6 +556,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
+    /// <summary>The Ctrl+B "Basis of Values" (Scale Factor) panel view model, non-null only while that
+    /// column is open (W2-13a, census row 14.5).</summary>
+    [ObservableProperty] private BasisOfValuesViewModel? _basisOfValues;
+
     /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
     [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
 
@@ -560,6 +574,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
     [ObservableProperty] private SavedViewsViewModel? _savedViews;
+
+    /// <summary>The Alt+G "Go To" jump index view model, non-null only while that panel column is open (W2-14,
+    /// census row 14.1).</summary>
+    [ObservableProperty] private GoToViewModel? _goTo;
 
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
@@ -2551,6 +2569,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
     public void ClearReportSortFilter() => ReportSortFilter?.Clear();
 
+    // =============================================================== W2-13a: Ctrl+B Basis of Values (census 14.5)
+
+    /// <summary>
+    /// <b>Ctrl+B — Basis of Values.</b> Opens the Scale-Factor panel as its own cascading column to the RIGHT of
+    /// the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live
+    /// beneath it so applying re-projects in place.
+    ///
+    /// <para>Refused — quietly, with no column pushed — unless the open report actually supports the scale
+    /// (<see cref="ReportsViewModel.SupportsScaleFactor"/>). A panel that opens on a report it cannot change is
+    /// the dead-control defect this project has caught before; the button-bar row dims in the same condition so
+    /// the key and the badge agree.</para>
+    /// </summary>
+    public void OpenBasisOfValues()
+    {
+        if (Reports is not { SupportsScaleFactor: true }) return;
+        if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
+
+        var panel = new BasisOfValuesViewModel(Reports);
+        BasisOfValues = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BasisOfValues;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Apply button on the Ctrl+B panel: apply the Scale Factor, then pop the panel so the operator
+    /// lands back on the re-scaled report rather than on a spent column.
+    /// </summary>
+    public void ApplyBasisOfValues()
+    {
+        if (BasisOfValues is null) return;
+        BasisOfValues.Apply();
+        if (CurrentScreen == Screen.BasisOfValues) Back();
+    }
+
     /// <summary>
     /// True while a report is the ACTIVE page (or its F12 config panel is open) — the report-parameter
     /// shortcuts (F2, F12, Alt+F1, Alt+F2, Alt+F12, Alt+C, Alt+N) act on it. False when a drill column
@@ -2855,6 +2911,248 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    // =============================================================== W2-14: Go To (Alt+G), census row 14.1
+
+    /// <summary>
+    /// <b>Alt+G — Go To.</b> Opens the jump-anywhere index as its own cascading column over whatever surface is
+    /// showing, so the surface underneath survives and Esc pops straight back to it.
+    ///
+    /// <para><b>Fidelity (RULING 14 — help.tallysolutions.com).</b> The vendor's keyboard-shortcut page defines
+    /// Alt+G as <i>"To primarily open a report, and create masters and vouchers in the flow of work"</i> — all
+    /// three verbs, and "in the flow of work", i.e. from wherever the user is. It is therefore NOT gated to the
+    /// Gateway. <b>Ctrl+G ("Switch To") is a different verb on that same page</b> and is deliberately not built:
+    /// census row 14.2 stays ABSENT.</para>
+    ///
+    /// <para>Needs a company (every destination is company-scoped). A second press is a no-op rather than a
+    /// second stacked column.</para>
+    /// </summary>
+    public void OpenGoTo()
+    {
+        if (Company is null) return;
+        if (GoTo is not null) return;    // already open — never stack a second index column
+
+        var panel = new GoToViewModel(BuildGoToIndex());
+        panel.GoRequested += TravelTo;
+        GoTo = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.GoTo;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The Go / Enter action on the Go To panel: travel to the highlighted destination.</summary>
+    public void RunSelectedGoTo() => GoTo?.Go();
+
+    /// <summary>
+    /// Services a chosen Go To destination: closes the index column FIRST, then runs the destination's own
+    /// opener. Closing first is what makes the jump land on the destination rather than on top of the index —
+    /// every opener below pushes its own column, and leaving the index in place would bury it.
+    /// </summary>
+    private void TravelTo(GoToDestination destination)
+    {
+        // Pop the index column and unbind it; the surface it was pushed over is rehydrated by the opener that
+        // follows (each opener rebuilds the cascade from the Gateway root or pushes over the live surface).
+        if (Columns.Count > 0 && ReferenceEquals(Columns[^1].Page, GoTo))
+            Columns.RemoveAt(Columns.Count - 1);
+        GoTo = null;
+        ActiveColumnIndex = Math.Max(0, Columns.Count - 1);
+
+        destination.Open();
+    }
+
+    /// <summary>
+    /// The Go To index: every destination the shell can open, nested under the Gateway root's OWN section
+    /// headers so the two surfaces cannot disagree about where a thing lives.
+    ///
+    /// <para><b>This is an index over the existing dispatch, not a second one.</b> Every action below is the
+    /// same public opener the corresponding Gateway menu row runs, so a destination can never travel somewhere
+    /// the menu does not. Feature-gated rows are gated on the SAME F11/F12 flags their menu rows use (ER-13) —
+    /// a Go To that offers a door the company has switched off is a worse lie than an omission, because the
+    /// user typed the name and expected to arrive.</para>
+    /// </summary>
+    private List<GoToDestination> BuildGoToIndex()
+    {
+        var index = new List<GoToDestination>();
+        var company = Company;
+        if (company is null) return index;
+
+        void Add(string section, string label, Action open, string hint = "")
+            => index.Add(new GoToDestination(section, label, open, hint));
+
+        // ---------------------------------------------------------------- Masters
+        Add("Masters", "Ledger", ShowLedgerMaster, "Alt+C");
+        Add("Masters", "Group", ShowAccountGroupMaster);
+        Add("Masters", "Chart of Accounts", ShowChartOfAccounts);
+        Add("Masters", "Alter Company", ShowAlterCompany);
+        Add("Masters", "Cost Category", ShowCostCategoryMaster);
+        Add("Masters", "Cost Centre", ShowCostCentreMaster);
+        Add("Masters", "Stock Group", ShowStockGroupMaster);
+        Add("Masters", "Stock Category", ShowStockCategoryMaster);
+        Add("Masters", "Unit", ShowUnitMaster);
+        Add("Masters", "Godown", ShowGodownMaster);
+        Add("Masters", "Stock Item", ShowStockItemMaster);
+        Add("Masters", "Reorder Levels", ShowReorderLevelsMaster);
+        Add("Masters", "Budget", ShowBudgetMaster);
+        Add("Masters", "Scenario", ShowScenarioMaster);
+        Add("Masters", "Currency", ShowCurrencyMaster);
+        if (company is { MaintainBatchwiseDetails: true })
+            Add("Masters", "Batch", ShowBatchMaster);
+        if (company is { SetComponentsBom: true })
+            Add("Masters", "Bill of Materials", ShowBomMaster);
+        if (company is { EnableMultiplePriceLevels: true })
+        {
+            Add("Masters", "Price Level", ShowPriceLevelsMaster);
+            Add("Masters", "Price List", ShowPriceListsMaster);
+        }
+        if (company is { TdsEnabled: true })
+            Add("Masters", "Nature of Payment", ShowNatureOfPaymentMaster);
+        if (company is { TcsEnabled: true })
+            Add("Masters", "Nature of Goods", ShowNatureOfGoodsMaster);
+        if (company is { PayrollEnabled: true })
+        {
+            Add("Masters", "Employee Category", ShowEmployeeCategoryMaster);
+            Add("Masters", "Employee Group", ShowEmployeeGroupMaster);
+            Add("Masters", "Employee", ShowEmployeeMaster);
+            Add("Masters", "Payroll Unit", ShowPayrollUnitMaster);
+            Add("Masters", "Attendance / Production Type", ShowAttendanceTypeMaster);
+            Add("Masters", "Pay Head", ShowPayHeadMaster);
+            Add("Masters", "Salary Details", ShowSalaryStructureMaster);
+            if (company is { SalaryTdsEnabled: true })
+                Add("Masters", "Income Tax Declaration", ShowTaxDeclarationMaster);
+        }
+
+        // ---------------------------------------------------------------- Statutory
+        Add("Statutory", "GST & Taxation", ShowGstConfig, "F11");
+        if (company is { GstEnabled: true })
+            Add("Statutory", "GST Rate Setup", ShowGstRateSetup, "Ctrl+R");
+
+        // ---------------------------------------------------------------- Transactions
+        // The accounting voucher kinds go through OpenVoucherFromTypeKey, NOT straight to OpenVoucher, so a jump
+        // can never silently discard a voucher that is mid-keying — the same guard the F4–F9 keys use.
+        Add("Transactions", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), "F4");
+        Add("Transactions", "Payment", () => OpenVoucherFromTypeKey(VoucherBaseType.Payment), "F5");
+        Add("Transactions", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), "F6");
+        Add("Transactions", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), "F7");
+        Add("Transactions", "Sales", () => OpenVoucherFromTypeKey(VoucherBaseType.Sales), "F8");
+        Add("Transactions", "Purchase", () => OpenVoucherFromTypeKey(VoucherBaseType.Purchase), "F9");
+        Add("Transactions", "Credit Note", () => OpenVoucherFromTypeKey(VoucherBaseType.CreditNote), "Alt+F6");
+        Add("Transactions", "Debit Note", () => OpenVoucherFromTypeKey(VoucherBaseType.DebitNote), "Alt+F5");
+        Add("Transactions", "Purchase Order", () => OpenInventoryVoucher(VoucherBaseType.PurchaseOrder), "Ctrl+F9");
+        Add("Transactions", "Sales Order", () => OpenInventoryVoucher(VoucherBaseType.SalesOrder), "Ctrl+F8");
+        Add("Transactions", "Receipt Note", () => OpenInventoryVoucher(VoucherBaseType.ReceiptNote), "Alt+F9");
+        Add("Transactions", "Delivery Note", () => OpenInventoryVoucher(VoucherBaseType.DeliveryNote), "Alt+F8");
+        Add("Transactions", "Rejection In", () => OpenInventoryVoucher(VoucherBaseType.RejectionIn), "Ctrl+F6");
+        Add("Transactions", "Rejection Out", () => OpenInventoryVoucher(VoucherBaseType.RejectionOut), "Ctrl+F5");
+        Add("Transactions", "Stock Journal", () => OpenInventoryVoucher(VoucherBaseType.StockJournal), "Alt+F7");
+        Add("Transactions", "Physical Stock", () => OpenInventoryVoucher(VoucherBaseType.PhysicalStock), "Ctrl+F7");
+        Add("Transactions", "Memorandum", () => OpenVoucherFromTypeKey(VoucherBaseType.Memorandum));
+        Add("Transactions", "Reversing Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.ReversingJournal));
+        if (company is { TdsEnabled: true })
+            Add("Transactions", "TDS Stat Payment", ShowTdsStatPayment, "Ctrl+F");
+        if (company is { TcsEnabled: true })
+            Add("Transactions", "TCS Stat Payment", ShowTcsStatPayment);
+        if (company is { PayrollEnabled: true })
+        {
+            Add("Transactions", "Attendance / Production", ShowAttendanceVoucher);
+            Add("Transactions", "Payroll", ShowPayrollVoucher, "Ctrl+F4");
+        }
+
+        // ---------------------------------------------------------------- Reports
+        Add("Reports", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet));
+        Add("Reports", "Profit & Loss A/c", () => OpenReport(ReportKind.ProfitAndLoss));
+        Add("Reports", "Trial Balance", () => OpenReport(ReportKind.TrialBalance));
+        Add("Reports", "Day Book", () => OpenReport(ReportKind.DayBook));
+        Add("Reports", "Cash Book", ShowCashBookMenu);
+        Add("Reports", "Bank Book", ShowBankBookMenu);
+        Add("Reports", "Ledger Book", ShowLedgerBooksMenu);
+        Add("Reports", "Sales Register", () => OpenReport(ReportKind.SalesRegister));
+        Add("Reports", "Purchase Register", () => OpenReport(ReportKind.PurchaseRegister));
+        Add("Reports", "Journal Register", () => OpenReport(ReportKind.JournalRegister));
+        Add("Reports", "Credit Note Register", () => OpenReport(ReportKind.CreditNoteRegister));
+        Add("Reports", "Debit Note Register", () => OpenReport(ReportKind.DebitNoteRegister));
+        Add("Reports", "Group Summary", ShowGroupSummaryMenu);
+        Add("Reports", "Group Vouchers", ShowGroupVouchersMenu);
+        Add("Reports", "Statistics", () => OpenReport(ReportKind.Statistics));
+        Add("Reports", "Cash Flow", () => OpenReport(ReportKind.CashFlow));
+        Add("Reports", "Funds Flow", () => OpenReport(ReportKind.FundsFlow));
+        Add("Reports", "Ratio Analysis", () => OpenReport(ReportKind.RatioAnalysis));
+        Add("Reports", "Receivables", () => OpenOutstandings(OutstandingsKind.Receivables));
+        Add("Reports", "Payables", () => OpenOutstandings(OutstandingsKind.Payables));
+        Add("Reports", "Cost Category Summary", () => OpenCostReport(CostReportKind.CategorySummary));
+        Add("Reports", "Cost Centre Break-up", () => OpenCostReport(CostReportKind.CostCentreBreakup));
+        Add("Reports", "Budget Variance", OpenBudgetVariance);
+        Add("Reports", "Interest Calculation", OpenInterestReport);
+        Add("Reports", "Forex Gain / Loss", OpenForexReport);
+        Add("Reports", "Bank Reconciliation", OpenBankReconciliation, "BRS");
+        Add("Reports", "Stock Summary", () => OpenReport(ReportKind.StockSummary));
+        Add("Reports", "Godown Summary", () => OpenReport(ReportKind.GodownSummary));
+        Add("Reports", "Reorder Status", () => OpenReport(ReportKind.ReorderStatus));
+        Add("Reports", "Receipt Note Register", () => OpenReport(ReportKind.ReceiptNoteRegister));
+        Add("Reports", "Delivery Note Register", () => OpenReport(ReportKind.DeliveryNoteRegister));
+        Add("Reports", "Rejection Register", () => OpenReport(ReportKind.RejectionRegister));
+        Add("Reports", "Physical Stock Register", () => OpenReport(ReportKind.PhysicalStockRegister));
+        Add("Reports", "Order Register", () => OpenReport(ReportKind.OrderRegister));
+        Add("Reports", "Negative Stock", () => OpenReport(ReportKind.NegativeStock));
+        Add("Reports", "Negative Cash / Bank", () => OpenReport(ReportKind.NegativeCashBank));
+        Add("Reports", "Memorandum Register", () => OpenReport(ReportKind.MemorandumRegister));
+        Add("Reports", "Reversing Journal Register", () => OpenReport(ReportKind.ReversingJournalRegister));
+        if (company is { MaintainBatchwiseDetails: true })
+        {
+            Add("Reports", "Batch-wise", () => OpenReport(ReportKind.Batchwise));
+            Add("Reports", "Batch Age Analysis", () => OpenReport(ReportKind.BatchAgeAnalysis));
+        }
+        if (company is { EnableMultiplePriceLevels: true })
+            Add("Reports", "Price List Report", () => OpenReport(ReportKind.PriceList));
+        if (company is { EnableJobOrderProcessing: true })
+        {
+            Add("Reports", "Job Work In Order Book", () => OpenReport(ReportKind.JobWorkInOrderBook));
+            Add("Reports", "Job Work Out Order Book", () => OpenReport(ReportKind.JobWorkOutOrderBook));
+            Add("Reports", "Material In Register", () => OpenReport(ReportKind.MaterialInRegister));
+            Add("Reports", "Material Out Register", () => OpenReport(ReportKind.MaterialOutRegister));
+        }
+        if (company is { GstEnabled: true })
+        {
+            Add("Reports", "Tax Analysis", () => OpenReport(ReportKind.TaxAnalysis));
+            Add("Reports", "GSTR-1", () => OpenReport(ReportKind.Gstr1));
+            Add("Reports", "GSTR-3B", () => OpenReport(ReportKind.Gstr3b));
+        }
+        if (company is { PayrollEnabled: true })
+        {
+            Add("Reports", "Payslip", () => OpenReport(ReportKind.Payslip));
+            Add("Reports", "Pay Sheet", () => OpenReport(ReportKind.PaySheet));
+            Add("Reports", "Payroll Register", () => OpenReport(ReportKind.PayrollRegister));
+            Add("Reports", "Attendance Register", () => OpenReport(ReportKind.AttendanceRegister));
+            Add("Reports", "Payment Advice", () => OpenReport(ReportKind.PaymentAdvice));
+        }
+        if (company is { TdsEnabled: true })
+        {
+            Add("Reports", "TDS Outstandings", () => OpenReport(ReportKind.TdsOutstanding));
+            Add("Reports", "TDS Not Deducted", () => OpenReport(ReportKind.TdsNotDeducted));
+            Add("Reports", "TDS Interest", () => OpenReport(ReportKind.TdsInterest));
+            Add("Reports", "TDS Nature Summary", () => OpenReport(ReportKind.TdsNatureSummary));
+        }
+        if (company is { TcsEnabled: true })
+        {
+            Add("Reports", "TCS Outstandings", () => OpenReport(ReportKind.TcsOutstanding));
+            Add("Reports", "TCS Not Collected", () => OpenReport(ReportKind.TcsNotCollected));
+            Add("Reports", "TCS Interest", () => OpenReport(ReportKind.TcsInterest));
+            Add("Reports", "TCS Nature Summary", () => OpenReport(ReportKind.TcsNatureSummary));
+        }
+        if (company is { TdsEnabled: true } or { TcsEnabled: true })
+            Add("Reports", "Ledgers without PAN", () => OpenReport(ReportKind.LedgersWithoutPan));
+
+        // ---------------------------------------------------------------- Data
+        Add("Data", "Backup Company", OpenBackupCompany, "Alt+Y");
+        Add("Data", "Restore Company", OpenRestoreCompany, "Alt+Y");
+        Add("Data", "Import", OpenImport, "O");
+        Add("Data", "Export Data", OpenExportData, "Y");
+        Add("Data", "SMTP Settings", OpenSmtpSettings);
+
+        return index;
+    }
 
     /// <summary>
     /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
@@ -5297,11 +5595,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Form24Q = null;
         Form16 = null;
         ReportConfig = null;
+        BasisOfValues = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
         SaveView = null;
         SavedViews = null;
+        GoTo = null;
         PrintPreview = null;
         PrintConfigPanel = null;
         ExportPanel = null;
@@ -8000,6 +8300,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BankStatementImport:
                 BankStatementImport?.Import();
                 return;
+            // W2-14 (census 14.1) — Enter / Ctrl+A on the Go To index TRAVELS to the highlighted destination.
+            // Routed through the same RunSelectedGoTo the panel's own button calls, so key and button can never
+            // do two different things (the defect the Alt+C row above records).
+            case Screen.GoTo:
+                RunSelectedGoTo();
+                return;
         }
 
         if (IsGatewayCascade)
@@ -8827,9 +9133,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
             hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
-        // NOTE: there is deliberately NO "Ctrl+B" row here. Ctrl+B was the Bill-Settlement badge until Phase 10.11
-        // S2 (register row IV-5) removed the binding; leaving the badge would paint a red accelerator for a key
-        // that fires nothing, which is register defect IV-31. Settlement is advertised on the Alt+A row above.
+
+        // W2-13a (census 14.5) — Ctrl+B BASIS OF VALUES. This is the row the Alt+A note below says was
+        // deliberately absent: Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 removed the binding,
+        // and the chord was left free precisely because in the reference product it is Basis of Values
+        // (OutstandingsViewModel records that in its own remarks). It is now that, and nothing else.
+        // ENABLED only where the open report can actually be re-scaled, and DIMMED everywhere else, because an
+        // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
+            Reports is { SupportsScaleFactor: true }));
+        // NOTE ON Ctrl+B (updated by W2-13a): Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 (register
+        // row IV-5) removed the binding, and this note used to say there was deliberately no Ctrl+B row at all.
+        // The chord now carries the verb the reference product puts on it — Basis of Values — and its row is
+        // emitted ABOVE, guarded so it is only enabled where it fires. Settlement remains on the Alt+A row above
+        // and is NOT reachable from Ctrl+B: the old destructive path is gone, not re-pointed.
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.
@@ -8849,6 +9166,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
+
+        // W2-14 (census 14.1) — Alt+G GO TO. Advertised rather than key-only, for the same reason the Alt+2
+        // Duplicate row above is: a chord nobody can find is not a feature. Enabled once a company is open (every
+        // destination on the index is company-scoped) and dimmed otherwise, because an enabled badge that fires
+        // nothing is register defect IV-31. The click runs the identical door the key runs.
+        ButtonBar.Add(new ButtonBarItem("Alt+G", "Go To", OpenGoTo, hasCompany));
 
         // Alt+Y — Data (Backup / Restore; the R-7 carve-out). A quick door to the data-safety menu from anywhere,
         // alongside the Gateway → Data cascade. Bare Y is already Export Data on the Gateway root, so this one is

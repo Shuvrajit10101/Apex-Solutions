@@ -168,13 +168,36 @@ public sealed class SettlementFromOutstandingsTests
     }
 
     /// <summary>
-    /// <b>The only assertion here that BITES</b>, split out and named for exactly what it proves. Base
-    /// <c>MainWindowViewModel</c> added a <c>Ctrl+B — Settle Bills</c> row to the button bar unconditionally; a
-    /// badge for a key that now fires nothing is register defect IV-31, so the row had to go with the binding.
-    /// Restoring that row turns this red.
+    /// <b>The only assertion here that BITES</b>, split out and named for exactly what it proves.
+    ///
+    /// <para>🔴 <b>NARROWED BY W2-13a ON 2026-09-05 — read this before trusting it, and before widening it back.</b>
+    /// It used to read <c>No_button_bar_row_advertises_CtrlB_anywhere</c> and assert
+    /// <c>DoesNotContain(ButtonBar, b =&gt; b.Key == "Ctrl+B")</c> outright. That was the right lock while the chord
+    /// was RESERVED AND UNUSED, which is the state this whole file was written in — S2 removed the destructive
+    /// <c>Ctrl+B — Settle Bills</c> binding, and a badge for a key that fires nothing is register defect IV-31, so
+    /// the row had to go with the binding.</para>
+    ///
+    /// <para><b>The reservation has now been redeemed, which is the outcome this file's own header asked for.</b>
+    /// Its opening paragraph states the reason Ctrl+B had to be freed: in the reference product Ctrl+B is
+    /// <i>Basis of Values</i>, <i>"a report option that re-bases how figures are DISPLAYED and writes nothing to
+    /// the books"</i>. Census row 14.5 / slice W2-13a built exactly that, and the chord now carries it. So the
+    /// blanket assertion had become a lock against the very feature the file was arguing for, and it is narrowed
+    /// to the two things it was actually protecting — <b>neither of which is relaxed</b>:</para>
+    /// <list type="number">
+    /// <item><b>No Ctrl+B row may offer SETTLEMENT.</b> The destructive path is gone, not re-pointed — this
+    /// asserts on the caption and on the row's own action target, so re-wiring settlement behind a different
+    /// caption turns it red.</item>
+    /// <item><b>No Ctrl+B badge may be ENABLED where the key fires nothing</b> (IV-31 itself). On the Gateway and
+    /// on Outstandings — the screen that used to own the enabled badge — the row must be DIMMED, because there is
+    /// no scalable report there and the key arm is guarded on the identical condition.</item>
+    /// </list>
+    ///
+    /// <para>The sibling test <c>CtrlB_on_the_Outstandings_report_posts_nothing_and_leaves_every_bill_open</c> is
+    /// UNTOUCHED and still drives a real Ctrl+B keystroke into Outstandings and asserts the books are unchanged.
+    /// That test, not this one, is what proves the destructive path stayed dead.</para>
     /// </summary>
     [AvaloniaFact]
-    public void No_button_bar_row_advertises_CtrlB_anywhere()
+    public void No_CtrlB_row_offers_settlement_and_no_CtrlB_badge_is_enabled_where_it_fires_nothing()
     {
         var (window, vm, tempDir) = NewWindow();
         try
@@ -182,13 +205,29 @@ public sealed class SettlementFromOutstandingsTests
             SeedTwoOpenBills(vm, "CtrlB No Badge Co");
 
             vm.ShowGateway();
-            Assert.DoesNotContain(vm.ButtonBar, b => b.Key == "Ctrl+B");
+            AssertCtrlBIsDimmedAndNotSettlement(vm);
 
             // …and on the screen that used to own the badge, where it was ENABLED rather than merely hinted.
             vm.OpenOutstandings(OutstandingsKind.Receivables);
-            Assert.DoesNotContain(vm.ButtonBar, b => b.Key == "Ctrl+B");
+            AssertCtrlBIsDimmedAndNotSettlement(vm);
         }
         finally { Close(window, tempDir); }
+    }
+
+    /// <summary>
+    /// On the current screen: a Ctrl+B row may exist, but it must not be settlement and it must not be enabled.
+    /// Written to bite whether the row is absent (the pre-W2-13a state) or present-and-dimmed (the current one),
+    /// so this file does not have to be re-edited again if the row is ever withdrawn.
+    /// </summary>
+    private static void AssertCtrlBIsDimmedAndNotSettlement(MainWindowViewModel vm)
+    {
+        foreach (var row in vm.ButtonBar.Where(b => b.Key == "Ctrl+B"))
+        {
+            Assert.DoesNotContain("Settle", row.Caption, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Settle", row.Action.Method.Name, StringComparison.OrdinalIgnoreCase);
+            Assert.False(row.Enabled,
+                $"Ctrl+B is advertised as ENABLED on {vm.CurrentScreen} where it fires nothing (IV-31).");
+        }
     }
 
     /// <summary>

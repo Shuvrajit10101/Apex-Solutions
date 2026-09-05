@@ -15711,6 +15711,57 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+B "Basis of Values" panel (W2-13a / census 14.5 — the report Scale Factor).
+                         A Miller-column page beside the F12 config panel, never a stacked overlay. It changes
+                         DISPLAY only: the projection re-runs over the unscaled books and the divide lands on the
+                         row cells, which is why the report's own subtitle gains a "₹ in <unit>" clause. -->
+                    <ContentControl IsVisible="{Binding BasisOfValues, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BasisOfValues}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BasisOfValuesViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
+                              <StackPanel Spacing="10">
+                                <TextBlock Text="Scale Factor" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="Figures are shown divided by the chosen unit. The books are unchanged."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <ComboBox ItemsSource="{Binding ScaleOptions}"
+                                          SelectedItem="{Binding SelectedScale, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch" FontSize="13">
+                                  <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ReportScaleOption">
+                                      <TextBlock Text="{Binding Display}"/>
+                                    </DataTemplate>
+                                  </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyBasisOfValuesClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
                     <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintConfigPanel}">
@@ -16739,6 +16790,69 @@
                               <Button Grid.Column="2" Content="Open (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnOpenSavedViewClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Alt+G "Go To" (W2-14 / census 14.1 — the jump-anywhere index over the shell's own
+                         openers). Keyboard-first: the query box takes focus on open, typing narrows by word
+                         prefix, Up/Down moves the highlight, Enter travels, Esc pops back to what was underneath.
+                         Every row shows its PARENT SECTION beside the label, so the index reads as the nested
+                         hierarchy the Gateway uses and never as a flat dump of screen names. -->
+                    <ContentControl IsVisible="{Binding GoTo, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding GoTo}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GoToViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="Type to narrow  ·  Enter to go  ·  Esc to go back"
+                                       FontSize="11" Foreground="#8A8A8A"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <!-- The typed text stays VISIBLE (the settled type-to-filter contract). -->
+                            <TextBox Grid.Row="2" Classes="go-to-query" Text="{Binding Query, Mode=TwoWay}"
+                                     Watermark="Go To…" FontSize="13" Margin="0,0,0,8"/>
+
+                            <Border Grid.Row="3" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ListBox ItemsSource="{Binding Results}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                       Background="White" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GoToDestination">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" Height="30">
+                                      <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="13"
+                                                 Foreground="{StaticResource BrandNavy}"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 ToolTip.Tip="{Binding Path}"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Section}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
+                                                 Foreground="#8A8A8A"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding Hint}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
+                                                 Foreground="{StaticResource BrandNavy}"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Border>
+
+                            <TextBlock Grid.Row="4" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,0,0,8" TextWrapping="Wrap"/>
+
+                            <Grid Grid.Row="5" ColumnDefinitions="*,Auto">
+                              <Button Grid.Column="1" Content="Go (Enter)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnGoToClick"/>
                             </Grid>
                           </Grid>
                         </DataTemplate>
