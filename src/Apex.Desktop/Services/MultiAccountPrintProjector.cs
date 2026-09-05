@@ -11,10 +11,16 @@ namespace Apex.Desktop.Services;
 /// <summary>
 /// The document a multi-account print job produces, one per selected account (W2-32).
 ///
-/// <para>🔴 <b>NOT REACHABLE — census rows 12.6 and 12.7 stay OPEN.</b> The only caller of this projector is
-/// <see cref="Apex.Desktop.ViewModels.MultiAccountPrintViewModel"/>, which is itself constructed by nothing:
-/// no shell member, no menu route, no XAML template, no test. Naming a census row here records what this code
-/// is FOR, never that the row has moved — see that type's header for what reaching it would take.</para>
+/// <para><b>REACHABLE since W-F1.</b> The caller is
+/// <see cref="Apex.Desktop.ViewModels.MultiAccountPrintViewModel"/>, which the shell now constructs from
+/// Reports → Statements of Accounts → <b>Multi-Account Printing</b> → one of its three leaves. The header that
+/// stood here said "NOT REACHABLE — census rows 12.6 and 12.7 stay OPEN", and that was true when it was written.
+/// <b>What makes the new statement checkable is not this comment</b> but
+/// <c>MultiAccountPrintReachabilityTests</c>, which walks the real menu on the real window and reads the
+/// realised controls. Naming a census row here still records what the code is FOR, never that a row has moved:
+/// 12.7 remains <b>PARTIAL</b>, because its third document — the <b>delivery challan</b> — is not built. A
+/// challan is a pure-inventory document (<c>VoucherBaseType.DeliveryNote</c>) with no drill route and no item
+/// table on any print path, so it is a slice of its own and is not claimed here.</para>
 ///
 /// <para>🔴 <b>DOCUMENT CHARACTER (T0-11).</b> <b>None of these three is a tax invoice or a bill of supply, and
 /// none may ever become one.</b> Entitlement to ISSUE a tax invoice is CGST s31(1), which puts it on the

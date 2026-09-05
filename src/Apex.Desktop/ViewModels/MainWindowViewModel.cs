@@ -68,6 +68,11 @@ public enum Screen
 
     ChartOfAccounts,
     Outstandings,
+
+    /// <summary>W-F1 (census 12.6 / 12.7) — the Multi-Account Printing panel: pick a document family and a set of
+    /// accounts, then Ctrl+A previews the whole job as ONE multi-document PDF.</summary>
+    MultiAccountPrint,
+
     CostCategoryMaster,
     CostCentreMaster,
     CostReport,
@@ -202,6 +207,10 @@ public enum GatewayMenu
     StatementsOfAccounts,
     CostCentres,
     Budgets,
+
+    /// <summary>W-F1 (census 12.6 / 12.7) — Reports → Statements of Accounts → Multi-Account Printing: the three
+    /// multi-account document families (Ledger Accounts, Reminder Letters, Confirmation of Accounts).</summary>
+    MultiAccountPrinting,
     Banking,
     OtherVouchers,
     OrderVouchers,
@@ -340,6 +349,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Outstandings (Receivables/Payables) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private OutstandingsViewModel? _outstandings;
+
+    /// <summary>W-F1 (census 12.6 / 12.7) — the Multi-Account Printing panel, non-null only while it is open.</summary>
+    [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
 
     /// <summary>The Cost-Category master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private CostCategoryMasterViewModel? _costCategoryMaster;
@@ -682,6 +694,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
@@ -695,6 +708,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnMultiMasterCreateChanged(MultiMasterCreateViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCategoryMasterChanged(CostCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCentreMasterChanged(CostCentreMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostReportsChanged(CostReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1553,6 +1567,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
         // places it under Statement of Accounts, which is this hub.
         col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W-F1 (census 12.6 / 12.7): Multi-Account Printing. The vendor hangs its multi-account outputs off
+        // Alt+P (Print) > Others (help.tallysolutions.com — "How to Print, Export, E-mail Multi Account Reports in
+        // TallyPrime"); this application has no Alt+P print menu, and inventing one is a bigger change than the
+        // rows need, so it is nested here — which is where the T2-40 remediation note already said it belongs.
+        col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Multi-Account Printing" submenu column (Reports → Statements of Accounts → Multi-Account
+    /// Printing; W-F1, census 12.6 / 12.7): the three document families, each opening the selection panel with
+    /// that family pre-set.
+    ///
+    /// <para>The family names are the vendor's own report families
+    /// (help.tallysolutions.com — "How to Print, Export, E-mail Multi Account Reports in TallyPrime": Reminder
+    /// Letters and Confirmation of Accounts). The <b>wording, columns and layout</b> of the documents themselves
+    /// are OURS (ruling 9) and are labelled as such on <see cref="MultiAccountPrintProjector"/>.</para>
+    /// </summary>
+    private GatewayColumn BuildMultiAccountPrintingColumn()
+    {
+        var col = new GatewayColumn("Multi-Account Printing");
+        col.Add(MenuItemViewModel.Header("Multi-Account Printing"));
+        col.Add(new MenuItemViewModel("Ledger Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Reminder Letters", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Confirmation of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -5288,6 +5327,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Gateway of Apex Solutions — Outstandings");
     }
 
+    // =============================================================== screen: Multi-Account Printing (W-F1)
+
+    /// <summary>
+    /// Opens the "Statements of Accounts → Multi-Account Printing" submenu column directly (the public entry a
+    /// hotkey/test uses). Rebuilds the cascade to [root → Multi-Account Printing] and focuses the submenu.
+    /// </summary>
+    public void ShowMultiAccountPrintingMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statements of Accounts");
+        OpenSubmenuColumn(BuildMultiAccountPrintingColumn(), GatewayMenu.MultiAccountPrinting,
+            "Gateway of Apex Solutions — Multi-Account Printing");
+    }
+
+    /// <summary>
+    /// Opens the <b>Multi-Account Printing</b> panel (W-F1; census 12.6 and — for the reminder letter and the
+    /// confirmation of accounts — 12.7) on <paramref name="kind"/>, as a page column to the right of the menu
+    /// cascade. Space toggles the highlighted account into the job; Ctrl+A previews the whole job.
+    ///
+    /// <para>The period is derived exactly as the other Statements-of-Accounts pages derive theirs — books-begin
+    /// to the last recorded voucher date — so the panel never reads the clock (ER-12) and a test gets the same
+    /// answer on every machine on every day.</para>
+    /// </summary>
+    public void OpenMultiAccountPrint(MultiAccountDocumentKind kind)
+    {
+        if (Company is null) return;
+
+        var from = Company.BooksBeginFrom;
+        DateOnly? last = null;
+        foreach (var v in Company.Vouchers)
+            if (last is null || v.Date > last.Value) last = v.Date;
+        var asOf = last ?? Company.FinancialYearStart.AddYears(1).AddDays(-1);
+        if (asOf < from) asOf = from;
+
+        var vm = new MultiAccountPrintViewModel(Company, from, asOf, kind);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.MultiAccountPrint,
+            vm.Title + " — " + vm.JobTitle, () => MultiAccountPrint = vm);
+    }
+
+    /// <summary>
+    /// Ctrl+A on the Multi-Account Printing panel: builds one document per selected account and opens the
+    /// multi-document <see cref="PrintPreviewViewModel"/> over the whole job (one PDF, fresh sheet per account,
+    /// page numbering across the job). Selecting nothing opens NO preview — the panel says so instead, because a
+    /// print job of nothing is a mistake to report, not a blank sheet to render. Returns whether a preview opened.
+    /// </summary>
+    public bool PrintMultiAccountJob()
+    {
+        if (MultiAccountPrint is not { } panel) return false;
+        if (PrintPreview is not null) return false;     // preview already open — don't stack a second one
+
+        var documents = panel.BuildJob();
+        if (documents.Count == 0) return false;         // panel.Status already says why
+
+        var preview = new PrintPreviewViewModel(documents, panel.JobTitle);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+        return true;
+    }
+
     /// <summary>
     /// Opens the "Statements of Accounts" hub submenu column directly (Reports → Statements of Accounts).
     /// Rebuilds the cascade to [root → Statements of Accounts] and focuses the hub.
@@ -5385,6 +5488,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MultiMasterCreate = null;
         ChartOfAccounts = null;
         Outstandings = null;
+        MultiAccountPrint = null;
         CostCategoryMaster = null;
         CostCentreMaster = null;
         CostReports = null;
@@ -8402,6 +8506,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Cost Centres"),
             "Budgets" => (BuildBudgetsColumn(), GatewayMenu.Budgets,
                 "Gateway of Apex Solutions — Budgets"),
+            // W-F1 (census 12.6 / 12.7).
+            "Multi-Account Printing" => (BuildMultiAccountPrintingColumn(), GatewayMenu.MultiAccountPrinting,
+                "Gateway of Apex Solutions — Multi-Account Printing"),
             // Data → Backup / Restore (the R-7 carve-out).
             "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
                 "Gateway of Apex Solutions — Backup / Restore"),
@@ -8697,6 +8804,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
             case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
             case "Budget Variance": OpenBudgetVariance(); break;
+            // W-F1 (census 12.6 / 12.7) — Reports → Statements of Accounts → Multi-Account Printing.
+            case "Ledger Accounts": OpenMultiAccountPrint(MultiAccountDocumentKind.LedgerAccount); break;
+            case "Reminder Letters": OpenMultiAccountPrint(MultiAccountDocumentKind.ReminderLetter); break;
+            case "Confirmation of Accounts": OpenMultiAccountPrint(MultiAccountDocumentKind.ConfirmationOfAccounts); break;
             case "Interest Calculation": OpenInterestReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
             case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
@@ -8891,6 +9002,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
                 return Screen.PrintPreview;
+            // W-F1 (census 12.6 / 12.7): the Multi-Account Printing panel survives beneath a just-popped
+            // print-preview column, so Esc from the preview returns to the SAME panel with its selection intact
+            // rather than dropping the operator back to the menu with the whole job lost.
+            case MultiAccountPrintViewModel map:
+                MultiAccountPrint = map;
+                return Screen.MultiAccountPrint;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.

@@ -427,6 +427,10 @@ public partial class MainWindow : Window
                 vm.ApplyRestore();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
+            // W-F1 (census 12.6 / 12.7): Ctrl+A on the Multi-Account Printing panel builds the job and opens the
+            // multi-document preview over it. Selecting nothing opens no preview and the panel says why.
+            else if (vm.CurrentScreen == Screen.MultiAccountPrint)
+                vm.PrintMultiAccountJob();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
@@ -1098,6 +1102,37 @@ public partial class MainWindow : Window
             vm.OpenEmailCompose();
             e.Handled = true;
             return;
+        }
+
+        // W-F1 (census 12.6 / 12.7) — the Multi-Account Printing panel.
+        //   Ctrl+Space  select all / none (checked FIRST, or the bare-Space arm below would eat it)
+        //   Space       toggle the highlighted account into the job
+        //   Up / Down   move the highlight
+        // All three are scoped to Screen.MultiAccountPrint, so no existing binding anywhere else changes. The
+        // `!IsTyping(e)` guard is kept for the same reason the Voucher Type master keeps it: this panel can grow
+        // a text field, and a space typed into one must never silently drop an account out of a print job.
+        if (vm.CurrentScreen == Screen.MultiAccountPrint && !IsTyping(e)
+            && vm.MultiAccountPrint is { } maPanel)
+        {
+            if (e.Key == Key.Space && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                maPanel.ToggleSelectAll();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Space)
+            {
+                maPanel.ToggleHighlighted();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key is Key.Up or Key.Down && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+                && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                maPanel.MoveHighlight(e.Key == Key.Down ? 1 : -1);
+                e.Handled = true;
+                return;
+            }
         }
 
         // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
@@ -2078,6 +2113,21 @@ public partial class MainWindow : Window
     /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
+
+    // ---- W-F1 (census 12.6 / 12.7): the Multi-Account Printing panel's three buttons. Each runs the SAME door
+    // its chord runs, so the mouse and the keyboard can never diverge.
+
+    /// <summary>"Select All" on the Multi-Account Printing panel — the same door Ctrl+Space runs.</summary>
+    private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectAll();
+
+    /// <summary>"Select None" on the Multi-Account Printing panel.</summary>
+    private void OnMultiAccountSelectNoneClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectNone();
+
+    /// <summary>"Print" on the Multi-Account Printing panel — the SAME door Ctrl+A runs.</summary>
+    private void OnPrintMultiAccountJobClick(object? sender, RoutedEventArgs e)
+        => Vm?.PrintMultiAccountJob();
 
 
     /// <summary>
