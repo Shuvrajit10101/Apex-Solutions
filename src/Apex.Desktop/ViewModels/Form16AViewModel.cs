@@ -139,8 +139,7 @@ public sealed partial class Form16AViewModel : ViewModelBase
         _selectedYear = FinancialYears.FirstOrDefault();
         _selectedQuarter = Quarters[0];
 
-        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { ExportFolder = string.Empty; }
+        ExportFolder = DefaultExportFolder.Resolve();
 
         Rebuild();
     }

@@ -227,11 +227,7 @@ public sealed partial class ExportViewModel : ViewModelBase
         };
     }
 
-    private static string DefaultFolder()
-    {
-        try { return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
-    }
+    private static string DefaultFolder() => DefaultExportFolder.Resolve();
 
     /// <summary>Turns a report title into a safe file-name stem (invalid path chars → '_'; blank → "Report").</summary>
     private static string SafeName(string? title)

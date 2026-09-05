@@ -127,8 +127,7 @@ public sealed partial class Form16ViewModel : ViewModelBase
         _selectedYear = FinancialYears.FirstOrDefault();
         _selectedSectionCode = SectionCodes.First();
 
-        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { ExportFolder = string.Empty; }
+        ExportFolder = DefaultExportFolder.Resolve();
 
         Rebuild();
     }

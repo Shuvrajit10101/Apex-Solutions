@@ -1964,11 +1964,11 @@ public partial class MainWindow : Window
         if (Vm is { } vm) SavePrintPreviewToDocuments(vm);
     }
 
-    /// <summary>Picks a Documents-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
+    /// <summary>Picks a default-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
     private static void SavePrintPreviewToDocuments(MainWindowViewModel vm)
     {
         if (vm.PrintPreview is not { } preview) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = DefaultExportFolder.Resolve();
         var name = SafeFileName(preview.ReportTitle) + ".pdf";
         vm.SavePrintPreview(Path.Combine(dir, name));
     }
@@ -1982,7 +1982,7 @@ public partial class MainWindow : Window
     private static void SaveEmailToDocuments(MainWindowViewModel vm)
     {
         if (vm.EmailCompose is not { } compose) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = DefaultExportFolder.Resolve();
         var name = SafeFileName(compose.DocumentTitle) + ".eml";
         vm.SaveEmail(Path.Combine(dir, name));
     }

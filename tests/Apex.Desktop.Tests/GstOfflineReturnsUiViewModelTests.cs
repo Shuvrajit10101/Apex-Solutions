@@ -440,17 +440,27 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
     /// <c>ExportFolder</c> empty the path handed to <c>File.WriteAllBytes</c> is a bare file name, so the return
     /// file lands in the process working directory — beside the executable — with no picker and no way for the user
     /// to know where it went. Every other shipped export page on this app (Form 16, Form 16A, Form 24Q, Form 26Q,
-    /// the ESI contribution report) seeds My Documents in its constructor; this page must match them.
+    /// the ESI contribution report) seeds the same default; this page must match them.
+    ///
+    /// <para><b>The assertion is deliberately NOT against <c>MyDocuments</c>.</b> On Linux that lookup returns the
+    /// EMPTY STRING when XDG user dirs are unconfigured, so an equality check against it compares <c>""</c> to
+    /// <c>""</c> and passes VACUOUSLY on the one platform where the defect is real — which is how it shipped. The
+    /// page is pinned to <see cref="DefaultExportFolder"/>, whose own suite proves the ladder is never blank, and
+    /// the non-blank and not-the-working-directory assertions below bite on every platform.</para>
     /// </summary>
     [Fact]
-    public void The_export_folder_defaults_to_my_documents_so_the_file_never_lands_in_the_working_directory()
+    public void The_export_folder_defaults_to_a_findable_folder_so_the_file_never_lands_in_the_working_directory()
     {
         var vm = NewRegularGstCompany("Offline Folder Co");
         vm.OpenGstOfflineReturns();
         var page = vm.GstOfflineReturns!;
 
-        Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), page.ExportFolder);
+        Assert.Equal(DefaultExportFolder.Resolve(), page.ExportFolder);
         Assert.False(string.IsNullOrWhiteSpace(page.ExportFolder));
+        Assert.True(Path.IsPathRooted(page.ExportFolder), page.ExportFolder);
+        Assert.NotEqual(
+            Directory.GetCurrentDirectory().TrimEnd(Path.DirectorySeparatorChar),
+            page.ExportFolder.TrimEnd(Path.DirectorySeparatorChar));
 
         string? writtenPath = null;
         Assert.True(page.ExportJson((p, _) => writtenPath = p));

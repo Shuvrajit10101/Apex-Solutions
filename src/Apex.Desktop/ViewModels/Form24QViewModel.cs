@@ -145,8 +145,7 @@ public sealed partial class Form24QViewModel : ViewModelBase
         _selectedQuarter = Quarters[3]; // default to Q4 so the annual Annexure II is visible on open
         _selectedSectionCode = SectionCodes.First();
 
-        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { ExportFolder = string.Empty; }
+        ExportFolder = DefaultExportFolder.Resolve();
 
         Rebuild();
     }

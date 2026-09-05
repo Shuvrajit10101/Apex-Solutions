@@ -457,9 +457,5 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
     private static string Safe(string name) =>
         string.Concat(name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
 
-    private static string DefaultFolder()
-    {
-        try { return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
-    }
+    private static string DefaultFolder() => DefaultExportFolder.Resolve();
 }

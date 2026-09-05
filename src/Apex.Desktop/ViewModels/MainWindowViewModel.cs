@@ -3053,12 +3053,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return null;
     }
 
-    /// <summary>The default export folder (the user's Documents), matching the report export ctor.</summary>
-    private static string ExportDefaultFolder()
-    {
-        try { return System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
-    }
+    /// <summary>The default export folder, matching the report export ctor. Never empty on any platform.</summary>
+    private static string ExportDefaultFolder() => DefaultExportFolder.Resolve();
 
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
     public bool ApplyExport() => ExportPanel?.Apply() ?? false;

@@ -127,11 +127,7 @@ public sealed partial class BackupCompanyViewModel : ViewModelBase
         }
     }
 
-    private static string DefaultFolder()
-    {
-        try { return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
-    }
+    private static string DefaultFolder() => DefaultExportFolder.Resolve();
 
     /// <summary>Turns a company name into a safe file-name stem (invalid path chars → '_'; blank → "Company").</summary>
     private static string SafeName(string? name)

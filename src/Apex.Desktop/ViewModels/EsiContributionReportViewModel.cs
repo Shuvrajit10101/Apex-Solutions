@@ -110,8 +110,7 @@ public sealed partial class EsiContributionReportViewModel : ViewModelBase
         RebuildMonths();
         _selectedMonth = Months.FirstOrDefault();
 
-        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { ExportFolder = string.Empty; }
+        ExportFolder = DefaultExportFolder.Resolve();
 
         Rebuild();
     }
