@@ -15725,39 +15725,116 @@
                                        HorizontalAlignment="Center" Margin="0,0,0,10"
                                        TextTrimming="CharacterEllipsis"/>
 
-                            <Border Grid.Row="2" Background="White"
+                            <!-- W2-31 added four knob groups to this panel, so it can now exceed a 720-DIP
+                                 viewport's height. Without a scroller the Apply button falls off the bottom and
+                                 the whole panel becomes unusable at the narrowest supported size. -->
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                            <Border Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300">
 
-                                <!-- RQ-12: title override -->
-                                <TextBlock Text="Document title override" FontWeight="Bold"
-                                           Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
-                                         PlaceholderText="(blank = template default, e.g. TAX INVOICE)"/>
+                                <!-- RQ-12 document knobs — voucher / invoice only (a report has no narration
+                                     and no CGST Rule 48(1) copy). Hidden, not disabled, over a report. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsDocumentKnobs}">
+                                  <!-- RQ-12: title override -->
+                                  <TextBlock Text="Document title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = template default, e.g. TAX INVOICE)"/>
 
-                                <!-- RQ-12: narration -->
-                                <CheckBox Content="Print narration"
-                                          IsChecked="{Binding ShowNarration, Mode=TwoWay}"
-                                          Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- RQ-12: narration -->
+                                  <CheckBox Content="Print narration"
+                                            IsChecked="{Binding ShowNarration, Mode=TwoWay}"
+                                            Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-12: copy marking -->
-                                <TextBlock Text="Copy marking" FontWeight="Bold"
+                                  <!-- RQ-12: copy marking -->
+                                  <TextBlock Text="Copy marking" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <RadioButton GroupName="CopyMark" Content="None"
+                                               IsChecked="{Binding IsCopyNone, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Original for Recipient"
+                                               IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Duplicate for Transporter"
+                                               IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
+                                               IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+
+                                <!-- W2-31 (census 12.4) page knobs — every document kind.
+                                     These captions named F8 / F9 / F5 / F10 while NOTHING routed those keys for
+                                     this panel (`PrintConfigPanel` appears nowhere in MainWindow.axaml.cs), so
+                                     they fell through to the global F-key switch and F10 in particular navigated
+                                     the operator OUT of the print preview via ShowOtherVouchersMenu(). The keys
+                                     are unnamed until they are bound; PrintConfigCaptionKeyBindingTests holds it. -->
+                                <!-- The COPY COUNT is offered on every kind: all five renderers end with
+                                     RepeatAllPages(EffectiveCopies), so it always does something. -->
+                                <TextBlock Text="Copies" FontWeight="Bold" IsVisible="{Binding SupportsCopies}"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <RadioButton GroupName="CopyMark" Content="None"
-                                             IsChecked="{Binding IsCopyNone, Mode=TwoWay}"
-                                             Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Original for Recipient"
-                                             IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
-                                             Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Duplicate for Transporter"
-                                             IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
-                                             Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
-                                             IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
-                                             Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="150,*" IsVisible="{Binding SupportsCopies}">
+                                  <TextBlock Grid.Column="0" Text="Number of copies" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Copies, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
 
-                                <TextBlock Text="Logo embedding is deferred (later polish)."
+                                <!-- 🔴 The PAGE-LAYOUT knobs are gated on SupportsPageKnobs, which is true only
+                                     where the renderer honours them. ReportPdf reads PageConfig's Formatted* /
+                                     Draws* / IncludesPage / StartPageNumber; InvoicePdf, VoucherPdf, PayslipPdf
+                                     and PosReceiptPdf read NONE of them and only ever apply the copy count. This
+                                     group was previously ungated (SupportsPageKnobs returned a bare `true` and was
+                                     bound to nothing), so a voucher/invoice operator could set a format, a paper,
+                                     a page range and a starting number and get byte-identical output.
+                                     PrintConfigKnobsMoveTheBytesTests renders and compares bytes to hold this. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsPageKnobs}">
+                                  <TextBlock Text="Print format" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <RadioButton GroupName="PrintFormat" Content="Neat Mode"
+                                               IsChecked="{Binding IsNeat, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="PrintFormat" Content="Dot Matrix Format (condensed)"
+                                               IsChecked="{Binding IsDotMatrix, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="PrintFormat" Content="Quick / Draft Format (no rules)"
+                                               IsChecked="{Binding IsQuickDraft, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+
+                                  <TextBlock Text="Paper" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <RadioButton GroupName="PrintPaper" Content="Plain paper"
+                                               IsChecked="{Binding IsPlainPaper, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="PrintPaper" Content="Pre-printed stationery"
+                                               IsChecked="{Binding IsPrePrinted, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+
+                                  <TextBlock Text="Pages" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <Grid ColumnDefinitions="150,*">
+                                    <TextBlock Grid.Column="0" Text="From page" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding FirstPage, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="150,*">
+                                    <TextBlock Grid.Column="0" Text="To page (0 = end)" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding LastPage, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="150,*">
+                                    <TextBlock Grid.Column="0" Text="Start page number" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding StartPageNumber, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"/>
+                                  </Grid>
+                                </StackPanel>
+
+                                <TextBlock Text="Print produces a PDF — there is no printer selection or spooler yet, so a copy count is a count of document sets inside the file. Logo embedding is deferred."
                                            FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
 
                                 <Button Content="Apply (Ctrl+A)" Padding="14,6" HorizontalAlignment="Left"
@@ -15765,6 +15842,7 @@
                                         Click="OnApplyPrintConfigClick"/>
                               </StackPanel>
                             </Border>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -15800,6 +15878,20 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                 <RadioButton GroupName="ExportFormat" Content="PDF (printable)"
                                              IsChecked="{Binding IsPdf, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <!-- W2-25 (census 13.6): the four File-Format-list entries that were missing.
+                                     JPEG is deliberately NOT offered — it needs a rasteriser (design ruling R14). -->
+                                <RadioButton GroupName="ExportFormat" Content="HTML (web publishing)"
+                                             IsChecked="{Binding IsHtml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="XML (data interchange)"
+                                             IsChecked="{Binding IsXml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="JSON (data exchange)"
+                                             IsChecked="{Binding IsJson, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="ASCII (comma delimited, .txt)"
+                                             IsChecked="{Binding IsAscii, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- RQ-16: destination -->

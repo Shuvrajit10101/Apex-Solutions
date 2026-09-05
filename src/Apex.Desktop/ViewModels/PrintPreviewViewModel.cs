@@ -85,6 +85,44 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>F12: the copy-marking label (None / Original / Duplicate / Triplicate). Changing it re-renders.</summary>
     [ObservableProperty] private CopyMarking _copyMarking = CopyMarking.None;
 
+    // ---- W2-31 (census 12.4) print knobs. --------------------------------------------------------------
+    //
+    // 🔴 TWO CORRECTIONS TO WHAT THIS BLOCK USED TO CLAIM.
+    //
+    // 1. It said these "apply to EVERY preview kind". They do not. Only ReportPdf reads PageConfig's
+    //    Formatted* / Draws* / IncludesPage / StartPageNumber members; InvoicePdf, VoucherPdf, PayslipPdf and
+    //    PosReceiptPdf read ONLY EffectiveCopies. The copy count is the one knob that is universal. The panel
+    //    now gates the rest on PrintConfigViewModel.SupportsPageKnobs.
+    //
+    // 2. Each summary below was tagged with a function key — F8, F9, F5, F10 — as though the key were bound.
+    //    NONE of them is: `PrintConfigPanel` appears nowhere in MainWindow.axaml.cs, so with the panel open
+    //    those keys fall through to the global F-key switch (F10 navigates away via ShowOtherVouchersMenu).
+    //    The key names are removed rather than left to mislead; binding them is open work.
+
+    /// <summary>The print format (Neat / Dot Matrix / Quick-Draft). Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
+    [ObservableProperty] private PrintFormat _printFormat = PrintFormat.Neat;
+
+    /// <summary>Plain paper or pre-printed stationery. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
+    [ObservableProperty] private PaperKind _paper = PaperKind.Plain;
+
+    /// <summary>How many collated copies of the whole document the file carries. Changing it re-renders.
+    /// Honoured by <b>every</b> renderer.</summary>
+    [ObservableProperty] private int _copies = 1;
+
+    /// <summary>The first page of the document to print (1-based). Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
+    [ObservableProperty] private int _firstPage = 1;
+
+    /// <summary>The last page to print (1-based); 0 means to the end. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
+    [ObservableProperty] private int _lastPage;
+
+    /// <summary>The page number the first sheet carries. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
+    [ObservableProperty] private int _startPageNumber = 1;
+
     /// <summary>The page count of the rendered PDF / preview (for the heading).</summary>
     public int PageCount => Pages.Count;
 
@@ -182,6 +220,14 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Orientation = Landscape ? PageOrientation.Landscape : PageOrientation.Portrait,
         // A brand-safe footer with no clock: page numbers come from pagination, never DateTime.Now.
         FooterText = "Apex Solutions  -  Page {page} of {pages}",
+        // W2-31 (census 12.4): the F8/F9/F5/F10 knobs. Their defaults reproduce the shipped output exactly, so a
+        // preview the operator never configures renders the bytes it always did (ER-13).
+        Format = PrintFormat,
+        Paper = Paper,
+        Copies = Copies,
+        FirstPage = FirstPage,
+        LastPage = LastPage,
+        StartPageNumber = StartPageNumber,
     };
 
     /// <summary>Renders the PDF bytes and (re)builds the on-screen preview pages for the current config.</summary>
@@ -225,6 +271,15 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     partial void OnUseLetterChanged(bool value) => Render();
     partial void OnLandscapeChanged(bool value) => Render();
+
+    // W2-31: the print knobs apply to EVERY document kind (a copy count on an invoice is the case the F5 knob
+    // exists for), so unlike the F12 document knobs below they re-render unconditionally.
+    partial void OnPrintFormatChanged(PrintFormat value) => Render();
+    partial void OnPaperChanged(PaperKind value) => Render();
+    partial void OnCopiesChanged(int value) => Render();
+    partial void OnFirstPageChanged(int value) => Render();
+    partial void OnLastPageChanged(int value) => Render();
+    partial void OnStartPageNumberChanged(int value) => Render();
 
     // The F12 knobs only affect a voucher/invoice render; re-render on change (a no-op guard keeps the report
     // preview from re-rendering pointlessly since those bytes never read the print config).

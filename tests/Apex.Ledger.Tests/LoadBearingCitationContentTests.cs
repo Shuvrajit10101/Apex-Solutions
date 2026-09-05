@@ -292,6 +292,35 @@ public sealed class LoadBearingCitationContentTests
             @"with the caption `""Supplier:""`.",
             "InvoicePdf.cs",
             @"""Supplier:"", data.Seller"),
+        // W2 print-docs branch, 2026-09-05. The two anchors above CAUGHT their drift; the FIVE pointers below,
+        // all describing the SAME `DrawPartyBlock` body, were unguarded and had rotted through THREE separate
+        // generations of numbering at once (:765/:771-773 in §7.2, :564/:570/:578 in §9.11, :521-525 in §11) —
+        // while `:564` in §9.11 still passed a REACH check, because it happens to be the live call site. That is
+        // the blind spot this file exists for, reproduced exactly. All five are now expanded to `File.cs:NN`
+        // form (the bare `:NN` shorthand is checked by nothing) and pinned to the body's real content.
+        new("docs/w0-2-company-screen-grounding.md",
+            "never executes when the list is empty",
+            "InvoicePdf.cs",
+            "foreach (var line in party.AddressLines)"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "is skipped when `StateText` is blank.",
+            "InvoicePdf.cs",
+            @"""State: "" + party.StateText"),
+        // §9.11 — an OPEN user gate: our printed component order contradicts the corpus. The pointer is the
+        // evidence that we really do draw addresses before the State line, so it decides the ruling.
+        new("docs/w0-2-company-screen-grounding.md",
+            "before the State line",
+            "InvoicePdf.cs",
+            @"""State: "" + party.StateText"),
+        // §7.3 and §11 both record the SAME correction ("no State line" was too strong). Both cite this body.
+        new("docs/w0-2-company-screen-grounding.md",
+            "half is **too strong**:",
+            "InvoicePdf.cs",
+            @"""State: "" + party.StateText"),
+        new("docs/w0-2-company-screen-grounding.md",
+            "draws a State line whenever",
+            "InvoicePdf.cs",
+            @"""State: "" + party.StateText"),
         // §7.3 is the section the document itself names as "the evidence base the R12 gate rested on", and it
         // received ZERO repairs in the T0-11 range. Its two pointers are the State finding the user is being
         // asked to rule on, and the buyer-side contrast that makes it a finding at all.

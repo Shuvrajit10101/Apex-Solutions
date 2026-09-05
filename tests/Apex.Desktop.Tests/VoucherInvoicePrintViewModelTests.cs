@@ -761,10 +761,24 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
         Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ================================================================ F12 is inert on a report preview
+    // ================================================================ F12 over a report preview
 
+    /// <summary>
+    /// 🔴 <b>W2-31 (census 12.4) CHANGED THIS BEHAVIOUR DELIBERATELY, and the assertion is rewritten rather than
+    /// deleted.</b> This test used to read <c>Report_preview_does_not_support_print_config_and_f12_is_a_noop</c>
+    /// and asserted <c>Assert.Null(vm.PrintConfigPanel)</c>: F12 over a report opened nothing at all.
+    ///
+    /// <para>That was right while the panel held only the RQ-12 <i>document</i> knobs — a report has no
+    /// narration line and no CGST Rule 48(1) copy marking, so there was nothing to configure. W2-31 added the
+    /// F8 print format, the F9 paper toggle, the F5 copy count and the F10 range/starting-number to the same
+    /// panel, and those apply to <b>every</b> document kind. Leaving the old gate in place would have left the
+    /// whole of row 12.4 unreachable from the screen most prints are taken from.</para>
+    ///
+    /// <para>What is UNCHANGED, and is asserted below so the change cannot creep: a report preview still does
+    /// not support the document knobs, and the panel still hides them.</para>
+    /// </summary>
     [Fact]
-    public void Report_preview_does_not_support_print_config_and_f12_is_a_noop()
+    public void Report_preview_opens_the_page_knobs_but_not_the_document_knobs()
     {
         var vm = new MainWindowViewModel(_storage);
         vm.LoadRobertDemo();
@@ -772,10 +786,13 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
         vm.OpenPrintPreview();
 
         Assert.Equal(PrintPreviewViewModel.PrintKind.Report, vm.PrintPreview!.Kind);
-        Assert.False(vm.PrintPreview!.SupportsPrintConfig);
+        Assert.False(vm.PrintPreview!.SupportsPrintConfig);   // no title override / narration / copy marking
 
-        vm.OpenPrintConfig();                 // no-op on a report preview
-        Assert.Null(vm.PrintConfigPanel);
+        vm.OpenPrintConfig();
+
+        Assert.NotNull(vm.PrintConfigPanel);                  // W2-31: the F8/F9/F5/F10 knobs are reachable
+        Assert.False(vm.PrintConfigPanel!.SupportsDocumentKnobs);
+        Assert.True(vm.PrintConfigPanel!.SupportsPageKnobs);
     }
 
     // ================================================================ Esc pops the F12 panel and keeps the preview live

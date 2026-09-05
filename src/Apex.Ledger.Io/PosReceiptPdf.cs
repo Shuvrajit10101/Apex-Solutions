@@ -232,6 +232,8 @@ public static class PosReceiptPdf
         if (footer.Length > 0)
             Center(writer, footer, left, right, page.MarginBottom, page.FooterFontSize, bold: false);
 
+        // W2-31 (census 12.4) F5: collated copies. One copy repeats nothing (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
         return writer.Build();
     }
 

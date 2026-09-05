@@ -114,6 +114,25 @@ public sealed class PdfWriter
     public int PageCount => _pages.Count;
 
     /// <summary>
+    /// Repeats every page drawn so far, so the document carries <paramref name="copies"/> COLLATED copies of
+    /// itself (W2-31 / census 12.4, the F5 number-of-copies knob). A two-page document at two copies emits
+    /// 1,2,1,2 — a set an operator can hand over intact — never 1,1,2,2.
+    ///
+    /// <para>Call it once, after the last <see cref="BeginPage"/> and before <see cref="Build"/>. A count of one
+    /// or less repeats nothing and leaves the byte stream exactly as it was (ER-13), so every renderer can call
+    /// it unconditionally. Pages are shared by reference: a copy costs one page object and one content stream,
+    /// and the image XObjects are shared rather than duplicated.</para>
+    /// </summary>
+    public void RepeatAllPages(int copies)
+    {
+        if (copies <= 1 || _pages.Count == 0) return;
+        int original = _pages.Count;
+        for (int c = 1; c < copies; c++)
+            for (int i = 0; i < original; i++)
+                _pages.Add(_pages[i]);
+    }
+
+    /// <summary>
     /// Assembles the complete PDF document as bytes: header, all indirect objects (catalog, page-tree,
     /// font, per-page page objects + content streams, info dictionary), the cross-reference table, the
     /// trailer and the %%EOF marker. Deterministic and self-contained.
