@@ -16,7 +16,7 @@ namespace Apex.Desktop.ViewModels;
 /// pick one meaning and would silently open the wrong screen for the other. The path disambiguates by
 /// construction, and it is also exactly what the jump REPLAYS.</para>
 /// </summary>
-public sealed class GoToDestination
+public sealed partial class GoToDestination : ViewModelBase
 {
     public GoToDestination(string label, string section, IReadOnlyList<string> path, bool opensSubmenu)
     {
@@ -43,8 +43,19 @@ public sealed class GoToDestination
     /// </summary>
     public bool OpensSubmenu { get; }
 
-    /// <summary>True while this row is the highlighted result (the view paints it).</summary>
-    public bool IsSelected { get; internal set; }
+    /// <summary>
+    /// True while this row is the highlighted result — the row background binds straight to it.
+    ///
+    /// <para>🔴 It is an <c>[ObservableProperty]</c> on a <see cref="ViewModelBase"/> for the same reason
+    /// <c>MenuItemViewModel.IsSelected</c> is: the results list is an <c>ItemsControl</c> whose collection
+    /// instance never changes as the highlight moves, so the ONLY thing that can repaint a row is that row
+    /// raising <c>PropertyChanged</c> for itself. As a plain auto-property this compiled, bound, and left the
+    /// painted highlight stuck on row one while Up/Down moved an invisible selection and Enter opened a screen
+    /// the operator never saw named. Locked by
+    /// <c>GoToChordReachabilityTests.The_painted_highlight_follows_the_arrow_keys_and_marks_exactly_one_row</c>,
+    /// which reads the background out of the realised visual tree rather than out of this flag.</para>
+    /// </summary>
+    [ObservableProperty] private bool _isSelected;
 }
 
 /// <summary>
@@ -121,6 +132,11 @@ public sealed partial class GoToViewModel : ViewModelBase
     {
         var text = (SearchText ?? string.Empty).Trim();
 
+        // Rows are the SAME destination objects across searches, so a row that was highlighted and is then
+        // filtered out keeps its flag and comes back amber the next time it matches — two painted highlights,
+        // one of them un-drivable. Clear the outgoing list before rebuilding.
+        foreach (var d in Results) d.IsSelected = false;
+
         Results.Clear();
         foreach (var d in Rank(text)) Results.Add(d);
 
@@ -150,10 +166,14 @@ public sealed partial class GoToViewModel : ViewModelBase
         return prefix.Concat(contains).Concat(section);
     }
 
+    /// <summary>
+    /// Marks exactly the highlighted row and clears every other. Each row raises its own
+    /// <c>PropertyChanged</c>, which is what actually repaints it; re-announcing <see cref="Results"/> here
+    /// would only re-hand the ItemsControl the very same collection instance and cannot move a highlight.
+    /// </summary>
     private void Repaint()
     {
         for (var i = 0; i < Results.Count; i++) Results[i].IsSelected = i == _selectedIndex;
-        OnPropertyChanged(nameof(Results));
     }
 
     /// <summary>Down: moves the highlight one row, wrapping. A no-op on an empty list.</summary>

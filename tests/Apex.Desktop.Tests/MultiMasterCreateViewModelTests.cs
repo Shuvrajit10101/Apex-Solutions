@@ -322,6 +322,36 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         Assert.Null(vm.Company!.FindLedgerByName("Juliet Ltd"));
     }
 
+    /// <summary>
+    /// 🔴 A confirmation is not a refusal. The screen renders one text block per severity, so the view model
+    /// has to say which one this is — the first draft bound a single block to <c>Message</c> in the alert
+    /// colour and printed "3 ledgers created under Sundry Debtors." in RED, which is exactly the defect
+    /// <c>CompanyProfileViewModel</c> already carries a note about having paid for once.
+    /// </summary>
+    [Fact]
+    public void A_created_batch_reads_as_a_confirmation_and_a_refused_one_as_an_error()
+    {
+        var vm = NewSeededCompany("Multi Severity Co");
+        vm.ShowMultiLedgerCreate();
+        var m = vm.MultiMasterCreate!;
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+
+        // --- a refusal is an error and shows on the error line only.
+        TypeRow(m, 0, "Sierra Ltd", opening: "1.005");
+        Assert.False(m.Accept());
+        Assert.True(m.MessageIsError);
+        Assert.Equal(m.Message, m.ErrorMessage);
+        Assert.Null(m.ConfirmationMessage);
+
+        // --- the same screen, once the batch lands, shows on the confirmation line only.
+        m.Rows[0].OpeningBalanceText = "1.00";
+        Assert.True(m.Accept());
+        Assert.False(m.MessageIsError);
+        Assert.Equal("1 ledger created under Sundry Debtors.", m.Message);
+        Assert.Equal(m.Message, m.ConfirmationMessage);
+        Assert.Null(m.ErrorMessage);
+    }
+
     /// <summary>A blank grid refuses rather than silently succeeding with a "0 created" message.</summary>
     [Fact]
     public void An_empty_grid_is_refused()

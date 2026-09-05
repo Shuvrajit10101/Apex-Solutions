@@ -8231,9 +8231,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenGoTo()
     {
-        // Nothing to jump to before a company is open: the whole index is the open company's own menu.
-        if (Company is null || CurrentScreen is Screen.CompanySelect or Screen.CreateCompany) return;
+        if (!CanOpenGoTo) return;
         GoTo = new GoToViewModel(BuildGoToIndex());
+    }
+
+    /// <summary>
+    /// True when Go To can actually raise something — nothing to jump to before a company is open, since the
+    /// whole index IS the open company's own menu.
+    ///
+    /// <para>The button-bar badge and <see cref="OpenGoTo"/> both read this ONE predicate, so the bar can never
+    /// advertise an enabled "Alt+G · Go To" that fires nothing (register defect IV-31), and can never dim a
+    /// chord that would in fact have worked.</para>
+    /// </summary>
+    public bool CanOpenGoTo =>
+        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+
+    /// <summary>
+    /// The single door Alt+G and the button bar's "Go To" badge both run, so key and button cannot drift into
+    /// doing different things — the failure this file records for Alt+C and for Alt+A.
+    /// </summary>
+    public void ToggleGoTo()
+    {
+        if (IsGoToOpen) CloseGoTo();
+        else OpenGoTo();
     }
 
     /// <summary>Dismisses the Go To overlay, leaving the screen underneath exactly as it was.</summary>
@@ -9052,6 +9072,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // same rule the Alt+C row above records after key and button once did different things.
         ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
             () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
+
+        // W2-14 (row 14.1) — Alt+G GO TO. Advertised for the same reason Alt+2 above is: a chord nobody can
+        // find is not a feature, and this file already states that rule twice. Go To is worse than most in that
+        // respect — it has no menu row and no screen of its own by design, so the badge is the ONLY thing that
+        // tells an operator the chord exists. The click runs `ToggleGoTo`, the identical door the key runs, and
+        // the badge is enabled on exactly the predicate that door enforces.
+        ButtonBar.Add(new ButtonBarItem("Alt+G", "Go To", ToggleGoTo, CanOpenGoTo));
 
         // Create master + report quick-jumps (enabled once a company is open).
         // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster

@@ -157,6 +157,41 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
     [ObservableProperty] private MultiMasterUnderOption? _selectedUnderGroup;
     [ObservableProperty] private string? _message;
 
+    /// <summary>
+    /// True when <see cref="Message"/> is a REFUSAL, false when it is a CONFIRMATION.
+    ///
+    /// <para>🔴 This screen shipped its first draft with one text block bound to <see cref="Message"/> in the
+    /// alert colour, so "3 ledgers created under Sundry Debtors." printed in RED — a successful batch reported
+    /// as a failure. That is the same defect <c>CompanyProfileViewModel</c> already carries a note about, so
+    /// this screen uses that screen's remedy: the SEVERITY is decided here, where it is headlessly testable,
+    /// and the view binds one text block per severity rather than converting a brush.</para>
+    /// </summary>
+    [ObservableProperty] private bool _messageIsError;
+
+    /// <summary>The message line when it is a refusal, else <c>null</c>.</summary>
+    public string? ErrorMessage => MessageIsError ? Message : null;
+
+    /// <summary>The message line when it is a confirmation, else <c>null</c>.</summary>
+    public string? ConfirmationMessage => MessageIsError ? null : Message;
+
+    partial void OnMessageChanged(string? value) => RaiseMessageParts();
+    partial void OnMessageIsErrorChanged(bool value) => RaiseMessageParts();
+
+    private void RaiseMessageParts()
+    {
+        OnPropertyChanged(nameof(ErrorMessage));
+        OnPropertyChanged(nameof(ConfirmationMessage));
+    }
+
+    /// <summary>Refuses the batch with <paramref name="text"/>, and always returns <c>false</c> so every
+    /// refusal in <see cref="Accept"/> is a single <c>return Refuse(…)</c> that cannot forget the severity.</summary>
+    private bool Refuse(string text)
+    {
+        MessageIsError = true;
+        Message = text;
+        return false;
+    }
+
     /// <summary>True while the header names the "All Items" sentinel, i.e. each row carries its own Under.</summary>
     public bool IsAllItems => SelectedUnderGroup?.Group is null;
 
@@ -264,14 +299,12 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
     /// </summary>
     public bool Accept()
     {
+        MessageIsError = false;
         Message = null;
 
         var filled = Rows.Where(r => !r.IsBlank).ToList();
         if (filled.Count == 0)
-        {
-            Message = "Nothing to create — type at least one name.";
-            return false;
-        }
+            return Refuse("Nothing to create — type at least one name.");
 
         var headerGroup = SelectedUnderGroup?.Group;
         var pending = new List<PendingRow>(filled.Count);
@@ -292,23 +325,16 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
             }
             catch (InvalidOperationException ex)
             {
-                Message = $"{label}: {Decapitalise(ex.Message)}";
-                return false;
+                return Refuse($"{label}: {Decapitalise(ex.Message)}");
             }
 
             if (!claimed.Add(name))
-            {
-                Message = $"{label}: '{name}' is entered twice in this batch.";
-                return false;
-            }
+                return Refuse($"{label}: '{name}' is entered twice in this batch.");
 
             // --- Under: the header group when one is named, else this row's own pick.
             var under = headerGroup ?? row.Under;
             if (under is null)
-            {
-                Message = $"{label}: pick an Under group.";
-                return false;
-            }
+                return Refuse($"{label}: pick an Under group.");
 
             // --- opening balance (ledger grid only): the single-ledger master's three refusals, by row.
             var opening = Money.Zero;
@@ -319,24 +345,17 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
                 if (text.Length > 0)
                 {
                     if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
-                    {
-                        Message = $"{label}: opening balance must be an amount (e.g. 41237.53), or blank for nil.";
-                        return false;
-                    }
+                        return Refuse(
+                            $"{label}: opening balance must be an amount (e.g. 41237.53), or blank for nil.");
+
                     if (amount < 0m)
-                    {
-                        Message = $"{label}: opening balance cannot be negative — enter the amount and pick Cr " +
-                                  "for a credit balance.";
-                        return false;
-                    }
+                        return Refuse($"{label}: opening balance cannot be negative — enter the amount and " +
+                                      "pick Cr for a credit balance.");
 
                     opening = Money.FromRupees(amount);
                     if (!opening.IsPaisaExact)
-                    {
-                        Message = $"{label}: opening balance cannot be finer than a paisa " +
-                                  "(at most two decimal places).";
-                        return false;
-                    }
+                        return Refuse($"{label}: opening balance cannot be finer than a paisa " +
+                                      "(at most two decimal places).");
                 }
             }
 
@@ -362,8 +381,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         {
             // Defensive: every case above is pre-validated, so this arm should be unreachable. If the engine
             // ever refuses anyway, say so plainly rather than leaving a half-written batch silently persisted.
-            Message = ex.Message;
-            return false;
+            return Refuse(ex.Message);
         }
 
         _storage.Save(_company);
@@ -371,6 +389,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         var noun = Kind == MultiMasterKind.Ledger
             ? (pending.Count == 1 ? "ledger" : "ledgers")
             : (pending.Count == 1 ? "group" : "groups");
+        MessageIsError = false;
         Message = headerGroup is { } hg
             ? $"{pending.Count} {noun} created under {hg.Name}."
             : $"{pending.Count} {noun} created.";

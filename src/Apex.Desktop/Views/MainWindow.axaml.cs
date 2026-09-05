@@ -210,7 +210,7 @@ public partial class MainWindow : Window
         //     box, which is focused.
         if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
-            if (vm.IsGoToOpen) vm.CloseGoTo(); else vm.OpenGoTo();
+            vm.ToggleGoTo();          // the identical door the button bar's "Alt+G · Go To" badge runs
             e.Handled = true;
             return;
         }
@@ -219,8 +219,8 @@ public partial class MainWindow : Window
         {
             switch (e.Key)
             {
-                case Key.Down: vm.GoTo!.MoveDown(); e.Handled = true; return;
-                case Key.Up: vm.GoTo!.MoveUp(); e.Handled = true; return;
+                case Key.Down: vm.GoTo!.MoveDown(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
+                case Key.Up: vm.GoTo!.MoveUp(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
                 case Key.Enter: vm.ActivateGoTo(); e.Handled = true; return;
                 case Key.Escape: vm.CloseGoTo(); e.Handled = true; return;
             }
@@ -1579,6 +1579,36 @@ public partial class MainWindow : Window
     {
         if (sender is TextBox box) box.Focus();
     }
+
+    /// <summary>
+    /// W2-14 — drags the results panel to the highlighted row.
+    ///
+    /// <para>🔴 Why this cannot be left to the framework. Everywhere else in this shell a ScrollViewer follows
+    /// the keyboard for free, because the thing being moved is FOCUS and a focused control brings itself into
+    /// view. Go To deliberately keeps focus in the search box — that is the whole interaction, type and arrow
+    /// at once — so its rows are never focused and nothing scrolls on their behalf. The overlay opens
+    /// UNFILTERED over the entire menu, a couple of hundred rows in a 460px panel, so without this the
+    /// highlight is off the bottom of the panel after a dozen presses of Down and the operator is pressing
+    /// Enter on a screen whose name they were never shown.</para>
+    /// </summary>
+    private void ScrollGoToSelectionIntoView()
+    {
+        var index = Vm?.GoTo?.SelectedIndex ?? -1;
+        if (index < 0) return;
+
+        // The overlay lives inside a DataTemplate, so it is not a named field on this window.
+        var list = this.GetVisualDescendants().OfType<ItemsControl>()
+            .FirstOrDefault(c => c.Name == "GoToResults");
+        if (list?.ContainerFromIndex(index) is Control row) row.BringIntoView();
+    }
+
+    /// <summary>
+    /// W2-14 — retyping re-ranks the list and puts the highlight back on row one, so the panel has to come back
+    /// up with it. Posted rather than called inline: the rebuilt rows do not have containers until the layout
+    /// pass that follows this keystroke, and asking for row one's container before that returns nothing.
+    /// </summary>
+    private void OnGoToSearchTextChanged(object? sender, TextChangedEventArgs e)
+        => Dispatcher.UIThread.Post(ScrollGoToSelectionIntoView, DispatcherPriority.Background);
 
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();

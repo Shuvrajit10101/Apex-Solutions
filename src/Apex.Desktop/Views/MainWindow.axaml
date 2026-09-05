@@ -6016,8 +6016,9 @@
                               </Grid>
                             </Border>
 
-                            <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto">
-                              <ItemsControl ItemsSource="{Binding Rows}">
+                            <ScrollViewer Grid.Row="3" Name="MultiMasterRowsScroller"
+                                          Background="White" VerticalScrollBarVisibility="Auto">
+                              <ItemsControl Name="MultiMasterRows" ItemsSource="{Binding Rows}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:MultiMasterRowViewModel">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
@@ -6053,10 +6054,19 @@
                             </ScrollViewer>
 
                             <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                              <TextBlock Grid.Column="0" Text="{Binding Message}"
-                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                         Foreground="{StaticResource AlertRed}" FontSize="12"
-                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <!-- One text block per severity: a refused batch reads in the alert colour, a
+                                   created one in the brand colour. Binding both to Message in AlertRed printed
+                                   "3 ledgers created." in red — a success reported as a failure. -->
+                              <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding ErrorMessage}"
+                                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ConfirmationMessage}"
+                                           IsVisible="{Binding ConfirmationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                           TextWrapping="Wrap"/>
+                              </StackPanel>
                               <Button Grid.Column="1" Content="Create All (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnMultiMasterCreateClick"/>
@@ -17609,10 +17619,11 @@
                                 <TextBox Grid.Row="1" Name="GoToSearchBox" Margin="10,10,10,6"
                                          Text="{Binding SearchText, Mode=TwoWay}"
                                          AttachedToVisualTree="OnGoToSearchBoxAttached"
-                                         Watermark="Type a report, master or voucher name…"/>
+                                         TextChanged="OnGoToSearchTextChanged"
+                                         PlaceholderText="Type a report, master or voucher name…"/>
 
                                 <ScrollViewer Grid.Row="2" Margin="10,0">
-                                    <ItemsControl ItemsSource="{Binding Results}">
+                                    <ItemsControl Name="GoToResults" ItemsSource="{Binding Results}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:GoToDestination">
                                                 <Border Padding="8,4"
