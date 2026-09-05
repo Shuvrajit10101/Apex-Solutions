@@ -184,6 +184,8 @@ public enum GatewayMenu
     Budgets,
     Banking,
     OtherVouchers,
+    /// <summary>W2-18 (census row 14.9) — the Company menu column: Create / Alter / Select / Shut.</summary>
+    Company,
     OrderVouchers,
     InventoryVouchers,
     InventoryReports,
@@ -978,6 +980,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Company Alteration", () => AlterCompany = page);
     }
 
+    /// <summary>
+    /// W2-18 (census row 14.9) — <b>Shut Company</b>: RELEASES the open book and returns to Company Select.
+    ///
+    /// <para>🔴 <b>It is not a synonym for <see cref="ShowCompanySelect"/>, and the difference is the whole
+    /// point of having both rows on the menu.</b> "Select Company" navigates to the picker with the current book
+    /// still open behind it — press Esc and you are back in it. "Shut" closes the book: <see cref="Company"/>
+    /// goes null, the status line stops naming it, and every screen that reads <c>Company</c> is inert until one
+    /// is opened again. Two menu rows that did the same thing would make one of them a lie.</para>
+    ///
+    /// <para><b>Nothing is written and nothing is removed.</b> Every desktop write already funnels through
+    /// <c>CompanyStorage.Save</c> as it happens, so there is no dirty-buffer flush to do here; and Shut is
+    /// emphatically not Delete — the <c>.db</c> is left exactly where it is.</para>
+    ///
+    /// <para><b>The status fields are reset by hand because nothing else does it.</b> <see cref="Company"/> is a
+    /// plain property, not an <c>[ObservableProperty]</c>, so there is no change handler to hang this on;
+    /// <see cref="OpenCompany"/> sets these three together on the way in and this is their only way out.
+    /// <see cref="ShowCompanySelect"/> then clears the sub screens and the cascade.</para>
+    /// </summary>
+    public void ShutCompany()
+    {
+        Company = null;
+        StatusCompany = "No company loaded";
+        StatusDate = string.Empty;
+        ShowCompanySelect();
+    }
+
     /// <summary>Builds, saves and opens the embedded Robert demo (creating a populated company).</summary>
     public void LoadRobertDemo()
     {
@@ -1123,6 +1151,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // the rest of Phase 10 (security, roles, audit trail, vault) stays excluded.
         col.Add(MenuItemViewModel.Header("Data"));
         col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // ---- COMPANY (W2-18, census row 14.9) ----
+        // The reference product's company menu — Create / Alter / Select / Shut — which this Gateway had no
+        // column for at all: Create Company was reachable only from the Company-Select screen and "Alter
+        // Company" was an orphan Page row under Masters.
+        //
+        // 🔴 PLACED HERE, AT THE BOTTOM BESIDE DATA, AND THAT IS A CORRECTION HONOURED RATHER THAN REPEATED.
+        // IV-29 / W0-2's record says a "Company" section placed AHEAD of Masters was wrong on three counts, the
+        // decisive one being that it moved the Gateway's default keyboard highlight off Masters → Create for
+        // every entry into the screen. Sitting after Data, immediately above the company-changing action row it
+        // is a superset of, the first selectable row is still Masters → Create and no highlight moves.
+        //
+        // 🔴 THE MASTERS "Alter Company" ROW IS DELIBERATELY LEFT WHERE IT IS. This column is ADDITIVE: two
+        // routes to one screen, exactly as Backup / Restore already has. Moving that row would be a navigation
+        // change riding in on a menu slice — the very thing IV-29 diagnoses — and two shipped tests pin it there.
+        col.Add(MenuItemViewModel.Header("Company"));
+        col.Add(new MenuItemViewModel("Company", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -1325,6 +1370,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Backup / Restore"));
         col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// W2-18 (census row 14.9) — builds the <b>Company</b> submenu column: the reference product's four company
+    /// verbs, nested under their own header rather than dumped flat.
+    ///
+    /// <para><b>FIDELITY (R7; RULING 14 — grounded on the vendor's help, the corpus being gone).</b>
+    /// <i>help.tallysolutions.com/set-up-company-tally/</i> gives <i>"press Alt+K (Company) &gt; Create"</i> and
+    /// <i>"press Alt+K (Company) &gt; Alter"</i>; <i>…/company-faq-tally/</i> gives <b>Alt+F3</b> for Select
+    /// Company and <b>Alt+F1</b> for Shut Cmp. Those four verbs are the column.</para>
+    ///
+    /// <para>🔴 <b>NONE OF THOSE CHORDS IS TAKEN HERE, AND THAT IS A REPORTED CONFLICT, NOT A DECISION.</b>
+    /// <b>Alt+K</b> is spent on the RQ-8 Saved Views panel; <b>Alt+F1</b> and <b>Alt+F3</b> are spent on the
+    /// report detail toggle and the report period window. Breadth-design ruling <b>R12</b> puts the question
+    /// ("which chord does the Company menu take, or does Saved Views move?") inside open user ruling <b>U-6</b>,
+    /// which wave 3 widened to eight chords across five areas and reframed as a navigation-shell question. A
+    /// build agent must not re-assign a chord on its own authority, so the VERB gets a route — this column, on
+    /// the Gateway root, which is where this product's navigation lives — and every one of those chords is left
+    /// exactly where it is.</para>
+    /// </summary>
+    private GatewayColumn BuildCompanyColumn()
+    {
+        var col = new GatewayColumn("Company");
+        col.Add(MenuItemViewModel.Header("Company"));
+        col.Add(new MenuItemViewModel("Create Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Alter Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Select Company", () => { }, "F3", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Shut Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -5904,6 +5978,117 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return VoucherAlterationRequest.Opened;
     }
 
+    // ============================================ W2-15 (row 5.4): Alt+2 — DUPLICATE the highlighted voucher
+
+    /// <summary>
+    /// <b>Alt+2 — open a COPY of the highlighted posted voucher as a fresh entry</b> (census row 5.4). Returns
+    /// the same three-valued <see cref="VoucherAlterationRequest"/> the alteration door returns, and for the same
+    /// reason: <c>NoVoucherHere</c> must fall through (nothing was chosen — there is nothing to say), while
+    /// <c>Refused</c> must be consumed, because a named sentence is already on the notice bar and
+    /// <c>OnCurrentScreenChanged</c> wipes it on the way past.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> <i>help.tallysolutions.com/day-book-tally/</i> gives the verb and
+    /// the chord verbatim — <i>"Press <b>Alt</b>+<b>2</b> (Duplicate Vch)"</i> — on the Day Book. <c>Key.D2</c>
+    /// had ZERO hits anywhere in <c>src/</c>, so this is a free addition of an attested chord, not a
+    /// re-assignment of an occupied one; nothing in the open U-6 chord ruling is touched.</para>
+    ///
+    /// <para><b>The three surfaces are EXACTLY <see cref="IsVoucherAlterTargetPage"/>'s</b>, resolved by the very
+    /// same <c>CurrentScreen</c> switch Ctrl+Enter uses. Duplicate and Alter must never disagree about which
+    /// document the highlight means — the same rule that already binds Alt+D and Ctrl+Enter together.</para>
+    ///
+    /// <para><b>The armed-confirmation gate is the alteration door's, verbatim in effect.</b> An armed Alt+X /
+    /// Alt+D question names a voucher and is answered by a bare Y; opening an entry screen over it would carry
+    /// the arming into a screen that cannot show the question.</para>
+    ///
+    /// <para>🔴 <b>What this deliberately does NOT do — Insert Voucher (census row 5.5) is NOT built here.</b>
+    /// The vendor's Insert (<i>"Select the entry above which you want to insert the transaction, press
+    /// <b>Alt</b>+<b>I</b> (Insert Vch)"</i>) differs from the shipped Alt+A "Add voucher in a report" — which
+    /// already seeds the new voucher with the highlighted row's date — in exactly one respect: inserting between
+    /// two existing vouchers <i>"causes all subsequent vouchers of that type to be renumbered"</i>. That
+    /// renumbering rewrites document numbers on vouchers that have already been issued, which collides head-on
+    /// with the freezes <see cref="VoucherAlterationEligibility"/> already enforces (a live IRN, a challan
+    /// record). It needs a user ruling, and Alt+I is in any case spent on the POS tender-mode toggle. Row 5.5
+    /// therefore stays ABSENT rather than being closed by a second name for a verb that already exists.</para>
+    /// </summary>
+    public VoucherAlterationRequest RequestDuplicateHighlightedVoucher()
+    {
+        if (Company is null) return VoucherAlterationRequest.NoVoucherHere;
+
+        if (IsAcceptPromptOpen)
+        {
+            RaiseLifecycleNotice(
+                "Answer the question on screen first (Y or N) — Alt+2 does nothing while it is up.");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var voucherId = CurrentScreen switch
+        {
+            Screen.Report => Reports?.SelectedRow?.DrillVoucherId,
+            Screen.LedgerVouchers => LedgerVouchers?.SelectedRow?.DrillVoucherId,
+            Screen.VoucherDetail => VoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
+        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+
+        return ShowVoucherDuplicate(voucher);
+    }
+
+    /// <summary>
+    /// Opens a fresh entry screen pre-filled from <paramref name="voucher"/>, or puts its named refusal on the
+    /// notice bar. The duplicate sibling of <see cref="ShowVoucherAlteration"/>.
+    ///
+    /// <para><b>It opens as a DRILL column for the identical reason the alteration does</b>:
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// or register the operator duplicated FROM, and Esc would then return to the Gateway instead of to the row
+    /// they were standing on.</para>
+    ///
+    /// <para>🔴 <b>There is no POS branch here, and its absence is deliberate.</b>
+    /// <see cref="ShowVoucherAlteration"/> re-routes a POS bill to the POS screen because a posted bill's tender
+    /// split is fully recoverable and must be amended somewhere. A POS bill's DUPLICATE is a different question —
+    /// a till receipt is raised by taking money at a counter, not by copying yesterday's — and
+    /// <see cref="VoucherAlterationEligibility"/> already refuses it by name before this method is reached. It is
+    /// left refused rather than silently routed, and that is recorded as OURS.</para>
+    /// </summary>
+    private VoucherAlterationRequest ShowVoucherDuplicate(Voucher voucher)
+    {
+        // Captured as INSTANCES, exactly as the alteration door captures them: OpenDrillColumn does not clear the
+        // sub screens, but a later pop rebinds them, so a closure reading `Reports` at save time could see a
+        // different report.
+        var report = Reports;
+        var register = LedgerVouchers;
+
+        var open = VoucherEntryViewModel.ForDuplicate(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                // Pop the duplicate column, then re-render whatever survived beneath it so the NEW voucher is on
+                // screen without the operator re-opening the report. The voucher-detail pane is deliberately NOT
+                // refreshed here (unlike the alteration door): it projects the SOURCE voucher, which a duplicate
+                // does not touch, so there is nothing on it that could have gone stale.
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Accounting Voucher Creation — {entry.Type.Name} (Duplicate)";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Duplicate", entry),
+            Screen.VoucherEntry, title, () => VoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
     /// <summary>
     /// Opens <paramref name="voucher"/>'s alteration on the POS BILLING screen, or puts its named refusal on the
     /// notice bar. The POS sibling of <see cref="ShowVoucherAlteration"/>, and it opens a DRILL column for the
@@ -7422,6 +7607,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Backup / Restore (the R-7 carve-out).
             "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
                 "Gateway of Apex Solutions — Backup / Restore"),
+            // Company → Create / Alter / Select / Shut (W2-18, census row 14.9).
+            "Company" => (BuildCompanyColumn(), GatewayMenu.Company,
+                "Gateway of Apex Solutions — Company"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -7449,6 +7637,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             // Company → Alter Company (the open company's own profile).
             case "Alter Company": ShowAlterCompany(); break;
+            // W2-18 (census row 14.9) — the other three verbs on the Company column.
+            case "Create Company": ShowCreateCompany(); break;
+            case "Select Company": ShowCompanySelect(); break;
+            case "Shut Company": ShutCompany(); break;
             // Data → Backup / Restore (the R-7 carve-out).
             case "Backup Company": OpenBackupCompany(); break;
             case "Restore Company": OpenRestoreCompany(); break;
@@ -8086,6 +8278,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
+
+        // W2-15 (row 5.4) — Alt+2 DUPLICATE. Advertised rather than key-only: a chord nobody can find is not a
+        // feature, and this file's own Data-section comment states that rule. It is ENABLED on exactly the three
+        // surfaces the chord bites on (`IsVoucherAlterTargetPage` — the live report page, the register drill, the
+        // voucher-detail column) and DIMMED everywhere else, because an enabled badge that fires nothing is
+        // register defect IV-31. The click runs the identical door the key runs, so the two cannot drift — the
+        // same rule the Alt+C row above records after key and button once did different things.
+        ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
+            () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
 
         // Create master + report quick-jumps (enabled once a company is open).
         // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster

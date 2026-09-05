@@ -273,6 +273,49 @@ public partial class MainWindow : Window
             return;
         }
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-15 (census row 5.4) — Alt+2 DUPLICATES the highlighted posted voucher.                        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is grounded on the vendor's own help).
+        // help.tallysolutions.com/day-book-tally/ names the Day-Book verb and its chord verbatim: "Press Alt+2
+        // (Duplicate Vch)". This is a FREE ADDITION, not a re-assignment: `Key.D2` — indeed every `Key.D<digit>`
+        // — had ZERO hits anywhere in src/ before this line, so nothing in the open U-6 chord ruling is disturbed
+        // and no existing binding is displaced.
+        //
+        // 🔴 ITS SIBLING IS NOT BUILT, and that is stated here rather than left as a gap for someone to "fix".
+        // The vendor's Insert Voucher ("Select the entry above which you want to insert the transaction, press
+        // Alt+I (Insert Vch)") is NOT bound, for two independent reasons: Alt+I is already spent on the POS
+        // tender-mode toggle further down this file, and the only behaviour that distinguishes Insert from the
+        // shipped Alt+A "Add voucher in a report" — which already seeds the new voucher with the highlighted
+        // row's date — is that inserting between two vouchers renumbers every later voucher of that type. That
+        // rewrites document numbers on already-issued documents, which is precisely what the IRN and challan
+        // freezes in `VoucherAlterationEligibility` exist to prevent. It needs a user ruling, not a keystroke.
+        //
+        // SCOPE, ORDER AND CONSUMPTION are the Ctrl+Enter arm's, deliberately and for its reasons:
+        //   • `vm.IsVoucherAlterTargetPage` — the SAME three surfaces (live report page, register drill,
+        //     voucher-detail column), so Duplicate and Alter can never disagree about which document the
+        //     highlight means. `RequestDuplicateHighlightedVoucher`'s own `CurrentScreen` switch is the thing
+        //     that actually decides, exactly as it is for Ctrl+Enter.
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`: Ctrl+Alt+2 and Alt+Shift+2
+        //     are different chords, and on several layouts Alt+Shift+2 is the at-sign. (Spelled out rather than
+        //     quoted: CompanyCaptureReachTests.BlankComments scans this file for a verbatim-string opener, and a
+        //     quoted at-sign directly after a double quote reads as exactly that.)
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — defence in depth, labelled as honestly as the arm above
+        //     labels its own: on the three surfaces reachable at this commit neither clause can change the
+        //     outcome, and neither is independently pinnable. Do not write a test claiming to pin them.
+        //   • `e.Handled` is NOT unconditional, for the identical three-valued reason: Opened/Refused are
+        //     consumed (a refusal has just been written to the notice bar, which `OnCurrentScreenChanged` would
+        //     wipe), NoVoucherHere is not (nothing was chosen, so nothing is claimed).
+        // Placed ABOVE the bare-`Key.D2` region of the file — there is none — and above the Alt-letter block far
+        // below, which switches on letters only and would never see a digit.
+        if (e.Key == Key.D2 && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
+            && vm.RequestDuplicateHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
         // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble
