@@ -202,6 +202,12 @@ public enum GatewayMenu
     BankBook,
     LedgerBooks,
 
+    // W2-12 (census 11.7): Reports → Account Books → Groups → Group Summary / Group Vouchers each open a
+    // DATA-DRIVEN picker column of the company's own accounting groups, mirroring the ledger-book pickers
+    // above (so a bare letter FILTERS the list rather than firing a computed hotkey — the WI-2/WI-9 rule).
+    GroupSummaryPicker,
+    GroupVouchersPicker,
+
     // Reports → Statutory Reports (Phase 7 slice 8): the TDS/TCS exception & outstanding reports, nested under
     // TDS Reports / TCS Reports sub-groups (+ a common Ledgers-without-PAN report spanning both taxes).
     StatutoryReports,
@@ -1423,6 +1429,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Forex Gain/Loss", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
+        // places it under Statement of Accounts, which is this hub.
+        col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -1649,8 +1658,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Apex.Ledger.Reports.LedgerBook"/> via the existing RQ-7 drill (<see cref="OpenLedgerVouchers"/>) —
     /// a pure reuse of an existing projection, no new engine report. Cash Book / Bank Book are the Ledger book
     /// filtered to a Cash-in-Hand / Bank ledger (<see cref="Apex.Ledger.Reports.ClassificationRules"/>). The
-    /// per-voucher registers (Sales / Purchase / … registers) reuse the Day Book filtered by voucher type and
-    /// are surfaced elsewhere; they are noted for a later slice.
+    /// per-voucher registers (Sales / Purchase / …) are the <b>Registers</b> section below.
+    ///
+    /// <para><b>W2-12 (census 11.6 / 11.7)</b> added two further sections, so the column nests under three
+    /// named headers and is never a flat dump. 🔴 The <b>Registers</b> rows are NOT the Day Book filtered by
+    /// voucher type — that note used to stand here and was wrong. A register opens <b>month-wise</b> and the
+    /// voucher-wise listing is what a month row drills into; see
+    /// <see cref="Apex.Ledger.Reports.VoucherRegister"/>.</para>
     /// </summary>
     private GatewayColumn BuildAccountBooksColumn()
     {
@@ -1659,7 +1673,72 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Cash Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Bank Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Ledger", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // ---- REGISTERS (census 11.6) ----
+        col.Add(MenuItemViewModel.Header("Registers"));
+        col.Add(new MenuItemViewModel("Sales Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Purchase Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Credit Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Debit Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- GROUPS (census 11.7) — each drills into a picker of the company's own groups. ----
+        col.Add(MenuItemViewModel.Header("Groups"));
+        col.Add(new MenuItemViewModel("Group Summary", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Group Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         return col;
+    }
+
+    /// <summary>
+    /// Builds a group-picker submenu column for a W2-12 group report (Group Summary / Group Vouchers): one
+    /// page item per accounting group, name-sorted. Activating a group opens that report scoped to it.
+    /// Data-driven like the ledger-book pickers, so a bare letter filters rather than activating.
+    /// </summary>
+    private GatewayColumn BuildGroupPickerColumn(string title)
+    {
+        var col = new GatewayColumn(title) { Kind = GatewayColumnKind.DataDriven };
+        col.Add(MenuItemViewModel.Header(title));
+
+        var groups = Company is null
+            ? System.Array.Empty<Apex.Ledger.Domain.Group>()
+            : Company.Groups.OrderBy(g => g.Name, System.StringComparer.OrdinalIgnoreCase).ToArray();
+
+        if (groups.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no groups)"));
+        else
+            foreach (var group in groups)
+                col.Add(new MenuItemViewModel(group.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        return col;
+    }
+
+    /// <summary>Opens "Reports → Account Books → Group Summary" (the group picker) directly.</summary>
+    public void ShowGroupSummaryMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildGroupPickerColumn("Group Summary"), GatewayMenu.GroupSummaryPicker,
+            "Gateway of Apex Solutions — Group Summary");
+    }
+
+    /// <summary>Opens "Reports → Account Books → Group Vouchers" (the group picker) directly.</summary>
+    public void ShowGroupVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildGroupPickerColumn("Group Vouchers"), GatewayMenu.GroupVouchersPicker,
+            "Gateway of Apex Solutions — Group Vouchers");
+    }
+
+    /// <summary>
+    /// Opens a group-scoped W2-12 report for the group with <paramref name="groupName"/> (the label of a row
+    /// in the group picker). A safe no-op when the name does not resolve.
+    /// </summary>
+    public void OpenGroupReportByName(ReportKind kind, string groupName)
+    {
+        var group = Company?.FindGroupByName(groupName);
+        if (group is null) return;
+        OpenGroupReport(kind, group.Id);
     }
 
     /// <summary>
@@ -2204,14 +2283,73 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
 
         var reports = new ReportsViewModel(Company, kind, stockItemId);
-        if (kind == ReportKind.StockSummary)
+        WireReportDrills(reports);
+        OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
+            () => Reports = reports);
+    }
+
+    /// <summary>
+    /// Wires every RQ-7 drill event a report can raise to the shell handler that opens its target. Factored
+    /// out of <see cref="OpenReport"/> so the W2-12 openers below — which construct a scoped
+    /// <see cref="ReportsViewModel"/> rather than calling <see cref="OpenReport"/> — cannot silently ship a
+    /// report whose rows look drillable and do nothing.
+    /// </summary>
+    private void WireReportDrills(ReportsViewModel reports)
+    {
+        if (reports.Kind == ReportKind.StockSummary)
             reports.DrillToMovementRequested += id => OpenReport(ReportKind.StockItemMovement, id);
         // RQ-7 universal drill-down: a TB/BS/P&L ledger row opens that ledger's vouchers as a NEW cascading
         // column (the report pane persists); a Day Book row opens the voucher's read-only detail.
         reports.DrillToLedgerRequested += (ledgerId, from, to, movement) => OpenLedgerVouchers(ledgerId, from, to, movement);
         reports.DrillToVoucherRequested += OpenVoucherDetail;
-        OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
-            () => Reports = reports);
+
+        // ---- W2-12 (census 11.6 / 11.7) ----
+        reports.DrillToRegisterMonthRequested += (kind, from, to) => OpenRegisterMonth(kind, from, to);
+        reports.DrillToGroupSummaryRequested += groupId => OpenGroupReport(ReportKind.GroupSummary, groupId);
+        reports.DrillToLedgerMonthlyRequested += (ledgerId, from, to) => OpenLedgerMonthlySummary(ledgerId, from, to);
+    }
+
+    /// <summary>
+    /// W2-12 (census 11.6). Opens a register's <b>voucher-wise</b> level for one month, as its OWN cascade
+    /// column to the right of the month-wise register it drilled from — so the month list persists beneath
+    /// and Esc/Back restores it, exactly like every other drill in the product.
+    /// </summary>
+    public void OpenRegisterMonth(ReportKind kind, DateOnly from, DateOnly to)
+    {
+        if (Company is null) return;
+
+        var vm = new ReportsViewModel(Company, kind,
+            period: new Apex.Ledger.Reports.PeriodRange(from, to), registerVoucherLevel: true);
+        WireReportDrills(vm);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
+    }
+
+    /// <summary>
+    /// W2-12 (census 11.7). Opens a group-scoped report (Group Summary / Group Vouchers) as a page column.
+    /// A safe no-op on an unknown group id.
+    /// </summary>
+    public void OpenGroupReport(ReportKind kind, Guid groupId)
+    {
+        if (Company is null || groupId == Guid.Empty) return;
+
+        var vm = new ReportsViewModel(Company, kind, scopeMasterId: groupId);
+        WireReportDrills(vm);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
+    }
+
+    /// <summary>
+    /// W2-12 (census T1-32). Opens a ledger's Monthly Summary as a drill column — the level between a group
+    /// or account book and the voucher list. Its month rows drill on into
+    /// <see cref="OpenLedgerVouchers"/> for that month.
+    /// </summary>
+    public void OpenLedgerMonthlySummary(Guid ledgerId, DateOnly from, DateOnly to)
+    {
+        if (Company is null || ledgerId == Guid.Empty) return;
+
+        var vm = new ReportsViewModel(Company, ReportKind.LedgerMonthlySummary,
+            scopeMasterId: ledgerId, period: new Apex.Ledger.Reports.PeriodRange(from, to));
+        WireReportDrills(vm);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
     }
 
     /// <summary>
@@ -7393,6 +7531,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
                 BuildLedgerBookPickerColumn("Ledger", _ => true),
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
+            // W2-12 (census 11.7): the two group reports each open a picker of the company's own groups.
+            "Group Summary" => (BuildGroupPickerColumn("Group Summary"), GatewayMenu.GroupSummaryPicker,
+                "Gateway of Apex Solutions — Group Summary"),
+            "Group Vouchers" => (BuildGroupPickerColumn("Group Vouchers"), GatewayMenu.GroupVouchersPicker,
+                "Gateway of Apex Solutions — Group Vouchers"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
             "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
@@ -7442,6 +7585,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentGatewayMenu is GatewayMenu.CashBook or GatewayMenu.BankBook or GatewayMenu.LedgerBooks)
         {
             OpenAccountBook(item.Label);
+            return;
+        }
+
+        // W2-12 (census 11.7): inside a group picker every Page row is a GROUP NAME — open that group's
+        // report rather than falling through to the fixed label switch (where "Group" means the master).
+        if (CurrentGatewayMenu is GatewayMenu.GroupSummaryPicker)
+        {
+            OpenGroupReportByName(ReportKind.GroupSummary, item.Label);
+            return;
+        }
+
+        if (CurrentGatewayMenu is GatewayMenu.GroupVouchersPicker)
+        {
+            OpenGroupReportByName(ReportKind.GroupVouchers, item.Label);
             return;
         }
 
@@ -7558,6 +7715,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
+            case "Sales Register": OpenReport(ReportKind.SalesRegister); break;
+            case "Purchase Register": OpenReport(ReportKind.PurchaseRegister); break;
+            case "Journal Register": OpenReport(ReportKind.JournalRegister); break;
+            case "Credit Note Register": OpenReport(ReportKind.CreditNoteRegister); break;
+            case "Debit Note Register": OpenReport(ReportKind.DebitNoteRegister); break;
+            // W2-12 (census 11.8) — Reports → Statements of Accounts → Statistics.
+            case "Statistics": OpenReport(ReportKind.Statistics); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
