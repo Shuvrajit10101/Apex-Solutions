@@ -265,7 +265,27 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// Plus the structural precondition that we are actually in an invoice mode (the plain grid keeps its own
     /// per-line panel).
     /// </summary>
-    public bool ShowInvoiceBillWise => InvoiceBillWiseApplies && !UseDefaultBillWiseAllocation;
+    public bool ShowInvoiceBillWise =>
+        InvoiceBillWiseApplies && (!UseDefaultBillWiseAllocation || MoreDetailsBillWiseRequested);
+
+    /// <summary>
+    /// 🔴 <b>Ctrl+I "More Details" asked for the Bill-wise screen ON THIS VOUCHER ONLY</b> (census 14.4).
+    ///
+    /// <para>Vendor, verbatim: <i>"press Ctrl+I (More Details) to enter any of the values <b>without
+    /// activating the options in F12 (Configure)</b>."</i> That bolded half is the whole feature, and it is
+    /// why this is a SECOND flag rather than More Details simply setting
+    /// <see cref="UseDefaultBillWiseAllocation"/> to false. The knob is screen state that outlives this
+    /// voucher; flipping it would change every subsequent entry on the screen, which is precisely what the
+    /// vendor says More Details does not do. This flag dies with the voucher entry screen, and
+    /// <see cref="MoreDetailsViewModel"/> is its only writer.</para>
+    /// </summary>
+    [ObservableProperty] private bool _moreDetailsBillWiseRequested;
+
+    partial void OnMoreDetailsBillWiseRequestedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowInvoiceBillWise));
+        Recalculate();
+    }
 
     /// <summary>
     /// Whether bill-wise allocation <b>applies</b> to this invoice at all — the structural precondition (an invoice
@@ -641,6 +661,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
     partial void OnUseBatchWiseDetailsChanged(bool value) => RecalculateItemInvoice();
 
+    /// <summary>
+    /// 🔴 <b>Ctrl+I "More Details" asked for the batch sub-screen ON THIS VOUCHER ONLY</b> (census 14.4). The
+    /// per-instance twin of <see cref="UseBatchWiseDetails"/>, for the same reason
+    /// <see cref="MoreDetailsBillWiseRequested"/> exists: the vendor's More Details reaches an option-gated
+    /// field "without activating the options in F12 (Configure)", so the knob above must come out of this
+    /// unchanged. <see cref="MoreDetailsViewModel"/> is its only writer.
+    /// </summary>
+    [ObservableProperty] private bool _moreDetailsBatchRequested;
+
+    partial void OnMoreDetailsBatchRequestedChanged(bool value) => RecalculateItemInvoice();
+
     /// <summary>True iff the layer-4 batch knob is worth showing at all — a Sales/Purchase item invoice on a
     /// company that maintains batch-wise details (C-06). Off ⇒ the checkbox never appears (ER-13).</summary>
     public bool CanUseBatchWiseDetails => CanBeItemInvoice && _company.MaintainBatchwiseDetails;
@@ -668,7 +699,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     public bool LineWantsBatchAllocation(InventoryVoucherLineViewModel line) =>
         _company.MaintainBatchwiseDetails
-        && UseBatchWiseDetails
+        && (UseBatchWiseDetails || MoreDetailsBatchRequested)   // Ctrl+I reveals L4 for THIS voucher only
         && IsItemInvoice && CanBeItemInvoice
         && line is { ShowsBatch: true, SelectedItem: { MaintainInBatches: true }, SelectedGodown: not null }
         && line.ParsedQuantity > 0m;

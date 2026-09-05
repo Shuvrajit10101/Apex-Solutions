@@ -16745,6 +16745,122 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+G "Switch To" (census 14.2 — jump to any destination the Gateway can reach).
+                         The typed PREFIX is painted in the header on purpose: a list that silently shrinks under
+                         an invisible filter is a defect, not a feature, and this is the first prefix filter in
+                         the product. -->
+                    <ContentControl IsVisible="{Binding SwitchTo, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SwitchTo}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SwitchToViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,6"/>
+
+                            <Border Grid.Row="1" Background="#FFF8E1"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="8,5" Margin="0,0,0,8">
+                              <TextBlock Text="{Binding PrefixDisplay}" FontSize="12.5" FontWeight="SemiBold"
+                                         Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ScrollViewer>
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SwitchToRowViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*" Height="26">
+                                          <!-- The keyboard cursor. Declared FIRST so it paints BEHIND the text,
+                                               converter-free, exactly as every other list in this shell does. -->
+                                          <Border Background="#FFF3CD" IsVisible="{Binding IsHighlighted}"/>
+                                          <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                                      Margin="8,0">
+                                            <!-- The parent section ALWAYS reads first: this list is nested by
+                                                 construction, never a flat dump of ~120 page names. -->
+                                            <TextBlock Text="{Binding Section}" FontSize="11.5"
+                                                       Foreground="#6A6A6A" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text=" › " FontSize="11.5" Foreground="#6A6A6A"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Label}" FontSize="12.5"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                          </StackPanel>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Grid.Row="3" Text="{Binding Status}"
+                                       Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Ctrl+I "More Details" (census 14.4 — reach an option-gated optional field for THIS
+                         voucher, without changing the option). The footnote naming what this build cannot offer
+                         is part of the feature, not decoration. -->
+                    <ContentControl IsVisible="{Binding MoreDetails, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MoreDetails}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MoreDetailsViewModel">
+                          <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ScrollViewer>
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MoreDetailsRowViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,Auto" Height="44">
+                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
+                                          <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="8,0">
+                                            <TextBlock Text="{Binding Label}" FontSize="12.5"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <!-- Naming the option that is hiding the field is what makes this a
+                                                 "without activating the options" panel rather than a mystery
+                                                 list: the operator can see WHY the field was not on screen. -->
+                                            <TextBlock Text="{Binding OwningOption}" FontSize="11"
+                                                       Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                          </StackPanel>
+                                          <TextBlock Grid.Column="1" Text="Shown on this voucher"
+                                                     IsVisible="{Binding IsRevealed}"
+                                                     FontSize="11" FontWeight="SemiBold" Foreground="#2E7D32"
+                                                     VerticalAlignment="Center" Margin="8,0,10,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Grid.Row="2" Text="{Binding Status}"
+                                       Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,6" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="3" Text="{Binding Footnote}"
+                                       Foreground="#8A5A00" FontSize="11"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Print Preview (RQ-9 / DP-8 — render the report to a de-branded PDF and preview it) -->
                     <ContentControl IsVisible="{Binding PrintPreview, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintPreview}">

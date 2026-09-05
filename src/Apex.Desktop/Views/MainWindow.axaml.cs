@@ -365,6 +365,14 @@ public partial class MainWindow : Window
                 vm.ApplySaveView();
             else if (vm.CurrentScreen == Screen.SavedViews)
                 vm.OpenSelectedSavedView();
+            // Ctrl+G "Switch To" (census 14.2) and Ctrl+I "More Details" (14.4): Ctrl+A is the accept every
+            // other column in this shell advertises, so both panels answer it as well as Enter. Without these
+            // two arms Ctrl+A on either panel would fall through to the voucher/company accept below and act on
+            // whatever page happens to be sitting underneath — a keystroke landing on the wrong screen.
+            else if (vm.CurrentScreen == Screen.SwitchTo)
+                vm.TakeSwitchToDestination();
+            else if (vm.CurrentScreen == Screen.MoreDetails)
+                vm.TakeMoreDetailsRow();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -466,6 +474,78 @@ public partial class MainWindow : Window
                 case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
                 case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
                 case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
+            }
+        }
+
+        // ============================================================ THE SHELL CHORD TABLE
+        //
+        // ShellChordTable is consulted ONCE, here, and nothing already in the chain below moves. The position
+        // is chosen, not convenient:
+        //   • AFTER the master-accept prompt, so a pending "accept this master?" question still owns the
+        //     keyboard — the D2 work-loss class that arm exists for is untouched.
+        //   • BEFORE the ~55 legacy arms, so the table is where a chord is DECIDED rather than one more
+        //     candidate among them, which is the property that makes re-pointing a chord a one-line edit.
+        //
+        // 🔴 It is safe for exactly these chords because of what they are NOT. The two guards the chain relies
+        // on above the legacy arms are this accept prompt (already answered) and the open-dropdown guard
+        // (IsPickerOpen), which protects Up / Down / Enter / Left / Escape. Every chord in the table is a
+        // MODIFIER chord on a letter or an F-key, so none of those five, and none competes with type-ahead or
+        // with a focused TextBox.
+        //
+        // 🔴 Modifiers are matched EXACTLY (== in ShellChordTable.Match), never with HasFlag. That is what
+        // makes claiming Alt+F3 and Ctrl+F3 a NARROWING rather than a theft: bare F3 does not match either
+        // entry and still falls through to `case Key.F3:` in the trailing switch, where it always went. Before
+        // this table those two chords had no arm of their own anywhere — no F3 case exists in the Control block
+        // or the Alt block — so they fell into that unguarded bare-F3 arm and silently fired the button bar's
+        // F3 action. Nothing documented that alias; it was an accident, and this is where it ends.
+        if (ShellChordTable.Match(vm, e.Key, e.KeyModifiers) is { } chord)
+        {
+            chord.Fire(vm);
+            e.Handled = true;
+            return;
+        }
+
+        // ------------------------------------------------------------ Ctrl+G "Switch To" panel (census 14.2)
+        //
+        // The panel OWNS the keyboard while it is up, and that is the feature: a bare letter TYPES INTO ITS
+        // PREFIX FILTER instead of activating a menu hotkey or jumping a type-ahead cursor. Placed immediately
+        // after the table and before every bare-letter arm below, because those arms would otherwise eat the
+        // very characters the operator is filtering with.
+        if (vm.CurrentScreen == Screen.SwitchTo && vm.SwitchTo is not null)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.SwitchToMoveDown(); e.Handled = true; return;
+                case Key.Up: vm.SwitchToMoveUp(); e.Handled = true; return;
+                case Key.Enter: vm.TakeSwitchToDestination(); e.Handled = true; return;
+                case Key.Back: vm.SwitchToBackspace(); e.Handled = true; return;
+            }
+
+            // Escape is deliberately NOT handled here: it falls through to `case Key.Escape` → vm.Back(), which
+            // pops the column and clears the panel. One way out, the same one every other column has.
+            //
+            // The printable character comes from e.KeySymbol rather than being reconstructed from e.Key, so the
+            // filter is fed what the operator's own keyboard layout produced. e.Key would give "Key.Z" on a
+            // French AZERTY 'w' and would need a hand-written map of every layout to fix — the kind of
+            // platform assumption this project keeps catching on CI.
+            if (e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift
+                && e.KeySymbol is { Length: 1 } symbol && !char.IsControl(symbol[0]))
+            {
+                vm.SwitchToType(symbol[0]);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // ------------------------------------------------------------ Ctrl+I "More Details" panel (census 14.4)
+        // Arrows + Enter only; the panel has no filter, so bare letters keep their usual meaning.
+        if (vm.CurrentScreen == Screen.MoreDetails && vm.MoreDetails is not null)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.MoreDetailsMoveDown(); e.Handled = true; return;
+                case Key.Up: vm.MoreDetailsMoveUp(); e.Handled = true; return;
+                case Key.Enter: vm.TakeMoreDetailsRow(); e.Handled = true; return;
             }
         }
 
@@ -862,13 +942,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ctrl+I toggles a Purchase/Sales voucher between plain accounting and item-invoice ("as invoice") mode.
-        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            vm.ToggleItemInvoice();
-            e.Handled = true;
-            return;
-        }
+        // 🔴 Ctrl+I WAS HERE, bound to vm.ToggleItemInvoice() with NO context guard — consumed app-wide, on every
+        // screen, including the ~157 where the toggle is a no-op. It now enters through ShellChordTable above,
+        // pointing at More Details (census 14.4), which is the chord the vendor gives it. NO CAPABILITY IS LOST:
+        // Ctrl+H "Change Mode" (below) already cycles Purchase/Sales through the invoice modes and is the
+        // vendor-attested chord for doing so, and vm.ToggleItemInvoice() itself is untouched and still on the
+        // button bar. Do not re-add an arm here — the table is the one place this chord is now decided.
 
         // Ctrl+H "Change Mode" cycles a Purchase/Sales voucher through the three entry modes
         // As Voucher → Item Invoice → Accounting Invoice → As Voucher. Consumed (e.Handled) ONLY on an invoiceable

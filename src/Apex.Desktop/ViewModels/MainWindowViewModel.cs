@@ -41,6 +41,19 @@ public enum Screen
     AutoColumns,
     SaveView,
     SavedViews,
+
+    // 14.2 — Switch To (Ctrl+G): the jump-anywhere destination list. Its own screen id (not a mode on the
+    // Gateway) because it owns the keyboard while it is up: bare letters TYPE INTO ITS PREFIX FILTER rather
+    // than activating a menu hotkey, which is the one thing the cascade's own columns do not do.
+    SwitchTo,
+
+    // 14.9 — the Alt+K company menu. A MENU column, not a page column, so it needs no panel view model; the
+    // screen id exists so the shell can tell "the company menu is the active pane" from "the Gateway is".
+    CompanyMenu,
+
+    // 14.4 — More Details (Ctrl+I) over an open voucher.
+    MoreDetails,
+
     PrintPreview,
     PrintConfig,
     Export,
@@ -561,6 +574,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
     [ObservableProperty] private SavedViewsViewModel? _savedViews;
 
+    /// <summary>The Ctrl+G "Switch To" destination list (census 14.2), non-null only while that column is open.</summary>
+    [ObservableProperty] private SwitchToViewModel? _switchTo;
+
+    /// <summary>The Ctrl+I "More Details" panel (census 14.4), non-null only while that column is open.</summary>
+    [ObservableProperty] private MoreDetailsViewModel? _moreDetails;
+
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
 
@@ -631,7 +650,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Form16A is null && Form27D is null && Form27A is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && SaveView is null && SavedViews is null && SwitchTo is null && MoreDetails is null
+        && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
@@ -724,6 +744,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSwitchToChanged(SwitchToViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMoreDetailsChanged(MoreDetailsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2855,6 +2877,227 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    // =============================================================== the navigation shell (census 14.2 / 14.4 / 14.9)
+    //
+    // Three top-level chords that are not "a report" and not "a master": Ctrl+G Switch To, Alt+K Company, and
+    // Ctrl+I More Details. All three are arbitrated by ShellChordTable, and all three open through the SAME
+    // overlay shape OpenSavedViews established — push a column, focus it, set the screen id — so none of them
+    // touches a Gateway column BUILDER. That last point is load-bearing rather than tidy:
+    // GatewayHierarchyTests pins the Gateway root column at exactly
+    // Masters / Statutory / Transactions / Reports / Data, and a "Company" SECTION on that column was built and
+    // removed TWICE (W0-2b, then W2-18) against docs/invented-vs-cloned.md IV-29's finding that this menu's
+    // standing fault is having grown a section per phase. An overlay is invisible to that test, which is
+    // exactly why it is the right shape and not merely a convenient one.
+
+    /// <summary>
+    /// The Gateway ROOT column, freshly built, for <see cref="ShellDestinations"/>'s walk. Public because the
+    /// walk lives in its own file; it returns a NEW column each call and never touches the live cascade, so
+    /// calling it while the operator is standing anywhere is safe.
+    /// </summary>
+    public GatewayColumn BuildRootColumnForWalk() => BuildRootColumn();
+
+    /// <summary>
+    /// The submenu column a Group row named <paramref name="label"/> opens under <paramref name="parentMenu"/>,
+    /// freshly built, for <see cref="ShellDestinations"/>'s walk. Same contract as
+    /// <see cref="BuildRootColumnForWalk"/>: a new column, no cascade mutation.
+    /// </summary>
+    public (GatewayColumn Column, GatewayMenu Menu, string Title) BuildGroupColumnForWalk(
+        string label, GatewayMenu parentMenu) => BuildGroupColumn(label, parentMenu);
+
+    // ------------------------------------------------------------- 14.2 Switch To (Ctrl+G)
+
+    /// <summary>
+    /// <b>Ctrl+G — Switch To</b> (census 14.2). Vendor, verbatim
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/): <i>"To switch to a different report,
+    /// and create masters and vouchers in the flow of work."</i>
+    ///
+    /// <para>Opens the destination list as an overlay column. A no-op with no company (the Gateway, and so
+    /// every destination, does not exist without one) and a no-op if the list is already up — re-pressing must
+    /// not stack a second, the same re-entrancy guard <see cref="OpenSavedViews"/> carries.</para>
+    /// </summary>
+    public void OpenSwitchTo()
+    {
+        if (Company is null) return;
+        if (SwitchTo is not null) return;
+
+        var panel = new SwitchToViewModel(ShellDestinations.Build(this), d => NavigateTo(d));
+        SwitchTo = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SwitchTo;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Down arrow on the Switch To list.</summary>
+    public void SwitchToMoveDown() => SwitchTo?.MoveDown();
+
+    /// <summary>Up arrow on the Switch To list.</summary>
+    public void SwitchToMoveUp() => SwitchTo?.MoveUp();
+
+    /// <summary>A typed character on the Switch To list — appended to the PREFIX filter, never a menu hotkey.</summary>
+    public void SwitchToType(char c) => SwitchTo?.TypePrefix(c);
+
+    /// <summary>Backspace on the Switch To list — removes one character of the prefix.</summary>
+    public void SwitchToBackspace() => SwitchTo?.BackspacePrefix();
+
+    /// <summary>Enter / Ctrl+A on the Switch To list — takes the highlighted destination.</summary>
+    public void TakeSwitchToDestination() => SwitchTo?.Open();
+
+    /// <summary>
+    /// Walks the cascade to <paramref name="destination"/> <b>by replaying the operator's own keystrokes</b> —
+    /// highlight the Group row, drill in, repeat, then highlight the Page row and drill in.
+    ///
+    /// <para>🔴 <b>Replaying the menus, rather than calling the destination's opener directly, is the whole
+    /// point.</b> A jump list that calls openers directly can reach a screen the menus no longer offer, and it
+    /// keeps working after the route rots — which is how this project has twice shipped a capability with no
+    /// door (<c>CostReports.BuildLedgerBreakup</c>, <c>MultiAccountPrintViewModel</c>). Here a destination is
+    /// openable if and only if a user with a keyboard could have opened it.</para>
+    ///
+    /// <para><b>Switch To leaves NO return path</b>, and that is its one documented difference from Go To
+    /// (vendor: Go To <i>"takes you back to where you left"</i>). <see cref="ShowGateway"/> clears the cascade
+    /// before the walk, so the pre-jump page is gone rather than buried.</para>
+    /// </summary>
+    /// <returns>True when the walk reached the destination.</returns>
+    public bool NavigateTo(ShellDestination destination)
+    {
+        if (destination is null || Company is null) return false;
+
+        ShowGateway();  // no return path — see the remarks
+
+        foreach (var groupLabel in destination.Path)
+        {
+            if (!HighlightAndDrill(groupLabel, MenuItemKind.Group)) return false;
+        }
+
+        return HighlightAndDrill(destination.Label, MenuItemKind.Page);
+    }
+
+    /// <summary>
+    /// Puts the active menu column's highlight on the row named <paramref name="label"/> of kind
+    /// <paramref name="kind"/> and drills into it, exactly as Down-arrow-then-Enter would. False when the row
+    /// is not there — which is a rotted route, and the reachability test is what reports it.
+    /// </summary>
+    private bool HighlightAndDrill(string label, MenuItemKind kind)
+    {
+        if (ActiveColumn is not { IsMenu: true } column) return false;
+
+        for (var i = 0; i < column.Items.Count; i++)
+        {
+            var row = column.Items[i];
+            if (!row.IsSelectable || row.Kind != kind || !string.Equals(row.Label, label, StringComparison.Ordinal))
+                continue;
+
+            column.SetSelected(i);
+            SyncActiveColumn();
+            DrillIn();
+            return true;
+        }
+
+        return false;
+    }
+
+    // ------------------------------------------------------------- 14.9 Company menu (Alt+K)
+
+    /// <summary>
+    /// <b>Alt+K — the company menu</b> (census 14.9). Vendor, verbatim
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/): <i>"To open the company menu with the
+    /// list of actions related to managing your company."</i>
+    ///
+    /// <para>🔴 <b>A MENU COLUMN, not a bespoke panel.</b> The vendor's Alt+K IS a menu, and this application
+    /// already renders, arrow-navigates, hot-keys and Escape-pops menu columns. Building it as one means the
+    /// row is reachable by keyboard the moment it exists, with no new view code that could quietly fail to
+    /// render — the failure mode behind <c>MultiAccountPrintViewModel</c>. See <see cref="CompanyMenu"/> for
+    /// the verbs and for what is deliberately withheld.</para>
+    /// </summary>
+    public void OpenCompanyMenu()
+    {
+        if (Company is null) return;
+        if (CurrentScreen == Screen.CompanyMenu) return;  // re-press must not stack a second
+
+        ClearSubScreens();
+        var column = CompanyMenu.BuildColumn(
+            Company.Name,
+            create: ShowCreateCompany,
+            alter: ShowAlterCompany,
+            select: ShowCompanySelect,
+            shut: ShutCompany);
+
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.CompanyMenu;
+        ScreenTitle = column.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// <b>Ctrl+F3 — Shut Company</b>. Vendor, verbatim: <i>"To shut the currently loaded companies."</i>
+    ///
+    /// <para>🔴 <b>This is the ONE behavioural change in the navigation-shell work, and it is only correct
+    /// because this slice ships a reachable caller for it.</b> <see cref="ReleaseOpenCompany"/> was
+    /// deliberately kept private — its own doc-comment records that leaving it public would have left "a method
+    /// no operator could reach", the exact defect class this project keeps catching. It now has two doors: the
+    /// company menu's Shut row and the vendor's Ctrl+F3.</para>
+    ///
+    /// <para><b>The vendor's plural is not reachable here and the menu says so.</b> This application holds
+    /// exactly one company open (<see cref="Company"/> is a single nullable field, and
+    /// <see cref="OpenCompany"/> replaces it), so Shut is the degenerate singular.</para>
+    /// </summary>
+    public void ShutCompany()
+    {
+        if (Company is null) return;
+        ReleaseOpenCompany();
+        Message = "Company shut. Select or create a company to continue.";
+    }
+
+    // ------------------------------------------------------------- 14.4 More Details (Ctrl+I)
+
+    /// <summary>
+    /// Whether <b>Ctrl+I More Details</b> can fire here. Vendor: More Details adds values <i>"to a master or
+    /// voucher for the current instance"</i>, so it is scoped to an open voucher-entry screen.
+    ///
+    /// <para>🔴 <b>Scoping it is the fix, not a limitation.</b> Before this table <c>Ctrl+I</c> ran
+    /// <c>ToggleItemInvoice()</c> with NO context guard at all — it was consumed app-wide, on every screen,
+    /// including the ~157 where the toggle is a no-op.</para>
+    /// </summary>
+    public bool CanOpenMoreDetails => CurrentScreen == Screen.VoucherEntry && VoucherEntry is not null;
+
+    /// <summary>
+    /// <b>Ctrl+I — More Details</b> (census 14.4). Vendor, verbatim: <i>"press Ctrl+I (More Details) to enter
+    /// any of the values <b>without activating the options in F12 (Configure)</b>."</i>
+    ///
+    /// <para>So More Details is the <b>per-instance</b> surfacing of option-gated optional fields, and the
+    /// defining behaviour is the half in bold: the owning option keeps its value. See
+    /// <see cref="MoreDetailsViewModel"/>, which reaches the fields through per-instance override flags and
+    /// never writes the knob.</para>
+    /// </summary>
+    public void OpenMoreDetails()
+    {
+        if (!CanOpenMoreDetails || VoucherEntry is not { } entry) return;
+        if (MoreDetails is not null) return;  // re-press must not stack a second
+
+        var panel = new MoreDetailsViewModel(entry);
+        MoreDetails = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.MoreDetails;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Down arrow on the More Details panel.</summary>
+    public void MoreDetailsMoveDown() => MoreDetails?.MoveDown();
+
+    /// <summary>Up arrow on the More Details panel.</summary>
+    public void MoreDetailsMoveUp() => MoreDetails?.MoveUp();
+
+    /// <summary>Enter / Ctrl+A on the More Details panel — reveals the highlighted field for this instance.</summary>
+    public void TakeMoreDetailsRow() => MoreDetails?.Activate();
 
     /// <summary>
     /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
@@ -5302,6 +5545,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AutoColumns = null;
         SaveView = null;
         SavedViews = null;
+        SwitchTo = null;
+        MoreDetails = null;
         PrintPreview = null;
         PrintConfigPanel = null;
         ExportPanel = null;
@@ -8046,7 +8291,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ClearSubScreens();
         CurrentScreen = Screen.Gateway;
 
-        var (column, menu, title) = item.Label switch
+        var (column, menu, title) = BuildGroupColumn(item.Label, CurrentGatewayMenu);
+
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentGatewayMenu = menu;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// The Gateway's GROUP TREE, as a pure function: which submenu column a Group row named
+    /// <paramref name="label"/> opens when its parent column is <paramref name="parentMenu"/>, together with
+    /// the menu id and screen title that go with it.
+    ///
+    /// <para>🔴 <b>Extracted from <see cref="OpenGroupOf"/> so the tree has exactly ONE statement of itself.</b>
+    /// <see cref="ShellDestinations"/> walks this to enumerate every destination the cascade can reach, and the
+    /// alternative — a second, hand-maintained list of destinations — is precisely how a navigation registry
+    /// goes stale and starts advertising screens the menus no longer have (or, worse, stops advertising ones
+    /// they do). Nothing about the tree is duplicated: <see cref="OpenGroupOf"/> now calls this and does only
+    /// the cascade mutation it always did.</para>
+    ///
+    /// <para><b>Why <paramref name="parentMenu"/> is a parameter and not read from
+    /// <see cref="CurrentGatewayMenu"/>.</b> Two labels mean different things under different parents —
+    /// "Batch" is a group under Inventory Reports and a PAGE (the batch master) under Create; "Ledger" is a
+    /// group under Account Books and a page elsewhere. Reading the live field would make this function
+    /// unusable for a walk that is not standing on the column it is asking about.</para>
+    /// </summary>
+    private (GatewayColumn Column, GatewayMenu Menu, string Title) BuildGroupColumn(
+        string label, GatewayMenu parentMenu) =>
+        label switch
         {
             "Vouchers" => (BuildVouchersColumn(), GatewayMenu.Vouchers,
                 "Gateway of Apex Solutions — Vouchers"),
@@ -8066,7 +8342,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Inventory Reports"),
             // "Batch" is a Group ONLY under Inventory Reports (under Create it is a Page → the batch master); the
             // Inventory-Reports hub is the active parent here, so drilling it opens the batch-reports submenu.
-            "Batch" when CurrentGatewayMenu == GatewayMenu.InventoryReports => (
+            "Batch" when parentMenu == GatewayMenu.InventoryReports => (
                 BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
                 "Gateway of Apex Solutions — Batch Reports"),
             "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
@@ -8083,7 +8359,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book"),
             // "Ledger" is a Group ONLY under Account Books (elsewhere it is a Page → the ledger master); the
             // Account-Books hub is the active parent here, so drilling it opens the all-ledgers book picker.
-            "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
+            "Ledger" when parentMenu == GatewayMenu.AccountBooks => (
                 BuildLedgerBookPickerColumn("Ledger", _ => true),
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
             // W2-12 (census 11.7): the two group reports each open a picker of the company's own groups.
@@ -8122,15 +8398,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Backup / Restore"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
-
-        Columns.Add(column);
-        column.SelectFirstSelectable();
-        ActiveColumnIndex = Columns.Count - 1;
-        CurrentGatewayMenu = menu;
-        ScreenTitle = title;
-        SyncActiveColumn();
-        BuildButtonBar();
-    }
 
     /// <summary>Opens the page column for a highlighted Page item (report / voucher / ledger / chart).</summary>
     private void OpenPageOf(MenuItemViewModel item)
@@ -8787,8 +9054,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
-        // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
-        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // Ctrl+I — More Details (census 14.4): the per-instance surfacing of option-gated optional fields.
+        // 🔴 THIS ROW USED TO READ "Ctrl+I | As Invoice" AND IT WAS ADVERTISING THE WRONG THING. Ctrl+I is the
+        // vendor's More Details chord; the item-invoice toggle is reached by Ctrl+H "Change Mode" below, which
+        // is the vendor's chord for changing voucher mode and which is the next row on this bar. ToggleItemInvoice
+        // itself is unchanged and still has a click route through that row, so no capability left the bar — only
+        // the mislabelled chord did. Leaving the old caption would have been a bar advertising a keystroke the
+        // shell no longer routes, which is the dead-shortcut defect this project has already had to fix twice.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "More Details", OpenMoreDetails, CanOpenMoreDetails));
         // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
         // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
         ButtonBar.Add(new ButtonBarItem("Ctrl+H", "Change Mode", ChangeMode, IsChangeModeEntry));
