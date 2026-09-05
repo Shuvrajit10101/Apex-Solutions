@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -101,10 +102,52 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// <c>PrintedDocumentClassificationTests</c> proves S1 moved nothing and S2 moved exactly one document.</para>
     /// <para><b>Do not "simplify" this back to <c>IsTaxInvoice</c>.</b> They agree on every Sales shape and
     /// disagree on the one this whole census item exists for.</para></summary>
-    public PrintPreviewViewModel BuildPrintPreview() =>
-        Document.RendersItemDetail
+    public PrintPreviewViewModel BuildPrintPreview()
+    {
+        // Census 8.4 — help.tallysolutions.com/print-cheques/, "Print Cheque from Payment Voucher". A payment
+        // drawn by cheque on a cheque-enabled bank prints the CHEQUE, not the Dr/Cr voucher. Anything else falls
+        // through to the two shipped projections untouched.
+        if (ChequePrintData is { } cheque && ChequeLayoutOfBank is { } layout && ChequePrintRefusal is null)
+            return new PrintPreviewViewModel(cheque, layout);
+
+        return Document.RendersItemDetail
             ? new PrintPreviewViewModel(VoucherPrintProjector.ProjectInvoice(_company, _voucher))
             : new PrintPreviewViewModel(VoucherPrintProjector.ProjectVoucher(_company, _voucher));
+    }
+
+    /// <summary>The cheque this voucher draws, or <c>null</c> when it draws none (census 8.4).</summary>
+    public ChequePrintData? ChequePrintData => ChequePrintProjector.Project(_company, _voucher);
+
+    /// <summary>The dimensions of the bank this voucher's cheque is drawn on, or <c>null</c> when the voucher
+    /// draws no cheque or the bank has none captured.</summary>
+    public ChequeLayout? ChequeLayoutOfBank
+    {
+        get
+        {
+            if (ChequePrintProjector.FindChequeLine(_company, _voucher) is not { } line) return null;
+            return _company.FindLedger(line.LedgerId)?.ChequeLayout;
+        }
+    }
+
+    /// <summary>
+    /// Why this voucher's cheque cannot be printed, or <c>null</c> when it can be — or when the voucher draws no
+    /// cheque at all, which is not a refusal but an ordinary voucher.
+    ///
+    /// <para><b>🔴 A REFUSAL IS SURFACED, NEVER SWALLOWED INTO A WRONG DOCUMENT.</b> Printing the plain Dr/Cr
+    /// voucher onto a cheque leaf the operator has loaded into the printer would ink a negotiable instrument with
+    /// the wrong document. The shell shows this text instead of opening a preview.</para>
+    /// </summary>
+    public string? ChequePrintRefusal
+    {
+        get
+        {
+            if (ChequePrintProjector.Project(_company, _voucher) is not { } data) return null;
+            var layout = ChequeLayoutOfBank;
+            if (layout is null)
+                return "Cheque dimensions are not set for this bank. Set them on the bank ledger before printing.";
+            return ChequePdf.Validate(data, layout);
+        }
+    }
 
     /// <summary>The entry-line rows (Particulars = ledger name, Debit / Credit columns), plus a totals row.</summary>
     public ObservableCollection<ReportRow> Rows { get; } = new();

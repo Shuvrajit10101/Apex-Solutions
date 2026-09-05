@@ -65,6 +65,47 @@ public sealed class Ledger
     /// </summary>
     public string? ChequePrintingBankName { get; set; }
 
+    // ---- Banking documents (census rows 8.4-8.7). Post-construction properties, so the ctor and its every
+    //      call site are untouched and an untouched bank ledger stays byte-identical (ER-13). ----
+
+    /// <summary>
+    /// The bank's <b>Cheque Dimensions</b> — where each element is inked on this bank's pre-printed leaf
+    /// (catalog §8; row 8.4). <c>null</c> ⇒ never configured, and cheque printing refuses with a message rather
+    /// than guessing a millimetre. See <see cref="ChequeLayout"/> for the vendor grounding and the units rule.
+    /// </summary>
+    public ChequeLayout? ChequeLayout { get; set; }
+
+    /// <summary>
+    /// The per-print vertical nudge, tenths of a millimetre —
+    /// <c>help.tallysolutions.com/docs/te9rel53/Banking/Cheque_Printing.htm</c>, "Adjust Distance From Top Edge
+    /// (in mm)". Applied to every element at render time and, as that page states of the adjustment, it "does not
+    /// affect the settings of cheque dimensions pre-configured for the selected cheque format" — so it is NEVER
+    /// written back into <see cref="ChequeLayout"/>. Stored per bank only so the operator is not re-keying it on
+    /// every print.
+    /// </summary>
+    public int ChequeAdjustTopTmm { get; set; }
+
+    /// <summary>The per-print horizontal nudge, tenths of a millimetre ("Adjust Distance From Left Edge (in mm)").</summary>
+    public int ChequeAdjustLeftTmm { get; set; }
+
+    /// <summary>
+    /// <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Disable Company Name in the Pre-printed Cheques" —
+    /// off by default, because a bank's leaf is normally already printed with the drawer's name and printing it a
+    /// second time is the defect the vendor's own toggle exists to avoid.
+    /// </summary>
+    public bool PrintCompanyNameOnCheque { get; set; }
+
+    /// <summary>The bank account number, as printed on a deposit slip and a supplier payment advice
+    /// (<c>help.tallysolutions.com/deposit-slips/</c>, "Cash Deposit Slip"). <c>null</c> ⇒ not captured.</summary>
+    public string? BankAccountNumber { get; set; }
+
+    /// <summary>The bank branch name printed on the deposit slip. <c>null</c> ⇒ not captured.</summary>
+    public string? BankBranch { get; set; }
+
+    /// <summary>The bank's IFSC, printed in the payment advice's bank-transfer block
+    /// (<c>help.tallysolutions.com/payment-advice/</c>). <c>null</c> ⇒ not captured.</summary>
+    public string? BankIfsc { get; set; }
+
     /// <summary>
     /// "Activate Interest Calculation = Yes" (catalog §7) — the optional interest-parameter block. <c>null</c>
     /// (or a block with <see cref="InterestParameters.Enabled"/> false) means no interest accrues, so existing

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -25,9 +26,10 @@ namespace Apex.Desktop.ViewModels;
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
     /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice — or the
-    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, or a payroll Payslip (RQ-16).
+    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, a payroll Payslip (RQ-16),
+    /// or a <b>cheque</b> inked onto a pre-printed bank leaf (census row 8.4).
     /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
-    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip }
+    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip, Cheque, PaymentAdviceLetter }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
     private readonly PrintReport? _report;
@@ -35,6 +37,28 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     private readonly InvoicePrintData? _invoice;
     private readonly PosReceiptData? _receipt;
     private readonly Payslip? _payslip;
+    private readonly ChequePrintData? _cheque;
+
+    /// <summary>The bank's cheque dimensions this preview inks against. Set only in <see cref="PrintKind.Cheque"/>
+    /// mode, alongside <see cref="_cheque"/>.</summary>
+    private readonly ChequeLayout? _chequeLayout;
+
+    // The supplier payment-advice letters (census 8.7) and the letterhead they are written on. Set only in
+    // PrintKind.PaymentAdviceLetter mode.
+    private readonly IReadOnlyList<SupplierPaymentAdviceRow>? _advices;
+    private readonly string _adviceCompanyName = string.Empty;
+    private readonly string? _adviceCompanyAddress;
+
+    /// <summary>
+    /// <c>help.tallysolutions.com/payment-advice/</c>, "Print each transaction on a fresh page" — one letter per
+    /// page (the default) or all of them flowing together. Re-renders on change.
+    /// </summary>
+    [ObservableProperty] private bool _adviceFreshPageEach = true;
+
+    partial void OnAdviceFreshPageEachChanged(bool value)
+    {
+        if (Kind == PrintKind.PaymentAdviceLetter) Render();
+    }
 
     /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the document re-rendered) when
     /// the size/orientation is changed via the toggles below.</summary>
@@ -140,6 +164,48 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
+    /// <summary>
+    /// Preview a <b>cheque</b> (census row 8.4) via <c>ChequePdf</c> — ink laid onto a page the exact size of the
+    /// bank's pre-printed leaf, not A4. The F12 document knobs (title override, narration, copy marking) do NOT
+    /// apply: there is no title band, no narration and no "duplicate" wording on a negotiable instrument.
+    ///
+    /// <para><b>Throws <see cref="InvalidOperationException"/> carrying <c>ChequePdf.Validate</c>'s message when the
+    /// cheque must not be printed</b> (no dimensions set for the bank, no instrument number, no payee). The caller
+    /// surfaces that text instead of opening a preview — a cheque with a guessed offset is not a cosmetic defect.
+    /// Grounded in <c>help.tallysolutions.com/print-cheques/</c>, "Print Cheque from Payment Voucher".</para>
+    /// </summary>
+    public PrintPreviewViewModel(ChequePrintData cheque, ChequeLayout layout)
+    {
+        _cheque = cheque ?? throw new ArgumentNullException(nameof(cheque));
+        _chequeLayout = layout ?? throw new ArgumentNullException(nameof(layout));
+        if (ChequePdf.Validate(cheque, layout) is { } refusal) throw new InvalidOperationException(refusal);
+        Kind = PrintKind.Cheque;
+        ReportTitle = string.IsNullOrEmpty(cheque.InstrumentNumber)
+            ? "Cheque"
+            : $"Cheque No. {cheque.InstrumentNumber}";
+        _config = BuildConfig();
+        Render();
+    }
+
+    /// <summary>
+    /// Preview the <b>supplier payment advice letters</b> (census row 8.7) via <c>PaymentAdvicePdf</c> — the
+    /// letters themselves, not the grid that lists them. <c>help.tallysolutions.com/payment-advice/</c>.
+    /// </summary>
+    public PrintPreviewViewModel(
+        IReadOnlyList<SupplierPaymentAdviceRow> advices,
+        string companyName,
+        string? companyAddress,
+        string reportTitle)
+    {
+        _advices = advices ?? throw new ArgumentNullException(nameof(advices));
+        _adviceCompanyName = companyName ?? string.Empty;
+        _adviceCompanyAddress = companyAddress;
+        Kind = PrintKind.PaymentAdviceLetter;
+        ReportTitle = reportTitle ?? string.Empty;
+        _config = BuildConfig();
+        Render();
+    }
+
     /// <summary>Testable ctor: preview a pre-built report print model directly (RQ-9).</summary>
     public PrintPreviewViewModel(PrintReport report, string reportTitle)
     {
@@ -240,6 +306,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Invoice => InvoicePdf.Render(_invoice!, BuildPrintConfig(), _config),
             PrintKind.Receipt => PosReceiptPdf.Render(_receipt!, _config),
             PrintKind.Payslip => PayslipPdf.Render(_payslip!, _config),
+            // The leaf is its own page size, so the A4/Letter + orientation knobs deliberately do not reach it:
+            // a cheque is printed on the bank's paper, not on ours.
+            PrintKind.Cheque => ChequePdf.Render(_cheque!, _chequeLayout!),
+            PrintKind.PaymentAdviceLetter => PaymentAdvicePdf.Render(
+                _advices!, _adviceCompanyName, _adviceCompanyAddress, _config, AdviceFreshPageEach),
             _ => ReportPdf.Render(_report!, _config),
         };
         OnPropertyChanged(nameof(PdfBytes));
@@ -250,6 +321,8 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Invoice => BuildInvoicePreviewReport(),
             PrintKind.Receipt => BuildReceiptPreviewReport(),
             PrintKind.Payslip => BuildPayslipPreviewReport(),
+            PrintKind.Cheque => BuildChequePreviewReport(),
+            PrintKind.PaymentAdviceLetter => BuildAdvicePreviewReport(),
             _ => _report!,
         };
 
@@ -713,6 +786,107 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             {
                 new PrintColumn("Particulars", 3, CellAlign.Left),
                 new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// A lightweight on-screen mirror of the supplier payment-advice letters (the authoritative bytes come from
+    /// <c>PaymentAdvicePdf</c>): the addressee, the bill-wise detail, the deduction where there is one, and the
+    /// net paid. Deductions are shown ONLY when the letter shows them, so the mirror can never imply a nil
+    /// withholding the letter is silent about.
+    /// </summary>
+    private PrintReport BuildAdvicePreviewReport()
+    {
+        var rows = new List<PrintRow>();
+        foreach (var a in _advices!)
+        {
+            rows.Add(PrintRow.Header(ReportPrintProjector.Ascii(a.AddresseeName),
+                $"Vch No. {a.FormattedNumber}", a.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)));
+            foreach (var b in a.Bills)
+                rows.Add(new PrintRow(ReportPrintProjector.Ascii(b.BillReference), string.Empty,
+                    IndianFormat.AmountAlways(b.Amount)));
+            if (a.Bills.Count == 0)
+                rows.Add(new PrintRow("(no bill-wise detail recorded)", string.Empty, string.Empty));
+            rows.Add(new PrintRow("Gross Amount", string.Empty, IndianFormat.AmountAlways(a.GrossAmount)));
+            if (a.TdsDeducted.Amount != 0m)
+                rows.Add(new PrintRow("Less: Tax Deducted at Source", string.Empty,
+                    IndianFormat.AmountAlways(a.TdsDeducted)));
+            rows.Add(PrintRow.Total("Net Amount Paid", string.Empty, IndianFormat.AmountAlways(a.NetPaid)));
+        }
+        if (rows.Count == 0)
+            rows.Add(PrintRow.Header("No supplier payments in this period.", string.Empty, string.Empty));
+
+        return new PrintReport
+        {
+            Title = "Payment Advice",
+            Subtitle = ReportPrintProjector.Ascii(_adviceCompanyName),
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 3, CellAlign.Left),
+                new PrintColumn("Reference", 1.5, CellAlign.Left),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// A lightweight on-screen mirror of the cheque (the authoritative bytes come from <c>ChequePdf</c>).
+    ///
+    /// <para><b>🔴 THE MIRROR SHOWS EXACTLY WHAT THE RENDERER INKS — NO MORE.</b> Every line below is gated on the
+    /// SAME <c>ChequeLayout.ChequeElementIsSet</c> predicate the renderer gates on, so a preview can never promise
+    /// a payee name or a date that the bytes leave off the leaf. That divergence — a mirror stating what the PDF
+    /// suppresses — is the defect the bill-of-supply receipt path already had to close once, and on a negotiable
+    /// instrument it would be the operator approving one document and the bank receiving another.</para>
+    /// </summary>
+    private PrintReport BuildChequePreviewReport()
+    {
+        var c = _cheque!;
+        var l = _chequeLayout!;
+        var rows = new List<PrintRow>
+        {
+            PrintRow.Header(ReportPrintProjector.Ascii(c.BankName), string.Empty),
+        };
+
+        if (c.ChequeDate is { } d && ChequeLayout.ChequeElementIsSet(l.DateTopTmm, l.DateLeftTmm))
+            rows.Add(new PrintRow("Date", d.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.PayeeTopTmm, l.PayeeLeftTmm))
+            rows.Add(new PrintRow("Pay", ReportPrintProjector.Ascii(c.PayeeName)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.WordsLine1TopTmm, l.WordsLine1LeftTmm))
+        {
+            var words = l.PrintCurrencyFormalName
+                ? IndianAmountInWords.Convert(c.Amount.Amount, c.CurrencyFormalName, c.CurrencyMinorName)
+                : IndianAmountInWords.Convert(c.Amount.Amount);
+            rows.Add(new PrintRow("Rupees", ReportPrintProjector.Ascii(words)));
+        }
+
+        if (ChequeLayout.ChequeElementIsSet(l.FiguresTopTmm, l.FiguresLeftTmm))
+            rows.Add(new PrintRow("Amount", IndianFormat.AmountAlways(c.Amount)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.SignTopTmm, l.SignLeftTmm))
+        {
+            if (c.PrintCompanyName && !string.IsNullOrWhiteSpace(c.CompanyName))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(c.CompanyName)));
+            if (!string.IsNullOrWhiteSpace(l.Salutation1))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation1!)));
+            if (!string.IsNullOrWhiteSpace(l.Salutation2))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation2!)));
+        }
+
+        return new PrintReport
+        {
+            Title = ReportTitle,
+            // States the leaf the ink is laid on, so the operator can see at a glance that the page in the printer
+            // is the one the dimensions were measured against.
+            Subtitle = $"leaf {l.LeafWidthTmm / 10} x {l.LeafHeightTmm / 10} mm",
+            Columns = new[]
+            {
+                new PrintColumn("Field", 1.2, CellAlign.Left),
+                new PrintColumn("Inked on the leaf", 3.5, CellAlign.Left),
             },
             Rows = rows,
         };

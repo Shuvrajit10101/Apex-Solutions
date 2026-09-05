@@ -111,6 +111,21 @@ public enum ReportKind
 
     // Reports → Statements of Accounts → Statistics (11.8).
     Statistics,
+
+    // ---- Wave 7 D1: Banking documents (census rows 8.4 / 8.7) ----
+    // Transactions → Banking. Both are ReportKinds rather than bespoke page Screens ON PURPOSE: a page Screen
+    // leaves the report context null, and that single fact switches off Ctrl+P, export, F2 period, F12 config,
+    // Alt+F12 sort/filter and Alt+K saved views at once — the defect that hollowed out rows 8.1, 11.9, 11.10
+    // and 11.11 (docs/full-clone-census.md:612). A banking document that cannot be PRINTED is not a document.
+
+    /// <summary>help.tallysolutions.com/print-cheques/, "Cheque Printing Report" — the cheques pending for
+    /// printing on a bank, drilling to the paying voucher where Ctrl+P inks the leaf.</summary>
+    ChequePrinting,
+
+    /// <summary>help.tallysolutions.com/payment-advice/ — the advices for payments made to SUPPLIERS. Distinct
+    /// from <see cref="PaymentAdvice"/>, which is the payroll bank advice for EMPLOYEES; the two are different
+    /// documents for different counterparties and must not be conflated.</summary>
+    SupplierPaymentAdvice,
 }
 
 /// <summary>
@@ -823,6 +838,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PayrollRegister: BuildPayrollRegister(); break;
             case ReportKind.AttendanceRegister: BuildAttendanceRegister(); break;
             case ReportKind.PaymentAdvice: BuildPaymentAdvice(); break;
+
+            // ---- Wave 7 D1: Banking documents (census 8.4 / 8.7) ----
+            case ReportKind.ChequePrinting: BuildChequePrinting(); break;
+            case ReportKind.SupplierPaymentAdvice: BuildSupplierPaymentAdvice(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -1063,6 +1082,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.GroupVouchers] = "GroupVouchers",
         [ReportKind.LedgerMonthlySummary] = "LedgerMonthlySummary",
         [ReportKind.Statistics] = "Statistics",
+        [ReportKind.ChequePrinting] = "ChequePrinting",
+        [ReportKind.SupplierPaymentAdvice] = "SupplierPaymentAdvice",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -1240,6 +1261,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 break;
 
             case ReportKind.GroupVouchers:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // ---- Wave 7 D1 (census 8.4 / 8.7): both banking lists drill to the voucher that made the payment.
+            // For 8.4 that drill IS the print route — Ctrl+P on the opened voucher inks the cheque leaf. ----
+            case ReportKind.ChequePrinting:
+            case ReportKind.SupplierPaymentAdvice:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
@@ -2944,6 +2973,99 @@ public sealed partial class ReportsViewModel : ViewModelBase
             });
             Rows.Add(ReportRow.Total("Total", report.TotalBill));
         }
+    }
+
+    // =============================================================== Wave 7 D1 — Banking documents (8.4 / 8.7)
+
+    /// <summary>
+    /// <b>Cheque Printing</b> (census row 8.4) — <c>help.tallysolutions.com/print-cheques/</c>, section "Cheque
+    /// Printing Report": the cheques pending for printing, showing the favouring name with the instrument number
+    /// and date. Enter on a row drills to the paying voucher, where Ctrl+P inks the leaf.
+    ///
+    /// <para>The report lists cheques on banks whose <c>Enable Cheque Printing</c> is on — the two v5 columns that
+    /// had seventeen references in the engine and not one in the UI until this slice.</para>
+    /// </summary>
+    private void BuildChequePrinting()
+    {
+        var period = StatementPeriod;
+        var rows = ChequePrinting.Build(_company, period);
+        Title = "Cheque Printing";
+        Subtitle = $"{CompanyName}  —  cheques drawn {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        foreach (var r in rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  Vch No. {r.FormattedNumber}  ·  {r.FavouringName}",
+                Secondary = $"{r.BankName}  ·  Cheque No. {r.InstrumentNumber}" +
+                            (r.InstrumentDate is { } d ? $"  ·  dated {FormatDate(d)}" : string.Empty),
+                Amount = IndianFormat.Amount(r.Amount),
+                // The drill is what makes the row PRINTABLE: Enter opens the voucher, and Ctrl+P there yields the
+                // cheque. A list with no drill would be a list of cheques nobody can print.
+                DrillVoucherId = r.VoucherId,
+            });
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = "No cheques pending for printing. A cheque appears here once a Payment voucher pays "
+                            + "a bank ledger with Enable Cheque Printing on, by Cheque/DD, carrying a cheque number.",
+                IsHeader = true,
+            });
+        else
+            Rows.Add(ReportRow.Total("Total", rows.Aggregate(Money.Zero, (acc, r) => acc + r.Amount)));
+    }
+
+    /// <summary>The supplier advices the current report holds, so Ctrl+P can render the LETTER rather than the
+    /// grid. Empty off this report.</summary>
+    public IReadOnlyList<SupplierPaymentAdviceRow> CurrentSupplierAdvices { get; private set; }
+        = Array.Empty<SupplierPaymentAdviceRow>();
+
+    /// <summary>True for the supplier Payment Advice (census 8.7) — drives the Ctrl+P letter branch. Deliberately
+    /// distinct from <see cref="ReportKind.PaymentAdvice"/>, the PAYROLL bank advice.</summary>
+    public bool IsSupplierPaymentAdvice => Kind == ReportKind.SupplierPaymentAdvice;
+
+    /// <summary>
+    /// <b>Payment Advice</b> for suppliers (census row 8.7) — <c>help.tallysolutions.com/payment-advice/</c>: the
+    /// payments made to suppliers, each showing whether the bank statement has matched (reconciled) it. Ctrl+P
+    /// renders the letters through <c>PaymentAdvicePdf</c>.
+    /// </summary>
+    private void BuildSupplierPaymentAdvice()
+    {
+        var period = StatementPeriod;
+        var advices = SupplierPaymentAdvice.Build(_company, period);
+        CurrentSupplierAdvices = advices;
+        Title = "Payment Advice";
+        Subtitle = $"{CompanyName}  —  payments to suppliers {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        foreach (var a in advices)
+        {
+            var mode = SupplierPaymentAdvice.PaymentModeText(a.PaymentMode);
+            var parts = new List<string>();
+            if (mode.Length > 0) parts.Add(mode);
+            if (!string.IsNullOrWhiteSpace(a.InstrumentNumber)) parts.Add("No. " + a.InstrumentNumber);
+            if (!string.IsNullOrWhiteSpace(a.BankName)) parts.Add(a.BankName);
+            // The vendor's headline fact about each row is whether it is matched; say it in words, not a symbol.
+            parts.Add(a.IsReconciled ? "reconciled" : "not reconciled");
+
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(a.Date)}  Vch No. {a.FormattedNumber}  ·  {a.PartyName}",
+                Secondary = string.Join("  ·  ", parts),
+                Amount = IndianFormat.Amount(a.NetPaid),
+                DrillVoucherId = a.VoucherId,
+            });
+        }
+
+        if (advices.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = "No payments to suppliers in this period.",
+                IsHeader = true,
+            });
+        else
+            Rows.Add(ReportRow.Total("Total Paid", advices.Aggregate(Money.Zero, (acc, a) => acc + a.NetPaid)));
     }
 
     // =============================================================== Payroll presentation reports (Phase 8 slice 8)

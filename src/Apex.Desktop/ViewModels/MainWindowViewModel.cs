@@ -1364,15 +1364,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the "Banking" submenu column (Transactions → Banking): the Bank Reconciliation and Import
-    /// Bank Statement pages, each a page item under this Banking group (professional hierarchy).
+    /// Builds the "Banking" submenu column (Transactions → Banking), nested under named section headers rather
+    /// than dumped flat: <b>Reconciliation</b> (Bank Reconciliation, Import Bank Statement), <b>Cheque
+    /// Management</b> (Cheque Printing) and <b>Slips &amp; Advices</b> (Payment Advice).
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/banking/</c>, "Banking Utilities in TallyPrime",
+    /// puts cheque printing and the payment advice in this same Banking menu;
+    /// <c>help.tallysolutions.com/print-cheques/</c> names the Cheque Printing report and
+    /// <c>help.tallysolutions.com/payment-advice/</c> the supplier advice. The column carried exactly two rows
+    /// before this wave, which is the shortfall census row 8.9 records.</para>
     /// </summary>
     private GatewayColumn BuildBankingColumn()
     {
         var col = new GatewayColumn("Banking");
-        col.Add(MenuItemViewModel.Header("Banking"));
+        col.Add(MenuItemViewModel.Header("Reconciliation"));
         col.Add(new MenuItemViewModel("Bank Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(MenuItemViewModel.Header("Cheque Management"));
+        col.Add(new MenuItemViewModel("Cheque Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(MenuItemViewModel.Header("Slips & Advices"));
+        col.Add(new MenuItemViewModel("Payment Advice (Suppliers)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2889,13 +2900,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // item-invoice (RQ-11), else the plain Dr/Cr voucher (RQ-10). Otherwise it prints the open report (RQ-9).
         PrintPreviewViewModel preview;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+        {
+            // Census 8.4: a cheque payment whose bank has no usable dimensions must SAY so. Falling through to the
+            // Dr/Cr voucher preview would ink the wrong document onto the cheque leaf in the printer.
+            if (vd.ChequePrintRefusal is { } refusal)
+            {
+                RaiseLifecycleNotice(refusal);
+                return;
+            }
             preview = vd.BuildPrintPreview();
+        }
         // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
         // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
         else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
             preview = new PrintPreviewViewModel(slip, Reports.Title);
         else if (Reports is { IsPayslipReport: true })
             return;                               // payslip with no employee/structure — nothing to print
+        // The supplier Payment Advice prints the LETTERS (help.tallysolutions.com/payment-advice/), not the grid
+        // that lists them: the document the supplier receives is a letter, and printing the list instead would
+        // hand the operator a report they cannot post.
+        else if (Reports is { IsSupplierPaymentAdvice: true } advice)
+            preview = new PrintPreviewViewModel(
+                advice.CurrentSupplierAdvices, Company?.Name ?? string.Empty, Company?.Address, advice.Title);
         else if (Reports is not null)
             preview = new PrintPreviewViewModel(Reports);
         else
@@ -8306,6 +8332,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payment Advice": OpenReport(ReportKind.PaymentAdvice); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
+            // Wave 7 D1 — Transactions → Banking (census 8.4 / 8.7). Both are ReportKinds, so they inherit
+            // Ctrl+P, export, F2 period, F12 config and Alt+K saved views; a bespoke page Screen would have
+            // switched all of those off at once.
+            case "Cheque Printing": OpenReport(ReportKind.ChequePrinting); break;
+            case "Payment Advice (Suppliers)": OpenReport(ReportKind.SupplierPaymentAdvice); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;
