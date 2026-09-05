@@ -181,7 +181,80 @@ public sealed class CompanyStorage
     }
 
     /// <summary>
+    /// 🔴 <b>Census row 1.4 — RENAMES a company: rewrites the stored name AND moves its <c>.db</c>.</b>
+    /// Returns the new <see cref="CompanyEntry"/>.
+    ///
+    /// <para><b>Its ONE caller is <c>CompanyProfileViewModel.TryRename</c>, reached by editing the Name on the
+    /// Company Alteration screen and accepting.</b> That is stated because this method shipped in the W2-18 WIP
+    /// commit with <b>zero callers anywhere</b> — written, careful, correct-looking and unreachable by any
+    /// sequence of keys, which is this project's most-repeated defect shape. If a refactor ever leaves it
+    /// callerless again, row 1.4 is ABSENT whatever the census says.</para>
+    ///
+    /// <para><b>Both halves are mandatory, and doing only one of them is the book-eater this method was carved
+    /// out for.</b> <c>CompanyProfileViewModel.IsNameEditable</c> states the trap in full: the file path is
+    /// derived from the NAME by <see cref="PathForName"/>, and <see cref="ListCompanies"/> takes each DISPLAY
+    /// name back out of the FILENAME. So a "rename" that only rewrote <c>Company.Name</c> and saved would write
+    /// a brand-new <c>.db</c> at the new name and leave the old file standing — two rows in Company Select
+    /// carrying one company id, every later save landing on only one of them, and nothing reporting an error.
+    /// That is why this is a storage operation and not a field edit.</para>
+    ///
+    /// <para><b>The order is deliberate: refuse, then load, then save the NEW file, then remove the OLD one.</b>
+    /// If the save throws, the old file is still there and the book is intact; the worst reachable outcome is a
+    /// stray new file beside the original, which <see cref="ListCompanies"/> shows and the operator can delete.
+    /// Removing the old file first and then failing to write the new one would lose the company outright.</para>
+    ///
+    /// <para><b>Two refusals, both before anything is touched.</b> A blank/whitespace name is refused because
+    /// <see cref="SanitiseFileName"/> would silently fall back to the literal "Company"; a name whose SANITISED
+    /// path already holds a book is refused because the move would overwrite another company's file. The second
+    /// check is <see cref="Exists(string)"/> — the same platform-aware predicate creation uses — so it catches
+    /// exactly the pairs that really do collapse onto one file on THIS platform, including the non-injective
+    /// cases <see cref="PathForName"/> documents.</para>
+    ///
+    /// <para><b>The same-path case is a rename, not a no-op, and it is handled rather than refused.</b>
+    /// "Acme" → "Acme " and (on Windows) "Acme:Ltd" → "Acme_Ltd" sanitise to the file that is already open, so
+    /// there is nothing to move — but the STORED name still changes, and that is the name every printed
+    /// document and every report header reads. It is written and the file is left where it is; the collision
+    /// refusal deliberately does not fire on the entry's own path, or renaming a book's punctuation would be
+    /// impossible.</para>
+    /// </summary>
+    public CompanyEntry Rename(CompanyEntry entry, string newName)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        var trimmed = (newName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            throw new ArgumentException("A company name is required.", nameof(newName));
+
+        var newPath = PathForName(trimmed);
+        var samePath = string.Equals(newPath, entry.DatabasePath, StringComparison.OrdinalIgnoreCase);
+
+        if (!samePath && File.Exists(newPath))
+            throw new InvalidOperationException(
+                $"A company book already exists for '{trimmed}'. Renaming onto it would overwrite that book, "
+                + "so the rename is refused. Choose a different name.");
+
+        var company = Load(entry);
+        company.Name = trimmed;
+
+        // Save() re-derives the path from the (now new) name, so this writes the NEW file.
+        Save(company);
+
+        if (!samePath)
+            Delete(entry);
+
+        return new CompanyEntry(trimmed, newPath);
+    }
+
+    /// <summary>
     /// Deletes a company's <c>.db</c> file. Best-effort; a file that cannot be removed is left in place.
+    ///
+    /// <para>🔴 <b>BECAUSE IT IS BEST-EFFORT, A CALLER MUST NOT ANNOUNCE SUCCESS OFF ITS RETURN.</b> It returns
+    /// identically whether the file went or an <c>IOException</c>/<c>UnauthorizedAccessException</c> was caught
+    /// below, so <c>MainWindowViewModel.PerformOpenCompanyDeletion</c> re-tests <c>File.Exists</c> before it tells
+    /// the operator the book is gone and releases the aggregate. It had <b>zero production callers</b> until
+    /// census row 1.4 shipped Alt+D on the Company Alteration screen (2026-09-05); it is now reached from there and
+    /// from <see cref="Rename"/>'s move.</para>
+    ///
     /// <para><b>The catch list must stay as wide as the ways a delete is refused, and those differ by
     /// platform.</b> On Windows a file in use raises <see cref="IOException"/>, which is all this used to
     /// catch. On Linux and macOS the deciding permission is on the PARENT DIRECTORY, and a refusal there

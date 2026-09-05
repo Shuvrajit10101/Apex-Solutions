@@ -73,13 +73,15 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
     private readonly Company? _company;
 
     /// <summary>
-    /// True on <b>Company Alteration</b>, false on <b>Company Creation</b>. The two modes differ in exactly two
-    /// ways, both recorded where they are enforced:
+    /// True on <b>Company Alteration</b>, false on <b>Company Creation</b>. The two modes differ in exactly one
+    /// way now, recorded where it is enforced:
     /// <list type="number">
-    /// <item><see cref="Name"/> is editable on creation and <b>read-only</b> on alteration — see
-    /// <see cref="IsNameEditable"/> for the reason, which is a storage fact and a serious one.</item>
     /// <item>Alteration mutates and re-saves an existing aggregate; creation builds a seeded one.</item>
     /// </list>
+    /// <para>They used to differ in a second way — <see cref="Name"/> was read-only on alteration — and that
+    /// carve-out was retired when the rename shipped (census row 1.4). On alteration the Name control now drives
+    /// <see cref="TryRename"/>; see <see cref="IsNameEditable"/> for why a rename is a file move rather than a
+    /// field assignment.</para>
     /// </summary>
     public bool IsAltering => _company is not null;
 
@@ -87,16 +89,28 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
     public string Caption => IsAltering ? "Company Alteration" : "Company Creation";
 
     /// <summary>
-    /// <b>Renaming is not offered here, and the reason is a book-eater.</b> The company's <c>.db</c> file path
-    /// is derived from its NAME (<c>CompanyStorage.PathForName</c>), and the company-select list takes each
-    /// display name back from the FILENAME. So saving a renamed company would write a brand-new <c>.db</c> at
-    /// the new name and leave the old file untouched — two entries in Company Select carrying the same company
-    /// id, with every later save landing on only one of them, and nothing anywhere reporting an error. Rename
-    /// is a storage operation (move the file, refuse a collision, handle the open handle) and belongs in its own
-    /// slice. <b>This costs nothing statutory:</b> the supplier name Rule 46(a) requires is the Mailing Name,
-    /// which is editable in both modes.
+    /// <b>The Name is editable in BOTH modes as of census row 1.4 (2026-09-05) — altering it RENAMES the book.</b>
+    ///
+    /// <para><b>The carve-out this retires, kept verbatim because it is the reason the rename has the shape it
+    /// has.</b> The company's <c>.db</c> file path is derived from its NAME (<see cref="CompanyStorage.PathForName"/>),
+    /// and the company-select list takes each display name back from the FILENAME. So saving a renamed company
+    /// would write a brand-new <c>.db</c> at the new name and leave the old file untouched — two entries in
+    /// Company Select carrying the same company id, with every later save landing on only one of them, and
+    /// nothing anywhere reporting an error. That is exactly why <see cref="Accept"/> does NOT simply assign the
+    /// name and save: it routes through <see cref="CompanyStorage.Rename"/>, which moves the file and refuses a
+    /// collision, and it pre-validates the new name BEFORE anything is written.</para>
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> This is the vendor's own route rather than an invented "Rename"
+    /// screen: <i>help.tallysolutions.com/…/set-up-company-tally/</i> renames a company by
+    /// <i>"Alt+K (Company) &gt; Alter"</i> and editing the Name on the Company Alteration screen. Our route to
+    /// that screen differs (Gateway → Masters → Alter Company, because the Alt+K top menu is not built — see
+    /// <c>BuildRootColumn</c> and open ruling U-6); the SCREEN the rename happens on is the reference one.</para>
+    ///
+    /// <para>This property is now constant. It is KEPT rather than inlined because the view binds to it and
+    /// because the top-menu slice that finally builds Company Create/Alter/Select/Shut is the natural place for
+    /// a mode where the name is locked again; deleting it would hide that seam.</para>
     /// </summary>
-    public bool IsNameEditable => !IsAltering;
+    public bool IsNameEditable => true;
 
     // ---- the bound fields (corpus screen order: Name, then Primary Mailing Details, then the book dates,
     //      then Base Currency Information) --------------------------------------------------------------
@@ -254,6 +268,13 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
 
         if (!Validate(out var pin, out var fyStart, out var books, out var decimalPlaces)) return false;
 
+        // 🔴 THE RENAME RUNS FIRST, BEFORE ANY PROFILE FIELD IS TOUCHED (census row 1.4). Both of
+        // `CompanyStorage.Rename`'s refusals — a blank name, and a name whose sanitised path already holds another
+        // book — fire before it moves anything, so a refused rename leaves the accept as a whole untouched and the
+        // operator reading a named message with nothing half-applied behind it. Doing it after the profile save
+        // would report "not saved" over a book whose profile HAD just been rewritten.
+        if (!TryRename()) return false;
+
         var previous = Capture(_company);
         Apply(_company, pin, fyStart, books, decimalPlaces);
 
@@ -279,6 +300,61 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
         OnPropertyChanged(nameof(BookDatesAdvisory));
         Confirm(SavedMessage);
         _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Census row 1.4 — <b>RENAMES the open book when the Name control no longer matches the aggregate.</b>
+    /// Returns <c>false</c> (with <see cref="Message"/> set to the storage layer's own refusal) when the rename
+    /// was refused, in which case the caller must abandon the whole accept.
+    ///
+    /// <para>🔴 <b>It delegates to <see cref="CompanyStorage.Rename"/> rather than assigning
+    /// <c>Company.Name</c> and saving, and that is the entire point.</b> The path is derived from the name, so an
+    /// assign-and-save writes a SECOND <c>.db</c> at the new name and leaves the old one standing — two rows in
+    /// Company Select carrying one company id, every later save landing on only one of them, nothing reporting an
+    /// error. <see cref="IsNameEditable"/> carries the long-form record. The storage method moves the file,
+    /// refuses a collision and refuses a blank; keeping ONE implementation of that is what stops this screen and
+    /// any later Alt+K company menu from disagreeing about what a rename does.</para>
+    ///
+    /// <para><b>Why the aggregate's name is assigned only AFTER the move succeeds.</b> <c>Rename</c> re-reads the
+    /// book from disk, so the in-memory aggregate is not its input; if it throws, nothing has moved and
+    /// <c>_company.Name</c> must still be the name the file on disk carries, or the next
+    /// <see cref="CompanyStorage.Save"/> would write to a path that does not exist yet and orphan the real
+    /// book.</para>
+    ///
+    /// <para><b>A no-op is a no-op.</b> An accept that did not touch the Name — by far the common case, since
+    /// this screen exists to edit the eleven profile fields — does not go near storage at all. Whitespace is
+    /// compared trimmed, so re-accepting a name the operator merely re-typed identically moves no file.</para>
+    /// </summary>
+    private bool TryRename()
+    {
+        var typed = (Name ?? string.Empty).Trim();
+        if (string.Equals(typed, _company!.Name, StringComparison.Ordinal)) return true;
+
+        var entry = new CompanyEntry(_company.Name, _storage.PathForName(_company.Name));
+        try
+        {
+            var renamed = _storage.Rename(entry, typed);
+            _company.Name = renamed.Name;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // The storage layer's wording is surfaced verbatim — one refusal, one place to correct it — and the
+            // control is put back to the name the book still carries so the form and the file agree.
+            Name = _company.Name;
+            Refuse(ex.Message);
+            return false;
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // An operational failure moving the file (a second instance holding the book, a read-only directory).
+            // Whether the move got far enough to leave a stray file is not knowable here, so the message says what
+            // to check rather than claiming the book is untouched.
+            Name = _company.Name;
+            Refuse($"The company could not be renamed: {ex.Message}");
+            return false;
+        }
+
         return true;
     }
 
@@ -322,6 +398,11 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
     /// </summary>
     private void SyncFromCompany(Company company)
     {
+        // The Name is re-read like every other field now that it is editable (census row 1.4). `Rename` TRIMS,
+        // so an operator who typed "Acme Ltd " must be left looking at the "Acme Ltd" the book actually carries —
+        // otherwise the next accept would compare the stale untrimmed control against the stored name, decide
+        // that is a rename, and move the file to the identical path for nothing.
+        Name = company.Name;
         MailingName = company.MailingName;
         Address = company.Address ?? string.Empty;
         Country = company.Country;
@@ -482,7 +563,9 @@ public sealed partial class CompanyProfileViewModel : ViewModelBase
     /// Writes the typed values onto the aggregate. <b>Blank never overwrites a non-blank default</b> for
     /// Country, the currency symbol/name and the decimal unit: those three are non-null on every company ever
     /// constructed, so treating an empty control as "clear it" would write <c>""</c> into a NOT NULL column and
-    /// change the printed output of every book. The Name is untouched — alteration cannot rename.
+    /// change the printed output of every book. <b>The Name is not written here</b> — a rename is a file move,
+    /// not a field assignment, and <see cref="TryRename"/> has already performed it (or refused the whole accept)
+    /// by the time this runs.
     /// </summary>
     private void Apply(Company company, string? pin, DateOnly? fyStart, DateOnly? books, int? decimalPlaces)
     {

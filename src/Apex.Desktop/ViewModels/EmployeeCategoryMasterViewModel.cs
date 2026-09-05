@@ -10,12 +10,20 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>An employee-category row for the existing-categories list on the master screen.</summary>
-public sealed class EmployeeCategoryListRow
+public sealed partial class EmployeeCategoryListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Allocates { get; init; } = string.Empty;
     public string Employees { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the category this row displays — see <see cref="IPayrollMasterListRow"/>
+    /// for why the payroll lists shipping without one is the whole of census row 7.16's reach problem.</summary>
+    public Guid MasterId { get; init; }
+
+    string IPayrollMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -29,11 +37,57 @@ public sealed class EmployeeCategoryListRow
 /// <see cref="Company.PayrollEnabled"/>). MVVM boundary: references the domain + persistence but no
 /// Avalonia/UI types, so it is headlessly unit-testable. Mirrors <see cref="CostCategoryMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+    private readonly PayrollMasterHighlight<EmployeeCategoryListRow> _highlight;
+
+    /// <summary>The id of the category being ALTERED, or <see cref="Guid.Empty"/> in Create mode (7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Employee Category Alteration" : "Employee Category Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "employee category";
+
+    /// <inheritdoc/>
+    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-category row, or <c>null</c>. Ctrl+Enter on it opens the alteration.</summary>
+    public EmployeeCategoryListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    public void DeleteMaster(Guid id) => new PayrollService(_company).DeleteEmployeeCategory(id);
+
+    /// <summary>Opens this master in <b>Alter</b> mode over an existing category — the same form, pre-filled.
+    /// Returns <c>null</c> if the id does not resolve.</summary>
+    public static EmployeeCategoryMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid categoryId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindEmployeeCategory(categoryId) is not { } category) return null;
+
+        var vm = new EmployeeCategoryMasterViewModel(company, storage, onChanged);
+        vm._editingId = categoryId;
+        vm.Name = category.Name;
+        vm.AllocateRevenueItems = category.AllocateRevenueItems;
+        vm.AllocateNonRevenueItems = category.AllocateNonRevenueItems;
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -63,6 +117,8 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<EmployeeCategoryListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
         RefreshList();
     }
 
@@ -87,10 +143,16 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
             return false;
         }
 
+        // 7.16 — the SAME Ctrl+A runs the verb the screen is in. Branching here rather than adding a second
+        // shell route means the accept key can never disagree with the caption the operator is reading.
+        var altering = IsAltering;
         try
         {
             var service = new PayrollService(_company);
-            service.CreateEmployeeCategory(name, AllocateRevenueItems, AllocateNonRevenueItems);
+            if (altering)
+                service.AlterEmployeeCategory(_editingId, name, AllocateRevenueItems, AllocateNonRevenueItems);
+            else
+                service.CreateEmployeeCategory(name, AllocateRevenueItems, AllocateNonRevenueItems);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -100,6 +162,14 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
         }
 
         RefreshList();
+        if (altering)
+        {
+            // The form stays on the altered category — clearing it here would read as "saved and gone".
+            Message = $"Employee category '{name}' altered.";
+            _onChanged();
+            return true;
+        }
+
         Message = $"Employee category '{name}' created.";
         Name = string.Empty;
         AllocateRevenueItems = true;
@@ -110,6 +180,11 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
 
     private void RefreshList()
     {
+        // Keep the highlight on the SAME category across a rebuild — by id, never by index: an alter that renames
+        // a category re-sorts the list, and an index-restored highlight would land on a NEIGHBOURING master that
+        // the next Ctrl+Enter would open and the next Alt+D would delete.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var c in _company.EmployeeCategories.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
         {
@@ -123,11 +198,14 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
             };
             Existing.Add(new EmployeeCategoryListRow
             {
+                MasterId = c.Id,
                 Name = c.Name,
                 Allocates = allocates,
                 Employees = count == 0 ? "—" : count.ToString(),
                 Kind = c.IsPredefined ? "Predefined" : "User",
             });
         }
+
+        _highlight.RestoreTo(previous);
     }
 }

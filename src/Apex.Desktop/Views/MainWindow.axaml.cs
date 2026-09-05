@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Views;
@@ -15,6 +16,13 @@ namespace Apex.Desktop.Views;
 public partial class MainWindow : Window
 {
     private INotifyCollectionChanged? _watchedColumns;
+
+    /// <summary>
+    /// The file/folder chooser this window uses for every data path (census row 13.10 / T1-20). Defaults to the
+    /// real OS dialogs; the headless tests swap in a fake, because a real dialog cannot open in a test and a
+    /// chooser no test can reach is a chooser nobody can prove is reachable.
+    /// </summary>
+    internal IFilePathPicker FilePathPicker { get; set; }
 
     /// <summary>The size declared in XAML, captured before anything can override it — see
     /// <see cref="OnOpened"/>, which only fits the window to the screen if this is still the size in force.</summary>
@@ -24,6 +32,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FilePathPicker = new StorageProviderFilePathPicker(this);
         _xamlWidth = Width;
         _xamlHeight = Height;
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
@@ -195,6 +204,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 7.16 — THE SAME CHORD, THE SAME RULE, on the payroll masters' existing-lists. ONE arm for every kind
+        // that has the capability: the VM resolves which payroll master is open and returns false on every other
+        // screen, so this is inert everywhere else and cannot diverge kind-by-kind (which is exactly how the
+        // row's defect was shaped — a capability missing across all eight master kinds rather than eight
+        // separate oversights). NOTE: four of the eight kinds are wired today; this arm is one arm for however
+        // many the VM resolves, not a claim that all eight are done. See MainWindowViewModel.PayrollMasterScreen.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedPayrollMasterRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -268,6 +290,49 @@ public partial class MainWindow : Window
         if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.Control
             && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
             && vm.RequestAlterHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-15 (census row 5.4) — Alt+2 DUPLICATES the highlighted posted voucher.                        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is grounded on the vendor's own help).
+        // help.tallysolutions.com/day-book-tally/ names the Day-Book verb and its chord verbatim: "Press Alt+2
+        // (Duplicate Vch)". This is a FREE ADDITION, not a re-assignment: `Key.D2` — indeed every `Key.D<digit>`
+        // — had ZERO hits anywhere in src/ before this line, so nothing in the open U-6 chord ruling is disturbed
+        // and no existing binding is displaced.
+        //
+        // 🔴 ITS SIBLING IS NOT BUILT, and that is stated here rather than left as a gap for someone to "fix".
+        // The vendor's Insert Voucher ("Select the entry above which you want to insert the transaction, press
+        // Alt+I (Insert Vch)") is NOT bound, for two independent reasons: Alt+I is already spent on the POS
+        // tender-mode toggle further down this file, and the only behaviour that distinguishes Insert from the
+        // shipped Alt+A "Add voucher in a report" — which already seeds the new voucher with the highlighted
+        // row's date — is that inserting between two vouchers renumbers every later voucher of that type. That
+        // rewrites document numbers on already-issued documents, which is precisely what the IRN and challan
+        // freezes in `VoucherAlterationEligibility` exist to prevent. It needs a user ruling, not a keystroke.
+        //
+        // SCOPE, ORDER AND CONSUMPTION are the Ctrl+Enter arm's, deliberately and for its reasons:
+        //   • `vm.IsVoucherAlterTargetPage` — the SAME three surfaces (live report page, register drill,
+        //     voucher-detail column), so Duplicate and Alter can never disagree about which document the
+        //     highlight means. `RequestDuplicateHighlightedVoucher`'s own `CurrentScreen` switch is the thing
+        //     that actually decides, exactly as it is for Ctrl+Enter.
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`: Ctrl+Alt+2 and Alt+Shift+2
+        //     are different chords, and on several layouts Alt+Shift+2 is the at-sign. (Spelled out rather than
+        //     quoted: CompanyCaptureReachTests.BlankComments scans this file for a verbatim-string opener, and a
+        //     quoted at-sign directly after a double quote reads as exactly that.)
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — defence in depth, labelled as honestly as the arm above
+        //     labels its own: on the three surfaces reachable at this commit neither clause can change the
+        //     outcome, and neither is independently pinnable. Do not write a test claiming to pin them.
+        //   • `e.Handled` is NOT unconditional, for the identical three-valued reason: Opened/Refused are
+        //     consumed (a refusal has just been written to the notice bar, which `OnCurrentScreenChanged` would
+        //     wipe), NoVoucherHere is not (nothing was chosen, so nothing is claimed).
+        // Placed ABOVE the bare-`Key.D2` region of the file — there is none — and above the Alt-letter block far
+        // below, which switches on letters only and would never see a digit.
+        if (e.Key == Key.D2 && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
+            && vm.RequestDuplicateHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
         {
             e.Handled = true;
             return;
@@ -528,6 +593,41 @@ public partial class MainWindow : Window
         // voucher/master, no confirmation may already be up, and the S4 guards must accept it). `e.Handled` is set
         // unconditionally once the guards pass, so a surface with nothing highlighted is a quiet no-op rather than
         // a live key that falls through to the Day Book jump.
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Census row 1.4 — Alt+D on the COMPANY ALTERATION screen DELETES THE OPEN COMPANY.                │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is the vendor's own help).
+        // help.tallysolutions.com/…/set-up-company-tally/ gives screen and chord together: "Alt+K (Company) >
+        // Alter. In the Company Alteration screen, press Alt+D." Only the route to the screen is ours
+        // (Gateway → Masters → Alter Company) — the Alt+K top menu is not built and its chord is inside open
+        // ruling U-6. `CompanyStorage.Delete` had ZERO callers before this arm: it was written, careful and
+        // unreachable, which is why row 1.4 could not be claimed until a key reached it.
+        //
+        // IT SITS ABOVE THE MASTER Alt+D ARM AND IS DISJOINT FROM IT. `vm.IsDeleteTargetPage` excludes
+        // Screen.AlterCompany, so neither arm can ever swallow the other's surface; they are adjacent because the
+        // two must be read together, and `AltD_elsewhere_still_deletes_the_master_not_the_company` pins that the
+        // master meaning is untouched. The bare-letter D quick-jump (Day Book) cannot collide either — slice S1
+        // narrowed `CanQuickJump` to `KeyModifiers.None`.
+        //
+        // 🔴 NO `IsTyping` GUARD, AND THAT DIFFERS FROM THE ARM BELOW ON PURPOSE. The master arm guards it because
+        // its caret sits in a form standing OVER A LIST, so a bare Alt+D mid-word would delete the row behind. The
+        // Company Alteration screen has no list behind it — its subject IS the company — so the chord can only
+        // mean one thing wherever the caret is, while guarding it would make an attested chord dead in ordinary
+        // use, since the operator is on this screen precisely to type in its fields. `IsPickerOpen` is omitted for
+        // the same reason and one more: the State picker claims no Alt chord, so the clause could not change an
+        // outcome and would be a guard no test can fail. The Y/N confirmation is the guard here, and the view
+        // model re-checks the screen and refuses while a question is already up.
+        //
+        // `e.Handled` is set unconditionally once the surface matches, so an Alt+D on this screen never falls
+        // through to the Day Book jump — the same doctrine as the arm below.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.AlterCompany)
+        {
+            vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
             && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
         {
@@ -620,6 +720,27 @@ public partial class MainWindow : Window
             && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is { PayrollEnabled: true } && !IsTyping(e))
         {
             vm.ShowPayrollVoucher();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on a screen that carries a DATA PATH opens the OS file/folder chooser for it (census row 13.10 /
+        // T1-20 — every path used to be a typed string or a silent default to Documents, so restoring from a
+        // backup meant typing the archive path from memory).
+        //
+        // 🔴 WHY NOT Ctrl+B: Ctrl+B is the vendor's "Basis of Values" and is RESERVED UNBOUND above. Do not move
+        // this here. Alt+B is already this codebase's screen-scoped convention (six arms below, each scoped to its
+        // own screen), and the browse screens are disjoint from every one of them, so nothing collides.
+        //
+        // 🔴 WHY NO !IsTyping GUARD: the caret is normally IN the path TextBox when the operator wants the
+        // chooser — that is the whole point of the feature. Alt+letter emits no character, so allowing it while
+        // typing costs nothing. Scoped by BrowseRequest() returning null on every screen with no path, so this is
+        // a safe no-op app-wide.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.BrowseRequest() is not null)
+        {
+            _ = BrowseForPathAsync(vm);
             e.Handled = true;
             return;
         }
@@ -1741,6 +1862,53 @@ public partial class MainWindow : Window
 
     private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyImport();
+
+    // ---- The file / folder chooser (census row 13.10 / T1-20) ----
+
+    /// <summary>
+    /// The "Browse…" button on every path-carrying panel. The same entry point as Alt+B, so the button and the
+    /// chord can never drift apart.
+    /// </summary>
+    private void OnBrowseForPathClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) _ = BrowseForPathAsync(vm);
+    }
+
+    /// <summary>
+    /// Asks the view model WHAT path the open screen needs, asks the operating system FOR it, and hands the answer
+    /// back to the view model. Every product decision is on the view-model side of this method; the only thing
+    /// that happens here is the dialog.
+    ///
+    /// <para>A cancelled dialog returns null and <see cref="MainWindowViewModel.ApplyBrowsedPath"/> changes
+    /// nothing — the typed path stays exactly as it was, which matters most on the Restore panel, where that path
+    /// is the archive about to overwrite a whole company.</para>
+    ///
+    /// <para>The screen is re-checked after the await: a dialog is modal to the OS, not to us, and the operator
+    /// could have been moved on by anything that ran meanwhile. Writing a chosen path into whatever screen
+    /// happens to be open by then is exactly the class of defect this feature exists to remove.</para>
+    /// </summary>
+    private async System.Threading.Tasks.Task BrowseForPathAsync(MainWindowViewModel vm)
+    {
+        if (vm.BrowseRequest() is not { } request) return;
+
+        var screenAsked = vm.CurrentScreen;
+        string? picked;
+        try
+        {
+            picked = await FilePathPicker.PickAsync(request);
+        }
+        catch (Exception)
+        {
+            // A platform whose dialog fails is a reason to leave the typed path alone, not to crash the shell:
+            // the TextBox is still there and still works, so the feature degrades to exactly what shipped before.
+            return;
+        }
+
+        if (picked is null) return;
+        if (vm.CurrentScreen != screenAsked) return;
+
+        vm.ApplyBrowsedPath(picked);
+    }
 
     // ---- Data -> Backup / Restore (the R-7 carve-out) ----
 

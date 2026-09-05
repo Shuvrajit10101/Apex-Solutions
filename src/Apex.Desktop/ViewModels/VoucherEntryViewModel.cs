@@ -3066,6 +3066,99 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             : VoucherAlterationOpen.Opened(entry);
     }
 
+    // =============================================================== W2-15 — DUPLICATE a posted voucher (Alt+2)
+
+    /// <summary>
+    /// 🔴 <b>W2-15's entry door — opens a FRESH entry screen PRE-FILLED from a posted voucher, or refuses BY
+    /// NAME.</b> Census row 5.4.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14 — grounded on the vendor's own help, the corpus being gone).</b>
+    /// <i>help.tallysolutions.com/day-book-tally/</i> names the Day-Book verb verbatim as <i>"Press
+    /// <b>Alt</b>+<b>2</b> (Duplicate Vch)"</i>, and states its numbering for the case this screen opens on — the
+    /// <b>same date</b> — as <i>"the duplicated voucher receives the next available number for that voucher
+    /// type"</i>. That is exactly <c>LedgerService.NextNumber</c> (max + 1), which the constructor already
+    /// previewed and which <see cref="DetachAsDuplicate"/> puts back after the rehydration has overwritten it with
+    /// the SOURCE voucher's own number.</para>
+    ///
+    /// <para>🔴 <b>THE DIVERGENCE, LABELLED AS OURS (RULING 9), because it is not this slice's to fix.</b> The
+    /// vendor's other limb — a duplicate whose date the operator MOVES <i>"takes the last voucher number for that
+    /// type on the new date"</i> — presupposes a date-scoped numbering engine. This application numbers a type
+    /// globally as max + 1 with no date scope at all, so our duplicate keeps max + 1 whatever the operator does to
+    /// the date. Re-engineering that would change the number every voucher in the product gets, not just a
+    /// duplicate's, so it is recorded here and pinned by a test rather than smuggled in.</para>
+    ///
+    /// <para><b>Why it reuses <see cref="RehydrateFrom(Voucher)"/> and then DETACHES, rather than having a
+    /// prefill of its own.</b> The rehydration is the documented inverse of the four line writers — it inverts the
+    /// engine's derived legs so the grid holds what the operator KEYED, seeds the entry mode from the POSTED
+    /// shape rather than the type's opening default, and carries the provisional-state vector. A second,
+    /// independent "copy the voucher onto the screen" would be a parallel implementation of all of that, free to
+    /// drift; the class of defect this codebase already records against every pair of independently-derived
+    /// projections. One inverse, two doors.</para>
+    ///
+    /// <para><b>Why the SAME eligibility predicate.</b> A duplicate is re-keyed on precisely the grid an
+    /// alteration is re-keyed on, so "can this posted shape be rebuilt from the entry screen?" is the identical
+    /// question and gets the identical answer. Asking a weaker question here would let a duplicate open a shape
+    /// the screen cannot express and post a corrupted second copy of it — strictly worse than the alteration
+    /// case, because nothing on screen would say the original had been misread.</para>
+    ///
+    /// <para><b>What Accept then does, and why that is right.</b> The result is NOT altering, so
+    /// <see cref="Accept"/> runs — build + <c>Post</c> + the registration side effects. That is correct for a
+    /// duplicate and wrong for an alteration, which is the whole reason the two doors differ: a duplicate is a
+    /// NEW document and must be stamped by today's masters (a party that has since acquired a
+    /// <c>DeducteeType</c> carves withholding on the copy), whereas an alteration must not acquire or lose one.
+    /// </para>
+    /// </summary>
+    public static VoucherAlterationOpen ForDuplicate(
+        Company company,
+        Guid voucherId,
+        CompanyStorage storage,
+        Action onSaved,
+        Action onCancelled)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        if (VoucherAlterationEligibility.RefusalFor(company, voucherId) is { } refusal)
+            return VoucherAlterationOpen.Refused(refusal);
+
+        var voucher = company.FindVoucher(voucherId)!;
+        var type = company.FindVoucherType(voucher.TypeId)!;
+
+        var entry = new VoucherEntryViewModel(company, type, storage, onSaved, onCancelled);
+        if (entry.RehydrateFrom(voucher) is { } lineRefusal)
+            return VoucherAlterationOpen.Refused(lineRefusal);
+
+        entry.DetachAsDuplicate();
+        return VoucherAlterationOpen.Opened(entry);
+    }
+
+    /// <summary>
+    /// Turns a screen that <see cref="RehydrateFrom(Voucher)"/> has just pre-filled from a posted voucher back
+    /// into a <b>fresh entry</b>: it forgets which voucher it was filled from, and takes back the next-number
+    /// preview the rehydration overwrote.
+    ///
+    /// <para>🔴 <b>Both lines are load-bearing, and each fails differently if dropped.</b>
+    /// <list type="bullet">
+    ///   <item>Leaving <c>_alteringVoucherId</c> set would make Ctrl+A run <see cref="AcceptAlteration"/> — the
+    ///     copy would <b>REPLACE the original</b> instead of joining it, so a verb whose entire purpose is to
+    ///     produce a second document would destroy the first one. There is no message that would report this: the
+    ///     screen would say "altered", which is exactly what it did.</item>
+    ///   <item>Leaving <see cref="VoucherNumber"/> at the source voucher's own number would post the copy under
+    ///     the SAME document number as the original — two documents, one number, on a book that renders that
+    ///     number onto tax invoices.</item>
+    /// </list></para>
+    ///
+    /// <para>The two <c>_alteringPostedAs…</c> flags are deliberately left as the rehydration set them: they
+    /// record the shape the SOURCE was posted in, and their only readers are
+    /// <see cref="SyncSingleEntrySides"/> (which consults <c>_alteringPostedAsSingleEntry</c> only under
+    /// <see cref="IsAltering"/>, now false) and <c>AcceptAlterationCore</c> (which this screen can no longer
+    /// reach). Clearing them would be a change no test could fail, so it is not made.</para>
+    /// </summary>
+    private void DetachAsDuplicate()
+    {
+        _alteringVoucherId = Guid.Empty;
+        VoucherNumber = _service.NextNumber(_type.Id);
+    }
+
     /// <summary>
     /// Re-keys this freshly-constructed screen from <paramref name="voucher"/>. Returns <c>null</c> on success, or a
     /// named refusal when a line cannot be re-keyed (the master-drift and forex cases

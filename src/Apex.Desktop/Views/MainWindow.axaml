@@ -6277,9 +6277,17 @@
                     </ContentControl>
 
                     <!-- PAGE: Company Alteration (the open company's own profile).
-                         The Name is shown read-only: the company's database file is named after it, so saving
-                         a renamed company would write a second file and leave the book forked in two with no
-                         error. The name that PRINTS on an invoice is the Mailing Name, which is editable. -->
+                         The Name is EDITABLE, and editing it RENAMES the book (census row 1.4). It shipped as a
+                         read-only TextBlock because the company's database file is named after it, so an accept
+                         that merely assigned the name and saved would write a SECOND file and leave the book
+                         forked in two with no error. That is now handled properly: the accept routes through
+                         CompanyStorage.Rename, which MOVES the file and refuses a collision.
+                         🔴 THIS CONTROL IS THE WHOLE FEATURE. `CompanyProfileViewModel.IsNameEditable` returning
+                         true reaches nobody while the name is painted as a TextBlock — a rename only a unit test
+                         could perform is not a shipped capability. If this ever reverts to a TextBlock, row 1.4
+                         is unreachable again whatever the view model says.
+                         Fidelity (R7; RULING 14): help.tallysolutions.com/…/set-up-company-tally/ renames a
+                         company by "Alt+K (Company) > Alter" and editing the Name on this screen. -->
                     <ContentControl IsVisible="{Binding AlterCompany, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding AlterCompany}">
                       <ContentControl.ContentTemplate>
@@ -6296,10 +6304,11 @@
                                   <Grid ColumnDefinitions="180,*">
                                     <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="14"
-                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                             IsEnabled="{Binding IsNameEditable}"
+                                             PlaceholderText="the company's own name"/>
                                   </Grid>
-                                  <TextBlock Text="The company name is fixed once the book exists — its data file is named after it."
+                                  <TextBlock Text="Changing the name renames the book — its data file is moved to match. A name another book already uses is refused."
                                              FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
 
                                   <TextBlock Text="PRIMARY MAILING DETAILS" FontSize="11" FontWeight="Bold"
@@ -8269,6 +8278,13 @@
                                   <DataTemplate x:DataType="vm:EmployeeCategoryListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,170,90,90" Height="24">
+                                        <!-- 7.16 keyboard highlight. The arrows move it, Ctrl+Enter alters that
+                                             master and Alt+D DELETES it — so it MUST be drawn, or the operator
+                                             confirms a deletion they cannot see the target of. Declared FIRST so
+                                             it paints BEHIND the row's text, converter-free, exactly as the Chart
+                                             of Accounts and Stock Item lists do. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -8362,6 +8378,10 @@
                                   <DataTemplate x:DataType="vm:EmployeeGroupListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,200,120" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -8762,6 +8782,10 @@
                                   <DataTemplate x:DataType="vm:PayrollUnitListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="120,*,90,*" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Symbol}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding FormalName}"
@@ -8873,6 +8897,10 @@
                                   <DataTemplate x:DataType="vm:AttendanceTypeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,140,185,80" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -15869,12 +15897,15 @@
                                 <!-- RQ-16: destination -->
                                 <TextBlock Text="Destination" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <Grid ColumnDefinitions="90,*">
+                                <!-- 13.10 / T1-20: the destination folder is CHOSEN, not typed from memory. -->
+                                <Grid ColumnDefinitions="90,*,Auto">
                                   <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="(target folder)"/>
+                                  <Button Grid.Column="2" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
@@ -15940,12 +15971,15 @@
                                 <!-- Destination -->
                                 <TextBlock Text="Destination" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <Grid ColumnDefinitions="90,*">
+                                <!-- 13.10 / T1-20: the destination folder is CHOSEN, not typed from memory. -->
+                                <Grid ColumnDefinitions="90,*,Auto">
                                   <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="(target folder)"/>
+                                  <Button Grid.Column="2" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
@@ -15995,12 +16029,17 @@
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="340">
 
-                                <!-- Source file -->
+                                <!-- Source file. 13.10 / T1-20: chosen, not typed from memory. The filter follows
+                                     the Format radio below, so the dialog offers what the panel will actually read. -->
                                 <TextBlock Text="Source file" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the backup / CSV file)"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding FilePath, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the backup / CSV file)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <!-- Format -->
                                 <TextBlock Text="Format" FontWeight="Bold"
@@ -16094,9 +16133,15 @@
                                 <!-- Destination -->
                                 <TextBlock Text="Save into folder" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <TextBox Text="{Binding Folder, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the destination folder)"/>
+                                <!-- 13.10 / T1-20: the folder is CHOSEN, not remembered. The TextBox stays — the
+                                     chooser is an addition, never the only way in. -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding Folder, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the destination folder)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <TextBlock Text="File name" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
@@ -16155,9 +16200,16 @@
 
                                 <TextBlock Text="Backup file" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the .apexbak backup file)"/>
+                                <!-- 13.10 / T1-20: THE headline case. A user restoring from a backup had to type
+                                     the full archive path from memory, and a mistyped restore path is the
+                                     difference between a backup feature and a data-loss event. -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding FilePath, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the .apexbak backup file)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <TextBlock Text="Restore into" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
@@ -16263,12 +16315,16 @@
                                              FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
                                 </Grid>
 
-                                <Grid ColumnDefinitions="*,Auto">
+                                <Grid ColumnDefinitions="*,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"
                                              IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource BrandNavy}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Save .eml (Ctrl+A)" Padding="14,6"
+                                  <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say
+                                       WHERE, which is what the shipped code-behind comment asked a later slice for. -->
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                  <Button Grid.Column="2" Content="Save .eml (Ctrl+A)" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnSaveEmailClick"/>
                                 </Grid>
@@ -16785,12 +16841,15 @@
                               </ItemsControl>
                             </ScrollViewer>
 
-                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
                               <TextBlock Grid.Column="0" Text="{Binding Status}"
                                          IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                          Foreground="{StaticResource BrandNavy}" FontSize="12"
                                          VerticalAlignment="Center" TextWrapping="Wrap"/>
-                              <Button Grid.Column="1" Content="Save PDF (Ctrl+A)" Padding="14,6"
+                              <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say WHERE. -->
+                              <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
+                                      Click="OnBrowseForPathClick"/>
+                              <Button Grid.Column="2" Content="Save PDF (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnSavePrintPreviewClick"/>
                             </Grid>
