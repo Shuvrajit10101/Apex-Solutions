@@ -93,7 +93,6 @@ public enum Screen
     // Composition dealer under Reports → Statutory Reports → Composition Returns.
     Cmp08Report,
     Gstr4Report,
-    Gstr9aReport,
 
     // Advanced-GST read-only report/return screens (Phase 9 UI-1; RQ-17) — surfaced for a Regular GST company under
     // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
@@ -393,9 +392,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The GSTR-4 composition annual-return report (Phase 9 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr4ReportViewModel? _gstr4Report;
 
-    /// <summary>The GSTR-9A composition annual-return report (census row 6.13), non-null only while that page is open.</summary>
-    [ObservableProperty] private Gstr9aReportViewModel? _gstr9aReport;
-
     /// <summary>The GSTR-9 annual-return report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr9ReportViewModel? _gstr9Report;
 
@@ -632,7 +628,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9aReport is null
         && Gstr9Report is null && Gstr9cReport is null && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
@@ -686,7 +681,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCmp08ReportChanged(Cmp08ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnGstr9aReportChanged(Gstr9aReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2190,9 +2184,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Composition Returns"));
         col.Add(new MenuItemViewModel("CMP-08", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-4", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        // GSTR-9A sits BELOW GSTR-4 deliberately: Rule 62(1)(ii) makes GSTR-4 the composition dealer's operative
-        // annual return, and 9A is a reconciliation / prior-year computation. The page says so on its face.
-        col.Add(new MenuItemViewModel("GSTR-9A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -4224,19 +4215,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Form GSTR-4 — Composition Annual Return", () => Gstr4Report = page);
     }
 
-    /// <summary>Opens the <b>GSTR-9A</b> composition annual-return report (Reports → Statutory Reports → Composition
-    /// Returns → GSTR-9A; census row 6.13) as a page column: a read-only projection over the pure
-    /// <see cref="Gstr9a"/> engine, carrying the Rule 80(1) / Rule 62(1)(ii) applicability statement on its face.
-    /// A no-op unless the company is a Composition dealer (ER-13).</summary>
-    public void OpenGstr9aReport()
-    {
-        if (Company is null || !IsCompositionDealer) return;
-
-        var page = new Gstr9aReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("GSTR-9A", page), Screen.Gstr9aReport,
-            "Form GSTR-9A — Composition Annual Return", () => Gstr9aReport = page);
-    }
-
     // ---- Advanced-GST report screens (Phase 9 UI-1; RQ-17). Each opens a read-only page column projecting its pure
     // engine; all are gated on a Regular GST dealer (a Composition / GST-off company never reaches them, ER-13). ----
 
@@ -5319,7 +5297,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
-        Gstr9aReport = null;
         Gstr9Report = null;
         Gstr9cReport = null;
         ElectronicLedgersReport = null;
@@ -8003,8 +7980,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.Gstr4Report:
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
-            case Screen.Gstr9aReport:
-                return; // read-only report — Ctrl+A/Enter is a safe no-op
             // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
             case Screen.Gstr9Report:
             case Screen.Gstr9cReport:
@@ -8290,7 +8265,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Composition returns (Phase 9 slice 3) — under Reports → Statutory Reports → Composition Returns.
             case "CMP-08": OpenCmp08Report(); break;
             case "GSTR-4": OpenGstr4Report(); break;
-            case "GSTR-9A": OpenGstr9aReport(); break;
             // Advanced-GST report screens (Phase 9 UI-1) — under Reports → Statutory Reports → Annual Returns /
             // GST Returns (Advanced).
             case "GSTR-9": OpenGstr9Report(); break;
