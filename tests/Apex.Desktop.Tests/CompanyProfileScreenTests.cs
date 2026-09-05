@@ -1090,28 +1090,45 @@ public sealed class CompanyProfileScreenTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 RENAME IS NOT OFFERED, and the reason is a book-eater: the company's <c>.db</c> file is NAMED after
-    /// the company, and the company-select list takes each display name back from the FILENAME. Saving a
-    /// renamed company would write a second file and leave the book forked in two — same company id in both,
-    /// later saves landing on only one — with nothing reporting an error.
-    /// <para>So the name is display-only on alteration, and accepting after assigning to the bound property
-    /// must still leave exactly ONE company file on disk.</para>
-    /// <para><i>Mutation that reddens it:</i> assign <c>company.Name = Name</c> in the screen's Apply.</para>
+    /// 🔴 <b>THE BOOK IS NEVER FORKED BY A RENAME — the file MOVES, it is not copied.</b> The company's
+    /// <c>.db</c> is NAMED after the company and the company-select list takes each display name back from the
+    /// FILENAME, so an accept that assigned <c>company.Name</c> and saved would write a SECOND file and leave the
+    /// book forked in two — same company id in both, later saves landing on only one, nothing reporting an error.
+    ///
+    /// <para><b>†† 2026-09-05 — THIS TEST WAS RE-POINTED, AND ONLY ITS FIRST ASSERTION MOVED.</b> It shipped as
+    /// <c>The_company_name_is_display_only_on_alteration_and_accepting_never_forks_the_book</c>, opening
+    /// <c>Assert.False(form.IsNameEditable)</c>. That expectation was <b>stale, not wrong when written</b>: the
+    /// name was read-only on alteration only because the rename had been carved out into its own slice, which is
+    /// census row <b>1.4</b> and has now shipped. <b>The authority for the new expectation is the vendor, not the
+    /// new code:</b> RULING 14 / R7 — <i>help.tallysolutions.com/…/set-up-company-tally/</i> renames a company by
+    /// <i>"Alt+K (Company) &gt; Alter"</i> and editing the Name on the Company Alteration screen. There is no
+    /// separate Rename screen to build; this IS the reference route.</para>
+    ///
+    /// <para><b>The anti-fork half is deliberately KEPT, unweakened, and it is the half that ever protected
+    /// anyone.</b> It no longer says "the name did not change" — it says <b>exactly one book exists afterwards
+    /// and it is the renamed one</b>, which is the same invariant stated against a feature that now exists. A
+    /// rename that copied instead of moving still reddens it.</para>
+    ///
+    /// <para><i>Mutations that redden it:</i> assign <c>company.Name = Name</c> in the screen's <c>Apply</c> and
+    /// save (forks the book — two entries); or drop the <c>Delete(entry)</c> from
+    /// <c>CompanyStorage.Rename</c> (leaves the old file standing — two entries).</para>
     /// </summary>
     [Fact]
-    public void The_company_name_is_display_only_on_alteration_and_accepting_never_forks_the_book()
+    public void Renaming_on_alteration_moves_the_book_and_never_forks_it()
     {
         var vm = CreateThroughScreen("Original Name Co");
         vm.ShowAlterCompany();
         var form = vm.AlterCompany!;
 
-        Assert.False(form.IsNameEditable);
-        form.Name = "Renamed Co";        // the bound property moves; the aggregate must not
+        Assert.True(form.IsNameEditable);
+        form.Name = "Renamed Co";
         Assert.True(form.Accept());
 
-        Assert.Equal("Original Name Co", vm.Company!.Name);
+        // The aggregate the shell is holding carries the new name...
+        Assert.Equal("Renamed Co", vm.Company!.Name);
+        // ...and the picker offers ONE book, under that name. Two entries here is the fork.
         var files = _storage.ListCompanies().Select(e => e.Name).ToList();
-        Assert.Equal(new[] { "Original Name Co" }, files);
+        Assert.Equal(new[] { "Renamed Co" }, files);
     }
 
     /// <summary>

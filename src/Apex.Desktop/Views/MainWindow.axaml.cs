@@ -273,6 +273,49 @@ public partial class MainWindow : Window
             return;
         }
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-15 (census row 5.4) — Alt+2 DUPLICATES the highlighted posted voucher.                        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is grounded on the vendor's own help).
+        // help.tallysolutions.com/day-book-tally/ names the Day-Book verb and its chord verbatim: "Press Alt+2
+        // (Duplicate Vch)". This is a FREE ADDITION, not a re-assignment: `Key.D2` — indeed every `Key.D<digit>`
+        // — had ZERO hits anywhere in src/ before this line, so nothing in the open U-6 chord ruling is disturbed
+        // and no existing binding is displaced.
+        //
+        // 🔴 ITS SIBLING IS NOT BUILT, and that is stated here rather than left as a gap for someone to "fix".
+        // The vendor's Insert Voucher ("Select the entry above which you want to insert the transaction, press
+        // Alt+I (Insert Vch)") is NOT bound, for two independent reasons: Alt+I is already spent on the POS
+        // tender-mode toggle further down this file, and the only behaviour that distinguishes Insert from the
+        // shipped Alt+A "Add voucher in a report" — which already seeds the new voucher with the highlighted
+        // row's date — is that inserting between two vouchers renumbers every later voucher of that type. That
+        // rewrites document numbers on already-issued documents, which is precisely what the IRN and challan
+        // freezes in `VoucherAlterationEligibility` exist to prevent. It needs a user ruling, not a keystroke.
+        //
+        // SCOPE, ORDER AND CONSUMPTION are the Ctrl+Enter arm's, deliberately and for its reasons:
+        //   • `vm.IsVoucherAlterTargetPage` — the SAME three surfaces (live report page, register drill,
+        //     voucher-detail column), so Duplicate and Alter can never disagree about which document the
+        //     highlight means. `RequestDuplicateHighlightedVoucher`'s own `CurrentScreen` switch is the thing
+        //     that actually decides, exactly as it is for Ctrl+Enter.
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`: Ctrl+Alt+2 and Alt+Shift+2
+        //     are different chords, and on several layouts Alt+Shift+2 is the at-sign. (Spelled out rather than
+        //     quoted: CompanyCaptureReachTests.BlankComments scans this file for a verbatim-string opener, and a
+        //     quoted at-sign directly after a double quote reads as exactly that.)
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — defence in depth, labelled as honestly as the arm above
+        //     labels its own: on the three surfaces reachable at this commit neither clause can change the
+        //     outcome, and neither is independently pinnable. Do not write a test claiming to pin them.
+        //   • `e.Handled` is NOT unconditional, for the identical three-valued reason: Opened/Refused are
+        //     consumed (a refusal has just been written to the notice bar, which `OnCurrentScreenChanged` would
+        //     wipe), NoVoucherHere is not (nothing was chosen, so nothing is claimed).
+        // Placed ABOVE the bare-`Key.D2` region of the file — there is none — and above the Alt-letter block far
+        // below, which switches on letters only and would never see a digit.
+        if (e.Key == Key.D2 && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsVoucherAlterTargetPage && !IsTyping(e) && !IsPickerOpen(e)
+            && vm.RequestDuplicateHighlightedVoucher() is not VoucherAlterationRequest.NoVoucherHere)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
         // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble
@@ -528,6 +571,41 @@ public partial class MainWindow : Window
         // voucher/master, no confirmation may already be up, and the S4 guards must accept it). `e.Handled` is set
         // unconditionally once the guards pass, so a surface with nothing highlighted is a quiet no-op rather than
         // a live key that falls through to the Day Book jump.
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Census row 1.4 — Alt+D on the COMPANY ALTERATION screen DELETES THE OPEN COMPANY.                │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is the vendor's own help).
+        // help.tallysolutions.com/…/set-up-company-tally/ gives screen and chord together: "Alt+K (Company) >
+        // Alter. In the Company Alteration screen, press Alt+D." Only the route to the screen is ours
+        // (Gateway → Masters → Alter Company) — the Alt+K top menu is not built and its chord is inside open
+        // ruling U-6. `CompanyStorage.Delete` had ZERO callers before this arm: it was written, careful and
+        // unreachable, which is why row 1.4 could not be claimed until a key reached it.
+        //
+        // IT SITS ABOVE THE MASTER Alt+D ARM AND IS DISJOINT FROM IT. `vm.IsDeleteTargetPage` excludes
+        // Screen.AlterCompany, so neither arm can ever swallow the other's surface; they are adjacent because the
+        // two must be read together, and `AltD_elsewhere_still_deletes_the_master_not_the_company` pins that the
+        // master meaning is untouched. The bare-letter D quick-jump (Day Book) cannot collide either — slice S1
+        // narrowed `CanQuickJump` to `KeyModifiers.None`.
+        //
+        // 🔴 NO `IsTyping` GUARD, AND THAT DIFFERS FROM THE ARM BELOW ON PURPOSE. The master arm guards it because
+        // its caret sits in a form standing OVER A LIST, so a bare Alt+D mid-word would delete the row behind. The
+        // Company Alteration screen has no list behind it — its subject IS the company — so the chord can only
+        // mean one thing wherever the caret is, while guarding it would make an attested chord dead in ordinary
+        // use, since the operator is on this screen precisely to type in its fields. `IsPickerOpen` is omitted for
+        // the same reason and one more: the State picker claims no Alt chord, so the clause could not change an
+        // outcome and would be a guard no test can fail. The Y/N confirmation is the guard here, and the view
+        // model re-checks the screen and refuses while a question is already up.
+        //
+        // `e.Handled` is set unconditionally once the surface matches, so an Alt+D on this screen never falls
+        // through to the Day Book jump — the same doctrine as the arm below.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.AlterCompany)
+        {
+            vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
             && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
         {
