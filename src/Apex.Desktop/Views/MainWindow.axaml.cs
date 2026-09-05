@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Views;
@@ -15,6 +16,13 @@ namespace Apex.Desktop.Views;
 public partial class MainWindow : Window
 {
     private INotifyCollectionChanged? _watchedColumns;
+
+    /// <summary>
+    /// The file/folder chooser this window uses for every data path (census row 13.10 / T1-20). Defaults to the
+    /// real OS dialogs; the headless tests swap in a fake, because a real dialog cannot open in a test and a
+    /// chooser no test can reach is a chooser nobody can prove is reachable.
+    /// </summary>
+    internal IFilePathPicker FilePathPicker { get; set; }
 
     /// <summary>The size declared in XAML, captured before anything can override it — see
     /// <see cref="OnOpened"/>, which only fits the window to the screen if this is still the size in force.</summary>
@@ -24,6 +32,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FilePathPicker = new StorageProviderFilePathPicker(this);
         _xamlWidth = Width;
         _xamlHeight = Height;
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
@@ -190,6 +199,19 @@ public partial class MainWindow : Window
         // returns false on any screen without a highlighted alterable row, so Ctrl+Enter is untouched elsewhere.
         if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && vm.AlterHighlightedStockItemRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // 7.16 — THE SAME CHORD, THE SAME RULE, on the payroll masters' existing-lists. ONE arm for every kind
+        // that has the capability: the VM resolves which payroll master is open and returns false on every other
+        // screen, so this is inert everywhere else and cannot diverge kind-by-kind (which is exactly how the
+        // row's defect was shaped — a capability missing across all eight master kinds rather than eight
+        // separate oversights). NOTE: four of the eight kinds are wired today; this arm is one arm for however
+        // many the VM resolves, not a claim that all eight are done. See MainWindowViewModel.PayrollMasterScreen.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedPayrollMasterRow())
         {
             e.Handled = true;
             return;
@@ -698,6 +720,27 @@ public partial class MainWindow : Window
             && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is { PayrollEnabled: true } && !IsTyping(e))
         {
             vm.ShowPayrollVoucher();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on a screen that carries a DATA PATH opens the OS file/folder chooser for it (census row 13.10 /
+        // T1-20 — every path used to be a typed string or a silent default to Documents, so restoring from a
+        // backup meant typing the archive path from memory).
+        //
+        // 🔴 WHY NOT Ctrl+B: Ctrl+B is the vendor's "Basis of Values" and is RESERVED UNBOUND above. Do not move
+        // this here. Alt+B is already this codebase's screen-scoped convention (six arms below, each scoped to its
+        // own screen), and the browse screens are disjoint from every one of them, so nothing collides.
+        //
+        // 🔴 WHY NO !IsTyping GUARD: the caret is normally IN the path TextBox when the operator wants the
+        // chooser — that is the whole point of the feature. Alt+letter emits no character, so allowing it while
+        // typing costs nothing. Scoped by BrowseRequest() returning null on every screen with no path, so this is
+        // a safe no-op app-wide.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.BrowseRequest() is not null)
+        {
+            _ = BrowseForPathAsync(vm);
             e.Handled = true;
             return;
         }
@@ -1819,6 +1862,53 @@ public partial class MainWindow : Window
 
     private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyImport();
+
+    // ---- The file / folder chooser (census row 13.10 / T1-20) ----
+
+    /// <summary>
+    /// The "Browse…" button on every path-carrying panel. The same entry point as Alt+B, so the button and the
+    /// chord can never drift apart.
+    /// </summary>
+    private void OnBrowseForPathClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) _ = BrowseForPathAsync(vm);
+    }
+
+    /// <summary>
+    /// Asks the view model WHAT path the open screen needs, asks the operating system FOR it, and hands the answer
+    /// back to the view model. Every product decision is on the view-model side of this method; the only thing
+    /// that happens here is the dialog.
+    ///
+    /// <para>A cancelled dialog returns null and <see cref="MainWindowViewModel.ApplyBrowsedPath"/> changes
+    /// nothing — the typed path stays exactly as it was, which matters most on the Restore panel, where that path
+    /// is the archive about to overwrite a whole company.</para>
+    ///
+    /// <para>The screen is re-checked after the await: a dialog is modal to the OS, not to us, and the operator
+    /// could have been moved on by anything that ran meanwhile. Writing a chosen path into whatever screen
+    /// happens to be open by then is exactly the class of defect this feature exists to remove.</para>
+    /// </summary>
+    private async System.Threading.Tasks.Task BrowseForPathAsync(MainWindowViewModel vm)
+    {
+        if (vm.BrowseRequest() is not { } request) return;
+
+        var screenAsked = vm.CurrentScreen;
+        string? picked;
+        try
+        {
+            picked = await FilePathPicker.PickAsync(request);
+        }
+        catch (Exception)
+        {
+            // A platform whose dialog fails is a reason to leave the typed path alone, not to crash the shell:
+            // the TextBox is still there and still works, so the feature degrades to exactly what shipped before.
+            return;
+        }
+
+        if (picked is null) return;
+        if (vm.CurrentScreen != screenAsked) return;
+
+        vm.ApplyBrowsedPath(picked);
+    }
 
     // ---- Data -> Backup / Restore (the R-7 carve-out) ----
 

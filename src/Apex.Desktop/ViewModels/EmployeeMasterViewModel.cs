@@ -11,12 +11,19 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>An employee row for the existing-employees list on the master screen.</summary>
-public sealed class EmployeeListRow
+public sealed partial class EmployeeListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Group { get; init; } = string.Empty;
     public string Designation { get; init; } = string.Empty;
     public string Regime { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the employee this row displays (census 7.16).</summary>
+    public Guid MasterId { get; init; }
+
+    string IPayrollMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>An employee-group picker option (required — an employee must belong to a group).</summary>
@@ -325,6 +332,11 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             var group = _company.FindEmployeeGroup(e.EmployeeGroupId)?.Name ?? "—";
             Existing.Add(new EmployeeListRow
             {
+                // 7.16 — the row's identity. Without it every row carries Guid.Empty and resolves to no
+                // employee, which is only harmless while nothing destructive points at the list. It is filled
+                // HERE, before the employee master is wired onto the Alt+D surface, so the wiring can never
+                // inherit a confirmation that names one employee and acts on another.
+                MasterId = e.Id,
                 Name = e.Name,
                 Group = group,
                 Designation = string.IsNullOrWhiteSpace(e.Designation) ? "—" : e.Designation!,
