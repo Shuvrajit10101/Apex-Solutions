@@ -397,11 +397,20 @@ public sealed class MasterListExportViewModelTests : IDisposable
         // "Account Books" sits under the Reports section of the root cascade.
         Assert.Equal("Reports", SectionOf(shell, "Account Books"));
 
-        // Drilling it exposes the three core books.
+        // Drilling it exposes the three core books, and — since W2-12 — the five accounting registers
+        // (census 11.6) and the two group reports (census 11.7), under their own section headers.
         shell.ShowAccountBooksMenu();
         var books = shell.Columns[^1];
         var labels = books.Items.Where(i => i.IsSelectable).Select(i => i.Label).ToArray();
-        Assert.Equal(new[] { "Cash Book", "Bank Book", "Ledger" }, labels);
+        Assert.Equal(
+            new[]
+            {
+                "Cash Book", "Bank Book", "Ledger",
+                "Sales Register", "Purchase Register", "Journal Register",
+                "Credit Note Register", "Debit Note Register",
+                "Group Summary", "Group Vouchers",
+            },
+            labels);
     }
 
     [Fact]

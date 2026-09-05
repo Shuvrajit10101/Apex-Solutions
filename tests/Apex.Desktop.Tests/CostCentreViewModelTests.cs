@@ -382,12 +382,16 @@ public sealed class CostCentreViewModelTests : IDisposable
         var vm = NewSeededCompany("Cost Nav Reports Co");
 
         // Reports → Statements of Accounts is a hub with Outstandings + Cost Centres + Budgets groups and
-        // the Interest Calculation + Forex Gain/Loss reports.
+        // the Interest Calculation + Forex Gain/Loss reports, plus W2-12's Statistics (census 11.8).
         vm.ShowStatementsOfAccountsMenu();
         Assert.Equal(GatewayMenu.StatementsOfAccounts, vm.CurrentGatewayMenu);
         var hubLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
         Assert.Equal(
-            new[] { "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss" },
+            new[]
+            {
+                "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss",
+                "Statistics",
+            },
             hubLabels);
 
         // Statements of Accounts → Cost Centres lists the two cost reports.

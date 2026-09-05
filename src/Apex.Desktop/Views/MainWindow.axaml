@@ -6277,9 +6277,17 @@
                     </ContentControl>
 
                     <!-- PAGE: Company Alteration (the open company's own profile).
-                         The Name is shown read-only: the company's database file is named after it, so saving
-                         a renamed company would write a second file and leave the book forked in two with no
-                         error. The name that PRINTS on an invoice is the Mailing Name, which is editable. -->
+                         The Name is EDITABLE, and editing it RENAMES the book (census row 1.4). It shipped as a
+                         read-only TextBlock because the company's database file is named after it, so an accept
+                         that merely assigned the name and saved would write a SECOND file and leave the book
+                         forked in two with no error. That is now handled properly: the accept routes through
+                         CompanyStorage.Rename, which MOVES the file and refuses a collision.
+                         🔴 THIS CONTROL IS THE WHOLE FEATURE. `CompanyProfileViewModel.IsNameEditable` returning
+                         true reaches nobody while the name is painted as a TextBlock — a rename only a unit test
+                         could perform is not a shipped capability. If this ever reverts to a TextBlock, row 1.4
+                         is unreachable again whatever the view model says.
+                         Fidelity (R7; RULING 14): help.tallysolutions.com/…/set-up-company-tally/ renames a
+                         company by "Alt+K (Company) > Alter" and editing the Name on this screen. -->
                     <ContentControl IsVisible="{Binding AlterCompany, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding AlterCompany}">
                       <ContentControl.ContentTemplate>
@@ -6296,10 +6304,11 @@
                                   <Grid ColumnDefinitions="180,*">
                                     <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="14"
-                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                             IsEnabled="{Binding IsNameEditable}"
+                                             PlaceholderText="the company's own name"/>
                                   </Grid>
-                                  <TextBlock Text="The company name is fixed once the book exists — its data file is named after it."
+                                  <TextBlock Text="Changing the name renames the book — its data file is moved to match. A name another book already uses is refused."
                                              FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
 
                                   <TextBlock Text="PRIMARY MAILING DETAILS" FontSize="11" FontWeight="Bold"

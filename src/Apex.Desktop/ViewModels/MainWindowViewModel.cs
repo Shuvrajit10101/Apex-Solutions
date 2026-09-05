@@ -202,6 +202,12 @@ public enum GatewayMenu
     BankBook,
     LedgerBooks,
 
+    // W2-12 (census 11.7): Reports → Account Books → Groups → Group Summary / Group Vouchers each open a
+    // DATA-DRIVEN picker column of the company's own accounting groups, mirroring the ledger-book pickers
+    // above (so a bare letter FILTERS the list rather than firing a computed hotkey — the WI-2/WI-9 rule).
+    GroupSummaryPicker,
+    GroupVouchersPicker,
+
     // Reports → Statutory Reports (Phase 7 slice 8): the TDS/TCS exception & outstanding reports, nested under
     // TDS Reports / TCS Reports sub-groups (+ a common Ledgers-without-PAN report spanning both taxes).
     StatutoryReports,
@@ -882,10 +888,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (<c>CompanyStorage.PathForName</c>), and <c>CompanyStorage.Load</c> takes the FIRST company row in the
     /// file. So creating "Acme/Traders" on a machine that already has "Acme_Traders" used to write a SECOND
     /// company row into the FIRST company's file, with no exception and no message — and everything typed into
-    /// the second one then became unreachable forever, because the loader never returns it. Alteration already
-    /// refuses to rename for exactly this reason (<c>CompanyProfileViewModel.IsNameEditable</c>); refusing a
-    /// rename while leaving the identical hole open on create is not a coherent position, so the check is here
-    /// too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
+    /// the second one then became unreachable forever, because the loader never returns it. <b>Alteration refuses
+    /// the same collision</b> — <c>CompanyStorage.Rename</c> tests the sanitised destination path before it moves
+    /// anything (this comment used to say alteration "refuses to rename" outright, which was true only while the
+    /// rename was carved out; census row 1.4 shipped it 2026-09-05). Create and alter must agree on which names
+    /// are refusable, so the check is here too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
     /// only the identical name. <b>WHICH pairs collide is platform-dependent</b> — <c>/</c> collapses
     /// everywhere, <c>:</c> only on Windows; see <c>CompanyStorage.PathForName</c> for the full note.</para>
     ///
@@ -950,8 +957,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens <b>Company Alteration</b> for the OPEN company as a cascade page column: the same profile fields
-    /// the creation screen captures, pre-filled, with the name shown read-only (renaming would fork the book —
-    /// see <see cref="CompanyProfileViewModel.IsNameEditable"/>).
+    /// the creation screen captures, pre-filled.
+    ///
+    /// <para><b>This screen carries BOTH company verbs census row 1.4 owes</b>, and it is the reference product's
+    /// own screen for both (RULING 14 / R7 — <i>help.tallysolutions.com/…/set-up-company-tally/</i>): editing the
+    /// <b>Name</b> and accepting RENAMES the book (see <see cref="CompanyProfileViewModel.IsNameEditable"/> — the
+    /// name shipped read-only until 2026-09-05 and this comment said so), and <b>Alt+D</b> raises the confirmation
+    /// that DELETES it (see <see cref="RequestDeleteOpenCompany"/>).</para>
     ///
     /// <para><b>No accelerator — and the honest reason is scope, not a chord collision.</b> The reference
     /// product reaches company alteration through a COMPANY MENU on <c>Alt+K</c> (Book PDF p.15, Study Guide
@@ -973,9 +985,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
-        var page = new CompanyProfileViewModel(Company, _storage, onChanged: BuildButtonBar);
+        // 🔴 `onChanged` re-syncs the STATUS LINE as well as the button bar, and that became load-bearing when the
+        // Name field went editable for census row 1.4: accepting this screen can now RENAME the open book, and the
+        // status line — which names the open company — would otherwise keep showing the old name until the operator
+        // shut and re-opened the company. `Company` is a plain property with no change notification, so nothing
+        // else would ever notice.
+        var page = new CompanyProfileViewModel(Company, _storage, onChanged: () =>
+        {
+            if (Company is { } open) StatusCompany = open.Name;
+            BuildButtonBar();
+        });
         OpenPageColumn(new GatewayColumn("Company Alteration", page), Screen.AlterCompany,
             "Company Alteration", () => AlterCompany = page);
+    }
+
+    /// <summary>
+    /// RELEASES the open book — <see cref="Company"/> goes null, the status line stops naming it — and returns to
+    /// Company Select.
+    ///
+    /// <para>🔴 <b>Its ONE caller is the company DELETE (census row 1.4), and that is why it is private.</b> Once
+    /// the <c>.db</c> is gone the shell cannot be left holding an aggregate whose file no longer exists: every
+    /// later save would silently re-create the deleted book at the same path. W2-18 first wrote this as a public
+    /// "Shut Company" verb for a Gateway menu column that <see cref="BuildRootColumn"/> now explains was removed
+    /// as unfaithful — leaving it public would have left a method no operator could reach, which is the exact
+    /// defect class (<c>CompanyStorage.Rename</c>, <c>CostReports.BuildLedgerBreakup</c>) this pass exists to stop
+    /// repeating. <b>The Shut verb itself is NOT claimed as built</b>: it belongs with the Alt+K top menu, inside
+    /// open user ruling U-6.</para>
+    ///
+    /// <para><b>The three status fields are reset by hand because nothing else does it.</b> <see cref="Company"/>
+    /// is a plain property, not an <c>[ObservableProperty]</c>, so there is no change handler to hang this on;
+    /// <see cref="OpenCompany"/> sets these three together on the way in and this is their only way out.
+    /// <see cref="ShowCompanySelect"/> then clears the sub screens and the cascade.</para>
+    /// </summary>
+    private void ReleaseOpenCompany()
+    {
+        Company = null;
+        StatusCompany = "No company loaded";
+        StatusDate = string.Empty;
+        ShowCompanySelect();
     }
 
     /// <summary>Builds, saves and opens the embedded Robert demo (creating a populated company).</summary>
@@ -1123,6 +1170,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // the rest of Phase 10 (security, roles, audit trail, vault) stays excluded.
         col.Add(MenuItemViewModel.Header("Data"));
         col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // 🔴 NO "Company" SECTION IS ADDED HERE, AND THAT IS THE FIDELITY ANSWER, NOT AN OMISSION.
+        // W2-18 built one (Header "Company" + a Group row drilling to Create / Alter / Select / Shut) and it was
+        // REMOVED on 2026-09-05 rather than re-pointed, because the shipped inventory test
+        // `GatewayHierarchyTests.Gateway_exposes_the_sections_with_their_items_nested` caught it and the test was
+        // RIGHT on two independent authorities:
+        //   • RULING 14 / R7 — the vendor's own help puts every company verb on the TOP MENU, not on this screen:
+        //     help.tallysolutions.com/…/set-up-company-tally/ reads "press Alt+K (Company) > Create" and
+        //     "press Alt+K (Company) > Alter", and …/company-faq-tally/ gives Alt+F3 (Select Company). A Gateway
+        //     SECTION is not where the reference product keeps them.
+        //   • `docs/invented-vs-cloned.md` IV-29 states the reference Gateway verbatim — Masters · Transactions ·
+        //     Utilities · Reports — and its †† 2026-08-17 block records that W0-2b added exactly this "Company"
+        //     section once already and it was corrected out, with the diagnosis that this menu's standing fault
+        //     is having GROWN A SECTION PER PHASE. Re-adding it lower down repeats the move it names.
+        // Census row 14.9 therefore stays OPEN. What it actually needs is the Alt+K top-menu shell, and the chord
+        // is inside open user ruling U-6 — a build agent must not assign it. See the finish-b4 artefact.
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -1423,6 +1486,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Forex Gain/Loss", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
+        // places it under Statement of Accounts, which is this hub.
+        col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -1649,8 +1715,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Apex.Ledger.Reports.LedgerBook"/> via the existing RQ-7 drill (<see cref="OpenLedgerVouchers"/>) —
     /// a pure reuse of an existing projection, no new engine report. Cash Book / Bank Book are the Ledger book
     /// filtered to a Cash-in-Hand / Bank ledger (<see cref="Apex.Ledger.Reports.ClassificationRules"/>). The
-    /// per-voucher registers (Sales / Purchase / … registers) reuse the Day Book filtered by voucher type and
-    /// are surfaced elsewhere; they are noted for a later slice.
+    /// per-voucher registers (Sales / Purchase / …) are the <b>Registers</b> section below.
+    ///
+    /// <para><b>W2-12 (census 11.6 / 11.7)</b> added two further sections, so the column nests under three
+    /// named headers and is never a flat dump. 🔴 The <b>Registers</b> rows are NOT the Day Book filtered by
+    /// voucher type — that note used to stand here and was wrong. A register opens <b>month-wise</b> and the
+    /// voucher-wise listing is what a month row drills into; see
+    /// <see cref="Apex.Ledger.Reports.VoucherRegister"/>.</para>
     /// </summary>
     private GatewayColumn BuildAccountBooksColumn()
     {
@@ -1659,7 +1730,72 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Cash Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Bank Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Ledger", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // ---- REGISTERS (census 11.6) ----
+        col.Add(MenuItemViewModel.Header("Registers"));
+        col.Add(new MenuItemViewModel("Sales Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Purchase Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Credit Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Debit Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- GROUPS (census 11.7) — each drills into a picker of the company's own groups. ----
+        col.Add(MenuItemViewModel.Header("Groups"));
+        col.Add(new MenuItemViewModel("Group Summary", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Group Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         return col;
+    }
+
+    /// <summary>
+    /// Builds a group-picker submenu column for a W2-12 group report (Group Summary / Group Vouchers): one
+    /// page item per accounting group, name-sorted. Activating a group opens that report scoped to it.
+    /// Data-driven like the ledger-book pickers, so a bare letter filters rather than activating.
+    /// </summary>
+    private GatewayColumn BuildGroupPickerColumn(string title)
+    {
+        var col = new GatewayColumn(title) { Kind = GatewayColumnKind.DataDriven };
+        col.Add(MenuItemViewModel.Header(title));
+
+        var groups = Company is null
+            ? System.Array.Empty<Apex.Ledger.Domain.Group>()
+            : Company.Groups.OrderBy(g => g.Name, System.StringComparer.OrdinalIgnoreCase).ToArray();
+
+        if (groups.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no groups)"));
+        else
+            foreach (var group in groups)
+                col.Add(new MenuItemViewModel(group.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        return col;
+    }
+
+    /// <summary>Opens "Reports → Account Books → Group Summary" (the group picker) directly.</summary>
+    public void ShowGroupSummaryMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildGroupPickerColumn("Group Summary"), GatewayMenu.GroupSummaryPicker,
+            "Gateway of Apex Solutions — Group Summary");
+    }
+
+    /// <summary>Opens "Reports → Account Books → Group Vouchers" (the group picker) directly.</summary>
+    public void ShowGroupVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildGroupPickerColumn("Group Vouchers"), GatewayMenu.GroupVouchersPicker,
+            "Gateway of Apex Solutions — Group Vouchers");
+    }
+
+    /// <summary>
+    /// Opens a group-scoped W2-12 report for the group with <paramref name="groupName"/> (the label of a row
+    /// in the group picker). A safe no-op when the name does not resolve.
+    /// </summary>
+    public void OpenGroupReportByName(ReportKind kind, string groupName)
+    {
+        var group = Company?.FindGroupByName(groupName);
+        if (group is null) return;
+        OpenGroupReport(kind, group.Id);
     }
 
     /// <summary>
@@ -2204,14 +2340,73 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
 
         var reports = new ReportsViewModel(Company, kind, stockItemId);
-        if (kind == ReportKind.StockSummary)
+        WireReportDrills(reports);
+        OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
+            () => Reports = reports);
+    }
+
+    /// <summary>
+    /// Wires every RQ-7 drill event a report can raise to the shell handler that opens its target. Factored
+    /// out of <see cref="OpenReport"/> so the W2-12 openers below — which construct a scoped
+    /// <see cref="ReportsViewModel"/> rather than calling <see cref="OpenReport"/> — cannot silently ship a
+    /// report whose rows look drillable and do nothing.
+    /// </summary>
+    private void WireReportDrills(ReportsViewModel reports)
+    {
+        if (reports.Kind == ReportKind.StockSummary)
             reports.DrillToMovementRequested += id => OpenReport(ReportKind.StockItemMovement, id);
         // RQ-7 universal drill-down: a TB/BS/P&L ledger row opens that ledger's vouchers as a NEW cascading
         // column (the report pane persists); a Day Book row opens the voucher's read-only detail.
         reports.DrillToLedgerRequested += (ledgerId, from, to, movement) => OpenLedgerVouchers(ledgerId, from, to, movement);
         reports.DrillToVoucherRequested += OpenVoucherDetail;
-        OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
-            () => Reports = reports);
+
+        // ---- W2-12 (census 11.6 / 11.7) ----
+        reports.DrillToRegisterMonthRequested += (kind, from, to) => OpenRegisterMonth(kind, from, to);
+        reports.DrillToGroupSummaryRequested += groupId => OpenGroupReport(ReportKind.GroupSummary, groupId);
+        reports.DrillToLedgerMonthlyRequested += (ledgerId, from, to) => OpenLedgerMonthlySummary(ledgerId, from, to);
+    }
+
+    /// <summary>
+    /// W2-12 (census 11.6). Opens a register's <b>voucher-wise</b> level for one month, as its OWN cascade
+    /// column to the right of the month-wise register it drilled from — so the month list persists beneath
+    /// and Esc/Back restores it, exactly like every other drill in the product.
+    /// </summary>
+    public void OpenRegisterMonth(ReportKind kind, DateOnly from, DateOnly to)
+    {
+        if (Company is null) return;
+
+        var vm = new ReportsViewModel(Company, kind,
+            period: new Apex.Ledger.Reports.PeriodRange(from, to), registerVoucherLevel: true);
+        WireReportDrills(vm);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
+    }
+
+    /// <summary>
+    /// W2-12 (census 11.7). Opens a group-scoped report (Group Summary / Group Vouchers) as a page column.
+    /// A safe no-op on an unknown group id.
+    /// </summary>
+    public void OpenGroupReport(ReportKind kind, Guid groupId)
+    {
+        if (Company is null || groupId == Guid.Empty) return;
+
+        var vm = new ReportsViewModel(Company, kind, scopeMasterId: groupId);
+        WireReportDrills(vm);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
+    }
+
+    /// <summary>
+    /// W2-12 (census T1-32). Opens a ledger's Monthly Summary as a drill column — the level between a group
+    /// or account book and the voucher list. Its month rows drill on into
+    /// <see cref="OpenLedgerVouchers"/> for that month.
+    /// </summary>
+    public void OpenLedgerMonthlySummary(Guid ledgerId, DateOnly from, DateOnly to)
+    {
+        if (Company is null || ledgerId == Guid.Empty) return;
+
+        var vm = new ReportsViewModel(Company, ReportKind.LedgerMonthlySummary,
+            scopeMasterId: ledgerId, period: new Apex.Ledger.Reports.PeriodRange(from, to));
+        WireReportDrills(vm);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
     }
 
     /// <summary>
@@ -5417,7 +5612,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>What an armed Alt+D confirmation is about to delete. <see cref="None"/> means the confirmation
     /// currently up (if any) belongs to another verb.</summary>
-    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster }
+    /// <summary>
+    /// What an armed confirmation would delete. <b><see cref="Company"/> is the odd one out and deliberately so:</b>
+    /// every other member — <see cref="Voucher"/>, <see cref="Ledger"/>, <see cref="Group"/>,
+    /// <see cref="StockItem"/> and <see cref="PayrollMaster"/> — names a row INSIDE the open book, keyed by
+    /// <see cref="_pendingDeleteId"/> and finished by a <c>_storage.Save(Company)</c>. A company deletion removes
+    /// the <c>.db</c> FILE, carries no Guid (<c>Guid.Empty</c> is armed), and must never save — saving the
+    /// aggregate it is deleting would re-create the book it just removed.
+    /// <see cref="PerformPendingDeletion"/> branches it out before the shared machinery.
+    ///
+    /// <para>🔴 <b><see cref="PayrollMaster"/> and <see cref="Company"/> were added by two different branches that
+    /// merged clean.</b> Git took one side of this enum and would have DROPPED the other silently; both were
+    /// restored by hand at the merge. Neither is redundant: <see cref="PayrollMaster"/> is the payroll-master
+    /// arm of census row 7.16, and <see cref="Company"/> is the delete half of row 1.4. If a later merge ever
+    /// presents this line as a conflict again, the answer is to keep EVERY member, never to pick a side.</para>
+    /// </summary>
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company }
 
     /// <summary>
     /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
@@ -5569,6 +5779,46 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         };
     }
 
+    /// <summary>
+    /// <b>Alt+D on the Company Alteration screen — arms the confirmation for deleting the OPEN COMPANY</b>
+    /// (census row 1.4). Returns <c>true</c> when the question went up.
+    ///
+    /// <para><b>FIDELITY (R7; RULING 14 — the corpus is gone, so this is the vendor's own help).</b>
+    /// <i>help.tallysolutions.com/…/set-up-company-tally/</i> deletes a company by
+    /// <i>"Alt+K (Company) &gt; Alter. In the Company Alteration screen, press Alt+D."</i> The SCREEN and the
+    /// CHORD are both attested for precisely this act. Only the route to the screen differs — ours is
+    /// Gateway → Masters → Alter Company, because the Alt+K top menu is not built and its chord sits inside open
+    /// user ruling U-6.</para>
+    ///
+    /// <para><b>The chord was FREE, so nothing is displaced.</b> <see cref="IsDeleteTargetPage"/>'s five surfaces
+    /// exclude <see cref="Screen.AlterCompany"/>, and the bare-letter <c>D</c> quick-jump (Day Book) requires
+    /// <c>KeyModifiers.None</c>. The master/voucher Alt+D keeps its meaning everywhere it already had one, which
+    /// <c>AltD_elsewhere_still_deletes_the_master_not_the_company</c> pins.</para>
+    ///
+    /// <para>🔴 <b>THERE IS NO <c>MasterDeletionRules</c> GUARD HERE, AND THAT IS OURS — RULING 9.</b> Every other
+    /// arm refuses a master that something else points at; a company is what everything else points AT, so there
+    /// is no referential guard to run and no wider book to be inconsistent with. No admissible source says a
+    /// company carrying vouchers cannot be deleted, and inventing that refusal would strand the operator with a
+    /// book they cannot remove. <b>The confirmation is therefore the ONLY guard</b>, which is why it names the
+    /// company and says in words that the whole book goes.</para>
+    ///
+    /// <para><b>Not gated on <c>IsTyping</c>, unlike the master arm, and the difference is real rather than an
+    /// oversight.</b> The master arm guards it because the caret sits in a form over a LIST and the key would
+    /// otherwise hit the row behind. This screen has no list behind it: its subject IS the company, so Alt+D can
+    /// only mean one thing wherever the caret is. Guarding it would make the attested chord dead in ordinary use,
+    /// since the operator reaches this screen precisely to type in its fields.</para>
+    /// </summary>
+    public bool RequestDeleteOpenCompany()
+    {
+        if (Company is null) return false;
+        if (IsAcceptPromptOpen) return false;
+        if (CurrentScreen != Screen.AlterCompany) return false;
+
+        return Arm(DeletionTarget.Company, Guid.Empty,
+            $"Delete company '{Company.Name}'? The whole book — every master, voucher and report in it — is "
+            + "removed from disk permanently, and there is no undo. (Y/N)");
+    }
+
     /// <summary>Arms the confirmation for a posted voucher, after the S4 guards accept it.</summary>
     private bool RequestDeleteVoucher(Guid? voucherId)
     {
@@ -5714,6 +5964,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
+        // 🔴 THE COMPANY ARM LEAVES BEFORE ANY OF THE SHARED MACHINERY, and every line it skips is a line that
+        // would be wrong for it. The `EnsureValid` pre-flight below exists because the other arms finish with
+        // `_storage.Save(Company)`; this one must never save — writing the aggregate back after removing its file
+        // would re-create the book the operator just deleted — so a company whose stored PIN is invalid must still
+        // be deletable, and refusing it here would strand exactly the broken book most in need of removal.
+        if (kind == DeletionTarget.Company)
+        {
+            PerformOpenCompanyDeletion();
+            return;
+        }
+
         // Pre-flight the ONE reachable save failure while nothing has been removed yet (see the summary).
         try
         {
@@ -5803,6 +6064,49 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         RaiseLifecycleNotice($"{what} deleted.");
         RefreshDeletionSurface(kind);
+    }
+
+    /// <summary>
+    /// "Y" on a COMPANY deletion (census row 1.4): removes the book's <c>.db</c>, releases the open aggregate and
+    /// returns to Company Select.
+    ///
+    /// <para>🔴 <b>THE OUTCOME IS VERIFIED RATHER THAN ASSUMED, because <see cref="CompanyStorage.Delete"/> IS
+    /// BEST-EFFORT AND SWALLOWS ITS REFUSALS.</b> Its own summary says so: a file held by a second instance
+    /// (<c>IOException</c>) or sitting under an unwritable parent directory on POSIX
+    /// (<c>UnauthorizedAccessException</c>) is caught and LEFT IN PLACE, and the method returns exactly as it does
+    /// on success. Announcing "deleted" off that return, and releasing the company, would tell the operator their
+    /// book was gone while it sat on disk and then show them a Company Select that still lists it — the app
+    /// contradicting itself about a destructive act. So the file is re-tested and a survivor is reported as the
+    /// failure it is, with the book still open and nothing else touched.</para>
+    ///
+    /// <para><b>The aggregate is released BEFORE the notice, not after.</b> <see cref="ReleaseOpenCompany"/>
+    /// navigates to Company Select, and <see cref="Notice"/> is cleared on every change of screen — a notice
+    /// raised first would be wiped by its own navigation and the operator would be returned to the picker with no
+    /// statement of what just happened.</para>
+    ///
+    /// <para><b>Why the entry is rebuilt from the name rather than remembered.</b> It is the same derivation
+    /// <see cref="CompanyStorage.ListCompanies"/> uses, so the path deleted is by construction the path the picker
+    /// would have offered — including after a rename earlier in the same visit to this screen, which moved the
+    /// file and would have staled anything captured when the screen opened.</para>
+    /// </summary>
+    private void PerformOpenCompanyDeletion()
+    {
+        var name = Company!.Name;
+        var entry = new CompanyEntry(name, _storage.PathForName(name));
+
+        _storage.Delete(entry);
+
+        if (System.IO.File.Exists(entry.DatabasePath))
+        {
+            RaiseLifecycleNotice(
+                $"Company '{name}' could NOT be deleted — its data file is still on disk. It is most likely open "
+                + "in another window. Close it and try again; the company is unchanged.");
+            return;
+        }
+
+        // Release first (this navigates), then say what happened — see the summary.
+        ReleaseOpenCompany();
+        RaiseLifecycleNotice($"Company '{name}' deleted.");
     }
 
     /// <summary>
@@ -6062,6 +6366,117 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // the left and a column on the right that read identically for a new entry and for an amendment of a
         // posted one. The master screens already distinguish the two ("Stock Item Alteration").
         OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.VoucherEntry, title, () => VoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    // ============================================ W2-15 (row 5.4): Alt+2 — DUPLICATE the highlighted voucher
+
+    /// <summary>
+    /// <b>Alt+2 — open a COPY of the highlighted posted voucher as a fresh entry</b> (census row 5.4). Returns
+    /// the same three-valued <see cref="VoucherAlterationRequest"/> the alteration door returns, and for the same
+    /// reason: <c>NoVoucherHere</c> must fall through (nothing was chosen — there is nothing to say), while
+    /// <c>Refused</c> must be consumed, because a named sentence is already on the notice bar and
+    /// <c>OnCurrentScreenChanged</c> wipes it on the way past.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> <i>help.tallysolutions.com/day-book-tally/</i> gives the verb and
+    /// the chord verbatim — <i>"Press <b>Alt</b>+<b>2</b> (Duplicate Vch)"</i> — on the Day Book. <c>Key.D2</c>
+    /// had ZERO hits anywhere in <c>src/</c>, so this is a free addition of an attested chord, not a
+    /// re-assignment of an occupied one; nothing in the open U-6 chord ruling is touched.</para>
+    ///
+    /// <para><b>The three surfaces are EXACTLY <see cref="IsVoucherAlterTargetPage"/>'s</b>, resolved by the very
+    /// same <c>CurrentScreen</c> switch Ctrl+Enter uses. Duplicate and Alter must never disagree about which
+    /// document the highlight means — the same rule that already binds Alt+D and Ctrl+Enter together.</para>
+    ///
+    /// <para><b>The armed-confirmation gate is the alteration door's, verbatim in effect.</b> An armed Alt+X /
+    /// Alt+D question names a voucher and is answered by a bare Y; opening an entry screen over it would carry
+    /// the arming into a screen that cannot show the question.</para>
+    ///
+    /// <para>🔴 <b>What this deliberately does NOT do — Insert Voucher (census row 5.5) is NOT built here.</b>
+    /// The vendor's Insert (<i>"Select the entry above which you want to insert the transaction, press
+    /// <b>Alt</b>+<b>I</b> (Insert Vch)"</i>) differs from the shipped Alt+A "Add voucher in a report" — which
+    /// already seeds the new voucher with the highlighted row's date — in exactly one respect: inserting between
+    /// two existing vouchers <i>"causes all subsequent vouchers of that type to be renumbered"</i>. That
+    /// renumbering rewrites document numbers on vouchers that have already been issued, which collides head-on
+    /// with the freezes <see cref="VoucherAlterationEligibility"/> already enforces (a live IRN, a challan
+    /// record). It needs a user ruling, and Alt+I is in any case spent on the POS tender-mode toggle. Row 5.5
+    /// therefore stays ABSENT rather than being closed by a second name for a verb that already exists.</para>
+    /// </summary>
+    public VoucherAlterationRequest RequestDuplicateHighlightedVoucher()
+    {
+        if (Company is null) return VoucherAlterationRequest.NoVoucherHere;
+
+        if (IsAcceptPromptOpen)
+        {
+            RaiseLifecycleNotice(
+                "Answer the question on screen first (Y or N) — Alt+2 does nothing while it is up.");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var voucherId = CurrentScreen switch
+        {
+            Screen.Report => Reports?.SelectedRow?.DrillVoucherId,
+            Screen.LedgerVouchers => LedgerVouchers?.SelectedRow?.DrillVoucherId,
+            Screen.VoucherDetail => VoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
+        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+
+        return ShowVoucherDuplicate(voucher);
+    }
+
+    /// <summary>
+    /// Opens a fresh entry screen pre-filled from <paramref name="voucher"/>, or puts its named refusal on the
+    /// notice bar. The duplicate sibling of <see cref="ShowVoucherAlteration"/>.
+    ///
+    /// <para><b>It opens as a DRILL column for the identical reason the alteration does</b>:
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// or register the operator duplicated FROM, and Esc would then return to the Gateway instead of to the row
+    /// they were standing on.</para>
+    ///
+    /// <para>🔴 <b>There is no POS branch here, and its absence is deliberate.</b>
+    /// <see cref="ShowVoucherAlteration"/> re-routes a POS bill to the POS screen because a posted bill's tender
+    /// split is fully recoverable and must be amended somewhere. A POS bill's DUPLICATE is a different question —
+    /// a till receipt is raised by taking money at a counter, not by copying yesterday's — and
+    /// <see cref="VoucherAlterationEligibility"/> already refuses it by name before this method is reached. It is
+    /// left refused rather than silently routed, and that is recorded as OURS.</para>
+    /// </summary>
+    private VoucherAlterationRequest ShowVoucherDuplicate(Voucher voucher)
+    {
+        // Captured as INSTANCES, exactly as the alteration door captures them: OpenDrillColumn does not clear the
+        // sub screens, but a later pop rebinds them, so a closure reading `Reports` at save time could see a
+        // different report.
+        var report = Reports;
+        var register = LedgerVouchers;
+
+        var open = VoucherEntryViewModel.ForDuplicate(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                // Pop the duplicate column, then re-render whatever survived beneath it so the NEW voucher is on
+                // screen without the operator re-opening the report. The voucher-detail pane is deliberately NOT
+                // refreshed here (unlike the alteration door): it projects the SOURCE voucher, which a duplicate
+                // does not touch, so there is nothing on it that could have gone stale.
+                BackFromPage();
+                report?.Show(report.Kind);
+                register?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Accounting Voucher Creation — {entry.Type.Name} (Duplicate)";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Duplicate", entry),
             Screen.VoucherEntry, title, () => VoucherEntry = entry);
         return VoucherAlterationRequest.Opened;
     }
@@ -7666,6 +8081,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
                 BuildLedgerBookPickerColumn("Ledger", _ => true),
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
+            // W2-12 (census 11.7): the two group reports each open a picker of the company's own groups.
+            "Group Summary" => (BuildGroupPickerColumn("Group Summary"), GatewayMenu.GroupSummaryPicker,
+                "Gateway of Apex Solutions — Group Summary"),
+            "Group Vouchers" => (BuildGroupPickerColumn("Group Vouchers"), GatewayMenu.GroupVouchersPicker,
+                "Gateway of Apex Solutions — Group Vouchers"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
             "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
@@ -7715,6 +8135,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentGatewayMenu is GatewayMenu.CashBook or GatewayMenu.BankBook or GatewayMenu.LedgerBooks)
         {
             OpenAccountBook(item.Label);
+            return;
+        }
+
+        // W2-12 (census 11.7): inside a group picker every Page row is a GROUP NAME — open that group's
+        // report rather than falling through to the fixed label switch (where "Group" means the master).
+        if (CurrentGatewayMenu is GatewayMenu.GroupSummaryPicker)
+        {
+            OpenGroupReportByName(ReportKind.GroupSummary, item.Label);
+            return;
+        }
+
+        if (CurrentGatewayMenu is GatewayMenu.GroupVouchersPicker)
+        {
+            OpenGroupReportByName(ReportKind.GroupVouchers, item.Label);
             return;
         }
 
@@ -7831,6 +8265,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
+            case "Sales Register": OpenReport(ReportKind.SalesRegister); break;
+            case "Purchase Register": OpenReport(ReportKind.PurchaseRegister); break;
+            case "Journal Register": OpenReport(ReportKind.JournalRegister); break;
+            case "Credit Note Register": OpenReport(ReportKind.CreditNoteRegister); break;
+            case "Debit Note Register": OpenReport(ReportKind.DebitNoteRegister); break;
+            // W2-12 (census 11.8) — Reports → Statements of Accounts → Statistics.
+            case "Statistics": OpenReport(ReportKind.Statistics); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
@@ -8359,6 +8801,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
+
+        // W2-15 (row 5.4) — Alt+2 DUPLICATE. Advertised rather than key-only: a chord nobody can find is not a
+        // feature, and this file's own Data-section comment states that rule. It is ENABLED on exactly the three
+        // surfaces the chord bites on (`IsVoucherAlterTargetPage` — the live report page, the register drill, the
+        // voucher-detail column) and DIMMED everywhere else, because an enabled badge that fires nothing is
+        // register defect IV-31. The click runs the identical door the key runs, so the two cannot drift — the
+        // same rule the Alt+C row above records after key and button once did different things.
+        ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
+            () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
 
         // Create master + report quick-jumps (enabled once a company is open).
         // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster
