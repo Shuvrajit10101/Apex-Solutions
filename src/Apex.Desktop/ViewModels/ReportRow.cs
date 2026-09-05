@@ -117,13 +117,29 @@ public sealed class ReportRow
     public Guid DrillVoucherId { get; init; }
 
     /// <summary>
-    /// True when this row can be drilled into by any of the three drill keys (a stock item, a ledger, or a
-    /// voucher). Section headers, totals and computed/synthetic rows carry no drill key, so Enter is a safe
-    /// no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
+    /// The accounting group this row drills to (W2-12, census 11.7): Enter on a Group-Summary sub-group row
+    /// opens that sub-group's own Group Summary. <see cref="Guid.Empty"/> on every other row and every other
+    /// report.
+    /// </summary>
+    public Guid DrillGroupId { get; init; }
+
+    /// <summary>
+    /// The month this row drills into (W2-12, census 11.6 / T1-32): Enter on a register month row opens that
+    /// month's voucher-wise listing, and on a Ledger-Monthly-Summary month row opens that month's ledger
+    /// vouchers. <c>null</c> on every other row — a month-less row never produces a windowed drill.
+    /// </summary>
+    public Apex.Ledger.Reports.PeriodRange? DrillPeriod { get; init; }
+
+    /// <summary>
+    /// True when this row can be drilled into by any of the drill keys (a stock item, a ledger, a voucher, a
+    /// group, or a month). Section headers, totals and computed/synthetic rows carry no drill key, so Enter is
+    /// a safe no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
     /// </summary>
     public bool CanDrill => DrillStockItemId is not null
         || DrillLedgerId != Guid.Empty
-        || DrillVoucherId != Guid.Empty;
+        || DrillVoucherId != Guid.Empty
+        || DrillGroupId != Guid.Empty
+        || DrillPeriod is not null;
 
     /// <summary>Alias of <see cref="CanDrill"/> for the RQ-7 accounting-report grid (Enter guard).</summary>
     public bool IsDrillable => CanDrill;
