@@ -98,6 +98,11 @@ public enum Screen
     // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
     Gstr9Report,
     Gstr9cReport,
+
+    // The GST offline-return JSON files page (W2-06; census row 6.10) — surfaced for BOTH registration types, under
+    // Reports → Statutory Reports → GST Returns (Advanced) (Regular) and → Composition Returns (Composition).
+    GstOfflineReturns,
+
     ElectronicLedgersReport,
     ItcSetOffReport,
     ItcReversalReport,
@@ -405,6 +410,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
 
+    /// <summary>The GST offline-return JSON files page (W2-06), non-null only while that page is open.</summary>
+    [ObservableProperty] private GstOfflineReturnsViewModel? _gstOfflineReturns;
+
     /// <summary>The GST electronic-ledgers report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private ElectronicLedgersReportViewModel? _electronicLedgersReport;
 
@@ -629,7 +637,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9Report is null && Gstr9cReport is null && ElectronicLedgersReport is null
+        && Gstr9Report is null && Gstr9cReport is null && GstOfflineReturns is null
+        && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
         && EInvoiceEWayStatusReport is null
@@ -684,6 +693,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstOfflineReturnsChanged(GstOfflineReturnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnItcSetOffReportChanged(ItcSetOffReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnItcReversalReportChanged(ItcReversalReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2117,6 +2127,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("QRMP / IFF", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GST Amendments", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("e-Invoice / e-Way Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-06 (census row 6.10): the offline JSON files a Regular dealer actually uploads — GSTR-1 / 3B / 9 / 9C.
+        col.Add(new MenuItemViewModel("Offline Return Files (JSON)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2183,6 +2195,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Composition Returns"));
         col.Add(new MenuItemViewModel("CMP-08", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-4", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-06 (census rows 6.13 / 6.10): GSTR-9A, the composition annual return, and the offline JSON files.
+        col.Add(new MenuItemViewModel("GSTR-9A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Offline Return Files (JSON)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -4253,6 +4268,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Form GSTR-9C — Reconciliation Statement", () => Gstr9cReport = page);
     }
 
+    /// <summary>
+    /// Opens the <b>GST offline return files</b> page (Reports → Statutory Reports → GST Returns (Advanced) → Offline
+    /// Return Files (JSON) for a Regular dealer; → Composition Returns → Offline Return Files (JSON) for a Composition
+    /// dealer). This is the ONLY route to <see cref="Apex.Ledger.Io.GstReturnJson"/> — before W2-06 that writer had zero
+    /// production callers, so the file a dealer uploads could not be produced at all (census row 6.10 / T1-11).
+    /// <paramref name="preselect"/> opens the page already on one form. That is how the "GSTR-9A" menu row reaches
+    /// census row 6.13 — and it is all it does: a menu row that dispatches onto this shared page, NOT a GSTR-9A report
+    /// page of its own. Row 6.13 therefore moves ABSENT → <b>PARTIAL</b>; it is not closed.
+    /// A no-op unless GST is enabled — a GST-off company has no return to file (ER-13).
+    /// </summary>
+    public void OpenGstOfflineReturns(GstOfflineReturnKind? preselect = null)
+    {
+        if (Company is null || Company.Gst is not { Enabled: true }) return;
+        var page = new GstOfflineReturnsViewModel(Company, preselect);
+        if (page.Returns.Count == 0) return;   // no return form applies to this registration type
+        OpenPageColumn(new GatewayColumn("Offline Return Files", page), Screen.GstOfflineReturns,
+            "GST Offline Return Files (JSON)", () => GstOfflineReturns = page);
+    }
+
     /// <summary>Opens the <b>Electronic Ledgers</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
     /// Electronic Ledgers; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
     public void OpenElectronicLedgersReport()
@@ -5283,6 +5317,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Gstr4Report = null;
         Gstr9Report = null;
         Gstr9cReport = null;
+        GstOfflineReturns = null;
         ElectronicLedgersReport = null;
         ItcSetOffReport = null;
         ItcReversalReport = null;
@@ -8066,6 +8101,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.Form26Q:
                 Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
                 return;
+            case Screen.GstOfflineReturns:
+                GstOfflineReturns?.ExportJson(); // Ctrl+A writes the selected return's offline JSON (primary action)
+                return;
             case Screen.PfEcrReport:
                 PfEcrReport?.ExportEcr(); // Ctrl+A exports the ECR 2.0 flat file (the return's primary action)
                 return;
@@ -8305,6 +8343,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // GST Returns (Advanced).
             case "GSTR-9": OpenGstr9Report(); break;
             case "GSTR-9C": OpenGstr9cReport(); break;
+            // The offline-return JSON page (W2-06). "GSTR-9A" opens it already on the composition annual return —
+            // the only route that form has ever had (census row 6.13).
+            case "GSTR-9A": OpenGstOfflineReturns(GstOfflineReturnKind.Gstr9a); break;
+            case "Offline Return Files (JSON)": OpenGstOfflineReturns(); break;
             case "Electronic Ledgers": OpenElectronicLedgersReport(); break;
             case "ITC Set-Off": OpenItcSetOffReport(); break;
             case "ITC Reversal": OpenItcReversalReport(); break;

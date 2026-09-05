@@ -1702,6 +1702,10 @@ public partial class MainWindow : Window
     private void OnApplyPfClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.ApplyPf();
 
+    // GST offline return files (W2-06) — writes the selected return's JSON to the chosen export folder.
+    private void OnExportGstReturnJsonClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstOfflineReturns?.ExportJson();
+
     private void OnExportEcrClick(object? sender, RoutedEventArgs e)
         => Vm?.PfEcrReport?.ExportEcr();
 
@@ -1984,7 +1988,7 @@ public partial class MainWindow : Window
         if (Vm is { } vm) SavePrintPreviewToDocuments(vm);
     }
 
-    /// <summary>Picks a Documents-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
+    /// <summary>Picks a default-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
     private static void SavePrintPreviewToDocuments(MainWindowViewModel vm)
     {
         if (vm.PrintPreview is not { } preview) return;

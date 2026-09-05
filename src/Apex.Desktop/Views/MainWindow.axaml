@@ -11351,6 +11351,100 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: GST offline return files (JSON) (W2-06; census rows 6.10 / 6.13). The ONLY route to the
+                         GstReturnJson writers: pick a form + period, read the figures, write the upload file.
+                         The key names in the file are OURS (the portal schema sits behind an authenticated portal) and
+                         every file states that in its own schemaStatus field. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstOfflineReturns, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstOfflineReturns}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GstOfflineReturnsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- Return form + financial year + filing period selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,170,Auto,120,Auto,170,*,Auto" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Return" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Returns}"
+                                        SelectedItem="{Binding SelectedReturn, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstOfflineReturnOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="4" Text="Period" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Periods}"
+                                        SelectedItem="{Binding SelectedPeriod, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstReturnPeriodOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="7" Text="{Binding GstinText}" FontSize="12" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                            </Grid>
+
+                            <!-- The schema honesty note: these key names are ours, not the portal ones -->
+                            <Border Grid.Row="3" Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                              <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <!-- The selected return figure summary -->
+                            <ScrollViewer Grid.Row="4">
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                <ItemsControl ItemsSource="{Binding Figures}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:GstReturnFigureRow">
+                                      <Grid ColumnDefinitions="*,170" Margin="0,0,0,3">
+                                        <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="12" TextWrapping="Wrap"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12" TextAlignment="Right"
+                                                   FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Border>
+                            </ScrollViewer>
+
+                            <TextBlock Grid.Row="5" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="#555555" TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                            <!-- Export destination + the write action -->
+                            <Grid Grid.Row="6" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="Export folder" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <TextBox Grid.Column="1" Text="{Binding ExportFolder, Mode=TwoWay}"
+                                       PlaceholderText="{Binding ExportFileName}" FontSize="12" Margin="0,0,8,0"/>
+                              <TextBlock Grid.Column="2" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="3" Content="Export JSON (Ctrl+A)" Padding="12,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportGstReturnJsonClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GSTR-9C reconciliation statement (Phase 9 UI-1; RQ-17) -->
                     <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport}">
