@@ -204,10 +204,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 7.16 — THE SAME CHORD, THE SAME RULE, on the payroll masters' existing-lists. One arm for all of them:
-        // the VM resolves which payroll master is open and returns false on every other screen, so this is inert
-        // everywhere else and cannot diverge kind-by-kind (which is exactly how the row's defect was shaped —
-        // a capability missing across all eight master kinds rather than eight separate oversights).
+        // 7.16 — THE SAME CHORD, THE SAME RULE, on the payroll masters' existing-lists. ONE arm for every kind
+        // that has the capability: the VM resolves which payroll master is open and returns false on every other
+        // screen, so this is inert everywhere else and cannot diverge kind-by-kind (which is exactly how the
+        // row's defect was shaped — a capability missing across all eight master kinds rather than eight
+        // separate oversights). NOTE: four of the eight kinds are wired today; this arm is one arm for however
+        // many the VM resolves, not a claim that all eight are done. See MainWindowViewModel.PayrollMasterScreen.
         if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && vm.AlterHighlightedPayrollMasterRow())
         {

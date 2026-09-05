@@ -30,6 +30,12 @@ public interface IPayrollMasterListRow
 /// Ctrl+Enter and <b>deleted</b> with Alt+D — the capability census row 7.16 records as absent across all eight
 /// payroll master kinds.
 ///
+/// <para>🔴 <b>SHIPPED COVERAGE: FOUR of those eight implement this interface today</b> — employee category,
+/// employee group, payroll unit and attendance/production type. The employee, pay head, salary structure and tax
+/// declaration masters do NOT, and the row is therefore NOT closed. Do not read the "all eight" above as a claim
+/// about what is built: it describes the DEFECT, not the fix. <c>MainWindowViewModel.PayrollMasterScreen</c>
+/// carries the exact remainder and <c>PayrollMasterHalfWiredKindsTests</c> holds it to it.</para>
+///
 /// <para><b>Why an interface rather than eight copies of the same eight members.</b> The shell needs exactly one
 /// arrow arm, one Ctrl+Enter arm, one Alt+D arm and one refresh arm for the whole family. Eight parallel arms is
 /// how one of them silently ends up gated differently from the other seven — which is precisely the shape of the

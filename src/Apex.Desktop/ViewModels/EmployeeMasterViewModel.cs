@@ -332,6 +332,11 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             var group = _company.FindEmployeeGroup(e.EmployeeGroupId)?.Name ?? "—";
             Existing.Add(new EmployeeListRow
             {
+                // 7.16 — the row's identity. Without it every row carries Guid.Empty and resolves to no
+                // employee, which is only harmless while nothing destructive points at the list. It is filled
+                // HERE, before the employee master is wired onto the Alt+D surface, so the wiring can never
+                // inherit a confirmation that names one employee and acts on another.
+                MasterId = e.Id,
                 Name = e.Name,
                 Group = group,
                 Designation = string.IsNullOrWhiteSpace(e.Designation) ? "—" : e.Designation!,

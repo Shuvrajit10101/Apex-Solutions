@@ -7025,10 +7025,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         Screen.EmployeeCategoryMaster => EmployeeCategoryMaster,
         Screen.EmployeeGroupMaster => EmployeeGroupMaster,
-        Screen.EmployeeMaster => EmployeeMaster,
         Screen.PayrollUnitMaster => PayrollUnitMaster,
         Screen.AttendanceTypeMaster => AttendanceTypeMaster,
-        Screen.PayHeadMaster => PayHeadMaster,
+
+        // 🔴 FOUR OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
+        // Screen.EmployeeMaster and Screen.PayHeadMaster are DELIBERATELY absent: EmployeeMasterViewModel and
+        // PayHeadMasterViewModel implement neither IPayrollMasterList nor a ForAlter factory, so listing them
+        // here would not compile — and listing them once they merely compile would be worse, because appearing
+        // in this switch is what grants a screen the arrows, Ctrl+Enter AND Alt+D in a single step. A kind is
+        // added here only when it can be driven end-to-end. The remainder, precisely:
+        //   • Employee   — PayrollService.AlterEmployee and DeleteEmployee both exist; the view model needs the
+        //                  six interface members, ForAlter, the Ctrl+A IsAltering branch, and the highlight bar
+        //                  in its row template. Its list rows already carry a real MasterId.
+        //   • Pay head   — blocked further back: PayHeadService has NO Alter method at all.
+        //   • Salary structure master and tax declaration master — never considered by the slice.
+        // PayrollMasterHalfWiredKindsTests locks all of the above, so this comment cannot quietly go stale.
         _ => null,
     };
 
@@ -7065,14 +7076,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => EmployeeGroupMaster = m);
                 return true;
             }
-            case Screen.EmployeeMaster:
-            {
-                if (EmployeeMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
-                    is not { } m) return false;
-                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeMaster, m.Caption,
-                    () => EmployeeMaster = m);
-                return true;
-            }
+            // No Screen.EmployeeMaster arm: EmployeeMasterViewModel has no ForAlter factory yet. See the
+            // four-of-eight note on PayrollMasterScreen above for the exact remainder.
             case Screen.PayrollUnitMaster:
             {
                 if (PayrollUnitMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
@@ -7089,14 +7094,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => AttendanceTypeMaster = m);
                 return true;
             }
-            case Screen.PayHeadMaster:
-            {
-                if (PayHeadMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
-                    is not { } m) return false;
-                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PayHeadMaster, m.Caption,
-                    () => PayHeadMaster = m);
-                return true;
-            }
+            // No Screen.PayHeadMaster arm: PayHeadMasterViewModel has no ForAlter factory, and it could not have
+            // a working one — PayHeadService has no Alter method for it to call.
             default:
                 return false;
         }

@@ -8269,6 +8269,13 @@
                                   <DataTemplate x:DataType="vm:EmployeeCategoryListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,170,90,90" Height="24">
+                                        <!-- 7.16 keyboard highlight. The arrows move it, Ctrl+Enter alters that
+                                             master and Alt+D DELETES it — so it MUST be drawn, or the operator
+                                             confirms a deletion they cannot see the target of. Declared FIRST so
+                                             it paints BEHIND the row's text, converter-free, exactly as the Chart
+                                             of Accounts and Stock Item lists do. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -8362,6 +8369,10 @@
                                   <DataTemplate x:DataType="vm:EmployeeGroupListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,200,120" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -8762,6 +8773,10 @@
                                   <DataTemplate x:DataType="vm:PayrollUnitListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="120,*,90,*" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Symbol}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding FormalName}"
@@ -8873,6 +8888,10 @@
                                   <DataTemplate x:DataType="vm:AttendanceTypeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,140,185,80" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>

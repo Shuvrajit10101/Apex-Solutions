@@ -270,31 +270,67 @@ public sealed class FilePathPickerReachabilityTests
     /// <summary>
     /// Keyboard-first does not mean keyboard-only: the chord must also be advertised by a real button on the
     /// panel, or a user who does not already know Alt+B never learns the chooser exists.
+    ///
+    /// <para>🔴 <b>"Every" is meant literally, and an earlier version of this test did not honour its own name.</b>
+    /// It checked four panels — Backup, Restore, Import and Export Data — while <c>BrowseRequest()</c> serves
+    /// SEVEN screens. The three it skipped (Export, E-Mail compose, Print Preview) are exactly the ones whose
+    /// panels need a live report underneath before they will open, i.e. the ones most likely to be forgotten. A
+    /// test whose name claims total coverage and delivers 4/7 is worse than one that claims 4/7, because it is
+    /// the thing a reviewer trusts instead of looking. The roster below is now derived from
+    /// <c>MainWindowViewModel.BrowseRequest()</c>'s own switch, and the final assertion pins the count so adding
+    /// an eighth path screen without a button — or without a case here — fails.</para>
     /// </summary>
     [AvaloniaFact]
     public void Every_path_panel_carries_a_visible_browse_button()
     {
         var (window, vm, _, dir) = NewWindow("Affordance Co", answer: null);
+        var checkedScreens = new List<Screen>();
+
+        void Check(string label, Screen expected)
+        {
+            Pump(window);
+            Assert.Equal(expected, vm.CurrentScreen);
+            Assert.True(vm.BrowseRequest() is not null,
+                $"the {label} panel is on this roster but BrowseRequest() returns null for it — the button " +
+                "below would be an affordance for a chooser that never opens.");
+            Assert.True(HasBrowseButton(window), $"the {label} panel has no Browse button");
+            checkedScreens.Add(expected);
+        }
+
         try
         {
             vm.OpenBackupCompany();
-            Pump(window);
-            Assert.True(HasBrowseButton(window), "the Backup panel has no Browse button");
+            Check("Backup", Screen.BackupCompany);
 
             vm.Back();
             vm.OpenRestoreCompany();
-            Pump(window);
-            Assert.True(HasBrowseButton(window), "the Restore panel has no Browse button");
+            Check("Restore", Screen.RestoreCompany);
 
             vm.Back();
             vm.OpenImport();
-            Pump(window);
-            Assert.True(HasBrowseButton(window), "the Import panel has no Browse button");
+            Check("Import", Screen.ImportData);
 
             vm.Back();
             vm.OpenExportData();
-            Pump(window);
-            Assert.True(HasBrowseButton(window), "the Export Data panel has no Browse button");
+            Check("Export Data", Screen.ExportData);
+
+            // The remaining three only exist over a live report, which is why they were skipped before.
+            vm.Back();
+            vm.LoadRobertDemo();
+            vm.OpenReport(ReportKind.TrialBalance);
+
+            vm.OpenExport();
+            Check("Export", Screen.Export);
+
+            vm.Back();
+            vm.OpenEmailCompose();
+            Check("E-Mail compose", Screen.EmailCompose);
+
+            vm.Back();
+            vm.OpenPrintPreview();
+            Check("Print Preview", Screen.PrintPreview);
+
+            Assert.Equal(7, checkedScreens.Distinct().Count());
         }
         finally { window.Close(); Cleanup(dir); }
     }
@@ -302,7 +338,7 @@ public sealed class FilePathPickerReachabilityTests
     // ============================================================ the reservation this slice must not break
 
     /// <summary>
-    /// 🔴 Ctrl+B IS RESERVED (TallyPrime "Basis of Values" — a report re-basis that writes nothing). The browse
+    /// 🔴 Ctrl+B IS RESERVED (the vendor's "Basis of Values" — a report re-basis that writes nothing). The browse
     /// chord deliberately is <b>not</b> Ctrl+B. This locks that the reservation survived this slice.
     /// </summary>
     [AvaloniaFact]
