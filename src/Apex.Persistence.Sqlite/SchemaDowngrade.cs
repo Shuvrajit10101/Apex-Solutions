@@ -374,6 +374,38 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV52ToV53"/>: removes the two Voucher Type user-flag columns
+    /// (<see cref="Schema.V53VoucherTypeFlagColumns"/>) from <c>voucher_types</c> and stamps
+    /// <c>schema_version</c> back to 52.
+    ///
+    /// <para>⚠️ <b>Not information-preserving, and the loss is the point of the version.</b> A type configured to
+    /// print after saving, or to take a narration per ledger, comes back with both flags OFF — a v52 database has
+    /// nowhere to record either. Re-migrating up therefore yields the same all-zero columns the forward migration
+    /// gives any other v52 book, which is exactly what makes the "no back-fill" claim testable.</para>
+    ///
+    /// <para>🔴 <b>What a downgrade CANNOT undo, recorded so it is not rediscovered.</b> A book saved at v53 may
+    /// hold <c>numbering = 3</c> or <c>4</c> (Automatic (Manual Override) / Multi-user Auto). Those ordinals are in
+    /// the pre-existing <c>numbering</c> column, which this downgrade does not touch, so they SURVIVE into the
+    /// v52-shaped file — where a v52 reader would map them onto an enum that has only 0/1/2 and read them as an
+    /// out-of-range cast. That is not a defect in this method (a downgrade cannot invent a v52 meaning for a choice
+    /// v52 could not express); it is the reason the two methods were appended rather than inserted, and the reason
+    /// this file is test-only — nothing in <c>src/</c> calls <see cref="SchemaDowngrade"/>.</para>
+    ///
+    /// <para>The <c>CREATE … AS SELECT</c> rebuild idiom via <see cref="DropColumns"/>, so it carries the same
+    /// documented residual (PRIMARY KEY / NOT NULL / DEFAULT loss on the rebuilt table, F6) as every other
+    /// column-dropping downgrade here, and re-creates <c>ix_voucher_types_company</c> which
+    /// <c>DROP TABLE</c> would otherwise take with it.</para>
+    /// </summary>
+    public static void V53ToV52(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        DropColumns(connection, "voucher_types", Schema.V53VoucherTypeFlagColumns, "voucher_types_v52");
+
+        Exec(connection, "UPDATE schema_version SET version = 52;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, via the <c>CREATE … AS SELECT</c> / swap
     /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
     /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the

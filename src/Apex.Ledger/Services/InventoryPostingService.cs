@@ -94,7 +94,10 @@ public sealed class InventoryPostingService
         if (RequiresSourceDestinationBalance(type, voucher))
             EnsureStockJournalBalances(voucher);
 
-        if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)
+        // census 5.10 — ASK the type whether its method numbers automatically. This used to compare against
+        // NumberingMethod.Automatic alone, which would have left every Automatic (Manual Override) and
+        // Multi-user Auto voucher unnumbered the moment those two attested methods became selectable.
+        if (type.AssignsNumberAutomatically && voucher.Number <= 0)
             voucher.Number = NextNumber(voucher.TypeId);
 
         // numbering-design-v2 §3/§7 — Prevent Duplicate on the second (inventory) engine, mirroring

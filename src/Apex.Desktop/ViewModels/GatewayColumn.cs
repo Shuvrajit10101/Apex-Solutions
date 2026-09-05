@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -87,6 +87,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted accounting-Group master (non-null only for the Group-creation column; WI-7).</summary>
     public AccountGroupMasterViewModel? AccountGroupMaster => Page as AccountGroupMasterViewModel;
 
+    /// <summary>The hosted Multi Ledger / Multi Group creation grid (non-null only for that column; W2-20).</summary>
+    public MultiMasterCreateViewModel? MultiMasterCreate => Page as MultiMasterCreateViewModel;
+
     /// <summary>The hosted chart-of-accounts view model (non-null only for the Chart-of-Accounts column).</summary>
     public ChartOfAccountsViewModel? Chart => Page as ChartOfAccountsViewModel;
 
@@ -134,6 +137,10 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted Unit-of-Measure master (non-null only for the Unit creation column).</summary>
     public UnitMasterViewModel? UnitMaster => Page as UnitMasterViewModel;
+
+    /// <summary>The hosted Voucher Type master (non-null only for the Voucher Type creation/alteration column;
+    /// W2-03, census 2.4).</summary>
+    public VoucherTypeMasterViewModel? VoucherTypeMaster => Page as VoucherTypeMasterViewModel;
 
     /// <summary>The hosted Godown master (non-null only for the Godown creation column).</summary>
     public GodownMasterViewModel? GodownMaster => Page as GodownMasterViewModel;
@@ -224,6 +231,9 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
     public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
+
+    /// <summary>The hosted Ctrl+B "Basis of Values" panel (non-null only for that W2-13a column).</summary>
+    public BasisOfValuesViewModel? BasisOfValues => Page as BasisOfValuesViewModel;
 
     /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
     public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;

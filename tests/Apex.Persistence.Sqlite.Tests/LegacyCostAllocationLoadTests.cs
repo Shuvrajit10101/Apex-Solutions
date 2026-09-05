@@ -186,9 +186,10 @@ public sealed class LegacyCostAllocationLoadTests
         //
         // The literal below is a deliberate tripwire against an ACCIDENTAL bump, so it moves only when a slice
         // knowingly owns a version. It was 50; v51 was owned by WF-1 (the GST five-level hierarchy masters);
-        // **v52 is owned by the VOUCHER EDIT LOG**, which adds ONE new table (`voucher_edit_log`) and no column
-        // to any existing table — so it touches nothing in cost_allocations either, and the G-2 contract this
-        // test guards is still storage-free.
-        Assert.Equal(52, Schema.CurrentVersion);
+        // v52 was owned by the VOUCHER EDIT LOG, which adds ONE new table (`voucher_edit_log`) and no column
+        // to any existing table; **v53 is owned by W2-03 (the Voucher Type master)**, which adds exactly two
+        // columns to `voucher_types` (`print_after_saving`, `provide_narration_for_each_ledger`) — so it touches
+        // nothing in cost_allocations either, and the G-2 contract this test guards is still storage-free.
+        Assert.Equal(53, Schema.CurrentVersion);
     }
 }

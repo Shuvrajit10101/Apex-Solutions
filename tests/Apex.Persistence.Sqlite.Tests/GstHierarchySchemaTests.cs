@@ -215,6 +215,7 @@ public sealed class GstHierarchySchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
@@ -292,6 +293,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
@@ -379,6 +381,7 @@ public sealed class GstHierarchySchemaTests
             {
                 using (var conn = Open(dbPath))
                 {
+                    SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                     SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                     SchemaDowngrade.V51ToV50(conn);
                     SqliteConnection.ClearPool(conn);
@@ -496,6 +499,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
@@ -667,6 +671,7 @@ public sealed class GstHierarchySchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
@@ -720,6 +725,7 @@ public sealed class GstHierarchySchemaTests
             using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);
                 SqliteConnection.ClearPool(conn);
@@ -775,6 +781,7 @@ public sealed class GstHierarchySchemaTests
             // into the assertion and made the v51→v50 contract this test exists for unfalsifiable.
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SqliteConnection.ClearPool(conn);
             }

@@ -1310,11 +1310,24 @@ public sealed class VoucherAlterRefusalTests
         };
 
         // 🔴 THE COMPLETENESS HALF. VoucherType's get-only bool properties ARE the L5 layer (each is a conjunction
-        // of a base kind and a settable flag); IsPredefined is the one get-only bool that is not such a predicate.
+        // of a base kind and a settable flag). Three are excluded, and each exclusion names why it is NOT such a
+        // conjunction — the filter is a category test, not a list of inconvenient names:
+        //   • IsPredefined            — a provenance fact, not a behaviour flag; it reads no base kind.
+        //   • AssignsNumberAutomatically / AllowsManualNumberEntry (W2-03, census 5.10) — both consult
+        //     `Numbering` ALONE and never a base kind, so neither can name a family that needs its own entry
+        //     screen. They answer "does the engine number this voucher" and "may the operator type the number";
+        //     an ALTERATION of any type is refused or allowed identically under all five methods. Deleting these
+        //     two names here would re-arm the guard for the next genuine L5 flag, which is the point of the row.
+        var notSpecialisedTypeFlags = new[]
+        {
+            nameof(VoucherType.IsPredefined),
+            nameof(VoucherType.AssignsNumberAutomatically),
+            nameof(VoucherType.AllowsManualNumberEntry),
+        };
         var derivedFlags = typeof(VoucherType).GetProperties()
             .Where(p => p.PropertyType == typeof(bool) && p.CanRead && !p.CanWrite)
             .Select(p => p.Name)
-            .Where(n => n != nameof(VoucherType.IsPredefined))
+            .Where(n => !notSpecialisedTypeFlags.Contains(n, StringComparer.Ordinal))
             .ToList();
         Assert.Equal(
             derivedFlags.OrderBy(n => n, StringComparer.Ordinal).ToList(),
