@@ -21,7 +21,7 @@ public sealed partial class EmployeeListRow : ObservableObject, IPayrollMasterLi
     /// <summary>The stable identity of the employee this row displays (census 7.16).</summary>
     public Guid MasterId { get; init; }
 
-    string IPayrollMasterListRow.MasterName => Name;
+    string IMasterListRow.MasterName => Name;
 
     [ObservableProperty] private bool _isHighlighted;
 }

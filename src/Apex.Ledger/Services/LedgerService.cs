@@ -133,7 +133,10 @@ public sealed class LedgerService
         VoucherValidator.EnsureValid(voucher, _company, costAllocationStrictness);
 
         var type = _company.FindVoucherType(voucher.TypeId)!;
-        if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)
+        // census 5.10 — ASK the type whether its method numbers automatically. This used to compare against
+        // NumberingMethod.Automatic alone, which would have left every Automatic (Manual Override) and
+        // Multi-user Auto voucher unnumbered the moment those two attested methods became selectable.
+        if (type.AssignsNumberAutomatically && voucher.Number <= 0)
             voucher.Number = NextNumber(voucher.TypeId);
 
         _company.AddVoucherInternal(voucher);
