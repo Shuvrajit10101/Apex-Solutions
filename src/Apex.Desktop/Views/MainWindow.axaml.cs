@@ -398,6 +398,9 @@ public partial class MainWindow : Window
         {
             if (vm.CurrentScreen == Screen.ReportConfig)
                 vm.ApplyReportConfig();
+            // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
+            else if (vm.CurrentScreen == Screen.BasisOfValues)
+                vm.ApplyBasisOfValues();
             else if (vm.CurrentScreen == Screen.ReportSortFilter)
                 vm.ApplyReportSortFilter();
             else if (vm.CurrentScreen == Screen.AddComparisonColumn)
@@ -990,6 +993,23 @@ public partial class MainWindow : Window
         if (e.Key == Key.S && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsReportContext)
         {
             vm.OpenSaveView();
+            e.Handled = true;
+            return;
+        }
+
+        // W2-13a (census row 14.5) — Ctrl+B opens BASIS OF VALUES (the report Scale Factor) over the live report.
+        // help.tallysolutions.com gives Ctrl+B as "To views values in different ways in a report"; the chord was
+        // verified free before it was taken (every other Key.B arm in this file carries Alt, and the bare-B menu
+        // quick-jump at the bottom is guarded by CanQuickJump, which excludes a report page).
+        // 🔴 The guard is the EXACT condition the button-bar row is enabled on, and that is deliberate. Guarding
+        // only on IsReportContext would leave the arm consuming Ctrl+B on a report that cannot scale, i.e. a key
+        // that is swallowed and fires nothing beside a badge that is honestly dimmed — the two would disagree,
+        // which is the defect SettlementFromOutstandingsTests exists to keep out. Here they cannot.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Reports is { SupportsScaleFactor: true })
+        {
+            vm.OpenBasisOfValues();
             e.Handled = true;
             return;
         }
@@ -2054,6 +2074,11 @@ public partial class MainWindow : Window
 
     private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSelectedSavedView();
+
+    /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
+    private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyBasisOfValues();
+
 
     /// <summary>
     /// "Save PDF" on the Print-Preview panel: writes the rendered bytes to a file. The renderer is disk-free;

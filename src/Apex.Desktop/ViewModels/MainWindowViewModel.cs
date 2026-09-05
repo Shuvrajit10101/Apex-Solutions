@@ -36,6 +36,11 @@ public enum Screen
     AddVoucherPicker,
 
     ReportConfig,
+
+    // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
+    // column over the live report exactly like the F12 config panel beside it.
+    BasisOfValues,
+
     ReportSortFilter,
     AddComparisonColumn,
     AutoColumns,
@@ -583,6 +588,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
+
+    /// <summary>The Ctrl+B "Basis of Values" (Scale Factor) panel view model, non-null only while that
+    /// column is open (W2-13a, census row 14.5).</summary>
+    [ObservableProperty] private BasisOfValuesViewModel? _basisOfValues;
 
     /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
     [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
@@ -2610,6 +2619,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
     public void ClearReportSortFilter() => ReportSortFilter?.Clear();
+
+    // =============================================================== W2-13a: Ctrl+B Basis of Values (census 14.5)
+
+    /// <summary>
+    /// <b>Ctrl+B — Basis of Values.</b> Opens the Scale-Factor panel as its own cascading column to the RIGHT of
+    /// the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live
+    /// beneath it so applying re-projects in place.
+    ///
+    /// <para>Refused — quietly, with no column pushed — unless the open report actually supports the scale
+    /// (<see cref="ReportsViewModel.SupportsScaleFactor"/>). A panel that opens on a report it cannot change is
+    /// the dead-control defect this project has caught before; the button-bar row dims in the same condition so
+    /// the key and the badge agree.</para>
+    /// </summary>
+    public void OpenBasisOfValues()
+    {
+        if (Reports is not { SupportsScaleFactor: true }) return;
+        if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
+
+        var panel = new BasisOfValuesViewModel(Reports);
+        BasisOfValues = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BasisOfValues;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Apply button on the Ctrl+B panel: apply the Scale Factor, then pop the panel so the operator
+    /// lands back on the re-scaled report rather than on a spent column.
+    /// </summary>
+    public void ApplyBasisOfValues()
+    {
+        if (BasisOfValues is null) return;
+        BasisOfValues.Apply();
+        if (CurrentScreen == Screen.BasisOfValues) Back();
+    }
 
     /// <summary>
     /// True while a report is the ACTIVE page (or its F12 config panel is open) — the report-parameter
@@ -5417,6 +5464,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Form24Q = null;
         Form16 = null;
         ReportConfig = null;
+        BasisOfValues = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
@@ -9238,9 +9286,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
             hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
-        // NOTE: there is deliberately NO "Ctrl+B" row here. Ctrl+B was the Bill-Settlement badge until Phase 10.11
-        // S2 (register row IV-5) removed the binding; leaving the badge would paint a red accelerator for a key
-        // that fires nothing, which is register defect IV-31. Settlement is advertised on the Alt+A row above.
+
+        // W2-13a (census 14.5) — Ctrl+B BASIS OF VALUES. This is the row the Alt+A note below says was
+        // deliberately absent: Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 removed the binding,
+        // and the chord was left free precisely because in the reference product it is Basis of Values
+        // (OutstandingsViewModel records that in its own remarks). It is now that, and nothing else.
+        // ENABLED only where the open report can actually be re-scaled, and DIMMED everywhere else, because an
+        // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
+            Reports is { SupportsScaleFactor: true }));
+        // NOTE ON Ctrl+B (updated by W2-13a): Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 (register
+        // row IV-5) removed the binding, and this note used to say there was deliberately no Ctrl+B row at all.
+        // The chord now carries the verb the reference product puts on it — Basis of Values — and its row is
+        // emitted ABOVE, guarded so it is only enabled where it fires. Settlement remains on the Alt+A row above
+        // and is NOT reachable from Ctrl+B: the old destructive path is gone, not re-pointed.
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.
