@@ -267,6 +267,46 @@ public sealed class RcmTests
         Assert.Equal(0m, b.TotalOutwardTax.Amount);
     }
 
+    /// <summary>
+    /// Table 4(A)(3) is <b>"other than 1 &amp; 2 above"</b> — CBIC Circular No. 170/02/2022-GST, Table 2, "4. Eligible
+    /// ITC → (A) ITC Available (whether in full or part)", row <i>"3. Inward Supplies liable to Reverse Charge (other
+    /// than 1 &amp; 2 above)"</i>, rows 1 and 2 being import of goods and import of services. That circular's worked
+    /// example books the import-of-services IGST to 4(A)(2) and only the domestic RCM tax to 4(A)(3).
+    /// <para>
+    /// <see cref="Gstr3b.TotalRcmItc"/> deliberately spans BOTH rows (it feeds the QRMP forward-net and the GSTR-9
+    /// annual ITC sum, which want the whole RCM credit). Anything captioned 4(A)(3) needs
+    /// <see cref="Gstr3b.TotalRcmItcOther"/>; presenting <c>TotalRcmItc</c> under a 4(A)(3) caption double-counts the
+    /// import credit — a wrong figure on a filed return.
+    /// </para>
+    /// Hand-derived: import of services ₹20,000 @18% ⇒ IGST ₹3,600 (4(A)(2)); domestic inter-state legal fee ₹10,000
+    /// @18% ⇒ IGST ₹1,800 (4(A)(3)). So 4(A)(3) alone = 1,800 and the two-row span = 5,400.
+    /// </summary>
+    [Fact]
+    public void Gstr3b_table_4a3_alone_excludes_the_import_of_services_credit_that_4a2_carries()
+    {
+        var c = NewRcmCompany();
+        var rcm = new RcmService(c);
+
+        var legal = RcmExpenseLedger(c, "Legal Fees", "Legal", 1800);
+        var advocate = Party(c, "Advocate (Gujarat)", GstinGujarat, "24");
+        PostRcmInward(c, legal, advocate, Money.FromRupees(10000m),
+            rcm.BuildReverseCharge(Money.FromRupees(10000m), null, legal, advocate.PartyGst, D1,
+                RcmService.SupplyKind.Domestic), D1);
+
+        var consulting = RcmExpenseLedger(c, "Foreign Consulting", "Legal", 1800);
+        var overseas = Party(c, "Overseas Consultant", gstin: null, state: null, unregistered: true);
+        PostRcmInward(c, consulting, overseas, Money.FromRupees(20000m),
+            rcm.BuildReverseCharge(Money.FromRupees(20000m), null, consulting, overseas.PartyGst, D1,
+                RcmService.SupplyKind.ImportOfServices), D1);
+
+        var b = Gstr3b.Build(c, FyStart, new DateOnly(2026, 3, 31));
+
+        Assert.Equal(3600m, b.RcmItcImportIgst.Amount);      // 4(A)(2)
+        Assert.Equal(1800m, b.RcmItcOtherIgst.Amount);       // 4(A)(3), IGST head
+        Assert.Equal(1800m, b.TotalRcmItcOther.Amount);      // 4(A)(3) alone — import EXCLUDED
+        Assert.Equal(5400m, b.TotalRcmItc.Amount);           // 4(A)(2) + 4(A)(3), the deliberate two-row span
+    }
+
     // ---------------------------------------------------------------- 8. Cess-on-RCM (interaction, ring-fenced)
 
     [Fact]

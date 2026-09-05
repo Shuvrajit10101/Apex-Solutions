@@ -223,6 +223,9 @@ internal sealed class ImportPlan
                 preventDuplicate: vt.PreventDuplicate,
                 numberWidth: vt.NumberWidth,
                 prefillWithZero: vt.PrefillWithZero,
+                // v53 (W2-03; census 5.11): the two attested user flags ride the type verbatim.
+                printAfterSaving: vt.PrintAfterSaving,
+                provideNarrationForEachLedger: vt.ProvideNarrationForEachLedger,
                 prefixes: ImportAffixes(vt.Prefixes),
                 suffixes: ImportAffixes(vt.Suffixes));
             t.AddVoucherType(domain);

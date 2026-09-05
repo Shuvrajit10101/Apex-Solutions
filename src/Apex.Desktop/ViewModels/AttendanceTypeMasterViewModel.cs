@@ -20,7 +20,7 @@ public sealed partial class AttendanceTypeListRow : ObservableObject, IPayrollMa
     /// <summary>The stable identity of the attendance type this row displays (census 7.16).</summary>
     public Guid MasterId { get; init; }
 
-    string IPayrollMasterListRow.MasterName => Name;
+    string IMasterListRow.MasterName => Name;
 
     [ObservableProperty] private bool _isHighlighted;
 }
@@ -84,7 +84,7 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
     public string MasterKindLabel => "attendance type";
 
     /// <inheritdoc/>
-    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
 
     /// <summary>The highlighted existing-type row, or <c>null</c>.</summary>
     public AttendanceTypeListRow? HighlightedRow => _highlight.Row;
