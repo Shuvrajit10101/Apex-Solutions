@@ -181,8 +181,14 @@ public sealed class CompanyStorage
     }
 
     /// <summary>
-    /// 🔴 <b>W2-18 (census row 1.4) — RENAMES a company: rewrites the stored name AND moves its <c>.db</c>.</b>
+    /// 🔴 <b>Census row 1.4 — RENAMES a company: rewrites the stored name AND moves its <c>.db</c>.</b>
     /// Returns the new <see cref="CompanyEntry"/>.
+    ///
+    /// <para><b>Its ONE caller is <c>CompanyProfileViewModel.TryRename</c>, reached by editing the Name on the
+    /// Company Alteration screen and accepting.</b> That is stated because this method shipped in the W2-18 WIP
+    /// commit with <b>zero callers anywhere</b> — written, careful, correct-looking and unreachable by any
+    /// sequence of keys, which is this project's most-repeated defect shape. If a refactor ever leaves it
+    /// callerless again, row 1.4 is ABSENT whatever the census says.</para>
     ///
     /// <para><b>Both halves are mandatory, and doing only one of them is the book-eater this method was carved
     /// out for.</b> <c>CompanyProfileViewModel.IsNameEditable</c> states the trap in full: the file path is
@@ -241,6 +247,14 @@ public sealed class CompanyStorage
 
     /// <summary>
     /// Deletes a company's <c>.db</c> file. Best-effort; a file that cannot be removed is left in place.
+    ///
+    /// <para>🔴 <b>BECAUSE IT IS BEST-EFFORT, A CALLER MUST NOT ANNOUNCE SUCCESS OFF ITS RETURN.</b> It returns
+    /// identically whether the file went or an <c>IOException</c>/<c>UnauthorizedAccessException</c> was caught
+    /// below, so <c>MainWindowViewModel.PerformOpenCompanyDeletion</c> re-tests <c>File.Exists</c> before it tells
+    /// the operator the book is gone and releases the aggregate. It had <b>zero production callers</b> until
+    /// census row 1.4 shipped Alt+D on the Company Alteration screen (2026-09-05); it is now reached from there and
+    /// from <see cref="Rename"/>'s move.</para>
+    ///
     /// <para><b>The catch list must stay as wide as the ways a delete is refused, and those differ by
     /// platform.</b> On Windows a file in use raises <see cref="IOException"/>, which is all this used to
     /// catch. On Linux and macOS the deciding permission is on the PARENT DIRECTORY, and a refusal there

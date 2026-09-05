@@ -184,8 +184,6 @@ public enum GatewayMenu
     Budgets,
     Banking,
     OtherVouchers,
-    /// <summary>W2-18 (census row 14.9) — the Company menu column: Create / Alter / Select / Shut.</summary>
-    Company,
     OrderVouchers,
     InventoryVouchers,
     InventoryReports,
@@ -884,10 +882,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (<c>CompanyStorage.PathForName</c>), and <c>CompanyStorage.Load</c> takes the FIRST company row in the
     /// file. So creating "Acme/Traders" on a machine that already has "Acme_Traders" used to write a SECOND
     /// company row into the FIRST company's file, with no exception and no message — and everything typed into
-    /// the second one then became unreachable forever, because the loader never returns it. Alteration already
-    /// refuses to rename for exactly this reason (<c>CompanyProfileViewModel.IsNameEditable</c>); refusing a
-    /// rename while leaving the identical hole open on create is not a coherent position, so the check is here
-    /// too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
+    /// the second one then became unreachable forever, because the loader never returns it. <b>Alteration refuses
+    /// the same collision</b> — <c>CompanyStorage.Rename</c> tests the sanitised destination path before it moves
+    /// anything (this comment used to say alteration "refuses to rename" outright, which was true only while the
+    /// rename was carved out; census row 1.4 shipped it 2026-09-05). Create and alter must agree on which names
+    /// are refusable, so the check is here too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
     /// only the identical name. <b>WHICH pairs collide is platform-dependent</b> — <c>/</c> collapses
     /// everywhere, <c>:</c> only on Windows; see <c>CompanyStorage.PathForName</c> for the full note.</para>
     ///
@@ -952,8 +951,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens <b>Company Alteration</b> for the OPEN company as a cascade page column: the same profile fields
-    /// the creation screen captures, pre-filled, with the name shown read-only (renaming would fork the book —
-    /// see <see cref="CompanyProfileViewModel.IsNameEditable"/>).
+    /// the creation screen captures, pre-filled.
+    ///
+    /// <para><b>This screen carries BOTH company verbs census row 1.4 owes</b>, and it is the reference product's
+    /// own screen for both (RULING 14 / R7 — <i>help.tallysolutions.com/…/set-up-company-tally/</i>): editing the
+    /// <b>Name</b> and accepting RENAMES the book (see <see cref="CompanyProfileViewModel.IsNameEditable"/> — the
+    /// name shipped read-only until 2026-09-05 and this comment said so), and <b>Alt+D</b> raises the confirmation
+    /// that DELETES it (see <see cref="RequestDeleteOpenCompany"/>).</para>
     ///
     /// <para><b>No accelerator — and the honest reason is scope, not a chord collision.</b> The reference
     /// product reaches company alteration through a COMPANY MENU on <c>Alt+K</c> (Book PDF p.15, Study Guide
@@ -975,30 +979,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
-        var page = new CompanyProfileViewModel(Company, _storage, onChanged: BuildButtonBar);
+        // 🔴 `onChanged` re-syncs the STATUS LINE as well as the button bar, and that became load-bearing when the
+        // Name field went editable for census row 1.4: accepting this screen can now RENAME the open book, and the
+        // status line — which names the open company — would otherwise keep showing the old name until the operator
+        // shut and re-opened the company. `Company` is a plain property with no change notification, so nothing
+        // else would ever notice.
+        var page = new CompanyProfileViewModel(Company, _storage, onChanged: () =>
+        {
+            if (Company is { } open) StatusCompany = open.Name;
+            BuildButtonBar();
+        });
         OpenPageColumn(new GatewayColumn("Company Alteration", page), Screen.AlterCompany,
             "Company Alteration", () => AlterCompany = page);
     }
 
     /// <summary>
-    /// W2-18 (census row 14.9) — <b>Shut Company</b>: RELEASES the open book and returns to Company Select.
+    /// RELEASES the open book — <see cref="Company"/> goes null, the status line stops naming it — and returns to
+    /// Company Select.
     ///
-    /// <para>🔴 <b>It is not a synonym for <see cref="ShowCompanySelect"/>, and the difference is the whole
-    /// point of having both rows on the menu.</b> "Select Company" navigates to the picker with the current book
-    /// still open behind it — press Esc and you are back in it. "Shut" closes the book: <see cref="Company"/>
-    /// goes null, the status line stops naming it, and every screen that reads <c>Company</c> is inert until one
-    /// is opened again. Two menu rows that did the same thing would make one of them a lie.</para>
+    /// <para>🔴 <b>Its ONE caller is the company DELETE (census row 1.4), and that is why it is private.</b> Once
+    /// the <c>.db</c> is gone the shell cannot be left holding an aggregate whose file no longer exists: every
+    /// later save would silently re-create the deleted book at the same path. W2-18 first wrote this as a public
+    /// "Shut Company" verb for a Gateway menu column that <see cref="BuildRootColumn"/> now explains was removed
+    /// as unfaithful — leaving it public would have left a method no operator could reach, which is the exact
+    /// defect class (<c>CompanyStorage.Rename</c>, <c>CostReports.BuildLedgerBreakup</c>) this pass exists to stop
+    /// repeating. <b>The Shut verb itself is NOT claimed as built</b>: it belongs with the Alt+K top menu, inside
+    /// open user ruling U-6.</para>
     ///
-    /// <para><b>Nothing is written and nothing is removed.</b> Every desktop write already funnels through
-    /// <c>CompanyStorage.Save</c> as it happens, so there is no dirty-buffer flush to do here; and Shut is
-    /// emphatically not Delete — the <c>.db</c> is left exactly where it is.</para>
-    ///
-    /// <para><b>The status fields are reset by hand because nothing else does it.</b> <see cref="Company"/> is a
-    /// plain property, not an <c>[ObservableProperty]</c>, so there is no change handler to hang this on;
+    /// <para><b>The three status fields are reset by hand because nothing else does it.</b> <see cref="Company"/>
+    /// is a plain property, not an <c>[ObservableProperty]</c>, so there is no change handler to hang this on;
     /// <see cref="OpenCompany"/> sets these three together on the way in and this is their only way out.
     /// <see cref="ShowCompanySelect"/> then clears the sub screens and the cascade.</para>
     /// </summary>
-    public void ShutCompany()
+    private void ReleaseOpenCompany()
     {
         Company = null;
         StatusCompany = "No company loaded";
@@ -1152,22 +1165,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Data"));
         col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
-        // ---- COMPANY (W2-18, census row 14.9) ----
-        // The reference product's company menu — Create / Alter / Select / Shut — which this Gateway had no
-        // column for at all: Create Company was reachable only from the Company-Select screen and "Alter
-        // Company" was an orphan Page row under Masters.
-        //
-        // 🔴 PLACED HERE, AT THE BOTTOM BESIDE DATA, AND THAT IS A CORRECTION HONOURED RATHER THAN REPEATED.
-        // IV-29 / W0-2's record says a "Company" section placed AHEAD of Masters was wrong on three counts, the
-        // decisive one being that it moved the Gateway's default keyboard highlight off Masters → Create for
-        // every entry into the screen. Sitting after Data, immediately above the company-changing action row it
-        // is a superset of, the first selectable row is still Masters → Create and no highlight moves.
-        //
-        // 🔴 THE MASTERS "Alter Company" ROW IS DELIBERATELY LEFT WHERE IT IS. This column is ADDITIVE: two
-        // routes to one screen, exactly as Backup / Restore already has. Moving that row would be a navigation
-        // change riding in on a menu slice — the very thing IV-29 diagnoses — and two shipped tests pin it there.
-        col.Add(MenuItemViewModel.Header("Company"));
-        col.Add(new MenuItemViewModel("Company", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // 🔴 NO "Company" SECTION IS ADDED HERE, AND THAT IS THE FIDELITY ANSWER, NOT AN OMISSION.
+        // W2-18 built one (Header "Company" + a Group row drilling to Create / Alter / Select / Shut) and it was
+        // REMOVED on 2026-09-05 rather than re-pointed, because the shipped inventory test
+        // `GatewayHierarchyTests.Gateway_exposes_the_sections_with_their_items_nested` caught it and the test was
+        // RIGHT on two independent authorities:
+        //   • RULING 14 / R7 — the vendor's own help puts every company verb on the TOP MENU, not on this screen:
+        //     help.tallysolutions.com/…/set-up-company-tally/ reads "press Alt+K (Company) > Create" and
+        //     "press Alt+K (Company) > Alter", and …/company-faq-tally/ gives Alt+F3 (Select Company). A Gateway
+        //     SECTION is not where the reference product keeps them.
+        //   • `docs/invented-vs-cloned.md` IV-29 states the reference Gateway verbatim — Masters · Transactions ·
+        //     Utilities · Reports — and its †† 2026-08-17 block records that W0-2b added exactly this "Company"
+        //     section once already and it was corrected out, with the diagnosis that this menu's standing fault
+        //     is having GROWN A SECTION PER PHASE. Re-adding it lower down repeats the move it names.
+        // Census row 14.9 therefore stays OPEN. What it actually needs is the Alt+K top-menu shell, and the chord
+        // is inside open user ruling U-6 — a build agent must not assign it. See the finish-b4 artefact.
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -1370,35 +1382,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Backup / Restore"));
         col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        return col;
-    }
-
-    /// <summary>
-    /// W2-18 (census row 14.9) — builds the <b>Company</b> submenu column: the reference product's four company
-    /// verbs, nested under their own header rather than dumped flat.
-    ///
-    /// <para><b>FIDELITY (R7; RULING 14 — grounded on the vendor's help, the corpus being gone).</b>
-    /// <i>help.tallysolutions.com/set-up-company-tally/</i> gives <i>"press Alt+K (Company) &gt; Create"</i> and
-    /// <i>"press Alt+K (Company) &gt; Alter"</i>; <i>…/company-faq-tally/</i> gives <b>Alt+F3</b> for Select
-    /// Company and <b>Alt+F1</b> for Shut Cmp. Those four verbs are the column.</para>
-    ///
-    /// <para>🔴 <b>NONE OF THOSE CHORDS IS TAKEN HERE, AND THAT IS A REPORTED CONFLICT, NOT A DECISION.</b>
-    /// <b>Alt+K</b> is spent on the RQ-8 Saved Views panel; <b>Alt+F1</b> and <b>Alt+F3</b> are spent on the
-    /// report detail toggle and the report period window. Breadth-design ruling <b>R12</b> puts the question
-    /// ("which chord does the Company menu take, or does Saved Views move?") inside open user ruling <b>U-6</b>,
-    /// which wave 3 widened to eight chords across five areas and reframed as a navigation-shell question. A
-    /// build agent must not re-assign a chord on its own authority, so the VERB gets a route — this column, on
-    /// the Gateway root, which is where this product's navigation lives — and every one of those chords is left
-    /// exactly where it is.</para>
-    /// </summary>
-    private GatewayColumn BuildCompanyColumn()
-    {
-        var col = new GatewayColumn("Company");
-        col.Add(MenuItemViewModel.Header("Company"));
-        col.Add(new MenuItemViewModel("Create Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Alter Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Select Company", () => { }, "F3", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Shut Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -5358,7 +5341,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>What an armed Alt+D confirmation is about to delete. <see cref="None"/> means the confirmation
     /// currently up (if any) belongs to another verb.</summary>
-    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem }
+    /// <summary>
+    /// What an armed confirmation would delete. <b><see cref="Company"/> is the odd one out and deliberately so:</b>
+    /// every other member names a row INSIDE the open book, keyed by <see cref="_pendingDeleteId"/> and finished
+    /// by a <c>_storage.Save(Company)</c>. A company deletion removes the <c>.db</c> FILE, carries no Guid
+    /// (<c>Guid.Empty</c> is armed), and must never save — saving the aggregate it is deleting would re-create the
+    /// book it just removed. <see cref="PerformPendingDeletion"/> branches it out before the shared machinery.
+    /// </summary>
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, Company }
 
     /// <summary>
     /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
@@ -5502,6 +5492,46 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Screen.StockItemMaster => RequestDeleteStockItemRow(),
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// <b>Alt+D on the Company Alteration screen — arms the confirmation for deleting the OPEN COMPANY</b>
+    /// (census row 1.4). Returns <c>true</c> when the question went up.
+    ///
+    /// <para><b>FIDELITY (R7; RULING 14 — the corpus is gone, so this is the vendor's own help).</b>
+    /// <i>help.tallysolutions.com/…/set-up-company-tally/</i> deletes a company by
+    /// <i>"Alt+K (Company) &gt; Alter. In the Company Alteration screen, press Alt+D."</i> The SCREEN and the
+    /// CHORD are both attested for precisely this act. Only the route to the screen differs — ours is
+    /// Gateway → Masters → Alter Company, because the Alt+K top menu is not built and its chord sits inside open
+    /// user ruling U-6.</para>
+    ///
+    /// <para><b>The chord was FREE, so nothing is displaced.</b> <see cref="IsDeleteTargetPage"/>'s five surfaces
+    /// exclude <see cref="Screen.AlterCompany"/>, and the bare-letter <c>D</c> quick-jump (Day Book) requires
+    /// <c>KeyModifiers.None</c>. The master/voucher Alt+D keeps its meaning everywhere it already had one, which
+    /// <c>AltD_elsewhere_still_deletes_the_master_not_the_company</c> pins.</para>
+    ///
+    /// <para>🔴 <b>THERE IS NO <c>MasterDeletionRules</c> GUARD HERE, AND THAT IS OURS — RULING 9.</b> Every other
+    /// arm refuses a master that something else points at; a company is what everything else points AT, so there
+    /// is no referential guard to run and no wider book to be inconsistent with. No admissible source says a
+    /// company carrying vouchers cannot be deleted, and inventing that refusal would strand the operator with a
+    /// book they cannot remove. <b>The confirmation is therefore the ONLY guard</b>, which is why it names the
+    /// company and says in words that the whole book goes.</para>
+    ///
+    /// <para><b>Not gated on <c>IsTyping</c>, unlike the master arm, and the difference is real rather than an
+    /// oversight.</b> The master arm guards it because the caret sits in a form over a LIST and the key would
+    /// otherwise hit the row behind. This screen has no list behind it: its subject IS the company, so Alt+D can
+    /// only mean one thing wherever the caret is. Guarding it would make the attested chord dead in ordinary use,
+    /// since the operator reaches this screen precisely to type in its fields.</para>
+    /// </summary>
+    public bool RequestDeleteOpenCompany()
+    {
+        if (Company is null) return false;
+        if (IsAcceptPromptOpen) return false;
+        if (CurrentScreen != Screen.AlterCompany) return false;
+
+        return Arm(DeletionTarget.Company, Guid.Empty,
+            $"Delete company '{Company.Name}'? The whole book — every master, voucher and report in it — is "
+            + "removed from disk permanently, and there is no undo. (Y/N)");
     }
 
     /// <summary>Arms the confirmation for a posted voucher, after the S4 guards accept it.</summary>
@@ -5649,6 +5679,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
+        // 🔴 THE COMPANY ARM LEAVES BEFORE ANY OF THE SHARED MACHINERY, and every line it skips is a line that
+        // would be wrong for it. The `EnsureValid` pre-flight below exists because the other arms finish with
+        // `_storage.Save(Company)`; this one must never save — writing the aggregate back after removing its file
+        // would re-create the book the operator just deleted — so a company whose stored PIN is invalid must still
+        // be deletable, and refusing it here would strand exactly the broken book most in need of removal.
+        if (kind == DeletionTarget.Company)
+        {
+            PerformOpenCompanyDeletion();
+            return;
+        }
+
         // Pre-flight the ONE reachable save failure while nothing has been removed yet (see the summary).
         try
         {
@@ -5723,6 +5764,49 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         RaiseLifecycleNotice($"{what} deleted.");
         RefreshDeletionSurface(kind);
+    }
+
+    /// <summary>
+    /// "Y" on a COMPANY deletion (census row 1.4): removes the book's <c>.db</c>, releases the open aggregate and
+    /// returns to Company Select.
+    ///
+    /// <para>🔴 <b>THE OUTCOME IS VERIFIED RATHER THAN ASSUMED, because <see cref="CompanyStorage.Delete"/> IS
+    /// BEST-EFFORT AND SWALLOWS ITS REFUSALS.</b> Its own summary says so: a file held by a second instance
+    /// (<c>IOException</c>) or sitting under an unwritable parent directory on POSIX
+    /// (<c>UnauthorizedAccessException</c>) is caught and LEFT IN PLACE, and the method returns exactly as it does
+    /// on success. Announcing "deleted" off that return, and releasing the company, would tell the operator their
+    /// book was gone while it sat on disk and then show them a Company Select that still lists it — the app
+    /// contradicting itself about a destructive act. So the file is re-tested and a survivor is reported as the
+    /// failure it is, with the book still open and nothing else touched.</para>
+    ///
+    /// <para><b>The aggregate is released BEFORE the notice, not after.</b> <see cref="ReleaseOpenCompany"/>
+    /// navigates to Company Select, and <see cref="Notice"/> is cleared on every change of screen — a notice
+    /// raised first would be wiped by its own navigation and the operator would be returned to the picker with no
+    /// statement of what just happened.</para>
+    ///
+    /// <para><b>Why the entry is rebuilt from the name rather than remembered.</b> It is the same derivation
+    /// <see cref="CompanyStorage.ListCompanies"/> uses, so the path deleted is by construction the path the picker
+    /// would have offered — including after a rename earlier in the same visit to this screen, which moved the
+    /// file and would have staled anything captured when the screen opened.</para>
+    /// </summary>
+    private void PerformOpenCompanyDeletion()
+    {
+        var name = Company!.Name;
+        var entry = new CompanyEntry(name, _storage.PathForName(name));
+
+        _storage.Delete(entry);
+
+        if (System.IO.File.Exists(entry.DatabasePath))
+        {
+            RaiseLifecycleNotice(
+                $"Company '{name}' could NOT be deleted — its data file is still on disk. It is most likely open "
+                + "in another window. Close it and try again; the company is unchanged.");
+            return;
+        }
+
+        // Release first (this navigates), then say what happened — see the summary.
+        ReleaseOpenCompany();
+        RaiseLifecycleNotice($"Company '{name}' deleted.");
     }
 
     /// <summary>
@@ -7607,9 +7691,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Backup / Restore (the R-7 carve-out).
             "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
                 "Gateway of Apex Solutions — Backup / Restore"),
-            // Company → Create / Alter / Select / Shut (W2-18, census row 14.9).
-            "Company" => (BuildCompanyColumn(), GatewayMenu.Company,
-                "Gateway of Apex Solutions — Company"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -7637,10 +7718,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             // Company → Alter Company (the open company's own profile).
             case "Alter Company": ShowAlterCompany(); break;
-            // W2-18 (census row 14.9) — the other three verbs on the Company column.
-            case "Create Company": ShowCreateCompany(); break;
-            case "Select Company": ShowCompanySelect(); break;
-            case "Shut Company": ShutCompany(); break;
             // Data → Backup / Restore (the R-7 carve-out).
             case "Backup Company": OpenBackupCompany(); break;
             case "Restore Company": OpenRestoreCompany(); break;

@@ -571,6 +571,41 @@ public partial class MainWindow : Window
         // voucher/master, no confirmation may already be up, and the S4 guards must accept it). `e.Handled` is set
         // unconditionally once the guards pass, so a surface with nothing highlighted is a quiet no-op rather than
         // a live key that falls through to the Day Book jump.
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Census row 1.4 — Alt+D on the COMPANY ALTERATION screen DELETES THE OPEN COMPANY.                │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // FIDELITY (R7; RULING 14 — the tally/ corpus is gone, so this is the vendor's own help).
+        // help.tallysolutions.com/…/set-up-company-tally/ gives screen and chord together: "Alt+K (Company) >
+        // Alter. In the Company Alteration screen, press Alt+D." Only the route to the screen is ours
+        // (Gateway → Masters → Alter Company) — the Alt+K top menu is not built and its chord is inside open
+        // ruling U-6. `CompanyStorage.Delete` had ZERO callers before this arm: it was written, careful and
+        // unreachable, which is why row 1.4 could not be claimed until a key reached it.
+        //
+        // IT SITS ABOVE THE MASTER Alt+D ARM AND IS DISJOINT FROM IT. `vm.IsDeleteTargetPage` excludes
+        // Screen.AlterCompany, so neither arm can ever swallow the other's surface; they are adjacent because the
+        // two must be read together, and `AltD_elsewhere_still_deletes_the_master_not_the_company` pins that the
+        // master meaning is untouched. The bare-letter D quick-jump (Day Book) cannot collide either — slice S1
+        // narrowed `CanQuickJump` to `KeyModifiers.None`.
+        //
+        // 🔴 NO `IsTyping` GUARD, AND THAT DIFFERS FROM THE ARM BELOW ON PURPOSE. The master arm guards it because
+        // its caret sits in a form standing OVER A LIST, so a bare Alt+D mid-word would delete the row behind. The
+        // Company Alteration screen has no list behind it — its subject IS the company — so the chord can only
+        // mean one thing wherever the caret is, while guarding it would make an attested chord dead in ordinary
+        // use, since the operator is on this screen precisely to type in its fields. `IsPickerOpen` is omitted for
+        // the same reason and one more: the State picker claims no Alt chord, so the clause could not change an
+        // outcome and would be a guard no test can fail. The Y/N confirmation is the guard here, and the view
+        // model re-checks the screen and refuses while a question is already up.
+        //
+        // `e.Handled` is set unconditionally once the surface matches, so an Alt+D on this screen never falls
+        // through to the Day Book jump — the same doctrine as the arm below.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.AlterCompany)
+        {
+            vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
             && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
         {

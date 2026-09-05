@@ -13,25 +13,28 @@ using Xunit;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// W2-18 — the <b>Company menu</b> (census row 14.9) and <b>Company Rename / Company Delete</b> (census row
-/// 1.4), driven through the real cascade and the real <see cref="MainWindow"/> key tunnel.
+/// <b>Company Rename and Company Delete</b> (census row 1.4), driven through the real Company Alteration screen
+/// and the real <see cref="MainWindow"/> key tunnel.
 ///
 /// <para><b>FIDELITY (R7 / RULING 14 — grounded on the vendor's own help, the corpus being gone).</b>
-/// <i>help.tallysolutions.com/set-up-company-tally/</i> and <i>…/company-faq-tally/</i> give the menu and both
-/// verbs: <i>"press <b>Alt</b>+<b>K</b> (Company) &gt; Create"</i>, <i>"press <b>Alt</b>+<b>K</b> (Company) &gt;
-/// Alter"</i>, and for deletion <i>"press <b>Alt</b>+<b>K</b> (Company) &gt; Alter. In the Company Alteration
-/// screen, press <b>Alt</b>+<b>D</b>."</i> Selecting and shutting are <b>Alt+F3</b> and <b>Alt+F1</b>.</para>
+/// <i>help.tallysolutions.com/…/set-up-company-tally/</i> gives both verbs on one screen: a company is renamed by
+/// <i>"press <b>Alt</b>+<b>K</b> (Company) &gt; Alter"</i> and editing the Name, and deleted by
+/// <i>"…&gt; Alter. In the Company Alteration screen, press <b>Alt</b>+<b>D</b>."</i></para>
 ///
-/// <para>🔴 <b>THE CHORD IS NOT TAKEN, AND THAT IS A REPORTED CONFLICT RATHER THAN A DECISION MADE HERE
-/// (breadth-design ruling R12, inside open user ruling U-6).</b> <b>Alt+K is already spent</b> on the RQ-8 Saved
-/// Views panel, and <b>Alt+F1 / Alt+F3</b> are spent on the report detail toggle and the report period window.
-/// A build agent must not re-assign a chord on its own authority, so this slice builds the <b>menu and both
-/// verbs</b> and gives them a <b>cascade route</b> — a "Company" group on the Gateway root, which is where this
-/// product's navigation lives — and leaves every one of those chords exactly where it is. The one chord taken
-/// is <b>Alt+D on the Company Alteration screen</b>, which is attested for precisely this and was <b>free</b>:
-/// <c>IsDeleteTargetPage</c> excludes <see cref="Screen.AlterCompany"/>, so nothing is displaced.</para>
+/// <para>🔴 <b>THE SCREEN IS THE REFERENCE ONE; ONLY THE ROUTE TO IT IS OURS, AND THAT IS A REPORTED CONFLICT
+/// RATHER THAN A DECISION MADE HERE (breadth-design ruling R12, inside open user ruling U-6).</b> <b>Alt+K is
+/// already spent</b> on the RQ-8 Saved Views panel, and a build agent must not re-assign a chord on its own
+/// authority — so the Alt+K company TOP MENU is <b>not built</b> (census row 14.9 stays open) and both verbs are
+/// reached the way this application already reaches that screen: Gateway → Masters → <i>Alter Company</i>. The
+/// one chord taken is <b>Alt+D on the Company Alteration screen</b>, which is attested for precisely this and was
+/// <b>free</b>: <c>IsDeleteTargetPage</c> excludes <see cref="Screen.AlterCompany"/>, so nothing is displaced.
+/// </para>
+///
+/// <para><b>What this class deliberately does NOT assert.</b> W2-18 also added a "Company" SECTION to the Gateway
+/// root and three tests driving it. Both are gone — see the block below the fixture helpers for the two
+/// authorities that removed them.</para>
 /// </summary>
-public sealed class CompanyMenuRenameDeleteTests
+public sealed class CompanyRenameDeleteTests
 {
     private static (MainWindow Window, MainWindowViewModel Vm, CompanyStorage Storage, string TempDir) NewWindow()
     {
@@ -65,104 +68,21 @@ public sealed class CompanyMenuRenameDeleteTests
         Assert.Equal(label, vm.Menu[vm.SelectedIndex].Label);
     }
 
-    // ============================================================ (a) 14.9 — the Company menu column
-
-    /// <summary>
-    /// 🔴 <b>THE DRIVING TEST for row 14.9.</b> The Gateway root carries a <b>Company</b> group, and drilling it
-    /// (real Down/Enter keys, never a direct method call) opens a column holding the reference product's four
-    /// company verbs — Create, Alter, Select, Shut — <b>nested under a section header</b>, never a flat dump.
-    ///
-    /// <para>Before the slice this fails at the first assertion: the root builder has no Company row at all
-    /// (Create Company lives only on the Company-Select screen and "Alter Company" is an orphan under Masters).
-    /// </para>
-    /// </summary>
-    [AvaloniaFact]
-    public void The_gateway_root_carries_a_Company_menu_holding_Create_Alter_Select_and_Shut()
-    {
-        var (window, vm, _, tempDir) = NewWindow();
-        try
-        {
-            vm.NewCompanyName = "Menu Co";
-            vm.CreateCompany();
-            vm.ShowGateway();
-
-            // The root row exists and is a GROUP (it drills into a column of its own).
-            var row = vm.Menu.SingleOrDefault(m => m.Label == "Company");
-            Assert.NotNull(row);
-            Assert.Equal(MenuItemKind.Group, row!.Kind);
-
-            NavigateMenuTo(vm, window, "Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-
-            var column = vm.Columns[^1];
-            Assert.True(column.IsMenu);
-            Assert.Contains(column.Items, i => !i.IsSelectable && i.Label == "Company");
-            var items = column.Items.Where(i => i.IsSelectable).Select(i => i.Label).ToList();
-            Assert.Equal(
-                new[] { "Create Company", "Alter Company", "Select Company", "Shut Company" },
-                items);
-        }
-        finally { Close(window, tempDir); }
-    }
-
-    /// <summary>Each of the four rows actually goes somewhere — a menu of dead labels is worse than no menu.</summary>
-    [AvaloniaFact]
-    public void Company_menu_Alter_opens_the_alteration_screen_and_Select_returns_to_company_select()
-    {
-        var (window, vm, _, tempDir) = NewWindow();
-        try
-        {
-            vm.NewCompanyName = "Route Co";
-            vm.CreateCompany();
-
-            vm.ShowGateway();
-            NavigateMenuTo(vm, window, "Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            NavigateMenuTo(vm, window, "Alter Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Assert.Equal(Screen.AlterCompany, vm.CurrentScreen);
-            Assert.NotNull(vm.AlterCompany);
-
-            vm.ShowGateway();
-            NavigateMenuTo(vm, window, "Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            NavigateMenuTo(vm, window, "Select Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
-        }
-        finally { Close(window, tempDir); }
-    }
-
-    /// <summary>
-    /// <b>Shut Company</b> closes the OPEN book rather than merely navigating away: the shell's
-    /// <see cref="MainWindowViewModel.Company"/> goes null and the status line stops naming it. Navigating to
-    /// Company Select without releasing the aggregate is what "Select" does; the two verbs must differ, or one
-    /// of them is a lie on the menu.
-    /// </summary>
-    [AvaloniaFact]
-    public void Company_menu_Shut_releases_the_open_company()
-    {
-        var (window, vm, _, tempDir) = NewWindow();
-        try
-        {
-            vm.NewCompanyName = "Shut Co";
-            vm.CreateCompany();
-            Assert.NotNull(vm.Company);
-
-            vm.ShowGateway();
-            NavigateMenuTo(vm, window, "Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            NavigateMenuTo(vm, window, "Shut Company");
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-
-            Assert.Null(vm.Company);
-            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
-            Assert.Equal("No company loaded", vm.StatusCompany);
-            // The book is still ON DISK — Shut is not Delete.
-            Assert.Contains(new CompanyStorage(tempDir).ListCompanies(), c => c.Name == "Shut Co");
-        }
-        finally { Close(window, tempDir); }
-    }
+    // ============================================================ (a) 14.9 — NOT BUILT, and the tests are gone
+    //
+    // 🔴 W2-18's three Company-menu tests were DELETED on 2026-09-05 rather than fixed, because the feature they
+    // drove was removed as UNFAITHFUL. They asserted a "Company" SECTION on the Gateway root holding Create /
+    // Alter / Select / Shut. Two independent authorities say the reference product has no such section:
+    //   • RULING 14 / R7 — help.tallysolutions.com/…/set-up-company-tally/ reads "press Alt+K (Company) > Create"
+    //     and "press Alt+K (Company) > Alter", and …/company-faq-tally/ gives Alt+F3 (Select Company). Every
+    //     company verb is on the TOP MENU, not on the Gateway.
+    //   • docs/invented-vs-cloned.md IV-29 states the reference Gateway verbatim — Masters · Transactions ·
+    //     Utilities · Reports — and its †† 2026-08-17 block records that this very section was added once by
+    //     W0-2b and corrected out, diagnosing "the menu GREW A SECTION PER PHASE".
+    // The shipped inventory test `GatewayHierarchyTests.Gateway_exposes_the_sections_with_their_items_nested` is
+    // what caught it, and it was RIGHT — so the CODE was fixed and that test was left exactly as it stands.
+    // Census row 14.9 remains OPEN: what it needs is the Alt+K top-menu shell, whose chord is inside open user
+    // ruling U-6 and is not a build agent's to assign.
 
     // ============================================================ (b) 1.4 — RENAME
 
@@ -296,6 +216,43 @@ public sealed class CompanyMenuRenameDeleteTests
         }
         finally { Close(window, tempDir); }
     }
+
+    /// <summary>
+    /// 🔴 <b>A STRUCTURAL REACH ASSERTION, in the shape <c>CompanyCaptureReachTests</c> establishes: it makes the
+    /// claim a behaviour test CANNOT make, and this one was very nearly missed.</b>
+    ///
+    /// <para>The test above drives the rename by assigning <c>page.Name</c> from C#. That proves the view model
+    /// and the storage move work — it proves <b>nothing at all</b> about whether an operator can type the name,
+    /// and on this screen they could not: <c>MainWindow.axaml</c> painted the Name as a read-only
+    /// <c>TextBlock</c>, so <c>IsNameEditable</c> returning true reached nobody. <b>A rename only a unit test can
+    /// perform is not a shipped capability</b> — it is the same defect as <c>CompanyStorage.Rename</c> sitting
+    /// there written, careful and callerless, one layer up.</para>
+    ///
+    /// <para>So the control itself is pinned: the Company Alteration template's Name row must be a
+    /// <c>TextBox</c> with a <b>TwoWay</b> binding. <i>Mutation that reddens it:</i> put the <c>TextBlock</c>
+    /// back, or drop <c>Mode=TwoWay</c> so what is typed never reaches the view model.</para>
+    /// </summary>
+    [Fact]
+    public void The_company_alteration_Name_row_is_a_typeable_TwoWay_TextBox()
+    {
+        var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(ThisFile())!, "..", ".."));
+        var xaml = File.ReadAllText(Path.Combine(repoRoot, "src", "Apex.Desktop", "Views", "MainWindow.axaml"));
+
+        // Anchor on the Company Alteration page comment, then take the template that follows it — the file has
+        // ~1,400 TextBoxes and a bare search would prove nothing about THIS screen.
+        var anchor = xaml.IndexOf("PAGE: Company Alteration", StringComparison.Ordinal);
+        Assert.True(anchor >= 0, "the Company Alteration page marker comment is gone — re-anchor this test.");
+        var template = xaml.Substring(anchor, Math.Min(4000, xaml.Length - anchor));
+
+        var nameRow = template.IndexOf("Text=\"Name\"", StringComparison.Ordinal);
+        Assert.True(nameRow >= 0, "the Company Alteration screen no longer has a row labelled 'Name'.");
+        var row = template.Substring(nameRow, Math.Min(400, template.Length - nameRow));
+
+        Assert.Contains("<TextBox", row, StringComparison.Ordinal);
+        Assert.Contains("{Binding Name, Mode=TwoWay}", row, StringComparison.Ordinal);
+    }
+
+    private static string ThisFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
 
     // ============================================================ (c) 1.4 — DELETE
 
