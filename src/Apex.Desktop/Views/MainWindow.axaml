@@ -542,6 +542,26 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Statutory-period picker (W7-D2): PF Forms 3A / 6A run over the 1-Mar…28/29-Feb CURRENCY
+                             PERIOD and ESI Forms 5 / 6 over the Apr–Sep / Oct–Mar CONTRIBUTION PERIOD, neither of
+                             which is a wage month, so those four forms swap the wage-month picker for this one. Only
+                             real statutory periods are offered — the forms are not defined over an arbitrary date. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowStatutoryPeriodPicker}">
+                          <TextBlock Grid.Column="0" Text="Statutory Period" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" Width="240" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding StatutoryPeriods}"
+                                    SelectedItem="{Binding SelectedStatutoryPeriod, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:StatutoryPeriodOption">
+                                <TextBlock Text="{Binding Label}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- ============ ACCOUNTING reports (TB / BS / P&L / Day Book): Particulars | Dr | Cr | Amount ============ -->
                         <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*" IsVisible="{Binding ShowSingleAccountingGrid}">
                         <!-- Column header band (navy) -->

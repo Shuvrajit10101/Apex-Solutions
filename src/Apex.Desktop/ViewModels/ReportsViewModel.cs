@@ -111,6 +111,24 @@ public enum ReportKind
 
     // Reports → Statements of Accounts → Statistics (11.8).
     Statistics,
+
+    // ---- W7-D2: the PF statutory forms beyond the ECR (census row 7.20) ----
+    // Reports → Statutory Reports → Payroll → Provident Fund. Pure re-presentations of the SAME PfEcr projection
+    // the ECR and the challan come from (Apex.Ledger/Reports/PfStatutoryForms.cs) — no new PF arithmetic. Forms 3A
+    // and 6A run over the 1-Mar…28/29-Feb CURRENCY PERIOD (not the financial year); Forms 5, 10 and 12A are
+    // monthly. Read PfStatutoryForms' type doc before changing any column: several print deliberately blank.
+    PfForm3A,
+    PfForm5,
+    PfForm6A,
+    PfForm10,
+    PfForm12A,
+
+    // ---- W7-D2: the ESI statutory forms beyond the monthly contribution file (census row 7.21) ----
+    // Reports → Statutory Reports → Payroll → Employee State Insurance. Form 3 is monthly (Reg. 14); Forms 5
+    // (Reg. 26) and 6 (Reg. 32(1)) run over the Apr–Sep / Oct–Mar CONTRIBUTION PERIOD.
+    EsiForm3,
+    EsiForm5,
+    EsiForm6,
 }
 
 /// <summary>
@@ -325,7 +343,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Payroll Register / Attendance Register / Payment Advice) — they use their own payroll screens, not the
     /// accounting / inventory / GST / statutory grids, and carry the wage-month picker.</summary>
     public bool IsPayrollReport => Kind is ReportKind.Payslip or ReportKind.PaySheet
-        or ReportKind.PayrollRegister or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice;
+        or ReportKind.PayrollRegister or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice
+        || IsPayrollStatutoryForm;
+
+    /// <summary>True for the eight W7-D2 payroll statutory forms (PF 3A/5/6A/10/12A — census 7.20; ESI 3/5/6 —
+    /// census 7.21). They render through the same payroll matrix as the four presentation reports, so one
+    /// DataTemplate serves all twelve; they differ only in which period picker they carry.</summary>
+    public bool IsPayrollStatutoryForm => Kind is ReportKind.PfForm3A or ReportKind.PfForm5 or ReportKind.PfForm6A
+        or ReportKind.PfForm10 or ReportKind.PfForm12A
+        or ReportKind.EsiForm3 or ReportKind.EsiForm5 or ReportKind.EsiForm6;
+
+    /// <summary>True for the statutory forms scoped to a MULTI-MONTH statutory period rather than a wage month:
+    /// PF Forms 3A and 6A (the 1-Mar…28/29-Feb currency period) and ESI Forms 5 and 6 (the Apr–Sep / Oct–Mar
+    /// contribution period). They carry <see cref="StatutoryPeriods"/> instead of the wage-month picker — the
+    /// vendor's own pickers offer exactly these windows and no arbitrary date.</summary>
+    public bool IsStatutoryPeriodForm => Kind is ReportKind.PfForm3A or ReportKind.PfForm6A
+        or ReportKind.EsiForm5 or ReportKind.EsiForm6;
 
     /// <summary>True for the single-employee Payslip (RQ-16) — its own detail layout + employee picker + PDF.</summary>
     public bool IsPayslipReport => Kind == ReportKind.Payslip;
@@ -334,10 +367,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Payment Advice) — all rendered through the shared, horizontally-scrolling <see cref="PayrollColumns"/> /
     /// <see cref="PayrollRows"/> matrix so one DataTemplate serves every payroll grid.</summary>
     public bool IsPayrollMatrix => Kind is ReportKind.PaySheet or ReportKind.PayrollRegister
-        or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice;
+        or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice
+        || IsPayrollStatutoryForm;
 
-    /// <summary>Show the wage-month picker — every payroll report is scoped to one wage month.</summary>
-    public bool ShowPayrollMonthPicker => IsPayrollReport;
+    /// <summary>Show the wage-month picker — every payroll report is scoped to one wage month, EXCEPT the four
+    /// statutory forms that run over a multi-month statutory period (see <see cref="IsStatutoryPeriodForm"/>).</summary>
+    public bool ShowPayrollMonthPicker => IsPayrollReport && !IsStatutoryPeriodForm;
+
+    /// <summary>Show the statutory-period picker (PF currency period / ESI contribution period).</summary>
+    public bool ShowStatutoryPeriodPicker => IsStatutoryPeriodForm;
 
     /// <summary>Show the employee picker — only the Payslip is scoped to a single employee.</summary>
     public bool ShowPayrollEmployeePicker => IsPayslipReport;
@@ -347,6 +385,23 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The company's employees, for the Payslip employee picker (ordered by name then number).</summary>
     public ObservableCollection<PayrollEmployeeOption> PayrollEmployees { get; } = new();
+
+    /// <summary>The selectable statutory periods for the four multi-month forms — the PF currency periods
+    /// (1 Mar … 28/29 Feb) for Forms 3A / 6A and the ESI contribution periods (Apr–Sep / Oct–Mar) for ESI Forms
+    /// 5 / 6. Rebuilt on every <see cref="Show"/> because the two families offer different windows.</summary>
+    public ObservableCollection<StatutoryPeriodOption> StatutoryPeriods { get; } = new();
+
+    /// <summary>The selected statutory period; changing it re-projects the current statutory form.</summary>
+    [ObservableProperty] private StatutoryPeriodOption? _selectedStatutoryPeriod;
+
+    partial void OnSelectedStatutoryPeriodChanged(StatutoryPeriodOption? value)
+    {
+        if (IsStatutoryPeriodForm && !_rebuildingStatutoryPeriods) Show(Kind);
+    }
+
+    /// <summary>Guards the period list rebuild inside <see cref="Show"/> from re-entering it through the selection
+    /// change it necessarily causes — the same shape as the ctor's "Kind is not yet payroll" guard below.</summary>
+    private bool _rebuildingStatutoryPeriods;
 
     /// <summary>The selected wage month; changing it re-projects the current payroll report for that month.</summary>
     [ObservableProperty] private PayrollMonthOption? _selectedPayrollMonth;
@@ -371,6 +426,37 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>A one-line note shown when a payroll report has nothing to project (no salaried employee this month).</summary>
     [ObservableProperty] private string _payrollEmptyNote = string.Empty;
+
+    /// <summary>
+    /// The footnotes a payroll statutory form prints under its grid (W7-D2). These are NOT decoration: several
+    /// columns on the PF and ESI forms are printed, ruled and left blank because this book does not maintain their
+    /// source (Father's / Husband's Name, reason for leaving, the IP's dispensary) or because they are facts about a
+    /// bank challan rather than about our books. The footnote is what stops a blank column reading as a bug — and
+    /// what stops anyone inventing a value to fill it. Empty off a statutory form.
+    /// </summary>
+    public ObservableCollection<string> PayrollFootnotes { get; } = new();
+
+    /// <summary>True while <see cref="PayrollFootnotes"/> has anything to show (drives the footnote panel).</summary>
+    [ObservableProperty] private bool _hasPayrollFootnotes;
+
+    // ---- The payroll matrix's optional SECOND section (W7-D2) ----
+    // PF Form 6A is a two-PAGE form: page 1 is per member, page 2 is the twelve monthly challan remittances, and the
+    // two pages have DIFFERENT columns. Rendering page 2's figures under page 1's headings would be exactly the
+    // "wrong figure under a right heading" this track is written to avoid, so the matrix carries a second, fully
+    // independent column band + row list, shown only when a report fills it.
+
+    /// <summary>The second section's own column band (aligned to <see cref="PayrollRows2"/>). Empty for every
+    /// report that has only one grid.</summary>
+    public ObservableCollection<PayrollMatrixColumnVm> PayrollColumns2 { get; } = new();
+
+    /// <summary>The second section's rows.</summary>
+    public ObservableCollection<PayrollMatrixRowVm> PayrollRows2 { get; } = new();
+
+    /// <summary>The heading printed above the second section (e.g. Form 6A's page-2 caption).</summary>
+    [ObservableProperty] private string _payrollSection2Title = string.Empty;
+
+    /// <summary>True while the second section has rows (drives its visibility).</summary>
+    [ObservableProperty] private bool _hasPayrollSection2;
 
     // ---- Payslip (single-employee detail) presentation properties ----
 
@@ -746,6 +832,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPayrollMatrix));
         OnPropertyChanged(nameof(ShowPayrollMonthPicker));
         OnPropertyChanged(nameof(ShowPayrollEmployeePicker));
+        // W7-D2 payroll statutory forms (census 7.20 / 7.21) + their statutory-period picker.
+        OnPropertyChanged(nameof(IsPayrollStatutoryForm));
+        OnPropertyChanged(nameof(IsStatutoryPeriodForm));
+        OnPropertyChanged(nameof(ShowStatutoryPeriodPicker));
+        PayrollFootnotes.Clear();
+        HasPayrollFootnotes = false;
+        PayrollColumns2.Clear();
+        PayrollRows2.Clear();
+        PayrollSection2Title = string.Empty;
+        HasPayrollSection2 = false;
+        RebuildStatutoryPeriods(kind);
         // A kind change can invalidate the extra columns (e.g. switching to a non-comparative kind); the base
         // report always rebuilds below and, if comparative, the multi-column grid rebuilds after it.
         Rows.Clear();
@@ -823,6 +920,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PayrollRegister: BuildPayrollRegister(); break;
             case ReportKind.AttendanceRegister: BuildAttendanceRegister(); break;
             case ReportKind.PaymentAdvice: BuildPaymentAdvice(); break;
+
+            // W7-D2 — the PF statutory forms beyond the ECR (census 7.20).
+            case ReportKind.PfForm3A: BuildPfForm3A(); break;
+            case ReportKind.PfForm5: BuildPfForm5(); break;
+            case ReportKind.PfForm6A: BuildPfForm6A(); break;
+            case ReportKind.PfForm10: BuildPfForm10(); break;
+            case ReportKind.PfForm12A: BuildPfForm12A(); break;
+
+            // W7-D2 — the ESI statutory forms beyond the monthly contribution file (census 7.21).
+            case ReportKind.EsiForm3: BuildEsiForm3(); break;
+            case ReportKind.EsiForm5: BuildEsiForm5(); break;
+            case ReportKind.EsiForm6: BuildEsiForm6(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -2991,6 +3100,583 @@ public sealed partial class ReportsViewModel : ViewModelBase
         return (from, to);
     }
 
+    // ======================================================= W7-D2 payroll statutory forms (census 7.20 / 7.21)
+    //
+    // The five PF forms (3A, 5, 6A, 10, 12A) and the three ESI forms (3, 5, 6). EVERY figure below is read off
+    // Apex.Ledger's PfStatutoryForms / EsiStatutoryForms projections, which in turn read off the SAME PfEcr /
+    // EsiMonthlyContribution / PayrollComputationService the payroll voucher posts. Nothing here computes PF or
+    // ESI. Columns are captioned as the forms caption themselves; the columns this book does not maintain print
+    // BLANK with a footnote rather than being dropped or invented.
+
+    private const double StatSerialWidth = 56;
+    private const double StatNameWidth = 190;
+    private const double StatCodeWidth = 130;
+    private const double StatDateWidth = 110;
+    private const double StatNumWidth = 118;
+    private const double StatWideLabelWidth = 300;
+
+    /// <summary>Whole-rupee display of a statutory-form integer figure (always rendered, even zero — a statutory
+    /// column that is genuinely nil must read "0", not blank; blank on these forms means "not maintained").</summary>
+    private static string RupeeCell(long value) => IndianFormat.RupeesAlways(value);
+
+    /// <summary>A date as the statutory forms print it, or an em dash when the master does not carry one.</summary>
+    private static string DateCell(DateOnly? value)
+        => value is { } d ? d.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) : "—";
+
+    /// <summary>Adds a footnote line and lights the footnote panel.</summary>
+    private void Footnote(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || PayrollFootnotes.Contains(text)) return;
+        PayrollFootnotes.Add(text);
+        HasPayrollFootnotes = true;
+    }
+
+    /// <summary>Builds a matrix row from (text, width, numeric) triples.</summary>
+    private static PayrollMatrixRowVm StatRow(bool isTotal, params (string Text, double Width, bool Numeric)[] cells)
+        => new()
+        {
+            IsTotal = isTotal,
+            Cells = cells.Select(c => PayCell(c.Text, c.Width, c.Numeric)).ToList(),
+        };
+
+    /// <summary>
+    /// Repopulates <see cref="StatutoryPeriods"/> for <paramref name="kind"/>: PF <b>currency periods</b>
+    /// (1 Mar … 28/29 Feb) for Forms 3A / 6A, ESI <b>contribution periods</b> (Apr–Sep / Oct–Mar) for ESI Forms
+    /// 5 / 6, and nothing at all for every other report. Both lists are built from
+    /// <see cref="PayrollStatutoryPeriods"/> so the picker and the engine can never disagree about where a period
+    /// starts; neither list offers an arbitrary date, because neither form is defined over one.
+    /// </summary>
+    private void RebuildStatutoryPeriods(ReportKind kind)
+    {
+        var wanted = kind is ReportKind.PfForm3A or ReportKind.PfForm6A
+            ? StatutoryPeriodFamily.PfCurrency
+            : kind is ReportKind.EsiForm5 or ReportKind.EsiForm6
+                ? StatutoryPeriodFamily.EsiContribution
+                : StatutoryPeriodFamily.None;
+
+        if (wanted == _statutoryPeriodFamily) return;   // same family ⇒ keep the user's selection across forms
+        _statutoryPeriodFamily = wanted;
+
+        _rebuildingStatutoryPeriods = true;
+        try
+        {
+            StatutoryPeriods.Clear();
+            SelectedStatutoryPeriod = null;
+            if (wanted == StatutoryPeriodFamily.None) return;
+
+            var fyStart = new DateOnly(_company.FinancialYearStart.Year, _company.FinancialYearStart.Month, 1);
+            if (wanted == StatutoryPeriodFamily.PfCurrency)
+            {
+                // The currency period containing the financial-year start, and the two before it.
+                var start = PayrollStatutoryPeriods.CurrencyPeriodStart(fyStart);
+                for (var i = 0; i < 3; i++)
+                {
+                    var s = start.AddYears(-i);
+                    StatutoryPeriods.Add(new StatutoryPeriodOption
+                    {
+                        From = s,
+                        To = PayrollStatutoryPeriods.CurrencyPeriodEnd(s),
+                    });
+                }
+            }
+            else
+            {
+                // The two contribution periods of the financial year, then the two before them — newest first.
+                // Only real contribution periods are offered; the form is not defined over an arbitrary window.
+                for (var i = 0; i < 4; i++)
+                {
+                    var probe = fyStart.AddMonths(6 * (1 - i));   // Oct of the FY, Apr of the FY, Oct prior, Apr prior
+                    StatutoryPeriods.Add(new StatutoryPeriodOption
+                    {
+                        From = PayrollStatutoryPeriods.EsiContributionPeriodStart(probe),
+                        To = PayrollStatutoryPeriods.EsiContributionPeriodEnd(probe),
+                    });
+                }
+            }
+
+            SelectedStatutoryPeriod = StatutoryPeriods.FirstOrDefault();
+        }
+        finally { _rebuildingStatutoryPeriods = false; }
+    }
+
+    private enum StatutoryPeriodFamily { None, PfCurrency, EsiContribution }
+
+    private StatutoryPeriodFamily _statutoryPeriodFamily = StatutoryPeriodFamily.None;
+
+    /// <summary>The statutory period the current form projects (the selection, else the first offered).</summary>
+    private (DateOnly From, DateOnly To) StatutoryPeriod()
+    {
+        var p = SelectedStatutoryPeriod ?? StatutoryPeriods.FirstOrDefault();
+        if (p is not null) return (p.From, p.To);
+        var fyStart = new DateOnly(_company.FinancialYearStart.Year, _company.FinancialYearStart.Month, 1);
+        var s = PayrollStatutoryPeriods.CurrencyPeriodStart(fyStart);
+        return (s, PayrollStatutoryPeriods.CurrencyPeriodEnd(s));
+    }
+
+    /// <summary>Sets a statutory form's title + subtitle and returns its period; mirrors
+    /// <see cref="BeginPayrollReport"/> for the multi-month forms.</summary>
+    private (DateOnly From, DateOnly To) BeginStatutoryPeriodForm(string title, string periodCaption, string? code)
+    {
+        var (from, to) = StatutoryPeriod();
+        Title = title;
+        Subtitle = $"{CompanyName}  —  {periodCaption} {from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}"
+                 + $" to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}"
+                 + (string.IsNullOrWhiteSpace(code) ? string.Empty : $"  ·  Code {code}");
+        IsTwoColumn = false;
+        IsPayrollEmpty = false;
+        PayrollEmptyNote = string.Empty;
+        return (from, to);
+    }
+
+    /// <summary>Sets a monthly statutory form's title + subtitle and returns its wage month.</summary>
+    private (DateOnly From, DateOnly To) BeginStatutoryMonthForm(string title, string? code)
+    {
+        var (from, to) = PayrollPeriod();
+        Title = title;
+        Subtitle = $"{CompanyName}  —  Month {from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)}"
+                 + (string.IsNullOrWhiteSpace(code) ? string.Empty : $"  ·  Code {code}");
+        IsTwoColumn = false;
+        IsPayrollEmpty = false;
+        PayrollEmptyNote = string.Empty;
+        return (from, to);
+    }
+
+    // ------------------------------------------------------------------------------------------- PF Form 3A
+    /// <summary>
+    /// PF <b>Form 3A</b> — the per-member annual contribution card over the currency period. Each member gets an
+    /// identity band, twelve month rows and a footing total, in sequence; the whole roster is on one scrolling
+    /// grid rather than one card per screen.
+    /// </summary>
+    private void BuildPfForm3A()
+    {
+        var (from, _) = BeginStatutoryPeriodForm("PF Form 3A — Contribution Card",
+            "Currency period", _company.PfConfig?.EstablishmentCode);
+        var form = PfStatutoryForms.BuildForm3A(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Month", StatNameWidth, false),
+            ("Amount of Wages", StatNumWidth, true),
+            ($"Worker's EPF @ {form.Members.FirstOrDefault()?.StatutoryRateOfContribution ?? PfStatutoryForms.StatutoryRate(_company)}", StatNumWidth, true),
+            ("Higher Rate of Vol. Contribution", StatNumWidth, true),
+            ("Employer's EPF Difference", StatNumWidth, true),
+            ("Pension Fund Contribution", StatNumWidth, true),
+            ("Refund of Advance", StatNumWidth, true),
+            ("Non-Contributing Days", StatNumWidth, true),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var card in form.Members)
+        {
+            var m = card.Member;
+            var identity = $"{m.Name}   ·   A/c {(string.IsNullOrEmpty(m.AccountNumber) ? "—" : m.AccountNumber)}"
+                         + $"   ·   UAN {(string.IsNullOrEmpty(m.Uan) ? "—" : m.Uan)}"
+                         + $"   ·   DOB {DateCell(m.DateOfBirth)}   ·   Sex {(string.IsNullOrEmpty(m.Sex) ? "—" : m.Sex)}"
+                         + $"   ·   Joined the Fund {DateCell(m.DateOfJoiningTheFund)}"
+                         + $"   ·   Father's / Husband's Name ____________";
+            PayrollRows.Add(StatRow(true,
+                (identity, StatNameWidth, false), (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true),
+                (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true),
+                (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true)));
+
+            foreach (var row in card.Months)
+                PayrollRows.Add(StatRow(false,
+                    (row.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), StatNameWidth, false),
+                    (RupeeCell(row.AmountOfWages), StatNumWidth, true),
+                    (RupeeCell(row.WorkersEpf), StatNumWidth, true),
+                    (string.Empty, StatNumWidth, true),                       // higher voluntary RATE — not maintained
+                    (RupeeCell(row.EmployerEpfDifference), StatNumWidth, true),
+                    (RupeeCell(row.PensionFundContribution), StatNumWidth, true),
+                    (RupeeCell(row.RefundOfAdvance), StatNumWidth, true),
+                    (row.NonContributingServiceDays.ToString(CultureInfo.InvariantCulture), StatNumWidth, true)));
+
+            PayrollRows.Add(StatRow(true,
+                ("Total", StatNameWidth, false),
+                (RupeeCell(card.TotalAmountOfWages), StatNumWidth, true),
+                (RupeeCell(card.TotalWorkersEpf), StatNumWidth, true),
+                (string.Empty, StatNumWidth, true),
+                (RupeeCell(card.TotalEmployerEpfDifference), StatNumWidth, true),
+                (RupeeCell(card.TotalPensionFundContribution), StatNumWidth, true),
+                (RupeeCell(card.TotalRefundOfAdvance), StatNumWidth, true),
+                (card.TotalNonContributingServiceDays.ToString(CultureInfo.InvariantCulture), StatNumWidth, true)));
+        }
+
+        Footnote("Father's / Husband's Name and the Higher Rate of Voluntary Contribution: "
+               + PfStatutoryForms.NotMaintainedNote);
+        MarkPayrollEmpty(form.Members.Count == 0);
+    }
+
+    // ------------------------------------------------------------------------------------------- PF Form 6A
+    /// <summary>
+    /// PF <b>Form 6A</b> — the consolidated annual statement. Page 1 (per member) is the main grid; page 2 (the
+    /// twelve monthly challan remittances) is the SECOND section, with its own columns, because that is where 6A
+    /// reconciles to the challans and its account heads are nothing like page 1's.
+    /// </summary>
+    private void BuildPfForm6A()
+    {
+        var (from, _) = BeginStatutoryPeriodForm("PF Form 6A — Annual Statement of Contribution",
+            "Currency period", _company.PfConfig?.EstablishmentCode);
+        var form = PfStatutoryForms.BuildForm6A(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Account Number", StatCodeWidth, false),
+            ("Name of Member", StatNameWidth, false),
+            ("Wages, Retaining Allowance & DA", StatNumWidth, true),
+            ($"Worker's Contribution @ {form.StatutoryRateOfContribution}", StatNumWidth, true),
+            ("Employer's EPF Difference", StatNumWidth, true),
+            ("Pension Fund Contribution", StatNumWidth, true),
+            ("Refund of Advance", StatNumWidth, true),
+            ("Rate of Higher Vol. Contribution", StatNumWidth, true),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Members)
+            PayrollRows.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (string.IsNullOrEmpty(r.Member.AccountNumber) ? "—" : r.Member.AccountNumber, StatCodeWidth, false),
+                (r.Member.Name, StatNameWidth, false),
+                (RupeeCell(r.Wages), StatNumWidth, true),
+                (RupeeCell(r.WorkersContribution), StatNumWidth, true),
+                (RupeeCell(r.EmployerEpfDifference), StatNumWidth, true),
+                (RupeeCell(r.PensionFundContribution), StatNumWidth, true),
+                (RupeeCell(r.RefundOfAdvance), StatNumWidth, true),
+                (string.Empty, StatNumWidth, true)));                          // higher voluntary RATE — not maintained
+
+        PayrollRows.Add(StatRow(true,
+            (string.Empty, StatSerialWidth, true), (string.Empty, StatCodeWidth, false),
+            ("Grand Total", StatNameWidth, false),
+            (RupeeCell(form.TotalWages), StatNumWidth, true),
+            (RupeeCell(form.TotalWorkersContribution), StatNumWidth, true),
+            (RupeeCell(form.TotalEmployerEpfDifference), StatNumWidth, true),
+            (RupeeCell(form.TotalPensionFundContribution), StatNumWidth, true),
+            (RupeeCell(form.TotalRefundOfAdvance), StatNumWidth, true),
+            (string.Empty, StatNumWidth, true)));
+
+        // ---- Page 2: the twelve monthly remittances (its OWN column band). ----
+        PayrollSection2Title = "Page 2 — Monthly remittances (challan account heads)";
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Month / Year", StatCodeWidth, false),
+            ("EPF Contributions incl. Refund of Advances — A/c No. 1", StatNumWidth, true),
+            ("Pension Fund Contributions — A/c No. 10", StatNumWidth, true),
+            ("EDLI Contribution — A/c No. 21", StatNumWidth, true),
+            ("Adm. Charges — A/c No. 2", StatNumWidth, true),
+            ("EDLI Adm. Charges — A/c No. 22", StatNumWidth, true),
+            ("Date of Remittance", StatDateWidth, false),
+        })
+            PayrollColumns2.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Remittances)
+            PayrollRows2.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (r.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), StatCodeWidth, false),
+                (RupeeCell(r.EpfContributionsAccount1), StatNumWidth, true),
+                (RupeeCell(r.PensionFundContributionsAccount10), StatNumWidth, true),
+                (RupeeCell(r.EdliContributionAccount21), StatNumWidth, true),
+                (RupeeCell(r.AdminChargesAccount2), StatNumWidth, true),
+                (RupeeCell(r.EdliAdminChargesAccount22), StatNumWidth, true),
+                (string.Empty, StatDateWidth, false)));                        // challan fact — see the footnote
+        HasPayrollSection2 = PayrollRows2.Count > 0;
+
+        Footnote("Rate of Higher Voluntary Contribution: " + PfStatutoryForms.NotMaintainedNote);
+        Footnote(PfStatutoryForms.ChallanFactNote);
+        MarkPayrollEmpty(form.Members.Count == 0);
+    }
+
+    // -------------------------------------------------------------------------------------------- PF Form 5
+    /// <summary>PF <b>Form 5</b> — the monthly return of members newly joining the Fund.</summary>
+    private void BuildPfForm5()
+    {
+        var (from, _) = BeginStatutoryMonthForm("PF Form 5 — Return of Employees Qualifying for Membership",
+            _company.PfConfig?.EstablishmentCode);
+        var form = PfStatutoryForms.BuildForm5(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Account No.", StatCodeWidth, false),
+            ("Name of Employee", StatNameWidth, false),
+            ("Father's / Husband's Name", StatNameWidth, false),
+            ("Date of Birth", StatDateWidth, false),
+            ("Sex", StatSerialWidth, false),
+            ("Date of Joining the Fund", StatDateWidth, false),
+            ("Total Period of Previous Service", StatWideLabelWidth, false),
+            ("Remarks", StatNameWidth, false),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Rows)
+            PayrollRows.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (string.IsNullOrEmpty(r.Member.AccountNumber) ? "—" : r.Member.AccountNumber, StatCodeWidth, false),
+                (r.Member.Name, StatNameWidth, false),
+                (string.Empty, StatNameWidth, false),                           // not maintained
+                (DateCell(r.Member.DateOfBirth), StatDateWidth, false),
+                (string.IsNullOrEmpty(r.Member.Sex) ? "—" : r.Member.Sex, StatSerialWidth, false),
+                (DateCell(r.Member.DateOfJoiningTheFund), StatDateWidth, false),
+                (string.Empty, StatWideLabelWidth, false),                      // previous service — not maintained
+                (string.Empty, StatNameWidth, false)));
+
+        Footnote("Father's / Husband's Name and Total Period of Previous Service: " + PfStatutoryForms.NotMaintainedNote);
+        MarkPayrollEmpty(form.Rows.Count == 0);
+        if (form.Rows.Count == 0)
+            PayrollEmptyNote = "No member joined the Fund in this month — a nil return, not a missing one.";
+    }
+
+    // ------------------------------------------------------------------------------------------- PF Form 10
+    /// <summary>PF <b>Form 10</b> — the monthly return of members leaving service.</summary>
+    private void BuildPfForm10()
+    {
+        // The form's own title names its month — "Return of the members leaving service during the month of …" —
+        // so the month is resolved before the title is built rather than after.
+        var month = PayrollPeriod().From;
+        var (from, _) = BeginStatutoryMonthForm(
+            "PF Form 10 — Return of Members Leaving Service during "
+            + month.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            _company.PfConfig?.EstablishmentCode);
+        var form = PfStatutoryForms.BuildForm10(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Account No.", StatCodeWidth, false),
+            ("Name of Member", StatNameWidth, false),
+            ("Father's / Husband's Name", StatNameWidth, false),
+            ("Date of Leaving Service", StatDateWidth, false),
+            ("Reason for Leaving", StatWideLabelWidth, false),
+            ("Remarks", StatNameWidth, false),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Rows)
+            PayrollRows.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (string.IsNullOrEmpty(r.Member.AccountNumber) ? "—" : r.Member.AccountNumber, StatCodeWidth, false),
+                (r.Member.Name, StatNameWidth, false),
+                (string.Empty, StatNameWidth, false),                           // not maintained
+                (DateCell(r.Member.DateOfLeavingService), StatDateWidth, false),
+                (string.Empty, StatWideLabelWidth, false),                      // not maintained
+                (string.Empty, StatNameWidth, false)));
+
+        Footnote("Father's / Husband's Name and Reason for Leaving: " + PfStatutoryForms.NotMaintainedNote);
+        MarkPayrollEmpty(form.Rows.Count == 0);
+        if (form.Rows.Count == 0)
+            PayrollEmptyNote = "No member left service in this month — a nil return, not a missing one.";
+    }
+
+    // ------------------------------------------------------------------------------------------ PF Form 12A
+    /// <summary>
+    /// PF <b>Form 12A</b> — the monthly statement of contribution. Due and Remitted are reported <b>side by
+    /// side</b>: every Due figure comes from our posted books through the ECR projection, every Remitted figure is
+    /// a fact about a bank challan and is therefore left blank. Defaulting Remitted to Due would print an
+    /// assertion that the money was remitted.
+    /// </summary>
+    private void BuildPfForm12A()
+    {
+        var (from, _) = BeginStatutoryMonthForm("PF Form 12A — Statement of Contribution",
+            _company.PfConfig?.EstablishmentCode);
+        var form = PfStatutoryForms.BuildForm12A(_company, from);
+
+        PayrollColumns.Add(PayCol("Particulars", StatWideLabelWidth, false));
+        PayrollColumns.Add(PayCol("Amount Due (₹)", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Amount Remitted (₹)", StatNumWidth, true));
+
+        void Line(string label, string due, string remitted, bool total = false)
+            => PayrollRows.Add(StatRow(total,
+                (label, StatWideLabelWidth, false), (due, StatNumWidth, true), (remitted, StatNumWidth, true)));
+
+        Line("Wages on which the Contributions are Payable",
+            RupeeCell(form.WagesOnWhichContributionsArePayable), string.Empty);
+        Line("Contribution Recovered from the Employees — A/c No. 1",
+            RupeeCell(form.ContributionRecoveredFromEmployeesAccount1), string.Empty);
+        Line("Contribution Payable by the Employer — A/c No. 1",
+            RupeeCell(form.ContributionPayableByEmployerAccount1), string.Empty);
+        Line("Contribution Payable by the Employer — A/c No. 10 (Pension Fund)",
+            RupeeCell(form.ContributionPayableByEmployerAccount10), string.Empty);
+        Line("Contribution Payable by the Employer — A/c No. 21 (EDLI)",
+            RupeeCell(form.ContributionPayableByEmployerAccount21), string.Empty);
+        Line("Administrative Charges — A/c No. 2",
+            RupeeCell(form.AdministrativeChargesDueAccount2), string.Empty);
+        Line("Administrative Charges — A/c No. 22 (EDLI)",
+            RupeeCell(form.AdministrativeChargesDueAccount22), string.Empty);
+        Line("Total",
+            RupeeCell(form.ContributionRecoveredFromEmployeesAccount1
+                    + form.ContributionPayableByEmployerAccount1
+                    + form.ContributionPayableByEmployerAccount10
+                    + form.ContributionPayableByEmployerAccount21
+                    + form.AdministrativeChargesDueAccount2
+                    + form.AdministrativeChargesDueAccount22),
+            string.Empty, total: true);
+        Line("Date of Remittance", "—", string.Empty);
+        Line("Details of Subscribers (number contributing this month)",
+            form.DetailsOfSubscribers.ToString(CultureInfo.InvariantCulture), string.Empty);
+        Line("Currency Period from",
+            form.CurrencyPeriodFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture), string.Empty);
+        Line("Group Code", string.Empty, string.Empty);
+
+        Footnote(PfStatutoryForms.ChallanFactNote);
+        Footnote("Group Code: " + PfStatutoryForms.NotMaintainedNote);
+        MarkPayrollEmpty(false);
+    }
+
+    // ------------------------------------------------------------------------------------------- ESI Form 3
+    /// <summary>ESI <b>Form 3</b> — the monthly return of declaration forms (Reg. 14).</summary>
+    private void BuildEsiForm3()
+    {
+        var (from, _) = BeginStatutoryMonthForm("ESI Form 3 — Return of Declaration Forms",
+            _company.EsiConfig?.EmployerCode);
+        var form = EsiStatutoryForms.BuildForm3(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Name of Employee", StatNameWidth, false),
+            ("Distinguishing Number with Employer", StatCodeWidth, false),
+            ("Father's or Husband's Name", StatNameWidth, false),
+            ("Insurance No. allotted by the Corporation", StatWideLabelWidth, false),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Rows)
+            PayrollRows.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (r.Member.Name, StatNameWidth, false),
+                (string.IsNullOrEmpty(r.Member.DistinguishingNumber) ? "—" : r.Member.DistinguishingNumber, StatCodeWidth, false),
+                (string.Empty, StatNameWidth, false),                           // not maintained
+                (string.Empty, StatWideLabelWidth, false)));                    // entered at the branch office
+
+        Footnote("Father's or Husband's Name: " + EsiStatutoryForms.NotMaintainedNote);
+        Footnote(EsiStatutoryForms.BranchOfficeColumnNote);
+        MarkPayrollEmpty(form.Rows.Count == 0);
+        if (form.Rows.Count == 0)
+            PayrollEmptyNote = "No insured person entered coverage in this month — a nil return, not a missing one.";
+    }
+
+    // ------------------------------------------------------------------------------------------- ESI Form 5
+    /// <summary>
+    /// ESI <b>Form 5</b> — the half-yearly return of contributions (Reg. 26). Column 7 is column 5 ÷ column 4, the
+    /// formula the column's own caption states; it is NOT Form 6's divisor.
+    /// </summary>
+    private void BuildEsiForm5()
+    {
+        var (from, _) = BeginStatutoryPeriodForm("ESI Form 5 — Return of Contributions",
+            "Contribution period", _company.EsiConfig?.EmployerCode);
+        var form = EsiStatutoryForms.BuildForm5(_company, from);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Sl. No.", StatSerialWidth, true),
+            ("Insurance No.", StatCodeWidth, false),
+            ("Name of the Insured Person", StatNameWidth, false),
+            ("No. of Days for which Wages Paid / Payable", StatNumWidth, true),
+            ("Total Amount of Wages Paid / Payable", StatNumWidth, true),
+            ("Employees' Contribution Deducted", StatNumWidth, true),
+            ("Average Daily Wages (5 ÷ 4)", StatNumWidth, true),
+            ("Still Working within the Insurable Wages Ceiling", StatCodeWidth, false),
+            ("Name of the Dispensary of IP", StatNameWidth, false),
+            ("Remarks", StatNameWidth, false),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var r in form.Rows)
+            PayrollRows.Add(StatRow(false,
+                (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                (string.IsNullOrEmpty(r.Member.InsuranceNumber) ? "—" : r.Member.InsuranceNumber, StatCodeWidth, false),
+                (r.Member.Name, StatNameWidth, false),
+                (r.NoOfDaysWagesPaid.ToString(CultureInfo.InvariantCulture), StatNumWidth, true),
+                (RupeeCell(r.TotalWages), StatNumWidth, true),
+                (RupeeCell(r.EmployeesContributionDeducted), StatNumWidth, true),
+                (IndianFormat.AmountAlways(r.AverageDailyWages), StatNumWidth, true),
+                (r.StillWorkingWithinCeiling ? "Yes" : "No", StatCodeWidth, false),
+                (string.Empty, StatNameWidth, false),                           // dispensary — not maintained
+                (string.Empty, StatNameWidth, false)));
+
+        PayrollRows.Add(StatRow(true,
+            (string.Empty, StatSerialWidth, true), (string.Empty, StatCodeWidth, false),
+            ("Grand Total", StatNameWidth, false),
+            (form.TotalDays.ToString(CultureInfo.InvariantCulture), StatNumWidth, true),
+            (RupeeCell(form.TotalWages), StatNumWidth, true),
+            (RupeeCell(form.TotalEmployeesContribution), StatNumWidth, true),
+            (string.Empty, StatNumWidth, true), (string.Empty, StatCodeWidth, false),
+            (string.Empty, StatNameWidth, false), (string.Empty, StatNameWidth, false)));
+
+        Footnote("Name of the Dispensary of IP: " + EsiStatutoryForms.NotMaintainedNote);
+        Footnote("\"Still working\" is read from the member's date of leaving service; a member with no recorded "
+               + "date of leaving is reported as still working.");
+        MarkPayrollEmpty(form.Rows.Count == 0);
+    }
+
+    // ------------------------------------------------------------------------------------------- ESI Form 6
+    /// <summary>
+    /// ESI <b>Form 6</b> — the register of employees (Reg. 32(1)), month-columned over the contribution period.
+    /// Read <see cref="EsiStatutoryForms.AverageDailyWagesNote"/> before touching the daily-wage column.
+    /// </summary>
+    private void BuildEsiForm6()
+    {
+        var (from, _) = BeginStatutoryPeriodForm("ESI Form 6 — Register of Employees",
+            "Contribution period", _company.EsiConfig?.EmployerCode);
+        var form = EsiStatutoryForms.BuildForm6(_company, from);
+
+        PayrollColumns.Add(PayCol("Sl. No.", StatSerialWidth, true));
+        PayrollColumns.Add(PayCol("Insurance No.", StatCodeWidth, false));
+        PayrollColumns.Add(PayCol("Name of the Insured Person", StatNameWidth, false));
+        PayrollColumns.Add(PayCol("Occupation", StatCodeWidth, false));
+        PayrollColumns.Add(PayCol("Rate of Wages in the First Wage Period", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Deptt. and Shift, if any", StatCodeWidth, false));
+        PayrollColumns.Add(PayCol("Date of Appointment", StatDateWidth, false));
+        PayrollColumns.Add(PayCol("Date of Leaving Service", StatDateWidth, false));
+        PayrollColumns.Add(PayCol("Father's or Husband's Name", StatNameWidth, false));
+        foreach (var month in form.Months)
+        {
+            var label = month.From.ToString("MMM yyyy", CultureInfo.InvariantCulture);
+            PayrollColumns.Add(PayCol($"{label} — Days", StatNumWidth, true));
+            PayrollColumns.Add(PayCol($"{label} — Wages", StatNumWidth, true));
+            PayrollColumns.Add(PayCol($"{label} — Employees' Share", StatNumWidth, true));
+        }
+        PayrollColumns.Add(PayCol("Total Days in Contribution Period", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Total Wages in Contribution Period", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Total Employees' Share in Contribution Period", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Average Daily Wages", StatNumWidth, true));
+        PayrollColumns.Add(PayCol("Remarks", StatNameWidth, false));
+
+        foreach (var r in form.Rows)
+        {
+            var cells = new List<PayrollMatrixCellVm>
+            {
+                PayCell(r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
+                PayCell(string.IsNullOrEmpty(r.Member.InsuranceNumber) ? "—" : r.Member.InsuranceNumber, StatCodeWidth, false),
+                PayCell(r.Member.Name, StatNameWidth, false),
+                PayCell(string.IsNullOrEmpty(r.Member.Occupation) ? "—" : r.Member.Occupation, StatCodeWidth, false),
+                PayCell(RupeeCell(r.RateOfWagesInFirstWagePeriod), StatNumWidth, true),
+                PayCell(string.IsNullOrEmpty(r.Member.DepartmentOrShift) ? "—" : r.Member.DepartmentOrShift, StatCodeWidth, false),
+                PayCell(DateCell(r.Member.DateOfAppointment), StatDateWidth, false),
+                PayCell(DateCell(r.Member.DateOfLeavingService), StatDateWidth, false),
+                PayCell(string.Empty, StatNameWidth, false),                    // not maintained
+            };
+            foreach (var m in r.Months)
+            {
+                cells.Add(PayCell(m.NoOfDaysWagesPaid.ToString(CultureInfo.InvariantCulture), StatNumWidth, true));
+                cells.Add(PayCell(RupeeCell(m.TotalWages), StatNumWidth, true));
+                cells.Add(PayCell(RupeeCell(m.EmployeesShareOfContribution), StatNumWidth, true));
+            }
+            cells.Add(PayCell(r.TotalDaysInContributionPeriod.ToString(CultureInfo.InvariantCulture), StatNumWidth, true));
+            cells.Add(PayCell(RupeeCell(r.TotalWagesInContributionPeriod), StatNumWidth, true));
+            cells.Add(PayCell(RupeeCell(r.TotalEmployeesShareInContributionPeriod), StatNumWidth, true));
+            cells.Add(PayCell(IndianFormat.AmountAlways(r.AverageDailyWages), StatNumWidth, true));
+            cells.Add(PayCell(string.Empty, StatNameWidth, false));
+            PayrollRows.Add(new PayrollMatrixRowVm { Cells = cells });
+        }
+
+        Footnote("Father's or Husband's Name: " + EsiStatutoryForms.NotMaintainedNote);
+        Footnote(EsiStatutoryForms.AverageDailyWagesNote);
+        Footnote("\"Rate of Wages in the First Wage Period\" is the member's ESI wages in the first month of the "
+               + "contribution period in which they were paid; this book carries no separate wage-rate field.");
+        MarkPayrollEmpty(form.Rows.Count == 0);
+    }
+
     // --------------------------------------------------------------- Pay Sheet (employees × pay heads matrix)
     private void BuildPaySheet()
     {
@@ -3550,6 +4236,23 @@ public sealed class PayrollMonthOption
     public DateOnly FirstDay { get; init; }
     public DateOnly LastDay => FirstDay.AddMonths(1).AddDays(-1);
     public string Label => FirstDay.ToString("MMM yyyy", CultureInfo.InvariantCulture);
+    public override string ToString() => Label;
+}
+
+/// <summary>
+/// A selectable <b>statutory period</b> on the four multi-month payroll statutory forms (W7-D2): a PF currency
+/// period (1 Mar … 28/29 Feb, for Forms 3A / 6A) or an ESI contribution period (Apr–Sep / Oct–Mar, for ESI Forms
+/// 5 / 6). Carries its own window, so the report never has to re-derive one from a loose date.
+/// </summary>
+public sealed class StatutoryPeriodOption
+{
+    public DateOnly From { get; init; }
+    public DateOnly To { get; init; }
+
+    /// <summary>The period as the forms head it — "01-Mar-2025 to 28-Feb-2026".</summary>
+    public string Label =>
+        $"{From.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {To.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}";
+
     public override string ToString() => Label;
 }
 

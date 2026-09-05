@@ -924,6 +924,24 @@ public sealed class PayrollComputationResult
         }
     }
 
+    /// <summary>The member's <b>employee ESI share</b> for the month: the Σ of the evaluated deduction lines whose
+    /// pay head is the <see cref="EsiStatutoryComponent.EmployeeStateInsurance"/> head — the 0.75% (or nil, under the
+    /// ₹176 average-daily-wage waiver) the payroll voucher credits to the ESI payable, exposed so the ESI statutory
+    /// registers (Forms 5 and 6, census row 7.21) read the same figure the voucher posted rather than recomputing
+    /// it. Exactly the shape of <see cref="ProfessionalTaxDeducted"/> and <see cref="SalaryTdsDeducted"/>.</summary>
+    public Money EsiEmployeeContribution
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Deduction
+                    && l.PayHead.EsiComponent == EsiStatutoryComponent.EmployeeStateInsurance)
+                    sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
+
     /// <summary>The member's <b>§192 salary-TDS</b> for the month (Phase 8 slice 7): the Σ of the evaluated
     /// deduction lines whose pay head is the income-tax withholding head
     /// (<see cref="IncomeTaxComponent.TaxDeductedAtSource"/>) — the average-rate TDS the payroll voucher credits to

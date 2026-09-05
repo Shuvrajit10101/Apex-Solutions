@@ -2020,9 +2020,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private GatewayColumn BuildPayrollStatutoryReportsColumn()
     {
         var col = new GatewayColumn("Payroll");
-        col.Add(MenuItemViewModel.Header("Payroll Statutory"));
+
+        // W7-D2 — NESTED, not a flat dump. Thirteen rows under one "Payroll Statutory" header would be exactly the
+        // flat column the standing UI rule forbids, and it would also stop matching the reference product, which
+        // nests these under Provident Fund / Employee State Insurance sub-groups. Three headers, same treatment
+        // BuildCreateColumn() already uses.
+        col.Add(MenuItemViewModel.Header("Provident Fund"));
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 3A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 5", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 6A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 10", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 12A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Employee State Insurance"));
         col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 3", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 5", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 6", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Other Payroll Statutory"));
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
         // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
@@ -2343,6 +2360,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         WireReportDrills(reports);
         OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
             () => Reports = reports);
+    }
+
+    /// <summary>
+    /// Opens one of the eight W7-D2 <b>payroll statutory forms</b> (PF Forms 3A / 5 / 6A / 10 / 12A — census 7.20;
+    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page. Gated on <see cref="Company.PayrollStatutoryEnabled"/>
+    /// exactly as the PF ECR and ESI monthly-contribution pages are, so a company that is not enrolled for payroll
+    /// statutory never reaches one (ER-13) and its menu is byte-identical to the pre-slice column.
+    /// </summary>
+    public void OpenPayrollStatutoryForm(ReportKind kind)
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+        OpenReport(kind);
     }
 
     /// <summary>
@@ -8291,6 +8320,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
+            // W7-D2 — the PF statutory forms beyond the ECR (census 7.20) and the ESI statutory forms beyond the
+            // monthly contribution file (census 7.21). Each is a payroll-matrix report, so Ctrl+P prints it and
+            // the tabular export serves it through the same projectors the other payroll grids already use.
+            case "PF Form 3A": OpenPayrollStatutoryForm(ReportKind.PfForm3A); break;
+            case "PF Form 5": OpenPayrollStatutoryForm(ReportKind.PfForm5); break;
+            case "PF Form 6A": OpenPayrollStatutoryForm(ReportKind.PfForm6A); break;
+            case "PF Form 10": OpenPayrollStatutoryForm(ReportKind.PfForm10); break;
+            case "PF Form 12A": OpenPayrollStatutoryForm(ReportKind.PfForm12A); break;
+            case "ESI Form 3": OpenPayrollStatutoryForm(ReportKind.EsiForm3); break;
+            case "ESI Form 5": OpenPayrollStatutoryForm(ReportKind.EsiForm5); break;
+            case "ESI Form 6": OpenPayrollStatutoryForm(ReportKind.EsiForm6); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
             case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
