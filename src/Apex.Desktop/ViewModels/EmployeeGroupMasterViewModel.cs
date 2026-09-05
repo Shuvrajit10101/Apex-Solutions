@@ -19,7 +19,7 @@ public sealed partial class EmployeeGroupListRow : ObservableObject, IPayrollMas
     /// <summary>The stable identity of the group this row displays (census 7.16).</summary>
     public Guid MasterId { get; init; }
 
-    string IPayrollMasterListRow.MasterName => Name;
+    string IMasterListRow.MasterName => Name;
 
     [ObservableProperty] private bool _isHighlighted;
 }
@@ -66,7 +66,7 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
     public string MasterKindLabel => "employee group";
 
     /// <inheritdoc/>
-    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
 
     /// <summary>The highlighted existing-group row, or <c>null</c>.</summary>
     public EmployeeGroupListRow? HighlightedRow => _highlight.Row;

@@ -202,6 +202,156 @@ public static class GstReturnJson
         return Serialize(dto);
     }
 
+    // ==================================================================================================================
+    //  GSTR-1 (outward supplies) and GSTR-3B (summary return) — W2-06 slice (a); census row 6.10 / T1-11.
+    //
+    //  🔴 R7 / RULING 9 — THESE TWO EMITTERS ARE A DOCUMENTED DIVERGENCE, LABELLED AS OURS.
+    //  The GSTN upload-payload schema for GSTR-1 and GSTR-3B is published only behind the AUTHENTICATED GST developer
+    //  portal (developer.gst.gov.in/apiportal/taxpayer/returns → "GSTR1 — Save GSTR1 data" → Request Payload). No
+    //  unauthenticated CBIC/GSTN source states the key names or their types, so — exactly as for the five writers
+    //  above — these follow THIS CLASS'S OWN house convention (integer-paisa money keys under ER-10, the
+    //  gstin/fp/ret_period envelope) and carry the same schemaStatus flag. They are NOT claimed to be portal-accepted
+    //  and may never be recorded as corpus- or source-verified. What IS locked by test is the arithmetic: every figure
+    //  is read straight off the pure Gstr1 / Gstr3b projections, which read the posted GstLineTax and never recompute.
+    // ==================================================================================================================
+
+    /// <summary>Serialises the <b>GSTR-1</b> outward-supplies return for <c>[from, to]</c> to deterministic offline JSON
+    /// bytes (UTF-8, no BOM). Money is integer paisa (ER-10). Sections: B2B invoices, rate-wise B2C, §34 credit/debit
+    /// notes (Table 9B), advances received/adjusted (Tables 11A/11B) and the HSN summary (Table 12).</summary>
+    public static byte[] Gstr1(Company company, DateOnly from, DateOnly to)
+    {
+        var r = Reports.Gstr1.Build(company, from, to);
+        var dto = new Gstr1Dto
+        {
+            Gstin = company.Gst?.Gstin,
+            Fp = FinancialPeriod(to),
+            RetPeriod = $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}",
+            B2B = r.B2B.Select(b => new Gstr1B2BDto
+            {
+                Ctin = b.PartyGstin,
+                PartyName = b.PartyName,
+                Inum = b.InvoiceNumber,
+                Idt = $"{b.InvoiceDate:yyyy-MM-dd}",
+                Pos = b.PlaceOfSupplyStateCode,
+                TxvalPaisa = MoneyCodec.ToPaisa(b.TaxableValue),
+                CamtPaisa = MoneyCodec.ToPaisa(b.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(b.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(b.Igst),
+                Irn = b.Irn,
+            }).ToList(),
+            B2Cs = r.B2C.Select(b => new Gstr1B2CsDto
+            {
+                RateBasisPoints = b.RateBasisPoints,
+                TxvalPaisa = MoneyCodec.ToPaisa(b.TaxableValue),
+                CamtPaisa = MoneyCodec.ToPaisa(b.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(b.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(b.Igst),
+            }).ToList(),
+            Cdnr = r.Table9B.Select(n => new Gstr1CdnrDto
+            {
+                Ntty = n.NoteType.ToString(),
+                OriginalInum = n.OriginalInvoiceNumber,
+                OriginalIdt = n.OriginalInvoiceDate is { } d ? $"{d:yyyy-MM-dd}" : null,
+                Ndt = $"{n.NoteDate:yyyy-MM-dd}",
+                Pos = n.PlaceOfSupplyStateCode,
+                TxvalPaisa = MoneyCodec.ToPaisa(n.TaxableValue),
+                CamtPaisa = MoneyCodec.ToPaisa(n.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(n.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(n.Igst),
+                Rsn = n.ReasonCode,
+            }).ToList(),
+            At = r.Table11A.Select(a => new Gstr1AdvanceDto
+            {
+                RateBasisPoints = a.RateBasisPoints,
+                InterState = a.InterState,
+                AdvancePaisa = MoneyCodec.ToPaisa(a.AdvanceReceived),
+                CamtPaisa = MoneyCodec.ToPaisa(a.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(a.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(a.Igst),
+            }).ToList(),
+            Atadj = r.Table11B.Select(a => new Gstr1AdvanceDto
+            {
+                RateBasisPoints = a.RateBasisPoints,
+                InterState = a.InterState,
+                AdvancePaisa = MoneyCodec.ToPaisa(a.AdvanceAdjusted),
+                CamtPaisa = MoneyCodec.ToPaisa(a.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(a.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(a.Igst),
+            }).ToList(),
+            Hsn = r.HsnSummary.Select(h => new Gstr1HsnDto
+            {
+                HsnSac = h.HsnSac,
+                Description = h.Description,
+                Uqc = h.Uqc,
+                Quantity = h.Quantity,
+                TxvalPaisa = MoneyCodec.ToPaisa(h.TaxableValue),
+                CamtPaisa = MoneyCodec.ToPaisa(h.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(h.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(h.Igst),
+            }).ToList(),
+            NilExemptNonGstPaisa = MoneyCodec.ToPaisa(r.ExemptNilNonGstValue),
+            Rcm4BOutwardValuePaisa = MoneyCodec.ToPaisa(r.Rcm4BOutwardValue),
+            TotalCgstPaisa = MoneyCodec.ToPaisa(r.TotalCgst),
+            TotalSgstPaisa = MoneyCodec.ToPaisa(r.TotalSgst),
+            TotalIgstPaisa = MoneyCodec.ToPaisa(r.TotalIgst),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
+    /// <summary>Serialises the <b>GSTR-3B</b> summary return for <c>[from, to]</c> to deterministic offline JSON bytes
+    /// (UTF-8, no BOM). Money is integer paisa (ER-10). Every figure is emitted <b>verbatim from the engine</b> — no
+    /// arithmetic is invented here, and a negative net head (a carried-forward credit, DP-9) is emitted as it stands
+    /// rather than floored to zero.</summary>
+    public static byte[] Gstr3b(Company company, DateOnly from, DateOnly to)
+    {
+        var r = Reports.Gstr3b.Build(company, from, to);
+        var dto = new Gstr3bDto
+        {
+            Gstin = company.Gst?.Gstin,
+            Fp = FinancialPeriod(to),
+            RetPeriod = $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}",
+
+            Tbl3_1aTxvalPaisa = MoneyCodec.ToPaisa(r.TaxableOutwardValue),
+            Tbl3_1aCamtPaisa = MoneyCodec.ToPaisa(r.OutwardCgst),
+            Tbl3_1aSamtPaisa = MoneyCodec.ToPaisa(r.OutwardSgst),
+            Tbl3_1aIamtPaisa = MoneyCodec.ToPaisa(r.OutwardIgst),
+            Tbl3_1cNilExemptNonGstPaisa = MoneyCodec.ToPaisa(r.ExemptNilNonGstOutward),
+            Tbl3_1dRcmCamtPaisa = MoneyCodec.ToPaisa(r.RcmOutwardCgst),
+            Tbl3_1dRcmSamtPaisa = MoneyCodec.ToPaisa(r.RcmOutwardSgst),
+            Tbl3_1dRcmIamtPaisa = MoneyCodec.ToPaisa(r.RcmOutwardIgst),
+            Tbl3_1dRcmCsamtPaisa = MoneyCodec.ToPaisa(r.RcmOutwardCess),
+
+            Tbl4a2ImportServicesIamtPaisa = MoneyCodec.ToPaisa(r.RcmItcImportIgst),
+            Tbl4a3RcmOtherCamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherCgst),
+            Tbl4a3RcmOtherSamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherSgst),
+            Tbl4a3RcmOtherIamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherIgst),
+            Tbl4a3RcmOtherCsamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherCess),
+            Tbl4a5CamtPaisa = MoneyCodec.ToPaisa(r.ItcCgst),
+            Tbl4a5SamtPaisa = MoneyCodec.ToPaisa(r.ItcSgst),
+            Tbl4a5IamtPaisa = MoneyCodec.ToPaisa(r.ItcIgst),
+
+            Tbl4b1CamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Cgst),
+            Tbl4b1SamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Sgst),
+            Tbl4b1IamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Igst),
+            Tbl4b1CsamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Cess),
+            Tbl4b2CamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B2Cgst),
+            Tbl4b2SamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B2Sgst),
+            Tbl4b2IamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B2Igst),
+            Tbl4b2CsamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B2Cess),
+            Tbl4d1CamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Cgst),
+            Tbl4d1SamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Sgst),
+            Tbl4d1IamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Igst),
+            Tbl4d1CsamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Cess),
+
+            Tbl6_1NetCamtPaisa = MoneyCodec.ToPaisa(r.NetCgst),
+            Tbl6_1NetSamtPaisa = MoneyCodec.ToPaisa(r.NetSgst),
+            Tbl6_1NetIamtPaisa = MoneyCodec.ToPaisa(r.NetIgst),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
     /// <summary>The financial period as the government <c>MMYYYY</c> string (CMP-08 quarter's end month, GSTR-4 FY-end
     /// month), invariant-culture.</summary>
     private static string FinancialPeriod(DateOnly period) =>
@@ -330,6 +480,132 @@ public static class GstReturnJson
         [JsonPropertyName("comp_tax_paid_paisa")] public long CompositionTaxPaidPaisa { get; init; }
         [JsonPropertyName("rcm_inward_tax_paisa")] public long RcmInwardTaxPaisa { get; init; }
         [JsonPropertyName("late_fee_paisa")] public long LateFeePaisa { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    // ---- GSTR-1 (W2-06) --------------------------------------------------------------------------------------------
+
+    private sealed record Gstr1B2BDto
+    {
+        [JsonPropertyName("ctin")] public string? Ctin { get; init; }
+        [JsonPropertyName("party_name")] public required string PartyName { get; init; }
+        [JsonPropertyName("inum")] public required string Inum { get; init; }
+        [JsonPropertyName("idt")] public required string Idt { get; init; }
+        [JsonPropertyName("pos")] public string? Pos { get; init; }
+        [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+        [JsonPropertyName("irn")] public string? Irn { get; init; }
+    }
+
+    private sealed record Gstr1B2CsDto
+    {
+        [JsonPropertyName("rt_bp")] public int RateBasisPoints { get; init; }
+        [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+    }
+
+    private sealed record Gstr1CdnrDto
+    {
+        [JsonPropertyName("ntty")] public required string Ntty { get; init; }
+        [JsonPropertyName("orig_inum")] public string? OriginalInum { get; init; }
+        [JsonPropertyName("orig_idt")] public string? OriginalIdt { get; init; }
+        [JsonPropertyName("ndt")] public required string Ndt { get; init; }
+        [JsonPropertyName("pos")] public string? Pos { get; init; }
+        [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+        [JsonPropertyName("rsn")] public required string Rsn { get; init; }
+    }
+
+    private sealed record Gstr1AdvanceDto
+    {
+        [JsonPropertyName("rt_bp")] public int RateBasisPoints { get; init; }
+        [JsonPropertyName("inter_state")] public bool InterState { get; init; }
+        [JsonPropertyName("advance_paisa")] public long AdvancePaisa { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+    }
+
+    private sealed record Gstr1HsnDto
+    {
+        [JsonPropertyName("hsn_sac")] public required string HsnSac { get; init; }
+        [JsonPropertyName("desc")] public required string Description { get; init; }
+        [JsonPropertyName("uqc")] public string? Uqc { get; init; }
+        [JsonPropertyName("qty")] public decimal Quantity { get; init; }
+        [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+    }
+
+    private sealed record Gstr1Dto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+        [JsonPropertyName("b2b")] public required IReadOnlyList<Gstr1B2BDto> B2B { get; init; }
+        [JsonPropertyName("b2cs")] public required IReadOnlyList<Gstr1B2CsDto> B2Cs { get; init; }
+        [JsonPropertyName("cdnr")] public required IReadOnlyList<Gstr1CdnrDto> Cdnr { get; init; }
+        [JsonPropertyName("at")] public required IReadOnlyList<Gstr1AdvanceDto> At { get; init; }
+        [JsonPropertyName("atadj")] public required IReadOnlyList<Gstr1AdvanceDto> Atadj { get; init; }
+        [JsonPropertyName("hsn")] public required IReadOnlyList<Gstr1HsnDto> Hsn { get; init; }
+        [JsonPropertyName("nil_exempt_nongst_paisa")] public long NilExemptNonGstPaisa { get; init; }
+        [JsonPropertyName("tbl4b_rcm_outward_value_paisa")] public long Rcm4BOutwardValuePaisa { get; init; }
+        [JsonPropertyName("total_cgst_paisa")] public long TotalCgstPaisa { get; init; }
+        [JsonPropertyName("total_sgst_paisa")] public long TotalSgstPaisa { get; init; }
+        [JsonPropertyName("total_igst_paisa")] public long TotalIgstPaisa { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    // ---- GSTR-3B (W2-06) -------------------------------------------------------------------------------------------
+
+    private sealed record Gstr3bDto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+
+        [JsonPropertyName("tbl3_1a_txval_paisa")] public long Tbl3_1aTxvalPaisa { get; init; }
+        [JsonPropertyName("tbl3_1a_camt_paisa")] public long Tbl3_1aCamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1a_samt_paisa")] public long Tbl3_1aSamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1a_iamt_paisa")] public long Tbl3_1aIamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1c_nil_exempt_nongst_paisa")] public long Tbl3_1cNilExemptNonGstPaisa { get; init; }
+        [JsonPropertyName("tbl3_1d_rcm_camt_paisa")] public long Tbl3_1dRcmCamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1d_rcm_samt_paisa")] public long Tbl3_1dRcmSamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1d_rcm_iamt_paisa")] public long Tbl3_1dRcmIamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_1d_rcm_csamt_paisa")] public long Tbl3_1dRcmCsamtPaisa { get; init; }
+
+        [JsonPropertyName("tbl4a2_import_services_iamt_paisa")] public long Tbl4a2ImportServicesIamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a3_rcm_other_camt_paisa")] public long Tbl4a3RcmOtherCamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a3_rcm_other_samt_paisa")] public long Tbl4a3RcmOtherSamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a3_rcm_other_iamt_paisa")] public long Tbl4a3RcmOtherIamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a3_rcm_other_csamt_paisa")] public long Tbl4a3RcmOtherCsamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a5_camt_paisa")] public long Tbl4a5CamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a5_samt_paisa")] public long Tbl4a5SamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a5_iamt_paisa")] public long Tbl4a5IamtPaisa { get; init; }
+
+        [JsonPropertyName("tbl4b1_camt_paisa")] public long Tbl4b1CamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b1_samt_paisa")] public long Tbl4b1SamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b1_iamt_paisa")] public long Tbl4b1IamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b1_csamt_paisa")] public long Tbl4b1CsamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b2_camt_paisa")] public long Tbl4b2CamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b2_samt_paisa")] public long Tbl4b2SamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b2_iamt_paisa")] public long Tbl4b2IamtPaisa { get; init; }
+        [JsonPropertyName("tbl4b2_csamt_paisa")] public long Tbl4b2CsamtPaisa { get; init; }
+        [JsonPropertyName("tbl4d1_camt_paisa")] public long Tbl4d1CamtPaisa { get; init; }
+        [JsonPropertyName("tbl4d1_samt_paisa")] public long Tbl4d1SamtPaisa { get; init; }
+        [JsonPropertyName("tbl4d1_iamt_paisa")] public long Tbl4d1IamtPaisa { get; init; }
+        [JsonPropertyName("tbl4d1_csamt_paisa")] public long Tbl4d1CsamtPaisa { get; init; }
+
+        [JsonPropertyName("tbl6_1_net_camt_paisa")] public long Tbl6_1NetCamtPaisa { get; init; }
+        [JsonPropertyName("tbl6_1_net_samt_paisa")] public long Tbl6_1NetSamtPaisa { get; init; }
+        [JsonPropertyName("tbl6_1_net_iamt_paisa")] public long Tbl6_1NetIamtPaisa { get; init; }
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }
 
