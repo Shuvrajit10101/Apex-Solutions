@@ -11,10 +11,12 @@ namespace Apex.Desktop.Services;
 /// <summary>
 /// The document a multi-account print job produces, one per selected account (W2-32).
 ///
-/// <para>🔴 <b>NOT REACHABLE — census rows 12.6 and 12.7 stay OPEN.</b> The only caller of this projector is
-/// <see cref="Apex.Desktop.ViewModels.MultiAccountPrintViewModel"/>, which is itself constructed by nothing:
-/// no shell member, no menu route, no XAML template, no test. Naming a census row here records what this code
-/// is FOR, never that the row has moved — see that type's header for what reaching it would take.</para>
+/// <para><b>REACHABLE as of W2-32's finishing pass.</b> The caller is
+/// <see cref="Apex.Desktop.ViewModels.MultiAccountPrintViewModel"/>, which is now opened from
+/// <b>Reports → Statements of Accounts → Multi-Account Printing</b> and printed with <c>Ctrl+A</c>; that type's
+/// header names every link of the route, and <c>MultiAccountPrintReachabilityTests</c> walks it from the menu.
+/// It first shipped with the projector and the view model both correct and both reachable by nobody (filed as
+/// <c>T2-40</c>) — naming a census row in a doc comment records what code is FOR, never that a row has moved.</para>
 ///
 /// <para>🔴 <b>DOCUMENT CHARACTER (T0-11).</b> <b>None of these three is a tax invoice or a bill of supply, and
 /// none may ever become one.</b> Entitlement to ISSUE a tax invoice is CGST s31(1), which puts it on the

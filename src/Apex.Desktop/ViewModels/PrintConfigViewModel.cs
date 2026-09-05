@@ -39,8 +39,24 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     public bool SupportsDocumentKnobs => _preview.SupportsPrintConfig;
 
     /// <summary>
-    /// True when the W2-31 <b>page-layout</b> knobs apply — the print format, the paper toggle, and the page
-    /// range / starting number.
+    /// True when the W2-31 <b>page RANGE</b> knobs apply — the first/last page and the starting page number.
+    ///
+    /// <para>🔴 <b>This is a SEPARATE predicate from <see cref="SupportsPageKnobs"/>, and the split is the whole
+    /// point.</b> W2-31's finishing pass taught <c>InvoicePdf</c>, <c>VoucherPdf</c>, <c>PayslipPdf</c> and
+    /// <c>PosReceiptPdf</c> the F10 range and starting number — they read <c>PageConfig.IncludesPage</c> and
+    /// <c>StartPageNumber</c> exactly as <c>ReportPdf</c> does, under the same rule (renumber, then select; a
+    /// selection of nothing is one blank sheet, never the whole document). The FORMAT and the PAPER are still
+    /// <c>ReportPdf</c>-only.</para>
+    ///
+    /// <para>Widening the single old predicate would therefore have re-offered two knobs that remain inert —
+    /// re-creating the exact defect the withdrawal fixed. One boolean cannot carry two answers; that is the same
+    /// lesson <c>PrintedDocumentClass</c> learned one layer down.
+    /// <c>PrintConfigKnobsMoveTheBytesTests</c> now holds BOTH pairings by comparing rendered bytes.</para>
+    /// </summary>
+    public bool SupportsPageRange => true;
+
+    /// <summary>
+    /// True when the W2-31 <b>page-layout</b> knobs apply — the print format and the paper toggle.
     ///
     /// <para>🔴 <b>This returned a bare <c>true</c>, and that was wrong.</b> Measured against the renderers,
     /// only <see cref="ReportPdf"/> reads <c>PageConfig</c>'s <c>Formatted*</c>, <c>Draws*</c>,
@@ -52,11 +68,23 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// renderer that will actually be asked to honour it. <c>PrintConfigKnobsMoveTheBytesTests</c> holds this
     /// by rendering and comparing bytes, so it cannot be satisfied by relabelling.</para>
     ///
-    /// <para>Withdrawing the knobs is the honest half of the fix, not the whole of it: teaching the four document
-    /// renderers to honour a page range remains open work, and when they do, this predicate widens and the lock
-    /// keeps guarding the pairing rather than forbidding it.</para>
+    /// <para><b>Half of that has since been done, and it is why this summary no longer mentions the range.</b>
+    /// The four document renderers now honour <c>IncludesPage</c> and <c>StartPageNumber</c>, so the range moved
+    /// out to <see cref="SupportsPageRange"/> and is offered everywhere. What is still <c>ReportPdf</c>-only is
+    /// the FORMAT and the PAPER — <c>Formatted*</c> and <c>Draws*</c> — so those two stay gated here. Teaching the
+    /// document renderers a dot-matrix pitch and a pre-printed suppression remains open work, and when it is done
+    /// this predicate widens the same way the range did.</para>
     /// </summary>
-    public bool SupportsPageKnobs => _preview.Kind == PrintPreviewViewModel.PrintKind.Report;
+    /// <remarks>
+    /// W2-32 widened this from <c>== Report</c> to include <c>ReportSet</c>. That is not a relabelling: a set
+    /// renders through <see cref="ReportPdf"/>'s multi-document overload, which reads the same
+    /// <c>Formatted*</c> / <c>Draws*</c> / <c>IncludesPage</c> / <c>StartPageNumber</c> members — and the F10
+    /// range is at its most useful over a job, where "reprint sheets 4-6" is the whole point.
+    /// <c>PrintConfigKnobsMoveTheBytesTests</c> holds the pairing by comparing rendered bytes, so this widening
+    /// is only legal because the renderer really does honour them.
+    /// </remarks>
+    public bool SupportsPageKnobs =>
+        _preview.Kind is PrintPreviewViewModel.PrintKind.Report or PrintPreviewViewModel.PrintKind.ReportSet;
 
     /// <summary>
     /// True whenever the copy count applies — which is <b>always</b>: every one of the five renderers ends with

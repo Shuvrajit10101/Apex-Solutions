@@ -29,31 +29,31 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
 }
 
 /// <summary>
-/// The intended keyboard-first <b>Multi-Account Printing</b> panel (W2-32).
+/// The keyboard-first <b>Multi-Account Printing</b> panel (W2-32 / census 12.6), hosted as its own page column
+/// under <b>Reports → Statements of Accounts</b>.
 ///
-/// <para>🔴 <b>NOT REACHABLE. THIS TYPE HAS NO CALLERS AND CLOSES NO CENSUS ROW.</b> Nothing constructs a
-/// <c>MultiAccountPrintViewModel</c>: it appears in no <c>MainWindowViewModel</c> member, no menu route, no
-/// <c>MainWindow.axaml</c> template, and no test. Together with
-/// <see cref="MultiAccountPrintProjector"/> it is ~432 lines of finished-looking, unexercised code, and a user
-/// has no way to reach any of it. <b>Census rows 12.6 and 12.7 therefore remain OPEN.</b>
+/// <para><b>THE ROUTE, NAMED SO IT CAN BE CHECKED</b> — every link of it exists, and
+/// <c>MultiAccountPrintReachabilityTests</c> walks it from the menu rather than constructing this type:
+/// <list type="number">
+///   <item><c>MainWindowViewModel.BuildStatementsOfAccountsColumn()</c> carries the "Multi-Account Printing"
+///     page item (nested under its parent section — never a flat dump);</item>
+///   <item>the menu dispatch calls <c>MainWindowViewModel.OpenMultiAccountPrint()</c>;</item>
+///   <item>that sets <c>Screen.MultiAccountPrint</c> and the <c>MultiAccountPrint</c> shell member;</item>
+///   <item><c>MainWindow.axaml</c> holds the <c>DataTemplate</c> bound to this type — a real
+///     <c>CheckBox</c> per account, so <see cref="MultiAccountRowViewModel.IsSelected"/> is reachable;</item>
+///   <item><c>Ctrl+A</c> (and the Print button) reach <c>MainWindowViewModel.PrintMultiAccountJob()</c>, which
+///     hands <see cref="BuildJob"/>'s document SET to
+///     <c>PrintPreviewViewModel(IReadOnlyList&lt;PrintReport&gt;, string)</c> →
+///     <c>ReportPdf.Render</c>'s multi-document overload.</item>
+/// </list></para>
 ///
-/// <para>This header previously read that the panel was "hosted as its own cascading Miller column under
-/// Reports → Statements of Accounts" and described "what it closes". <b>Both claims were false</b> — no such
-/// hosting was ever written. They are corrected here rather than left standing, because this project's most
-/// repeated defect is precisely a careful, correct-looking, unreachable component being counted as delivered
-/// (<c>CompanyStorage.Rename()</c>, <c>CostReports.BuildLedgerBreakup</c>), and a doc comment asserting a route
-/// that does not exist is how a later census pass gets fooled into moving the row.</para>
-///
-/// <para><b>What remains to reach it</b> (none of it written): a <c>MultiAccountPrint</c> screen + panel member
-/// on <c>MainWindowViewModel</c> with an open method; a menu entry nested under Reports → Statements of Accounts
-/// — never a flat dump; a <c>DataTemplate</c> in <c>MainWindow.axaml</c> bound to this type; key routing for the
-/// panel; and a realised-control reachability lock in the idiom of
-/// <c>ExportFormatRealisedReachabilityTests</c>. Until then the engine half — <c>ReportPdf.Render</c> over a
-/// document SET — is the only part of W2-32 that is real, and it is covered by
-/// <c>Apex.Ledger.Io.Tests/MultiDocumentPrintTests.cs</c>.</para>
-///
-/// <para>The code is retained rather than deleted because it is coherent and the projection is sound; it is
-/// labelled rather than trusted.</para>
+/// <para>🔴 <b>THE HISTORY IS KEPT BECAUSE IT IS THE LESSON.</b> This type and
+/// <see cref="MultiAccountPrintProjector"/> first shipped as ~432 lines with <b>zero references</b> — no shell
+/// member, no menu route, no template, no test — and the row was rightly REFUSED and filed as <c>T2-40</c>. It
+/// was the third instance of this project's most repeated defect (<c>CompanyStorage.Rename()</c>,
+/// <c>CostReports.BuildLedgerBreakup</c>): careful, correct-looking, unreachable code counted as delivered. The
+/// missing link was small and specific — there was no way to get a document SET into a print preview, so the
+/// panel had nobody to hand its job to. <b>A projection with no opener is not a feature.</b></para>
 ///
 /// <para>No clock: the "as at" date is supplied by the shell, so the panel stays deterministic in tests.</para>
 /// </summary>

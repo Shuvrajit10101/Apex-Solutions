@@ -154,6 +154,40 @@ public sealed class PrintConfigKnobsMoveTheBytesTests
     }
 
     /// <summary>
+    /// <b>THE SAME INVARIANT FOR THE PAGE RANGE, WHICH IS NOW A SEPARATE OFFER.</b>
+    ///
+    /// <para>W2-31's finishing pass taught <c>InvoicePdf</c>, <c>VoucherPdf</c>, <c>PayslipPdf</c> and
+    /// <c>PosReceiptPdf</c> the F10 page range and starting number, so
+    /// <see cref="PrintConfigViewModel.SupportsPageRange"/> is now true over a document. The format and the paper
+    /// are STILL <c>ReportPdf</c>-only, which is exactly why the predicate was split rather than widened: one
+    /// boolean covering three knobs could only re-offer the two that remain inert, which is the defect this whole
+    /// file exists to catch.</para>
+    ///
+    /// <para>Written as the same conditional shape as the assertion above — offering nothing owes nothing — so it
+    /// keeps guarding the pairing rather than freezing today's answer.</para>
+    /// </summary>
+    [Fact]
+    public void An_offered_page_range_changes_a_document_preview()
+    {
+        var preview = new PrintPreviewViewModel(OutwardTaxInvoice());
+        var panel = PanelOver(preview);
+
+        if (!panel.SupportsPageRange)
+            return;   // not offered here — nothing is being claimed, so nothing is owed
+
+        var start = Render(preview, p => p.StartPageNumber = 7);
+        Assert.False(start.Before.SequenceEqual(start.After),
+            "the panel offers a starting page number over this document preview, but setting it to 7 left the PDF "
+          + "byte-identical — the renderer reads none of PageConfig.StartPageNumber. Either honour the knob in the "
+          + "renderer, or stop offering it here.");
+
+        var range = Render(preview, p => p.FirstPage = 2);
+        Assert.False(range.Before.SequenceEqual(range.After),
+            "the panel offers an F10 page range over this document preview, but skipping to page 2 left the PDF "
+          + "byte-identical — the renderer reads none of PageConfig.IncludesPage.");
+    }
+
+    /// <summary>
     /// The same invariant over a REPORT preview — where the knobs genuinely work. This is the non-vacuity half:
     /// it proves the byte comparison above can detect a change at all, so a green result upstream means the panel
     /// stopped over-offering rather than that the harness stopped looking.

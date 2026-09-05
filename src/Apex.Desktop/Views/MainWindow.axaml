@@ -15812,6 +15812,16 @@
                                                IsChecked="{Binding IsPrePrinted, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
 
+                                </StackPanel>
+
+                                <!-- W2-31: the PAGE RANGE, on its OWN gate. Every renderer now honours
+                                     PageConfig.IncludesPage and StartPageNumber - ReportPdf, InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf - so the range is offered on every
+                                     document kind. It is a SEPARATE StackPanel from the format/paper group above
+                                     because those two remain ReportPdf-only: folding them back under one gate
+                                     would re-offer two knobs that do nothing, which is the defect the withdrawal
+                                     fixed. PrintConfigKnobsMoveTheBytesTests holds both pairings by bytes. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsPageRange}">
                                   <TextBlock Text="Pages" FontWeight="Bold"
                                              Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                   <Grid ColumnDefinitions="150,*">
@@ -15843,6 +15853,109 @@
                               </StackPanel>
                             </Border>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: W2-32 / census 12.6 "Multi-Account Printing" (Reports -> Statements of Accounts).
+                         Selects a SET of accounts and prints them as one collated job of ledger accounts,
+                         reminder letters or confirmations of accounts (census 12.7's two multi-account outputs).
+                         Every account row is a real CheckBox, so the selection is reachable by keyboard (Tab to
+                         the row, Space to toggle) as well as by mouse — the view-model's IsSelected is not a
+                         feature until a control is bound to it. -->
+                    <ContentControl IsVisible="{Binding MultiAccountPrint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiAccountPrint}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiAccountPrintViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding PeriodText}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding PeriodText}"/>
+
+                            <!-- The document each selected account produces. Every title here is OURS under
+                                 ruling 9 (see MultiAccountPrintProjector) and none of the three is, or may
+                                 become, a tax invoice or a bill of supply. -->
+                            <Border Grid.Row="2" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,0,0,6">
+                              <StackPanel Spacing="4">
+                                <TextBlock Text="Document" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Ledger Account"
+                                               IsChecked="{Binding IsLedgerAccount, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Reminder Letter"
+                                               IsChecked="{Binding IsReminderLetter, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Confirmation of Accounts"
+                                               IsChecked="{Binding IsConfirmation, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="40,*,220">
+                                <TextBlock Grid.Column="0" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Account" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="4" Background="White">
+                              <ItemsControl ItemsSource="{Binding Accounts}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:MultiAccountRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="40,*,220" Height="24">
+                                        <CheckBox Grid.Column="0" Margin="10,0,0,0"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Name}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding GroupName}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding GroupName}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Selection + print bar -->
+                            <Border Grid.Row="5" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                                <Button Grid.Column="0" Content="Select All" Padding="10,4"
+                                        Click="OnMultiAccountSelectAllClick"/>
+                                <Button Grid.Column="1" Content="Select None" Padding="10,4" Margin="6,0,0,0"
+                                        Click="OnMultiAccountSelectNoneClick"/>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"/>
+                                <Button Grid.Column="4" Content="Print (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnPrintMultiAccountClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="6" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,0" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

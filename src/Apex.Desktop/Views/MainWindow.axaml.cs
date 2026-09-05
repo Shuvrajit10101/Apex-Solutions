@@ -381,6 +381,10 @@ public partial class MainWindow : Window
                 vm.ApplyRestore();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
+            // W2-32 (census 12.6): Ctrl+A on the Multi-Account Printing panel PRINTS the selected accounts —
+            // the same accept-shortcut every other panel in this switch uses for its own primary action.
+            else if (vm.CurrentScreen == Screen.MultiAccountPrint)
+                vm.PrintMultiAccountJob();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
@@ -1853,6 +1857,17 @@ public partial class MainWindow : Window
 
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
+
+    // W2-32 (census 12.6) — the Multi-Account Printing panel's three buttons. Print goes through the SAME
+    // Vm.PrintMultiAccountJob() the Ctrl+A arm reaches, so the button and the accelerator can never diverge.
+    private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
+        => Vm?.PrintMultiAccountJob();
+
+    private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectAll();
+
+    private void OnMultiAccountSelectNoneClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectNone();
 
     private void OnApplyExportClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyExport();

@@ -43,6 +43,10 @@ public enum Screen
     SavedViews,
     PrintPreview,
     PrintConfig,
+
+    /// <summary>W2-32 (census 12.6): Reports → Statements of Accounts → Multi-Account Printing — the panel that
+    /// selects a SET of accounts and prints them as one collated job.</summary>
+    MultiAccountPrint,
     Export,
     ExportData,
     ImportData,
@@ -567,6 +571,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
     [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
 
+    /// <summary>The W2-32 "Multi-Account Printing" panel (census 12.6), non-null only while that page column is
+    /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
+    [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
+
     /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
     [ObservableProperty] private ExportViewModel? _exportPanel;
 
@@ -632,6 +640,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
@@ -726,6 +735,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1489,6 +1499,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
         // places it under Statement of Accounts, which is this hub.
         col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-32 (census 12.6 / 12.7): Multi-Account Printing — select a SET of accounts and print them as one
+        // collated job of ledger accounts, reminder letters or confirmations of accounts. It is nested HERE, under
+        // its parent section, because these are statements ABOUT accounts (the UI contract forbids a flat dump);
+        // and because 12.7's reminder letter and confirmation of accounts are multi-account OUTPUTS rather than
+        // three standalone documents (census §1.3 item 22), this hub is the surface that reaches them.
+        col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2946,6 +2962,59 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
     public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
+
+    // =============================================================== screen: Multi-Account Printing (W2-32)
+
+    /// <summary>
+    /// Opens the <b>Multi-Account Printing</b> panel (W2-32 / census 12.6) as a page column under
+    /// Reports → Statements of Accounts: every account in the company, each selectable with Space, plus the
+    /// document kind the job produces (Ledger Account / Reminder Letter / Confirmation of Accounts).
+    ///
+    /// <para>🔴 <b>This method is what row 12.6 was missing.</b> <c>MultiAccountPrintViewModel</c> and
+    /// <c>MultiAccountPrintProjector</c> shipped complete and correct with <b>zero references</b> — no shell
+    /// member, no menu route, no template — and were rightly refused as unreachable (<c>T2-40</c>). A projection
+    /// with no opener is not a feature.</para>
+    ///
+    /// <para><b>No clock (ER-12).</b> The period is the company's own books-begin date through
+    /// <see cref="AccountBooksAsOf"/> — the same bound every Account Book uses — so the panel is deterministic
+    /// in tests and matches what the on-screen ledger reports cover.</para>
+    /// </summary>
+    public void OpenMultiAccountPrint()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        var vm = new MultiAccountPrintViewModel(Company, Company.BooksBeginFrom, AccountBooksAsOf());
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.MultiAccountPrint, vm.Title,
+            () => MultiAccountPrint = vm);
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Print button on the Multi-Account Printing panel: projects the selected accounts into a
+    /// document SET and opens the ordinary <see cref="PrintPreviewViewModel"/> over the whole job, so the F12
+    /// config, the page range and the Ctrl+A Save-PDF arm all work on it exactly as they do on one report.
+    ///
+    /// <para>An empty selection opens NOTHING: the panel's own <c>BuildJob</c> returns an empty list and sets its
+    /// status line to say so. Previewing a blank sheet would present a mistake as output.</para>
+    ///
+    /// <para>The existing preview is replaced rather than stacked — the same one-page-column rule
+    /// <see cref="OpenPageColumn"/> enforces — so re-printing after changing the selection shows the new job.</para>
+    /// </summary>
+    public void PrintMultiAccountJob()
+    {
+        if (MultiAccountPrint is not { } panel) return;
+
+        var documents = panel.BuildJob();
+        if (documents.Count == 0) return;              // panel.Status already says why
+
+        var preview = new PrintPreviewViewModel(documents, panel.JobTitle);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
 
     // =============================================================== screen: export
 
@@ -5304,6 +5373,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SavedViews = null;
         PrintPreview = null;
         PrintConfigPanel = null;
+        MultiAccountPrint = null;
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
@@ -8278,6 +8348,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Debit Note Register": OpenReport(ReportKind.DebitNoteRegister); break;
             // W2-12 (census 11.8) — Reports → Statements of Accounts → Statistics.
             case "Statistics": OpenReport(ReportKind.Statistics); break;
+            // W2-32 (census 12.6) — Reports → Statements of Accounts → Multi-Account Printing.
+            case "Multi-Account Printing": OpenMultiAccountPrint(); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
@@ -8442,6 +8514,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
                 return Screen.PrintPreview;
+            // W2-32 — the Multi-Account Printing panel survives beneath a just-popped print-preview column, and
+            // it MUST be re-bound: Escape out of the preview and the operator is back on their selection, so
+            // pressing Print again reprints the same job rather than finding a null panel and doing nothing.
+            case MultiAccountPrintViewModel map:
+                MultiAccountPrint = map;
+                return Screen.MultiAccountPrint;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.

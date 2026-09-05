@@ -429,10 +429,10 @@ Called from `VoucherPrintProjector.cs:538` on the item pass,
 and from `VoucherPrintProjector.cs:822` on the service pass.
 `SplitAddress` (`VoucherPrintProjector.cs:1341-1343`) returns `Array.Empty` on null/whitespace.
 
-**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:888` declares `DrawPartyBlock`;
-it is called at `InvoicePdf.cs:564` with the caption `"Supplier:"`.
-The address `foreach` (`InvoicePdf.cs:894`) never executes when the list is empty, and the State line
-(`InvoicePdf.cs:900-904`) is skipped when `StateText` is blank.
+**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:908` declares `DrawPartyBlock`;
+it is called at `InvoicePdf.cs:584` with the caption `"Supplier:"`.
+The address `foreach` (`InvoicePdf.cs:914`) never executes when the list is empty, and the State line
+(`InvoicePdf.cs:920-924`) is skipped when `StateText` is blank.
 **So what a GST-off company prints today is:** `"Supplier:"` / `<company name>` / `"GSTIN: Unregistered"`
 — **the address emits nothing at all**: no placeholder, no blank line; the block silently collapses.
 
@@ -475,7 +475,7 @@ The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAdd
 
 > ⚠️ **Corrected during the original write-down (still stands).** The A14 pass stated that populating
 > `Company.Address` alone "would still print a seller address with **NO State line** and NO PIN". The no-State
-> half is **too strong**: `InvoicePdf.cs:900-904` *does* draw a `"State: …"` line whenever `StateText` is
+> half is **too strong**: `InvoicePdf.cs:920-924` *does* draw a `"State: …"` line whenever `StateText` is
 > non-empty. The accurate statement is: **no State line derived from `Company.State` can ever print**. A
 > GST-enabled company prints its **GST home State**; a GST-off company prints no State line at all.
 
@@ -746,8 +746,8 @@ session inventing.*
 
 11. 🔴 **The printed ORDER of the postal components, and the "PIN: " label — UNVERIFIED AND CHOSEN AGAINST THE
     CORPUS.** W0-2a prints the supplier block as **Address → Country → PIN → State → GSTIN**, because
-    `InvoicePdf.DrawPartyBlock` (`InvoicePdf.cs:888`) draws every `AddressLines` entry (`InvoicePdf.cs:894`)
-    before the State line (`InvoicePdf.cs:900-904`).
+    `InvoicePdf.DrawPartyBlock` (`InvoicePdf.cs:908`) draws every `AddressLines` entry (`InvoicePdf.cs:914`)
+    before the State line (`InvoicePdf.cs:920-924`).
     **[V] The corpus consistently orders these Address → State → Country → Pin Code**, and labels
     the last one "Pin Code" / "Pincode" where we print `"PIN: "`:
     - `664311548-Tally-Prime-Book.pdf` PDF p.13 (extracted 2026-08-15): *Address · State · Country · Pin Code*.
@@ -979,7 +979,7 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 1. **"GST applicable from" listed as typeable today — FALSE.** See §7.4. The domain member and column exist; no
    UI exposes it.
 2. **"populating `Company.Address` alone would still print … NO State line" — too strong.** See §7.3(i).
-   `InvoicePdf.cs:900-904` draws a State line whenever `StateText` is non-empty; the accurate claim is that no
+   `InvoicePdf.cs:920-924` draws a State line whenever `StateText` is non-empty; the accurate claim is that no
    State line derived from `Company.State` can ever print.
 
 ### Sharpened by re-extraction

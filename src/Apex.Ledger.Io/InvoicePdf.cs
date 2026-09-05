@@ -146,9 +146,21 @@ public static class InvoicePdf
 
         var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
 
+        // W2-31 (census 12.4) F10 — the SAME rule ReportPdf and VoucherPdf apply. StartPageNumber RENUMBERS sheet
+        // one; the range SELECTS which sheets are drawn and never renumbers them. Defaults reproduce the shipped
+        // bytes exactly (ER-13).
+        int firstNumber = page.StartPageNumber < 1 ? 1 : page.StartPageNumber;
+        int lastNumber = firstNumber + total - 1;
+        int drawn = 0;
+
         for (int p = 0; p < pages.Count; p++)
         {
+            if (!page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
             writer.BeginPage(page.PageWidth, page.PageHeight);
+            // 🔴 "First" is the sheet's place in the DOCUMENT, not in the selection. DrawFirstHeader is what carries
+            // the Rule 46(a) party blocks, the Rule 48(1) copy marking and the Rule 5(1)(f) declaration; deriving it
+            // from the drawn count would move that whole statutory header onto sheet 3 whenever sheet 3 is what the
+            // operator reprints, producing a page the document never had.
             bool isFirst = p == 0;
             double yy = isFirst
                 ? DrawFirstHeader(writer, data, config, page, title, geo, left, right)
@@ -161,16 +173,24 @@ public static class InvoicePdf
             if (p == pages.Count - 1 && !closingOnNewPage)
                 DrawClosingBlock(writer, data, config, page, geo, left, right, closing, yy - 2);
 
-            DrawFooter(writer, page, left, right, p + 1, total);
+            DrawFooter(writer, page, left, right, firstNumber + p, lastNumber);
+            drawn++;
         }
 
-        if (closingOnNewPage)
+        if (closingOnNewPage && page.IncludesPage(total))
         {
             writer.BeginPage(page.PageWidth, page.PageHeight);
             double yy = DrawContinuationHeader(writer, data, page, title, left, right);
             DrawClosingBlock(writer, data, config, page, geo, left, right, closing, yy);
-            DrawFooter(writer, page, left, right, total, total);
+            DrawFooter(writer, page, left, right, lastNumber, lastNumber);
+            drawn++;
         }
+
+        // A PDF must carry at least one page. An out-of-bounds range yields ONE BLANK SHEET rather than the whole
+        // invoice — falling back to "print everything" would hand the operator a full tax invoice he did not ask
+        // to reprint.
+        if (drawn == 0)
+            writer.BeginPage(page.PageWidth, page.PageHeight);
 
         // W2-31 (census 12.4) F5: collated copies of the whole invoice — the case the knob exists for, since
         // CGST Rule 48(1) prepares a goods invoice in triplicate. The COPY MARKING is a separate knob

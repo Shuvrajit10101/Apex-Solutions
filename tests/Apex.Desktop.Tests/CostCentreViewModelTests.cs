@@ -382,7 +382,8 @@ public sealed class CostCentreViewModelTests : IDisposable
         var vm = NewSeededCompany("Cost Nav Reports Co");
 
         // Reports → Statements of Accounts is a hub with Outstandings + Cost Centres + Budgets groups and
-        // the Interest Calculation + Forex Gain/Loss reports, plus W2-12's Statistics (census 11.8).
+        // the Interest Calculation + Forex Gain/Loss reports, plus W2-12's Statistics (census 11.8) and
+        // W2-32's Multi-Account Printing (census 12.6). Still an exact ORDERED list, not a Contains.
         vm.ShowStatementsOfAccountsMenu();
         Assert.Equal(GatewayMenu.StatementsOfAccounts, vm.CurrentGatewayMenu);
         var hubLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
@@ -390,7 +391,7 @@ public sealed class CostCentreViewModelTests : IDisposable
             new[]
             {
                 "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss",
-                "Statistics",
+                "Statistics", "Multi-Account Printing",
             },
             hubLabels);
 

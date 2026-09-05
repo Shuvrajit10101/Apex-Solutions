@@ -32,6 +32,18 @@ public static class PayslipPdf
         double dedAmtR = right;
 
         var writer = new PdfWriter { DocumentTitle = SafeTitle(Title) };
+
+        // W2-31 (census 12.4) F10 — the SAME rule ReportPdf applies, on a document that is always ONE sheet.
+        // A range that excludes sheet 1 selects nothing, and selecting nothing yields ONE BLANK SHEET rather than
+        // the payslip: a PDF must carry a page, and falling back to "print everything" would put an employee's pay
+        // particulars on paper the operator excluded. Defaults reproduce the shipped bytes exactly (ER-13).
+        if (!page.IncludesPage(1))
+        {
+            writer.BeginPage(page.PageWidth, page.PageHeight);
+            writer.RepeatAllPages(page.EffectiveCopies);
+            return writer.Build();
+        }
+
         writer.BeginPage(page.PageWidth, page.PageHeight);
         double y = page.PageHeight - page.MarginTop;
 
@@ -157,7 +169,13 @@ public static class PayslipPdf
 
     private static void DrawFooter(PdfWriter writer, PageConfig page, double left, double right)
     {
-        string footer = (page.FooterText ?? string.Empty).Replace("{page}", "1").Replace("{pages}", "1");
+        // W2-31 F10: StartPageNumber RENUMBERS the sheet, so a payslip printed inside a numbered run reads
+        // "Page 4 of 4" rather than always "Page 1 of 1". One sheet ⇒ first and last are the same number
+        // (4 + 1 - 1 = 4). The default of 1 leaves the shipped literal untouched (ER-13).
+        string sheetNumber = (page.StartPageNumber < 1 ? 1 : page.StartPageNumber)
+            .ToString(CultureInfo.InvariantCulture);
+        string footer = (page.FooterText ?? string.Empty)
+            .Replace("{page}", sheetNumber).Replace("{pages}", sheetNumber);
         if (footer.Length > 0)
             Center(writer, Debrand.Text(footer), left, right, page.MarginBottom, page.FooterFontSize, false);
     }
