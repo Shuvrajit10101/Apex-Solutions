@@ -921,17 +921,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.AttendanceRegister: BuildAttendanceRegister(); break;
             case ReportKind.PaymentAdvice: BuildPaymentAdvice(); break;
 
-            // W7-D2 — the PF statutory forms beyond the ECR (census 7.20).
-            case ReportKind.PfForm3A: BuildPfForm3A(); break;
-            case ReportKind.PfForm5: BuildPfForm5(); break;
-            case ReportKind.PfForm6A: BuildPfForm6A(); break;
-            case ReportKind.PfForm10: BuildPfForm10(); break;
-            case ReportKind.PfForm12A: BuildPfForm12A(); break;
+            // W7-D2 — the PF statutory forms beyond the ECR (census 7.20). Every one of these reaches an engine
+            // that THROWS on an incompletely set-up payroll (see RunStatutoryForm), and Show() has no handler.
+            case ReportKind.PfForm3A: RunStatutoryForm(BuildPfForm3A); break;
+            case ReportKind.PfForm5: RunStatutoryForm(BuildPfForm5); break;
+            case ReportKind.PfForm6A: RunStatutoryForm(BuildPfForm6A); break;
+            case ReportKind.PfForm10: RunStatutoryForm(BuildPfForm10); break;
+            case ReportKind.PfForm12A: RunStatutoryForm(BuildPfForm12A); break;
 
             // W7-D2 — the ESI statutory forms beyond the monthly contribution file (census 7.21).
-            case ReportKind.EsiForm3: BuildEsiForm3(); break;
-            case ReportKind.EsiForm5: BuildEsiForm5(); break;
-            case ReportKind.EsiForm6: BuildEsiForm6(); break;
+            case ReportKind.EsiForm3: RunStatutoryForm(BuildEsiForm3); break;
+            case ReportKind.EsiForm5: RunStatutoryForm(BuildEsiForm5); break;
+            case ReportKind.EsiForm6: RunStatutoryForm(BuildEsiForm6); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -1172,6 +1173,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.GroupVouchers] = "GroupVouchers",
         [ReportKind.LedgerMonthlySummary] = "LedgerMonthlySummary",
         [ReportKind.Statistics] = "Statistics",
+        // W7-D2 payroll statutory forms (census 7.20 / 7.21). Every ReportKind MUST appear here: TokenFor indexes
+        // this dictionary directly, so a kind with no token throws KeyNotFoundException the moment an operator
+        // presses Alt+K to save the view — which is what these eight did before this line existed.
+        // The tokens are PERSISTED in saved views, so they are frozen: rename a kind and this string stays.
+        [ReportKind.PfForm3A] = "PfForm3A",
+        [ReportKind.PfForm5] = "PfForm5",
+        [ReportKind.PfForm6A] = "PfForm6A",
+        [ReportKind.PfForm10] = "PfForm10",
+        [ReportKind.PfForm12A] = "PfForm12A",
+        [ReportKind.EsiForm3] = "EsiForm3",
+        [ReportKind.EsiForm5] = "EsiForm5",
+        [ReportKind.EsiForm6] = "EsiForm6",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -3122,6 +3135,33 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>A date as the statutory forms print it, or an em dash when the master does not carry one.</summary>
     private static string DateCell(DateOnly? value)
         => value is { } d ? d.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) : "—";
+
+    /// <summary>
+    /// Runs a statutory-form projection that reaches the <see cref="PfEcr"/> / <see cref="EsiMonthlyContribution"/>
+    /// engines, and turns the two failures those engines <b>throw</b> on into an empty form with an explanation.
+    ///
+    /// <para>🔴 This is not defensive decoration. <see cref="PfEcr.Build"/> throws
+    /// <see cref="InvalidOperationException"/> outright when a PF-applicable member has no valid 12-digit UAN (it
+    /// keys the ECR line on it) or has no effective salary structure for the month — both of which are ordinary
+    /// states of a half-set-up payroll. <see cref="ReportsViewModel.Show"/> has no exception handler around its
+    /// build switch, so without this the throw escapes the menu activation and takes the shell down. The shipped
+    /// PF ECR page already catches exactly this pair (<c>PfEcrReportViewModel.cs:192</c>) and shows the message
+    /// instead of dying; the statutory forms, which call the same engine, must behave the same way.</para>
+    /// </summary>
+    private void RunStatutoryForm(Action build)
+    {
+        try
+        {
+            build();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // Leave whatever the projection managed to add — a half-filled grid under a message that names the
+            // member is more useful than a blank one — but make the failure impossible to mistake for "no data".
+            IsPayrollEmpty = true;
+            PayrollEmptyNote = ex.Message;
+        }
+    }
 
     /// <summary>Adds a footnote line and lights the footnote panel.</summary>
     private void Footnote(string text)

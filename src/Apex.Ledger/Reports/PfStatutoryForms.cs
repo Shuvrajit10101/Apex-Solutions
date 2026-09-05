@@ -225,11 +225,34 @@ public static class PfStatutoryForms
     /// Builds one wage month's <see cref="PfEcrReturn"/> for every PF member, and indexes its member rows by UAN so
     /// a twelve-month walk can pick a single member's row out of each month. This is the ONE place the ECR engine
     /// is called; nothing else in this file recomputes PF.
+    ///
+    /// <para>🔴 <b>Why the member list is filtered to those with a salary structure in force.</b>
+    /// <see cref="PayrollComputationService.Compute"/> — and therefore <see cref="PfEcr.Build"/> — <b>throws</b> when
+    /// no salary structure is in force for a member on the month end. A twelve-month currency-period walk hits that
+    /// on the ordinary case, not an exotic one: the currency period opens on <b>1 March</b> and the Indian financial
+    /// year opens on <b>1 April</b>, so a structure defined from the year start (which is what every company does)
+    /// leaves March with no structure in force and the whole of Form 3A and Form 6A would throw. A member with no
+    /// structure in a month simply had no PF wages that month, so they are absent from that month's return and the
+    /// card prints a zero row — which is what a twelve-month card is supposed to show for a month before the member
+    /// was on a structure.</para>
+    ///
+    /// <para>This is a filter, <b>not</b> a swallowed exception: a member who <i>does</i> have a structure but no
+    /// valid UAN still reaches <see cref="PfEcr.Build"/> and still makes it throw, because that is a real data fault
+    /// the operator has to fix rather than a month the member was not yet employed in.</para>
     /// </summary>
     private static (PfEcrReturn Return, Dictionary<string, PfEcrMember> ByUan) MonthReturn(
         Company company, IReadOnlyList<Guid> memberIds, StatutoryMonth month)
     {
-        var ecr = PfEcr.Build(company, memberIds, month.From, month.To);
+        var computation = new PayrollComputationService(company);
+        var payable = new List<Guid>(memberIds.Count);
+        foreach (var id in memberIds)
+        {
+            var employee = company.FindEmployee(id);
+            if (employee is not null && computation.ResolveStructureInForce(employee, month.To) is not null)
+                payable.Add(id);
+        }
+
+        var ecr = PfEcr.Build(company, payable, month.From, month.To);
         var byUan = new Dictionary<string, PfEcrMember>(StringComparer.Ordinal);
         foreach (var m in ecr.Members) byUan[m.Uan] = m;
         return (ecr, byUan);
@@ -447,7 +470,9 @@ public static class PfStatutoryForms
         var to = from.AddMonths(1).AddDays(-1);
 
         var members = PfMembers(company);
-        var ecr = PfEcr.Build(company, members.Select(e => e.Id).ToList(), from, to);
+        // Through the same month-walk helper as Forms 3A / 6A, so a month in which a member is not yet on a salary
+        // structure yields a nil line for that member rather than throwing the whole statement away (see MonthReturn).
+        var (ecr, _) = MonthReturn(company, members.Select(e => e.Id).ToList(), new StatutoryMonth(from, to));
 
         long wages = 0, employeeShare = 0, employerEpf = 0;
         var subscribers = 0;

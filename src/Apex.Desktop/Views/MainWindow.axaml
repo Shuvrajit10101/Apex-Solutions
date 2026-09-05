@@ -1893,6 +1893,77 @@
                               </ItemsControl>
                               <TextBlock Text="{Binding PayrollEmptyNote}" IsVisible="{Binding IsPayrollEmpty}"
                                          Margin="12" FontSize="12.5" Foreground="#777"/>
+
+                              <!-- ==== The matrix's optional SECOND section (W7-D2) ====
+                                   PF Form 6A is a two-PAGE form: page 1 is per member, page 2 is the twelve monthly
+                                   challan remittances, and the two pages have DIFFERENT columns. The second band
+                                   therefore carries its OWN headings (PayrollColumns2) — rendering page 2's figures
+                                   under page 1's headings would be a wrong figure under a right heading. It lives
+                                   INSIDE the body scroller so the two bands share one horizontal offset and stay in
+                                   register with each other; the frozen band above belongs to section 1 alone. -->
+                              <StackPanel IsVisible="{Binding HasPayrollSection2}">
+                                <TextBlock Text="{Binding PayrollSection2Title}" Margin="8,16,8,6"
+                                           FontWeight="SemiBold" FontSize="12.5"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <ItemsControl ItemsSource="{Binding PayrollColumns2}">
+                                    <ItemsControl.ItemsPanel>
+                                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PayrollMatrixColumnVm">
+                                        <TextBlock Text="{Binding Header}" Classes="colHdr" Width="{Binding Width}"
+                                                   TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding PayrollRows2}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PayrollMatrixRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              TextElement.FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}">
+                                        <ItemsControl ItemsSource="{Binding Cells}" Height="24">
+                                          <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                          </ItemsControl.ItemsPanel>
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:PayrollMatrixCellVm">
+                                              <!-- Padding (NOT Margin): see the section-1 body above. -->
+                                              <TextBlock Text="{Binding Text}" Width="{Binding Width}"
+                                                         VerticalAlignment="Center" FontSize="12.5" Padding="8,0,8,0"
+                                                         TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+
+                              <!-- ==== Statutory-form footnotes (W7-D2) ====
+                                   NOT decoration. Several columns on the PF and ESI forms are printed, ruled and
+                                   left BLANK because this book does not maintain their source (Father's / Husband's
+                                   Name, reason for leaving, the IP's dispensary) or because they are facts about a
+                                   bank challan. The footnote is the only thing that stops a blank column reading as
+                                   a bug, and the only thing that stops anyone inventing a value to fill it — so it
+                                   must be on screen wherever those columns are. TextWrapping, never trimming: a
+                                   half-shown footnote is a footnote that failed. -->
+                              <ItemsControl ItemsSource="{Binding PayrollFootnotes}"
+                                            IsVisible="{Binding HasPayrollFootnotes}" Margin="0,14,0,0">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="x:String">
+                                    <Border Background="#FFF7E6" BorderBrush="{StaticResource GridLine}"
+                                            BorderThickness="0,1,0,0" Padding="10,6">
+                                      <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                                 FontSize="11" Foreground="#7A5B00"/>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
                             </StackPanel>
                           </ScrollViewer>
                         </Grid>

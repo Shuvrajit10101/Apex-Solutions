@@ -195,31 +195,37 @@ public static class EsiStatutoryForms
     private static Dictionary<Guid, (int Days, long Wages, long EmployeeContribution)> MonthFigures(
         Company company, List<Employee> members, StatutoryMonth month)
     {
-        var ids = members.Select(e => e.Id).ToList();
-        var monthly = EsiMonthlyContribution.Build(company, ids, month.From, month.To);
+        var computation = new PayrollComputationService(company);
+
+        // 🔴 Only members with a salary structure IN FORCE on the month end are asked for. Both
+        // EsiMonthlyContribution.Build and PayrollComputationService.Compute THROW when no structure is in force,
+        // and a six-month contribution-period walk hits that on the ordinary case: a structure defined from the
+        // financial-year start leaves the whole of the preceding Oct–Mar period — and any month before the member
+        // joined — with no structure. A member not yet on a structure had no ESI wages that month, so their cell is
+        // nil and the register is still built. This is a FILTER, not a swallowed exception: a member who IS on a
+        // structure but carries no valid 10-digit IP number still reaches Build and still makes it refuse, because
+        // that is a data fault the operator must fix rather than a month they were not employed in.
+        var payable = new List<Guid>(members.Count);
+        foreach (var e in members)
+            if (computation.ResolveStructureInForce(e, month.To) is not null)
+                payable.Add(e.Id);
+
+        var monthly = EsiMonthlyContribution.Build(company, payable, month.From, month.To);
 
         // The monthly projection keys the row on the IP number (it is the file's key), so map it back to the member.
         var byIp = new Dictionary<string, EsiContributionRow>(StringComparer.Ordinal);
         foreach (var r in monthly.Rows) byIp[r.IpNumber] = r;
 
-        var computation = new PayrollComputationService(company);
+        var onStructure = new HashSet<Guid>(payable);
         var figures = new Dictionary<Guid, (int, long, long)>();
         foreach (var e in members)
         {
             var ip = (e.EsiNumber ?? string.Empty).Trim();
             byIp.TryGetValue(ip, out var row);
 
-            long contribution = 0;
-            try
-            {
-                contribution = WholeRupee(computation.Compute(e.Id, month.From, month.To).EsiEmployeeContribution);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-            {
-                // A member with no salary structure in force for the month contributes nothing that month; the
-                // monthly projection has already reported the days and wages as zero for the same reason.
-                contribution = 0;
-            }
+            var contribution = onStructure.Contains(e.Id)
+                ? WholeRupee(computation.Compute(e.Id, month.From, month.To).EsiEmployeeContribution)
+                : 0L;   // not on a structure this month ⇒ nothing was deducted
 
             figures[e.Id] = (row?.NoOfDays ?? 0, row?.TotalMonthlyWages ?? 0L, contribution);
         }
