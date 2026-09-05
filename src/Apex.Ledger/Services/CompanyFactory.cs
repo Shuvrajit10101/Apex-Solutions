@@ -4,9 +4,16 @@ using Apex.Ledger.Seed;
 namespace Apex.Ledger.Services;
 
 /// <summary>
-/// Creates a fully seeded <see cref="Company"/>: exactly 28 groups, 2 ledgers, 24 voucher
-/// types, Primary Cost Category, Main Location, ₹/INR 2-dp "Paisa", FY 1-Apr→31-Mar
-/// (design §5; plan.md §4.4). The seed is itself a fixture-backed unit test.
+/// Creates a fully seeded <see cref="Company"/>: exactly 28 groups, 2 ledgers,
+/// <see cref="SeedVoucherTypes.Count"/> (= <b>23</b>) voucher types, Primary Cost Category, Main Location,
+/// ₹/INR 2-dp "Paisa", FY 1-Apr→31-Mar (design §5; plan.md §4.4). The seed is itself a fixture-backed unit
+/// test.
+///
+/// <para>⚠️ This line read <b>"24 voucher types"</b> until W2-12. It was stale: the dead <b>Attendance</b>
+/// row was removed from <see cref="SeedVoucherTypes"/> (decision D24 option B) and that class's own
+/// <c>Count</c> guard has said 23 ever since. A W2-12 test derived its expected figure from THIS comment
+/// and went red against the real seed, which is how the drift was caught — hence the cross-reference,
+/// so the number cannot drift again.</para>
 /// </summary>
 public static class CompanyFactory
 {

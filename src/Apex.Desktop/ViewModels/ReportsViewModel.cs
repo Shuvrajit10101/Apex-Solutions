@@ -88,6 +88,29 @@ public enum ReportKind
     PayrollRegister,
     AttendanceRegister,
     PaymentAdvice,
+
+    // ---- W2-12: the report families of census rows 11.6 / 11.7 / 11.8 ----
+    // Reports → Account Books → Registers: the five accounting registers (11.6). Each opens MONTH-WISE and
+    // drills to that month's voucher-wise listing — a register is NOT a filtered Day Book, and building one
+    // that way is the trap this row sat on for three census passes.
+    SalesRegister,
+    PurchaseRegister,
+    JournalRegister,
+    CreditNoteRegister,
+    DebitNoteRegister,
+
+    // Reports → Account Books → Groups (11.7). Both are scoped to one group, picked from a cascade column.
+    GroupSummary,
+    GroupVouchers,
+
+    // The Ledger Monthly Summary — census T1-32, the level the whole Account Books family was missing.
+    // It is Group Summary's documented drill target (group → ledger → MONTHLY SUMMARY → vouchers), which is
+    // why it lands with 11.7 rather than waiting for 11.5: a flat group→ledger→voucher jump would have
+    // shipped 11.5's defect a second time.
+    LedgerMonthlySummary,
+
+    // Reports → Statements of Accounts → Statistics (11.8).
+    Statistics,
 }
 
 /// <summary>
@@ -126,6 +149,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The stock item a Stock Item Movement report is scoped to (null for the other reports).</summary>
     private Guid? _movementItemId;
+
+    /// <summary>
+    /// The master a W2-12 scoped report hangs off: the accounting GROUP for
+    /// <see cref="ReportKind.GroupSummary"/> / <see cref="ReportKind.GroupVouchers"/>, or the LEDGER for
+    /// <see cref="ReportKind.LedgerMonthlySummary"/>. <see cref="Guid.Empty"/> for every other kind, and the
+    /// scoped builders render an explanatory empty state rather than throwing when it is.
+    /// </summary>
+    private readonly Guid _scopeMasterId;
+
+    /// <summary>
+    /// True when a register report is showing its <b>drilled</b> (voucher-wise) level rather than its
+    /// month-wise top level. Set only by the shell when it opens a month row's drill target, together with
+    /// that month's period — so the two levels are two panes of the Miller cascade and Esc pops back to the
+    /// month list for free.
+    /// </summary>
+    private readonly bool _registerVoucherLevel;
 
     [ObservableProperty] private ReportKind _kind;
     [ObservableProperty] private string _title = string.Empty;
@@ -392,6 +431,26 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     public event Action<Guid>? DrillToVoucherRequested;
 
+    /// <summary>
+    /// W2-12 (census 11.6). Raised when a register's MONTH row is drilled: carries the register's kind and
+    /// that month's window, so the shell opens the voucher-wise listing of exactly the vouchers footed into
+    /// the clicked figure — the vendor's documented two-level register shape.
+    /// </summary>
+    public event Action<ReportKind, DateOnly, DateOnly>? DrillToRegisterMonthRequested;
+
+    /// <summary>
+    /// W2-12 (census 11.7). Raised when a Group-Summary SUB-GROUP row is drilled: carries that group's id so
+    /// the shell opens its own Group Summary one column to the right.
+    /// </summary>
+    public event Action<Guid>? DrillToGroupSummaryRequested;
+
+    /// <summary>
+    /// W2-12 (census 11.7 / T1-32). Raised when a Group-Summary LEDGER row is drilled: carries the ledger and
+    /// the report's window so the shell opens that ledger's <b>Monthly Summary</b> — never the voucher list
+    /// directly, because skipping the monthly level is precisely the shape defect row 11.5 already carries.
+    /// </summary>
+    public event Action<Guid, DateOnly, DateOnly>? DrillToLedgerMonthlyRequested;
+
     /// <summary>The report's effective display-window start — the chosen period's From, else books-begin (RQ-7).</summary>
     public DateOnly DrillFrom => _options.Period?.From ?? _company.BooksBeginFrom;
 
@@ -458,12 +517,33 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <see cref="ReportKind.StockItemMovement"/> report, <paramref name="stockItemId"/> names the item to
     /// scope it to (the Stock-Summary drill target); it is ignored by the other report kinds.
     /// </summary>
-    public ReportsViewModel(Company company, ReportKind kind, Guid? stockItemId = null)
+    /// <param name="scopeMasterId">
+    /// W2-12: the accounting GROUP a Group Summary / Group Vouchers report is scoped to, or the LEDGER a
+    /// Ledger Monthly Summary is scoped to. Ignored by every other kind.
+    /// </param>
+    /// <param name="period">
+    /// W2-12: an initial period window, applied before the first build. The register month-drill uses it to
+    /// open the drilled pane already narrowed to the clicked month.
+    /// </param>
+    /// <param name="registerVoucherLevel">
+    /// W2-12: opens a register at its VOUCHER-WISE level instead of its month-wise top level (the drill
+    /// target of a month row).
+    /// </param>
+    public ReportsViewModel(
+        Company company,
+        ReportKind kind,
+        Guid? stockItemId = null,
+        Guid? scopeMasterId = null,
+        PeriodRange? period = null,
+        bool registerVoucherLevel = false)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _defaultAsOf = ComputeAsOf(company);
         _options = ReportOptions.AsOf(_defaultAsOf);
+        if (period is { } p && p.IsValid) _options = _options.WithPeriod(p);
         _movementItemId = stockItemId;
+        _scopeMasterId = scopeMasterId ?? Guid.Empty;
+        _registerVoucherLevel = registerVoucherLevel;
 
         Scenarios.Add(ScenarioOption.Actual);
         foreach (var s in company.Scenarios.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
@@ -727,6 +807,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.TcsNatureSummary: BuildTcsNatureSummary(); break;
             case ReportKind.LedgersWithoutPan: BuildLedgersWithoutPan(); break;
 
+            // ---- W2-12: the report families (census 11.6 / 11.7 / 11.8) ----
+            case ReportKind.SalesRegister: BuildVoucherRegister(VoucherRegisterKind.Sales); break;
+            case ReportKind.PurchaseRegister: BuildVoucherRegister(VoucherRegisterKind.Purchase); break;
+            case ReportKind.JournalRegister: BuildVoucherRegister(VoucherRegisterKind.Journal); break;
+            case ReportKind.CreditNoteRegister: BuildVoucherRegister(VoucherRegisterKind.CreditNote); break;
+            case ReportKind.DebitNoteRegister: BuildVoucherRegister(VoucherRegisterKind.DebitNote); break;
+            case ReportKind.GroupSummary: BuildGroupSummary(); break;
+            case ReportKind.GroupVouchers: BuildGroupVouchers(); break;
+            case ReportKind.LedgerMonthlySummary: BuildLedgerMonthlySummary(); break;
+            case ReportKind.Statistics: BuildStatistics(); break;
+
             case ReportKind.Payslip: BuildPayslip(); break;
             case ReportKind.PaySheet: BuildPaySheet(); break;
             case ReportKind.PayrollRegister: BuildPayrollRegister(); break;
@@ -963,6 +1054,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.PayrollRegister] = "PayrollRegister",
         [ReportKind.AttendanceRegister] = "AttendanceRegister",
         [ReportKind.PaymentAdvice] = "PaymentAdvice",
+        [ReportKind.SalesRegister] = "SalesRegister",
+        [ReportKind.PurchaseRegister] = "PurchaseRegister",
+        [ReportKind.JournalRegister] = "JournalRegister",
+        [ReportKind.CreditNoteRegister] = "CreditNoteRegister",
+        [ReportKind.DebitNoteRegister] = "DebitNoteRegister",
+        [ReportKind.GroupSummary] = "GroupSummary",
+        [ReportKind.GroupVouchers] = "GroupVouchers",
+        [ReportKind.LedgerMonthlySummary] = "LedgerMonthlySummary",
+        [ReportKind.Statistics] = "Statistics",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -1116,6 +1216,39 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.DayBook:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // ---- W2-12 (census 11.6): a register drills month → voucher-wise → the voucher itself. ----
+            case ReportKind.SalesRegister:
+            case ReportKind.PurchaseRegister:
+            case ReportKind.JournalRegister:
+            case ReportKind.CreditNoteRegister:
+            case ReportKind.DebitNoteRegister:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                else if (row.DrillPeriod is { } month)
+                    DrillToRegisterMonthRequested?.Invoke(Kind, month.From, month.To);
+                break;
+
+            // ---- W2-12 (census 11.7): a sub-group drills to its own summary, a ledger to its MONTHLY
+            // summary. Never straight to the voucher list — that is 11.5's shape defect. ----
+            case ReportKind.GroupSummary:
+                if (row.DrillGroupId != Guid.Empty)
+                    DrillToGroupSummaryRequested?.Invoke(row.DrillGroupId);
+                else if (row.DrillLedgerId != Guid.Empty)
+                    DrillToLedgerMonthlyRequested?.Invoke(row.DrillLedgerId, DrillFrom, DrillTo);
+                break;
+
+            case ReportKind.GroupVouchers:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // A monthly-summary month row opens that MONTH's ledger vouchers — the window is the month's,
+            // not the report's, so the opened book foots to the clicked row.
+            case ReportKind.LedgerMonthlySummary:
+                if (row.DrillPeriod is { } ledgerMonth && _scopeMasterId != Guid.Empty)
+                    DrillToLedgerRequested?.Invoke(_scopeMasterId, ledgerMonth.From, ledgerMonth.To, false);
                 break;
         }
     }
@@ -3101,6 +3234,253 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     private static string FormatDate(DateOnly d) => ApexDate.Format(d);
+
+    // =============================================================== W2-12 — the report families (11.6/11.7/11.8)
+
+    /// <summary>
+    /// An accounting register (census 11.6). Two levels, and which one is showing is decided by the shell,
+    /// not by an in-place toggle: the TOP level is one row per calendar month of the window, and the DRILLED
+    /// level (<see cref="_registerVoucherLevel"/>, opened as its own cascade column from a month row) is that
+    /// month's voucher-wise listing. Building the top level as a flat voucher list — the "filtered Day Book"
+    /// shortcut — is the exact mistake the verification pass caught this row on.
+    /// </summary>
+    private void BuildVoucherRegister(VoucherRegisterKind registerKind)
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = false;
+
+        if (_registerVoucherLevel)
+        {
+            var months = MonthAxis.Months(period.From, period.To);
+            var label = months.Count == 1 ? months[0].Label : $"{FormatDate(period.From)} to {FormatDate(period.To)}";
+            Title = $"{VoucherRegister.TitleOf(registerKind)} — {label}";
+            Subtitle = $"{CompanyName}  —  voucher-wise for {FormatDate(period.From)} to {FormatDate(period.To)}";
+
+            var vouchers = VoucherRegister.Vouchers(_company, registerKind, period.From, period.To);
+            var footed = 0m;
+            foreach (var v in vouchers)
+            {
+                Rows.Add(new ReportRow
+                {
+                    Particulars = $"{FormatDate(v.Date)}  No. {v.FormattedNumber}",
+                    Secondary = v.Particulars ?? string.Empty,
+                    Amount = IndianFormat.Amount(v.Value),
+                    // RQ-7: every voucher-level row drills into the voucher itself.
+                    DrillVoucherId = v.VoucherId,
+                });
+                footed += v.Value.Amount;
+            }
+
+            if (vouchers.Count == 0)
+                Rows.Add(new ReportRow { Particulars = "No vouchers of this kind in this period.", IsHeader = true });
+            else
+                Rows.Add(ReportRow.Total("Total", new Money(footed)));
+            return;
+        }
+
+        var report = VoucherRegister.Build(_company, registerKind, period.From, period.To);
+        Title = report.Title;
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+
+        foreach (var m in report.Months)
+            Rows.Add(new ReportRow
+            {
+                Particulars = m.Month.Label,
+                Secondary = m.VoucherCount == 1 ? "1 voucher" : $"{m.VoucherCount} vouchers",
+                Amount = IndianFormat.Amount(m.Value),
+                // The month IS the drill key here — an empty month drills too, and correctly shows nothing,
+                // which is more honest than an inert row that looks broken.
+                DrillPeriod = new PeriodRange(m.Month.From, m.Month.To),
+            });
+
+        if (report.Months.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No months in this period.", IsHeader = true });
+        else
+            Rows.Add(ReportRow.Total("Total", report.Total));
+    }
+
+    /// <summary>
+    /// Group Summary (census 11.7): the sub-groups and directly-attached ledgers of the scoped group with
+    /// their closing balances, on the Dr/Cr grid. Sub-group rows drill into their own summary; ledger rows
+    /// drill into the <see cref="ReportKind.LedgerMonthlySummary"/>.
+    /// </summary>
+    private void BuildGroupSummary()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = true;
+
+        if (_company.FindGroup(_scopeMasterId) is null)
+        {
+            Title = "Group Summary";
+            Subtitle = CompanyName;
+            Rows.Add(new ReportRow { Particulars = "Choose a group to summarise.", IsHeader = true });
+            return;
+        }
+
+        var gs = GroupSummary.Build(_company, _scopeMasterId, period.From, period.To);
+        Title = $"Group Summary — {gs.GroupName}";
+        Subtitle = $"{CompanyName}  —  closing as at {FormatDate(period.To)} "
+            + $"(movement {FormatDate(period.From)} to {FormatDate(period.To)})";
+
+        foreach (var r in gs.Rows)
+        {
+            var closing = r.ClosingSide == DrCr.Debit
+                ? (Debit: r.ClosingAmount, Credit: Money.Zero)
+                : (Debit: Money.Zero, Credit: r.ClosingAmount);
+
+            Rows.Add(new ReportRow
+            {
+                Particulars = r.Name,
+                Secondary = r.IsGroup ? "Group" : "Ledger",
+                Debit = IndianFormat.Amount(closing.Debit),
+                Credit = IndianFormat.Amount(closing.Credit),
+                IsTwoColumn = true,
+                DrillGroupId = r.GroupId,
+                DrillLedgerId = r.LedgerId,
+            });
+        }
+
+        if (gs.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "This group holds no sub-groups and no ledgers.", IsHeader = true });
+        else
+            Rows.Add(ReportRow.DrCrTotal(
+                "Total",
+                gs.ClosingSide == DrCr.Debit ? gs.ClosingAmount : Money.Zero,
+                gs.ClosingSide == DrCr.Credit ? gs.ClosingAmount : Money.Zero));
+    }
+
+    /// <summary>
+    /// Group Vouchers (census 11.7): every voucher carrying at least one ledger under the scoped group, with
+    /// that voucher's movement <b>on the group's own ledgers</b> in the Dr/Cr columns, so the footer
+    /// reconciles to the Group Summary's movement. Each row drills into its voucher.
+    /// </summary>
+    private void BuildGroupVouchers()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = true;
+
+        if (_company.FindGroup(_scopeMasterId) is null)
+        {
+            Title = "Group Vouchers";
+            Subtitle = CompanyName;
+            Rows.Add(new ReportRow { Particulars = "Choose a group to list vouchers for.", IsHeader = true });
+            return;
+        }
+
+        var gv = GroupVouchers.Build(_company, _scopeMasterId, period.From, period.To);
+        Title = $"Group Vouchers — {gv.GroupName}";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+
+        foreach (var r in gv.Rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  {r.VoucherTypeName} No. {r.FormattedNumber}",
+                Secondary = r.Particulars ?? string.Empty,
+                Debit = IndianFormat.Amount(r.Debit),
+                Credit = IndianFormat.Amount(r.Credit),
+                IsTwoColumn = true,
+                DrillVoucherId = r.VoucherId,
+            });
+
+        if (gv.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No vouchers touch this group in this period.", IsHeader = true });
+        else
+            Rows.Add(ReportRow.DrCrTotal("Total", gv.TotalDebit, gv.TotalCredit));
+    }
+
+    /// <summary>
+    /// The Ledger Monthly Summary (census T1-32) — the level the Account Books family never had. One row per
+    /// month with that month's Dr/Cr movement in the two amount columns and the running closing in the
+    /// secondary cell; each month row drills into that month's ledger vouchers.
+    /// </summary>
+    private void BuildLedgerMonthlySummary()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = true;
+
+        if (_company.FindLedger(_scopeMasterId) is null)
+        {
+            Title = "Ledger Monthly Summary";
+            Subtitle = CompanyName;
+            Rows.Add(new ReportRow { Particulars = "Choose a ledger.", IsHeader = true });
+            return;
+        }
+
+        var ms = LedgerMonthlySummary.Build(_company, _scopeMasterId, period.From, period.To);
+        Title = $"Ledger Monthly Summary — {ms.LedgerName}";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Opening Balance",
+            Secondary = $"{IndianFormat.Amount(ms.OpeningAmount)} {SideLabel(ms.OpeningSide)}",
+            IsHeader = true,
+        });
+
+        foreach (var r in ms.Rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = r.Month.Label,
+                Secondary = $"closing {IndianFormat.Amount(r.ClosingAmount)} {SideLabel(r.ClosingSide)}",
+                Debit = IndianFormat.Amount(r.Debit),
+                Credit = IndianFormat.Amount(r.Credit),
+                IsTwoColumn = true,
+                DrillPeriod = new PeriodRange(r.Month.From, r.Month.To),
+            });
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Closing Balance",
+            Secondary = $"{IndianFormat.AmountAlways(ms.ClosingAmount)} {SideLabel(ms.ClosingSide)}",
+            IsTotal = true,
+        });
+    }
+
+    /// <summary>
+    /// Statistics (census 11.8): the two documented sections — <b>Types of Vouchers</b> (every voucher type
+    /// with the number entered in the window, and how many of those were cancelled) and <b>Types of
+    /// Accounts</b> (the master counts). The counts render in the single Amount cell as plain integers, not
+    /// as money — a count is not a rupee figure and must not be formatted like one.
+    /// </summary>
+    private void BuildStatistics()
+    {
+        var period = StatementPeriod;
+        var stats = Statistics.Build(_company, period.From, period.To);
+        Title = "Statistics";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        Rows.Add(new ReportRow { Particulars = "Types of Vouchers", IsHeader = true });
+        foreach (var t in stats.VoucherTypes)
+            Rows.Add(new ReportRow
+            {
+                Particulars = t.Name,
+                Secondary = t.CancelledCount == 0
+                    ? string.Empty
+                    : $"{t.CancelledCount} cancelled",
+                Amount = t.Count.ToString(CultureInfo.InvariantCulture),
+            });
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Total Vouchers",
+            Secondary = stats.TotalCancelledVouchers == 0
+                ? string.Empty
+                : $"{stats.TotalCancelledVouchers} cancelled",
+            Amount = stats.TotalVouchers.ToString(CultureInfo.InvariantCulture),
+            IsTotal = true,
+        });
+
+        Rows.Add(new ReportRow { Particulars = "Types of Accounts", IsHeader = true });
+        foreach (var m in stats.Masters)
+            Rows.Add(new ReportRow
+            {
+                Particulars = m.Name,
+                Amount = m.Count.ToString(CultureInfo.InvariantCulture),
+            });
+    }
+
+    /// <summary>"Dr" / "Cr" for a balance side.</summary>
+    private static string SideLabel(DrCr side) => side == DrCr.Debit ? "Dr" : "Cr";
 }
 
 /// <summary>
