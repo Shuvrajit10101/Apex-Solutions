@@ -120,12 +120,23 @@ namespace Apex.Persistence.Sqlite;
 /// index. The first bump whose subject is EVIDENCE rather than figures - it records that a posted voucher was
 /// cancelled, deleted or altered, together with the pre-change voucher. Purely additive: no column is added to any
 /// existing table, so there is no DEFAULT anywhere in it and no existing row is rewritten.
-/// <b><see cref="CurrentVersion"/> = 52</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v53</b> adds the <b>two Voucher Type user flags</b>: <c>print_after_saving</c> and
+/// <c>provide_narration_for_each_ledger</c> on <c>voucher_types</c>, both <c>INTEGER NOT NULL DEFAULT 0</c>. Purely
+/// additive, no back-fill: an existing type reads both OFF, which is exactly what a v52 type was. It is the storage
+/// half of the slice that gave the Voucher Type master a screen at all (census 2.4/5.11) — before it, not one of
+/// <c>VoucherType</c>'s ~20 properties could be edited by an operator.
+/// <b><see cref="CurrentVersion"/> = 53</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v52</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v53</b> is the latest bump
+    /// (the <b>two Voucher Type user flags</b>: <c>print_after_saving</c> and
+    /// <c>provide_narration_for_each_ledger</c> on <c>voucher_types</c>, both <c>INTEGER NOT NULL DEFAULT 0</c>.
+    /// Both are ATTESTED fields of the vendor's Voucher Type screen; this is the storage half of the slice that
+    /// gave that screen an implementation (census 2.4/5.11). Purely additive with no back-fill — an existing type
+    /// reads both OFF, which is what a v52 type was. See <see cref="MigrateV52ToV53"/>).
+    /// v52 was the latest bump
     /// (the <b>voucher edit log</b>: one new table <c>voucher_edit_log</c> + its <c>company_id</c> index, recording
     /// every Cancel / Delete / Alter / memorandum-conversion applied to a posted voucher, with the pre-change
     /// voucher serialised into <c>before_snapshot</c>. Purely additive - no column is added to any existing table,
@@ -165,7 +176,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 52;
+    public const int CurrentVersion = 53;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -925,7 +936,14 @@ public static class Schema
             -- byte-identical (ER-13). The date-keyed Prefix/Suffix rows live in voucher_type_prefix / _suffix below.
             prevent_duplicate  INTEGER NOT NULL DEFAULT 0,          -- 0/1
             number_width       INTEGER NOT NULL DEFAULT 0,          -- 0 = no left-pad
-            prefill_with_zero  INTEGER NOT NULL DEFAULT 0           -- 0/1
+            prefill_with_zero  INTEGER NOT NULL DEFAULT 0,          -- 0/1
+            -- v53 (W2-03; census 5.11): the two ATTESTED Voucher Type user flags, settable from the Voucher Type
+            -- master. "Print voucher after saving" hands straight to the print preview on Accept; "Provide
+            -- narration for each ledger in voucher" is the per-ledger narration mode (0 = the single common
+            -- narration, which is what every pre-v53 type was). Both default 0 so an existing type is
+            -- byte-identical (ER-13) and the migration back-fills nothing.
+            print_after_saving                INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            provide_narration_for_each_ledger INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
         -- v47 (voucher-numbering S3; numbering-design-v2 §1.2/§6): the date-effective Prefix / Suffix rows for a
@@ -3983,4 +4001,40 @@ public static class Schema
     /// <summary>The single table v52 adds - the exact object <see cref="MigrateV51ToV52"/> creates and
     /// <c>SchemaDowngrade.V52ToV51</c> drops. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V52EditLogTables = new[] { "voucher_edit_log" };
+
+    /// <summary>
+    /// v52 → v53 (W2-03; census 5.11): the two ATTESTED <b>Voucher Type user flags</b>, added as nullable-by-default
+    /// <c>INTEGER NOT NULL DEFAULT 0</c> columns on <c>voucher_types</c>.
+    ///
+    /// <para><b>R7 — ATTESTED</b> (help.tallysolutions.com voucher-types page, fetched 2026-09-05): <i>"Enable Print
+    /// voucher after saving to automatically open the Voucher Printing screen"</i> and <i>"Provide narration for each
+    /// ledger in voucher to add narration for individual ledgers"</i>. The column names are ours.</para>
+    ///
+    /// <para><b>Purely additive, and it back-fills NOTHING.</b> Unlike <see cref="MigrateV50ToV51"/> there is no
+    /// <c>UPDATE</c> here and there must not be one: a v52 voucher type had neither flag, so <c>0</c> is not a
+    /// convenient default but the literal truth about every existing row. A back-fill to <c>1</c> on
+    /// <c>print_after_saving</c> would silently open a print preview after every voucher an existing book accepts.
+    /// </para>
+    ///
+    /// <para>🔴 <b>The two APPENDED <see cref="Ledger.Domain.NumberingMethod"/> ordinals need no DDL and get none.</b>
+    /// <c>numbering</c> is already an INTEGER holding the enum ordinal, so <c>AutomaticManualOverride</c> (3) and
+    /// <c>MultiUserAuto</c> (4) simply become storable. That is why they had to be APPENDED: renumbering the enum
+    /// would have re-interpreted every <c>numbering</c> value in every existing database, with no migration able to
+    /// tell which meaning a stored <c>1</c> had.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 53. The two column declarations are
+    /// byte-identical to their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV52ToV53 = """
+        -- v53 (W2-03; census 5.11): the two ATTESTED Voucher Type user flags. Both default 0 — which is not a
+        -- convenience but the truth about every pre-v53 row — and nothing back-fills them.
+        ALTER TABLE voucher_types ADD COLUMN print_after_saving                INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN provide_narration_for_each_ledger INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>The two <c>voucher_types</c> columns v53 adds — the exact set <see cref="MigrateV52ToV53"/> creates
+    /// and <c>SchemaDowngrade.V53ToV52</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V53VoucherTypeFlagColumns =
+        new[] { "print_after_saving", "provide_narration_for_each_ledger" };
 }

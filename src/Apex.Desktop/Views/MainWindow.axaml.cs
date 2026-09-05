@@ -217,6 +217,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W2-03 (census 2.4) — THE SAME CHORD, THE SAME RULE, on the Voucher Type master's existing-list. Its own
+        // arm because ForAlter is a static factory per master type; every other verb on that list (arrows, Alt+D,
+        // refresh) is genuinely shared through IMasterListScreen rather than duplicated.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedVoucherTypeRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -1045,6 +1055,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W2-03 (census 5.11) — Spacebar ACTIVATES / DEACTIVATES the highlighted voucher type. `!IsTyping(e)` is
+        // load-bearing on this screen and not merely copied: the master carries a Name and an Abbreviation box, and
+        // without the guard a space typed into either would silently switch a voucher type off.
+        if (e.Key == Key.Space && !IsTyping(e) && vm.ToggleHighlightedVoucherTypeActive())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Inventory/order voucher shortcuts (modifier + F-key). Checked before the plain F-key switch so a
         // modified F-key never falls through to its bare-key report/voucher action.
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
@@ -1758,6 +1777,11 @@ public partial class MainWindow : Window
     private void OnCreatePayrollUnitClick(object? sender, RoutedEventArgs e)
         => Vm?.PayrollUnitMaster?.Create();
 
+    /// <summary>W2-03 — the Voucher Type master's Accept button. Runs the SAME verb Ctrl+A runs (create or
+    /// alter, per the screen's caption), so the pointer and the keyboard cannot diverge.</summary>
+    private void OnCreateVoucherTypeClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherTypeMaster?.Create();
+
     private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = false;
@@ -1964,7 +1988,7 @@ public partial class MainWindow : Window
     private static void SavePrintPreviewToDocuments(MainWindowViewModel vm)
     {
         if (vm.PrintPreview is not { } preview) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = Services.ExportFolderDefault.Resolve();   // never empty - see ExportFolderDefault
         var name = SafeFileName(preview.ReportTitle) + ".pdf";
         vm.SavePrintPreview(Path.Combine(dir, name));
     }
@@ -1978,7 +2002,7 @@ public partial class MainWindow : Window
     private static void SaveEmailToDocuments(MainWindowViewModel vm)
     {
         if (vm.EmailCompose is not { } compose) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = Services.ExportFolderDefault.Resolve();   // never empty - see ExportFolderDefault
         var name = SafeFileName(compose.DocumentTitle) + ".eml";
         vm.SaveEmail(Path.Combine(dir, name));
     }

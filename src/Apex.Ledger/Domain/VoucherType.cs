@@ -21,8 +21,35 @@ public sealed class VoucherType
     /// <summary>e.g. "F5", "Alt+F6"; <c>null</c> for types without a default shortcut.</summary>
     public string? DefaultShortcut { get; set; }
 
-    /// <summary>Automatic / Manual / None.</summary>
+    /// <summary>The <b>Method of Voucher Numbering</b> — one of the five attested methods
+    /// (<see cref="NumberingMethod"/>). Settable from the Voucher Type master (census 5.10).</summary>
     public NumberingMethod Numbering { get; set; }
+
+    /// <summary>
+    /// True iff <see cref="Numbering"/> is a method under which the ENGINE assigns the next number when the
+    /// caller supplied none — <see cref="NumberingMethod.Automatic"/>,
+    /// <see cref="NumberingMethod.AutomaticManualOverride"/> or <see cref="NumberingMethod.MultiUserAuto"/>.
+    ///
+    /// <para>🔴 <b>Ask this question; never compare to one member.</b> Both post paths
+    /// (<c>LedgerService.Post</c>, <c>InventoryPostingService</c>) used to read
+    /// <c>type.Numbering == NumberingMethod.Automatic</c>. With the two attested methods appended, that literal
+    /// comparison would have left every voucher of an <i>Automatic (Manual Override)</i> or <i>Multi-user
+    /// Auto</i> type UNNUMBERED — the picker would have been a label over a broken book. One property, asked in
+    /// both places, is what makes the two new methods work end-to-end.</para>
+    /// </summary>
+    public bool AssignsNumberAutomatically =>
+        Numbering is NumberingMethod.Automatic
+                  or NumberingMethod.AutomaticManualOverride
+                  or NumberingMethod.MultiUserAuto;
+
+    /// <summary>
+    /// True iff the operator may TYPE the voucher number on the entry screen — <see cref="NumberingMethod.Manual"/>
+    /// (they must) or <see cref="NumberingMethod.AutomaticManualOverride"/> (they may, over a suggested number).
+    /// Under <see cref="NumberingMethod.Automatic"/>, <see cref="NumberingMethod.MultiUserAuto"/> and
+    /// <see cref="NumberingMethod.None"/> the field stays read-only.
+    /// </summary>
+    public bool AllowsManualNumberEntry =>
+        Numbering is NumberingMethod.Manual or NumberingMethod.AutomaticManualOverride;
 
     /// <summary>e.g. "Pymt", "Sale".</summary>
     public string? Abbreviation { get; set; }
@@ -192,6 +219,26 @@ public sealed class VoucherType
     public bool PrefillWithZero { get; set; }
 
     /// <summary>
+    /// "<b>Print voucher after saving</b>" (schema v53; census 5.11). <b>R7 — ATTESTED</b>
+    /// (help.tallysolutions.com voucher-types page, fetched 2026-09-05): <i>"Enable Print voucher after saving to
+    /// automatically open the Voucher Printing screen"</i>. A per-voucher-type operator preference: when
+    /// <b>Yes</b>, accepting a voucher of this type hands straight to the print preview instead of returning to
+    /// the entry screen. Defaults to <c>false</c>, so every existing type is byte-identical (ER-13).
+    /// </summary>
+    public bool PrintAfterSaving { get; set; }
+
+    /// <summary>
+    /// "<b>Provide narration for each ledger in voucher</b>" (schema v53; census 5.11). <b>R7 — ATTESTED</b>
+    /// (help.tallysolutions.com voucher-types page, fetched 2026-09-05): the screen offers <i>"Provide narration
+    /// for each ledger in voucher to add narration for individual ledgers"</i> as the alternative to the single
+    /// common narration a voucher carries by default. Census row 5.11 names this setting by its Tally.ERP 9
+    /// caption, <i>"Use Common Narration"</i>; the TallyPrime wording is the per-ledger variant, and the two are
+    /// the same switch read from opposite ends — <c>false</c> here IS "use common narration". Defaults to
+    /// <c>false</c>, so every existing type keeps the single common narration (ER-13).
+    /// </summary>
+    public bool ProvideNarrationForEachLedger { get; set; }
+
+    /// <summary>
     /// The date-effective <b>Prefix</b> rows (numbering-design-v2 §1.2, §1.3). Get-only and ctor-injected (mirrors
     /// <see cref="Voucher.InventoryLines"/>/<see cref="Voucher.PosTenders"/>): the rendered number selects the row whose
     /// <see cref="VoucherNumberAffix.ApplicableFrom"/> is the latest on/before the voucher date. May be empty (ER-13:
@@ -229,6 +276,8 @@ public sealed class VoucherType
         bool preventDuplicate = false,
         int numberWidth = 0,
         bool prefillWithZero = false,
+        bool printAfterSaving = false,
+        bool provideNarrationForEachLedger = false,
         IEnumerable<VoucherNumberAffix>? prefixes = null,
         IEnumerable<VoucherNumberAffix>? suffixes = null)
     {
@@ -258,6 +307,8 @@ public sealed class VoucherType
         PreventDuplicate = preventDuplicate;
         NumberWidth = numberWidth;
         PrefillWithZero = prefillWithZero;
+        PrintAfterSaving = printAfterSaving;
+        ProvideNarrationForEachLedger = provideNarrationForEachLedger;
         _prefixes = prefixes?.ToList() ?? new List<VoucherNumberAffix>();
         _suffixes = suffixes?.ToList() ?? new List<VoucherNumberAffix>();
     }

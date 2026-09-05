@@ -468,7 +468,11 @@ public static class CanonicalXml
             // to the pre-feature golden (ER-13) — mirrors the unit_id / Opt precedent.
             OptTrue("preventDuplicate", t.PreventDuplicate),
             OptInt("numberWidth", t.NumberWidth == 0 ? null : t.NumberWidth),
-            OptTrue("prefillWithZero", t.PrefillWithZero));
+            OptTrue("prefillWithZero", t.PrefillWithZero),
+            // v53 (W2-03; census 5.11): same omit-at-default rule — a type that never left the defaults must not
+            // gain two attributes it never had (ER-13).
+            OptTrue("printAfterSaving", t.PrintAfterSaving),
+            OptTrue("provideNarrationForEachLedger", t.ProvideNarrationForEachLedger));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
         // v47: emit the affix child element lists ONLY when non-empty (byte-identical when absent, ER-13).
         if (t.Prefixes is { Count: > 0 } pre) el.Add(List("prefixes", "prefix", pre, a => BuildAffix("prefix", a)));
@@ -1436,6 +1440,9 @@ public static class CanonicalXml
         PreventDuplicate = Bool(e, "preventDuplicate"),
         NumberWidth = Int(e, "numberWidth"),
         PrefillWithZero = Bool(e, "prefillWithZero"),
+        // v53 (W2-03): absent attrs read false — a pre-v53 export imports with both flags off, which is what it was.
+        PrintAfterSaving = Bool(e, "printAfterSaving"),
+        ProvideNarrationForEachLedger = Bool(e, "provideNarrationForEachLedger"),
         Prefixes = ReadAffixes(e, "prefixes", "prefix"),
         Suffixes = ReadAffixes(e, "suffixes", "suffix"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,

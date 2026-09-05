@@ -21,7 +21,7 @@ public sealed partial class EmployeeCategoryListRow : ObservableObject, IPayroll
     /// for why the payroll lists shipping without one is the whole of census row 7.16's reach problem.</summary>
     public Guid MasterId { get; init; }
 
-    string IPayrollMasterListRow.MasterName => Name;
+    string IMasterListRow.MasterName => Name;
 
     [ObservableProperty] private bool _isHighlighted;
 }
@@ -57,7 +57,7 @@ public sealed partial class EmployeeCategoryMasterViewModel : ViewModelBase, IMa
     public string MasterKindLabel => "employee category";
 
     /// <inheritdoc/>
-    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
 
     /// <summary>The highlighted existing-category row, or <c>null</c>. Ctrl+Enter on it opens the alteration.</summary>
     public EmployeeCategoryListRow? HighlightedRow => _highlight.Row;

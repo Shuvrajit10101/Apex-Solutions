@@ -448,7 +448,7 @@ The address `foreach` (`InvoicePdf.cs:894`) never executes when the list is empt
 `MailingName` writes in the Desktop layer are `LedgerMasterViewModel.cs:582, 803, 965, 988, 1152`, which are the
 **party** mailing block, a different object). The only writers anywhere are `ApplyJournal.cs:343-344` and
 `ImportPlan.cs:1195-1196` — **and note those same blocks assign `State` and `Pin` three lines further down**
-(`ApplyJournal.cs:346-347`, `ImportPlan.cs:1198-1199`), which is the fact §7.3(i) had missed.
+(`ApplyJournal.cs:346-347`, `ImportPlan.cs:1201-1202`), which is the fact §7.3(i) had missed.
 
 > **[V] Census drift, for whoever maintains it:** `docs/full-clone-census.md:86` cited
 > `VoucherPrintProjector.cs:745-750` for `SellerBlock` and described it as reading "`company.MailingName` and
@@ -484,12 +484,12 @@ The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAdd
 > words into the user gate. **`Company.State` and `Company.Pin` are read and written by the canonical XML/JSON
 > export–import round-trip**, and always have been: `CanonicalMapper.cs:66-67` maps them, `CanonicalXml.cs:55`
 > writes `state`/`pin` onto the company element, `CanonicalXml.cs:1024-1025` reads them back, and
-> `ImportPlan.cs:1198-1199` assigns them onto the domain company. `CanonicalRoundTripTests.cs:259` has asserted
+> `ImportPlan.cs:1201-1202` assigns them onto the domain company. `CanonicalRoundTripTests.cs:259` has asserted
 > the State survives export all along. **The accurate claim is narrower and entirely about the PRINT path: no
 > print path reads `Company.State`.** The column is not dormant — every book imported from canonical XML carries
 > real values in it. §8 depends on this distinction; see the migration consequence there.
 >
-> *(Tellingly, `CanonicalXml.cs:690-693` documents the **party** side deliberately having no `state` attribute —
+> *(Tellingly, `CanonicalXml.cs:697-700` documents the **party** side deliberately having no `state` attribute —
 > "No `state` attribute: the party State rides on `partyGst/@stateCode`, the single stored State that drives GST
 > place of supply." The asymmetry is a conscious design that was simply never mirrored on the company side.)*
 >
