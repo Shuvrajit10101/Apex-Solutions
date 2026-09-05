@@ -138,6 +138,10 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Unit-of-Measure master (non-null only for the Unit creation column).</summary>
     public UnitMasterViewModel? UnitMaster => Page as UnitMasterViewModel;
 
+    /// <summary>The hosted Voucher Type master (non-null only for the Voucher Type creation/alteration column;
+    /// W2-03, census 2.4).</summary>
+    public VoucherTypeMasterViewModel? VoucherTypeMaster => Page as VoucherTypeMasterViewModel;
+
     /// <summary>The hosted Godown master (non-null only for the Godown creation column).</summary>
     public GodownMasterViewModel? GodownMaster => Page as GodownMasterViewModel;
 

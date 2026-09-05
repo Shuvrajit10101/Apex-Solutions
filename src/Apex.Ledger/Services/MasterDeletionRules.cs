@@ -708,6 +708,67 @@ public static class MasterDeletionRules
         ThrowIfNamed(referenceParts, $"stock item '{item.Name}'");
     }
 
+    /// <summary>
+    /// <b>census 2.4 — the Voucher Type master's DELETE guard.</b> Refuses in three layers, all of them OURS
+    /// (ruling 9: the vendor pages describe creating and altering a voucher type and say nothing about removing
+    /// one).
+    ///
+    /// <list type="number">
+    ///   <item><b>A predefined type is never deletable.</b> The twenty-four seeds are what every F-key
+    ///     accelerator, Gateway row and <see cref="VoucherTypeResolver"/> route resolves against, so removing one
+    ///     would break a ROUTE rather than a master — the operator would be left with a menu row that opens
+    ///     nothing. The refusal names the remedy that does exist: deactivate it.</item>
+    ///   <item><b>A type carrying documents is never deletable</b>, and here that is not merely a policy: both
+    ///     <c>vouchers.type_id</c> and <c>inventory_vouchers.type_id</c> declare
+    ///     <c>REFERENCES voucher_types(id)</c>. Without this guard the removal would succeed in memory and then
+    ///     throw <c>SQLITE_CONSTRAINT_FOREIGNKEY</c> out of the next save, leaving the open company permanently
+    ///     unsavable — the exact failure mode the stock-item guard above was rewritten to prevent.</item>
+    ///   <item><b>A type a scenario names is never deletable</b> — <c>scenario_voucher_types.voucher_type_id</c>
+    ///     carries the same clause, so this one is the <see cref="ThrowIfNamed"/> shape.</item>
+    /// </list>
+    ///
+    /// <para>The type's own children — its numbering Prefix/Suffix rows and any POS configuration — are NOT
+    /// counted: they belong to the type and leave with it, exactly as a ledger's own rows do.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The type is predefined, carries documents, or is named by a
+    /// scenario.</exception>
+    public static void EnsureVoucherTypeDeletable(Company company, VoucherType type)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (type.IsPredefined)
+            throw new InvalidOperationException(
+                $"Cannot delete voucher type '{type.Name}': it is one of the predefined types the menus and "
+                + "shortcut keys resolve against. Deactivate it instead — a deactivated type disappears from "
+                + "entry while every voucher already posted under it stays readable.");
+
+        var vouchers = company.Vouchers.Count(v => v.TypeId == type.Id);
+        var inventoryVouchers = company.InventoryVouchers.Count(v => v.TypeId == type.Id);
+
+        var total = vouchers + inventoryVouchers;
+        if (total > 0)
+        {
+            var parts = new List<string>();
+            AddPart(parts, vouchers, "voucher", "vouchers");
+            AddPart(parts, inventoryVouchers, "inventory voucher", "inventory vouchers");
+
+            var head = total == 1 ? "1 entry is posted under it" : $"{total} entries are posted under it";
+            throw new InvalidOperationException(
+                $"Cannot delete voucher type '{type.Name}': {head} ({string.Join(", ", parts)}). "
+                + "A voucher type that carries entries cannot be deleted — deactivate it instead.");
+        }
+
+        var referenceParts = new List<string>();
+        // scenario_voucher_types.voucher_type_id — both the included and the excluded side.
+        AddPart(referenceParts,
+                company.Scenarios.Count(s => s.IncludedTypeIds.Contains(type.Id)
+                                          || s.ExcludedTypeIds.Contains(type.Id)),
+                "scenario", "scenarios");
+
+        ThrowIfNamed(referenceParts, $"voucher type '{type.Name}'");
+    }
+
     // ==================================================================== helpers
 
     /// <summary>Appends "1 batch" / "3 batches" to <paramref name="parts"/> when the count is non-zero. One place,

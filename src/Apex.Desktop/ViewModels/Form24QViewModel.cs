@@ -145,8 +145,11 @@ public sealed partial class Form24QViewModel : ViewModelBase
         _selectedQuarter = Quarters[3]; // default to Q4 so the annual Annexure II is visible on open
         _selectedSectionCode = SectionCodes.First();
 
-        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { ExportFolder = string.Empty; }
+        // W2-03 bonus fix: ONE seam, so the empty-string failure mode cannot be re-introduced per screen.
+        // Environment.GetFolderPath returns "" when the platform has no such folder (a Linux CI container
+        // with no HOME), and an empty folder makes Path.Combine collapse to a bare file name - the file
+        // lands in the process working directory, unfindable. See Services.ExportFolderDefault.
+        ExportFolder = Apex.Desktop.Services.ExportFolderDefault.Resolve();
 
         Rebuild();
     }

@@ -386,7 +386,10 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
 
     private static string DefaultFolder()
     {
-        try { return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
+        // W2-03 bonus fix: ONE seam, so the empty-string failure mode cannot be re-introduced per screen.
+        // Environment.GetFolderPath returns "" when the platform has no such folder (a Linux CI container
+        // with no HOME), and an empty folder makes Path.Combine collapse to a bare file name - the file
+        // lands in the process working directory, unfindable. See Services.ExportFolderDefault.
+        return Apex.Desktop.Services.ExportFolderDefault.Resolve();
     }
 }
