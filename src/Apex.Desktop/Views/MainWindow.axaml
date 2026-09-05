@@ -430,9 +430,21 @@
                                       <DataTemplate x:DataType="vm:MenuItemViewModel">
                                         <Panel>
                                           <!-- Section header: dim, uppercase, non-selectable -->
+                                          <!-- 🔴 TextWrapping is the HONEST-DEGRADATION backstop for this row, and it
+                                               was added against a MEASURED hard cut, not on principle. Uppercase at
+                                               LetterSpacing 1.5 costs ~12.5px per character, so a header's whole budget
+                                               in this 350px-wide cascade column is ~28 characters. The five Gateway
+                                               root headers need 88 / 113 / 150 / 88 / 50px and are unaffected — for
+                                               every one of them "Wrap" is byte-identical, which is why this is
+                                               layout-neutral rather than a redesign (a shipped test measures exactly
+                                               that). But the company menu's disclosure line needed 888px against 350
+                                               available and, with NoWrap and TextTrimming=None, it was CUT MID-WORD AT
+                                               39% WITH NO ELLIPSIS: the operator read "NOT IN THIS BUILD: TALLYV" and
+                                               nothing told them text was missing. A header that cannot fit must fold,
+                                               not vanish. -->
                                           <Border Classes="menuRow" IsVisible="{Binding IsHeader}" Margin="0,7,0,1">
                                             <TextBlock Text="{Binding Label, Converter={StaticResource Upper}}"
-                                                       FontSize="11" FontWeight="Bold"
+                                                       FontSize="11" FontWeight="Bold" TextWrapping="Wrap"
                                                        Foreground="#9098A8" LetterSpacing="1.5"/>
                                           </Border>
                                           <!-- Selectable item: bright amber in the active column, dim slate when
@@ -16776,20 +16788,20 @@
                                           <!-- The keyboard cursor. Declared FIRST so it paints BEHIND the text,
                                                converter-free, exactly as every other list in this shell does. -->
                                           <Border Background="#FFF3CD" IsVisible="{Binding IsHighlighted}"/>
-                                          <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                                                      Margin="8,0">
-                                            <!-- The parent section ALWAYS reads first: this list is nested by
-                                                 construction, never a flat dump of ~120 page names. -->
-                                            <TextBlock Text="{Binding Section}" FontSize="11.5"
-                                                       Foreground="#6A6A6A" VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text=" › " FontSize="11.5" Foreground="#6A6A6A"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Label}" FontSize="12.5"
-                                                       Foreground="{StaticResource BrandNavy}"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                          </StackPanel>
+                                          <!-- The parent section ALWAYS reads first: this list is nested by
+                                               construction, never a flat dump of ~120 page names.
+                                               🔴 THE THREE RUNS LIVE IN ONE TextBlock ON PURPOSE, and this is the
+                                               shell's own hard-won rule rather than a style choice — the cascade
+                                               menu row carries the identical comment. A horizontal StackPanel
+                                               measures its children at INFINITE width, so a TextTrimming declared
+                                               on a child can never engage: the text overflows and paints over its
+                                               neighbour instead of ellipsising. This row was built as a
+                                               StackPanel of three trimming TextBlocks and
+                                               XamlLayoutInvariantTests caught it. One TextBlock with Runs keeps
+                                               the two type treatments AND lets the trimming work. -->
+                                          <TextBlock VerticalAlignment="Center" Margin="8,0"
+                                                     FontSize="12.5"
+                                                     TextTrimming="CharacterEllipsis"><Run Text="{Binding Section}" FontSize="11.5" Foreground="#6A6A6A"/><Run Text=" › " FontSize="11.5" Foreground="#6A6A6A"/><Run Text="{Binding Label}" Foreground="{StaticResource BrandNavy}"/></TextBlock>
                                         </Grid>
                                       </Border>
                                     </DataTemplate>
@@ -16800,61 +16812,6 @@
 
                             <TextBlock Grid.Row="3" Text="{Binding Status}"
                                        Foreground="#555555" FontSize="12"
-                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
-                          </Grid>
-                        </DataTemplate>
-                      </ContentControl.ContentTemplate>
-                    </ContentControl>
-
-                    <!-- PAGE: Ctrl+I "More Details" (census 14.4 — reach an option-gated optional field for THIS
-                         voucher, without changing the option). The footnote naming what this build cannot offer
-                         is part of the feature, not decoration. -->
-                    <ContentControl IsVisible="{Binding MoreDetails, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding MoreDetails}">
-                      <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:MoreDetailsViewModel">
-                          <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="6">
-                            <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
-
-                            <Border Grid.Row="1" Background="White"
-                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
-                              <ScrollViewer>
-                                <ItemsControl ItemsSource="{Binding Rows}">
-                                  <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:MoreDetailsRowViewModel">
-                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="*,Auto" Height="44">
-                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
-                                                  IsVisible="{Binding IsHighlighted}"/>
-                                          <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="8,0">
-                                            <TextBlock Text="{Binding Label}" FontSize="12.5"
-                                                       Foreground="{StaticResource BrandNavy}"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <!-- Naming the option that is hiding the field is what makes this a
-                                                 "without activating the options" panel rather than a mystery
-                                                 list: the operator can see WHY the field was not on screen. -->
-                                            <TextBlock Text="{Binding OwningOption}" FontSize="11"
-                                                       Foreground="#6A6A6A" TextWrapping="Wrap"/>
-                                          </StackPanel>
-                                          <TextBlock Grid.Column="1" Text="Shown on this voucher"
-                                                     IsVisible="{Binding IsRevealed}"
-                                                     FontSize="11" FontWeight="SemiBold" Foreground="#2E7D32"
-                                                     VerticalAlignment="Center" Margin="8,0,10,0"/>
-                                        </Grid>
-                                      </Border>
-                                    </DataTemplate>
-                                  </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                              </ScrollViewer>
-                            </Border>
-
-                            <TextBlock Grid.Row="2" Text="{Binding Status}"
-                                       Foreground="#555555" FontSize="12"
-                                       Margin="2,0,0,6" TextWrapping="Wrap"/>
-                            <TextBlock Grid.Row="3" Text="{Binding Footnote}"
-                                       Foreground="#8A5A00" FontSize="11"
                                        Margin="2,0,0,4" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>

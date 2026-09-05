@@ -134,36 +134,43 @@ public sealed class ShellChordTableTests : IDisposable
             ShellChordTable.Table.Count);
     }
 
-    // ================================================================ Ctrl+I — the release
+    // ================================================================ Ctrl+I — the chord this table does NOT take
 
     /// <summary>
-    /// 🔴 <b>FAILS ON TODAY <c>main</c>.</b> There, <c>Ctrl+I</c> on an open Sales voucher toggled item-invoice
-    /// mode. It is the vendor's More Details chord and now opens that panel; the mode is unchanged.
+    /// 🔴 <b>THE LOCK THAT KEEPS 14.4 HONEST.</b> <c>Ctrl+I</c> is the vendor's More Details chord and this
+    /// table does not claim it, because claiming it deletes the two-way item-invoice toggle from the keyboard
+    /// (see the reasoning beside <c>ShellChordTable.Table</c>) and the census records that ruling as OPEN.
+    ///
+    /// <para>This asserts the table stays out of the way EVEN ON A VOUCHER, which is the one context where a
+    /// More Details entry would be tempting. It is the guard that stops 14.4 being re-landed by chord alone,
+    /// without the ruling and without a keyboard door for whatever the toggle becomes — and it is why
+    /// <c>ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle</c> still passes.</para>
     /// </summary>
     [AvaloniaFact]
-    public void Ctrl_I_opens_more_details_and_no_longer_toggles_item_invoice()
+    public void The_table_does_not_claim_Ctrl_I_from_the_item_invoice_toggle()
     {
-        var (window, vm) = OpenWindow("Ctrl I Release Co");
+        var (window, vm) = OpenWindow("Ctrl I Incumbent Co");
         try
         {
             vm.OpenVoucher(VoucherBaseType.Sales);
             var entry = vm.VoucherEntry!;
-            var modeBefore = entry.IsItemInvoice;
+            Assert.False(entry.IsItemInvoice);
 
+            Assert.True(ShellChordTable.Match(vm, Key.I, KeyModifiers.Control) is null,
+                "The shell chord table has claimed Ctrl+I. That chord belongs to the item-invoice toggle "
+                + "until the OPEN U-6 chord ruling says otherwise — see ShellChordTable.Table.");
+
+            // And the incumbent still runs, through its own legacy arm.
             window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-
-            Assert.Equal(modeBefore, entry.IsItemInvoice);   // the toggle did NOT run
-            Assert.NotNull(vm.MoreDetails);
-            Assert.Equal(Screen.MoreDetails, vm.CurrentScreen);
+            Assert.True(entry.IsItemInvoice);
         }
         finally { window.Close(); }
     }
 
     /// <summary>
-    /// 🔴 <b>THE NO-LOSS PROOF, AND IT MUST NEVER BE DELETED.</b> Releasing <c>Ctrl+I</c> costs no capability
-    /// only because <c>Ctrl+H</c> "Change Mode" — the vendor's own chord for changing voucher mode — still
-    /// reaches the invoice modes. This passes before and after the release; the day it goes red, the release
-    /// has become a deletion.
+    /// <c>Ctrl+H</c> "Change Mode" — the vendor's own chord for changing voucher mode — reaches the invoice
+    /// modes. Kept because it is the measurement that DISPROVED the premise for releasing <c>Ctrl+I</c>:
+    /// Ctrl+H cycles three ways, so it is not a substitute for a two-way toggle.
     /// </summary>
     [AvaloniaFact]
     public void Ctrl_H_still_changes_mode_on_an_invoiceable_voucher()
@@ -179,32 +186,6 @@ public sealed class ShellChordTableTests : IDisposable
             window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
 
             Assert.NotEqual(before, entry.Mode);
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>
-    /// 🔴 <b>THE APP-WIDE-SWALLOW REGRESSION.</b> Off a voucher screen <c>Ctrl+I</c> must claim nothing —
-    /// no panel, no screen change, no toggle. On <c>main</c> the keystroke was consumed here too.
-    /// </summary>
-    [AvaloniaFact]
-    public void Ctrl_I_claims_nothing_on_a_report()
-    {
-        var (window, vm) = OpenWindow("Ctrl I Report Co");
-        try
-        {
-            vm.OpenReport(ReportKind.BalanceSheet);
-            var screenBefore = vm.CurrentScreen;
-            var columnsBefore = vm.Columns.Count;
-
-            Assert.True(ShellChordTable.Match(vm, Key.I, KeyModifiers.Control) is null,
-                "Ctrl+I is still claimed off a voucher screen — the app-wide swallow is back.");
-
-            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-
-            Assert.Null(vm.MoreDetails);
-            Assert.Equal(screenBefore, vm.CurrentScreen);
-            Assert.Equal(columnsBefore, vm.Columns.Count);
         }
         finally { window.Close(); }
     }

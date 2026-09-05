@@ -365,14 +365,12 @@ public partial class MainWindow : Window
                 vm.ApplySaveView();
             else if (vm.CurrentScreen == Screen.SavedViews)
                 vm.OpenSelectedSavedView();
-            // Ctrl+G "Switch To" (census 14.2) and Ctrl+I "More Details" (14.4): Ctrl+A is the accept every
-            // other column in this shell advertises, so both panels answer it as well as Enter. Without these
-            // two arms Ctrl+A on either panel would fall through to the voucher/company accept below and act on
-            // whatever page happens to be sitting underneath — a keystroke landing on the wrong screen.
+            // Ctrl+G "Switch To" (census 14.2): Ctrl+A is the accept every other column in this shell
+            // advertises, so the panel answers it as well as Enter. Without this arm Ctrl+A on the panel would
+            // fall through to the voucher/company accept below and act on whatever page happens to be sitting
+            // underneath — a keystroke landing on the wrong screen.
             else if (vm.CurrentScreen == Screen.SwitchTo)
                 vm.TakeSwitchToDestination();
-            else if (vm.CurrentScreen == Screen.MoreDetails)
-                vm.TakeMoreDetailsRow();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -534,18 +532,6 @@ public partial class MainWindow : Window
                 vm.SwitchToType(symbol[0]);
                 e.Handled = true;
                 return;
-            }
-        }
-
-        // ------------------------------------------------------------ Ctrl+I "More Details" panel (census 14.4)
-        // Arrows + Enter only; the panel has no filter, so bare letters keep their usual meaning.
-        if (vm.CurrentScreen == Screen.MoreDetails && vm.MoreDetails is not null)
-        {
-            switch (e.Key)
-            {
-                case Key.Down: vm.MoreDetailsMoveDown(); e.Handled = true; return;
-                case Key.Up: vm.MoreDetailsMoveUp(); e.Handled = true; return;
-                case Key.Enter: vm.TakeMoreDetailsRow(); e.Handled = true; return;
             }
         }
 
@@ -942,12 +928,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 🔴 Ctrl+I WAS HERE, bound to vm.ToggleItemInvoice() with NO context guard — consumed app-wide, on every
-        // screen, including the ~157 where the toggle is a no-op. It now enters through ShellChordTable above,
-        // pointing at More Details (census 14.4), which is the chord the vendor gives it. NO CAPABILITY IS LOST:
-        // Ctrl+H "Change Mode" (below) already cycles Purchase/Sales through the invoice modes and is the
-        // vendor-attested chord for doing so, and vm.ToggleItemInvoice() itself is untouched and still on the
-        // button bar. Do not re-add an arm here — the table is the one place this chord is now decided.
+        // Ctrl+I toggles a Purchase/Sales voucher between plain accounting and item-invoice ("as invoice") mode.
+        //
+        // 🔴 THE WAVE-7 SHELL WORK TRIED TO TAKE THIS CHORD FOR More Details (census 14.4) AND THE RELEASE WAS
+        // REVERTED. Recorded here because the argument for taking it is genuinely strong and will be made again:
+        // the vendor's Ctrl+I is "To add more details to a master or voucher for the current instance", this
+        // two-way toggle is an Apex invention the vendor does not attest, and census T2-14 already grades the
+        // binding as wrong. What killed the attempt was the JUSTIFICATION, which was that releasing it "costs
+        // nothing because Ctrl+H already carries mode switching". It does not: Ctrl+H is a THREE-WAY cycle
+        // (As Voucher -> Item -> Accounting) and this is a TWO-WAY toggle that never enters Accounting mode —
+        // different verbs, and ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle locks the
+        // difference on purpose. With this arm gone, vm.ToggleItemInvoice()'s only surviving door was a mouse
+        // Click handler. T2-14 itself says "Chord ruling required — see U-6. OPEN.", so the swap needs the
+        // ruling first, and it must ship WITH a keyboard door for whatever the toggle becomes.
+        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.ToggleItemInvoice();
+            e.Handled = true;
+            return;
+        }
 
         // Ctrl+H "Change Mode" cycles a Purchase/Sales voucher through the three entry modes
         // As Voucher → Item Invoice → Accounting Invoice → As Voucher. Consumed (e.Handled) ONLY on an invoiceable

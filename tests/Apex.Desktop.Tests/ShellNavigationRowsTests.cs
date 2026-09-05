@@ -22,8 +22,13 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// The three navigation-shell rows: <b>14.2 Switch To (Ctrl+G)</b>, <b>14.9 Company menu (Alt+K)</b> and
-/// <b>14.4 More Details (Ctrl+I)</b>.
+/// The two navigation-shell rows this branch ships: <b>14.2 Switch To (Ctrl+G)</b> and <b>14.9 Company menu
+/// (Alt+K)</b>.
+///
+/// <para><b>14.4 More Details (Ctrl+I) is deliberately absent</b>, and the reasoning is recorded beside the
+/// chord table in <c>ShellChordTable.Table</c>: taking <c>Ctrl+I</c> means taking it from a two-way
+/// item-invoice toggle that <c>ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle</c>
+/// locks on purpose, and the census records that chord ruling as OPEN.</para>
 ///
 /// <para>🔴 <b>Why several of these walk the REALISED VISUAL TREE.</b> Asserting a view-model flag is exactly
 /// the test that passes on the broken build — <c>PayrollMasterHighlightVisibilityTests</c> is this codebase's
@@ -413,10 +418,19 @@ public sealed class ShellNavigationRowsTests : IDisposable
     }
 
     /// <summary>
+    /// The three rows of the vendor's Alt+K list this build does not have. They live HERE, in the test, and
+    /// deliberately not in <c>src</c>: the first is a vendor product name carrying the "Tally" brand, and
+    /// <see cref="No_rendered_text_in_the_company_menu_carries_the_reference_products_brand"/> is the test
+    /// that stops it reaching a screen. Naming the reference product in a test file is correct; shipping it
+    /// in a rendered string is not.
+    /// </summary>
+    private static readonly string[] WithheldVendorRows = { "TallyVault", "Change User", "Edit Log" };
+
+    /// <summary>
     /// 🔴 <b>THE HONEST-OMISSION LOCK.</b> The vendor's Alt+K list is Create · Alter · Select · TallyVault ·
     /// Change User · Edit Log. The last three are security &amp; audit, which this build does not have, and a
-    /// row that opens a "not available" message is worse than no row. So they must be ABSENT as rows and
-    /// PRESENT as a disclosure the operator can read.
+    /// row that opens a "not available" message is worse than no row. So they must be ABSENT as rows and the
+    /// gap must be PRESENT as a disclosure the operator can read.
     /// </summary>
     [AvaloniaFact]
     public void The_company_menu_offers_only_verbs_this_application_has_and_says_what_it_withholds()
@@ -428,15 +442,152 @@ public sealed class ShellNavigationRowsTests : IDisposable
             Pump(window);
 
             var verbs = CompanyMenu.VerbsOf(vm.Columns.Last());
-            foreach (var withheld in CompanyMenu.WithheldVerbs)
+            foreach (var withheld in WithheldVendorRows)
                 Assert.DoesNotContain(withheld, verbs);
             Assert.Equal(CompanyMenu.OfferedVerbs, verbs);
 
-            // The disclosure is on screen, and it names each withheld verb.
-            var shown = VisibleText(window);
-            Assert.Contains(shown, t => t.Contains("Not in this build", StringComparison.Ordinal));
-            foreach (var withheld in CompanyMenu.WithheldVerbs)
-                Assert.Contains(shown, t => t.Contains(withheld, StringComparison.Ordinal));
+            // The disclosure is ON SCREEN. The cascade draws header rows through an uppercasing converter, so
+            // the comparison is case-insensitive by necessity, not by laziness — the shipped glyphs really are
+            // "SECURITY & AUDIT ACTIONS ARE NOT IN THIS BUILD".
+            Assert.Contains(
+                VisibleText(window),
+                t => t.Contains(CompanyMenu.Disclosure, StringComparison.OrdinalIgnoreCase));
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE DE-BRAND LOCK, and it caught a live leak.</b> The predecessor draft of this menu composed its
+    /// disclosure from the vendor's own row names and rendered
+    /// <c>"NOT IN THIS BUILD: TALLYVAULT, CHANGE USER, EDIT LOG (SECURITY &amp; AUDIT)"</c> on screen — the
+    /// reference product's brand, in a user-visible string, in the shipped app. Every sibling report screen in
+    /// this suite carries an <c>Assert.DoesNotContain("Tally", …)</c>; the company menu had none, which is
+    /// exactly why the leak survived to a commit. This one reads the REALISED TREE rather than a view-model
+    /// string, so it also covers anything a template composes on its way to the screen.
+    /// </summary>
+    [AvaloniaFact]
+    public void No_rendered_text_in_the_company_menu_carries_the_reference_products_brand()
+    {
+        var (window, _) = OpenWindow("Company Menu Debrand Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+
+            foreach (var shown in VisibleText(window))
+                Assert.DoesNotContain("Tally", shown, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE DISCLOSURE MUST BE READABLE, NOT MERELY PRESENT — and this is the assertion the "it is on
+    /// screen" test above cannot make.</b> A <c>TextBlock</c> whose <c>Text</c> property holds the whole
+    /// sentence satisfies every string assertion in this file while painting 39% of it and hard-cutting the
+    /// rest mid-word, because <c>Text</c> is what the view-model set, not what the operator read. That is
+    /// precisely what shipped: measured at 1280x720, the predecessor line needed <b>888px</b> of advance width
+    /// and was arranged into <b>350px</b> with <c>TextWrapping=NoWrap</c> and <c>TextTrimming=None</c>, so the
+    /// screen read "NOT IN THIS BUILD: TALLYV" and nothing signalled the loss.
+    ///
+    /// <para>The fix is two-sided and both sides are asserted here: the disclosure was shortened to a budget,
+    /// and the cascade's shared section-header template was given <c>TextWrapping="Wrap"</c> so that a header
+    /// too wide for its column FOLDS instead of vanishing. So this measures the realised row: every line the
+    /// wrapped header produces must fit the width it was actually given.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_company_menus_disclosure_is_fully_readable_and_not_silently_cut()
+    {
+        var (window, _) = OpenWindow("Company Menu Fit Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+
+            var block = Descendants(window)
+                .OfType<TextBlock>()
+                .Single(t => t.IsEffectivelyVisible
+                             && (t.Text ?? string.Empty)
+                                 .Contains(CompanyMenu.Disclosure, StringComparison.OrdinalIgnoreCase));
+
+            Assert.True(block.Bounds.Width > 0 && block.Bounds.Height > 0,
+                "The disclosure is not laid out at all.");
+
+            // A header that neither wraps nor trims is a hard cut with no ellipsis — the defect this locks out.
+            Assert.True(
+                block.TextWrapping != TextWrapping.NoWrap || block.TextTrimming != TextTrimming.None,
+                "The cascade section header can neither wrap nor trim, so any header wider than its column is " +
+                "cut mid-word with no signal to the operator.");
+
+            // The realised paint must fit the width it was given. Measured in the SAME font, wrapped to the
+            // SAME width — headless supplies advance widths, which is what makes this assertion portable.
+            var probe = new TextBlock
+            {
+                Text = block.Text,
+                FontSize = block.FontSize,
+                FontFamily = block.FontFamily,
+                FontWeight = block.FontWeight,
+                FontStyle = block.FontStyle,
+                LetterSpacing = block.LetterSpacing,
+                TextWrapping = block.TextWrapping,
+            };
+            probe.Measure(new Size(block.Bounds.Width, double.PositiveInfinity));
+
+            Assert.True(
+                probe.DesiredSize.Width <= block.Bounds.Width + 0.5,
+                $"The disclosure needs {probe.DesiredSize.Width:F0}px but was arranged into " +
+                $"{block.Bounds.Width:F0}px, so part of it is not on screen.");
+            Assert.True(
+                block.Bounds.Height + 0.5 >= probe.DesiredSize.Height,
+                $"The disclosure wraps to {probe.DesiredSize.Height:F0}px but was arranged into " +
+                $"{block.Bounds.Height:F0}px, so a wrapped line is clipped.");
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE LAYOUT-NEUTRALITY PROOF for the <c>TextWrapping="Wrap"</c> added to the shared cascade
+    /// section-header template.</b> That template draws the header of EVERY menu column on every screen in
+    /// this shell, so the change is only defensible if it is a no-op for the headers that already fit — and
+    /// "it should be" is not a measurement. The five Gateway root headers need 88 / 113 / 150 / 88 / 50px
+    /// against ~349px of column, so none of them can reach a second line; this asserts each is still a single
+    /// unwrapped line occupying exactly the width it needs.
+    /// </summary>
+    [AvaloniaFact]
+    public void Wrapping_the_cascade_section_header_left_the_gateway_headers_on_one_line()
+    {
+        var (window, vm) = OpenWindow("Header Neutrality Co");
+        try
+        {
+            var headers = vm.Columns[0].Items.Where(i => i.IsHeader).Select(i => i.Label).ToArray();
+            Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports", "Data" }, headers);
+
+            foreach (var label in headers)
+            {
+                var block = Descendants(window)
+                    .OfType<TextBlock>()
+                    .Single(t => t.IsEffectivelyVisible
+                                 && string.Equals(t.Text, label.ToUpperInvariant(), StringComparison.Ordinal));
+
+                var probe = new TextBlock
+                {
+                    Text = block.Text,
+                    FontSize = block.FontSize,
+                    FontFamily = block.FontFamily,
+                    FontWeight = block.FontWeight,
+                    FontStyle = block.FontStyle,
+                    LetterSpacing = block.LetterSpacing,
+                };
+                probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+                Assert.True(
+                    probe.DesiredSize.Width <= block.Bounds.Width + 0.5,
+                    $"Gateway header \"{label}\" needs {probe.DesiredSize.Width:F0}px in " +
+                    $"{block.Bounds.Width:F0}px — it no longer fits on one line.");
+                Assert.True(
+                    block.Bounds.Height <= probe.DesiredSize.Height + 0.5,
+                    $"Gateway header \"{label}\" grew to {block.Bounds.Height:F0}px from a natural " +
+                    $"{probe.DesiredSize.Height:F0}px — wrapping was NOT layout-neutral for it.");
+            }
         }
         finally { window.Close(); }
     }
@@ -475,154 +626,4 @@ public sealed class ShellNavigationRowsTests : IDisposable
         Assert.True(ShellChordTable.Match(vm, Key.K, KeyModifiers.Alt) is null);
     }
 
-    // ================================================================ 14.4 — MORE DETAILS (Ctrl+I)
-
-    /// <summary>
-    /// A seeded company with an item and a bill-by-bill customer, standing on a Sales item-invoice whose
-    /// Bill-wise screen is hidden by the shipped default option. That is the exact state the vendor's More
-    /// Details exists for.
-    /// </summary>
-    private (MainWindow Window, MainWindowViewModel Vm, VoucherEntryViewModel Entry) OpenHiddenBillWiseInvoice(
-        string companyName)
-    {
-        var (window, vm) = OpenWindow(companyName);
-        var c = vm.Company!;
-
-        var masters = new InventoryService(c);
-        var grp = masters.CreateStockGroup("Goods");
-        var nos = masters.CreateSimpleUnit("Nos", "Numbers");
-        var item = masters.CreateStockItem("Widget", grp.Id, nos.Id);
-        masters.AddOpeningBalance(item.Id, c.MainLocation!.Id, 500m, Money.FromRupees(100m));
-
-        AddLedger(c, "Sales", "Sales Accounts");
-        var customer = AddLedger(c, "Beta Buyers", "Sundry Debtors", billWise: true);
-        _storage.Save(c);
-
-        vm.OpenVoucher(VoucherBaseType.Sales);
-        var entry = vm.VoucherEntry!;
-        vm.ToggleItemInvoice();
-        entry.SelectedParty = entry.Parties.Single(p => p.Ledger?.Id == customer.Id);
-
-        var line = entry.InventoryLines[0];
-        line.SelectedItem = entry.StockItems.Single(i => i.Id == item.Id);
-        line.SelectedGodown = entry.Godowns.Single(g => g.Id == c.MainLocation!.Id);
-        line.QuantityText = "3";
-        line.RateText = "1234.57";
-        entry.RecalculateItemInvoice();
-
-        // The state under test: the allocation APPLIES, and the screen option is hiding it.
-        Assert.True(entry.InvoiceBillWiseApplies);
-        Assert.True(entry.UseDefaultBillWiseAllocation);
-        Assert.False(entry.ShowInvoiceBillWise);
-
-        Pump(window);
-        return (window, vm, entry);
-    }
-
-    private static DomainLedger AddLedger(Company c, string name, string groupName, bool billWise = false)
-    {
-        var group = c.FindGroupByName(groupName) ?? throw new InvalidOperationException($"No group '{groupName}'.");
-        var ledger = new DomainLedger(Guid.NewGuid(), name, group.Id, Money.Zero, openingIsDebit: false)
-        {
-            MaintainBillByBill = billWise,
-        };
-        c.AddLedger(ledger);
-        return ledger;
-    }
-
-    /// <summary>
-    /// 🔴 <b>FAILS ON TODAY <c>main</c>:</b> there, <c>Ctrl+I</c> on this voucher toggled item-invoice mode.
-    /// Vendor: <i>"To add more details to a master or voucher for the current instance."</i>
-    /// </summary>
-    [AvaloniaFact]
-    public void Ctrl_I_opens_more_details_on_an_open_voucher()
-    {
-        var (window, vm, entry) = OpenHiddenBillWiseInvoice("More Details Open Co");
-        try
-        {
-            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-            Pump(window);
-
-            Assert.NotNull(vm.MoreDetails);
-            Assert.Equal(Screen.MoreDetails, vm.CurrentScreen);
-            Assert.Contains(vm.MoreDetails!.Rows, r => r.Label == "Bill-wise Details");
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>
-    /// 🔴 <b>THE DEFINING BEHAVIOUR, VERBATIM FROM THE VENDOR, AND IT FAILS ON <c>main</c>:</b> <i>"press
-    /// Ctrl+I (More Details) to enter any of the values <b>without activating the options in F12
-    /// (Configure)</b>."</i>
-    ///
-    /// <para>So after More Details reveals the Bill-wise screen for THIS voucher, the owning option must be
-    /// bit-for-bit what it was. A build that simply flipped the knob would satisfy "the field appeared" and
-    /// fail here — which is the whole reason this assertion is separate from the one above.</para>
-    /// </summary>
-    [AvaloniaFact]
-    public void More_details_reveals_the_field_and_does_not_flip_the_owning_option()
-    {
-        var (window, vm, entry) = OpenHiddenBillWiseInvoice("More Details No Flip Co");
-        try
-        {
-            var optionBefore = entry.UseDefaultBillWiseAllocation;
-
-            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-            Pump(window);
-            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Pump(window);
-
-            Assert.True(entry.ShowInvoiceBillWise,
-                "More Details did not reveal the Bill-wise screen for this voucher.");
-            Assert.Equal(optionBefore, entry.UseDefaultBillWiseAllocation);   // 🔴 the knob is untouched
-            Assert.True(entry.UseDefaultBillWiseAllocation);
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>
-    /// 🔴 <b>THE HONEST-FOOTER LOCK.</b> The vendor's headline More Details example reaches <b>Ledger
-    /// Narration</b> — a narration PER LINE — and <c>EntryLine</c> has no narration field, so this build
-    /// cannot offer it without a schema change this track does not take. The panel must SAY so, on screen, so
-    /// a later slice cannot quietly drop the disclosure and call census row 14.4 complete.
-    /// </summary>
-    [AvaloniaFact]
-    public void The_more_details_panel_declares_the_field_it_cannot_offer()
-    {
-        var (window, vm, entry) = OpenHiddenBillWiseInvoice("More Details Footer Co");
-        try
-        {
-            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-            Pump(window);
-
-            Assert.Contains(MoreDetailsViewModel.WithheldField, vm.MoreDetails!.Footnote, StringComparison.Ordinal);
-
-            var shown = VisibleText(window);
-            Assert.Contains(shown, t => t.Contains("Ledger Narration", StringComparison.Ordinal));
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>
-    /// When the option is already OFF the field is on the voucher and there is nothing to reveal, so More
-    /// Details must not offer a row that would do nothing. An empty panel is the correct answer here, and it
-    /// says so rather than looking broken.
-    /// </summary>
-    [AvaloniaFact]
-    public void More_details_offers_no_row_for_a_field_that_is_already_visible()
-    {
-        var (window, vm, entry) = OpenHiddenBillWiseInvoice("More Details Already Shown Co");
-        try
-        {
-            entry.UseDefaultBillWiseAllocation = false;   // the operator turned the option off by hand
-            Assert.True(entry.ShowInvoiceBillWise);
-
-            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-            Pump(window);
-
-            Assert.DoesNotContain(vm.MoreDetails!.Rows, r => r.Label == "Bill-wise Details");
-            Assert.Contains("already on the screen", vm.MoreDetails.Status, StringComparison.Ordinal);
-        }
-        finally { window.Close(); }
-    }
 }

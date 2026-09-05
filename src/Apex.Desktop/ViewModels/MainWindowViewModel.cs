@@ -51,9 +51,6 @@ public enum Screen
     // screen id exists so the shell can tell "the company menu is the active pane" from "the Gateway is".
     CompanyMenu,
 
-    // 14.4 — More Details (Ctrl+I) over an open voucher.
-    MoreDetails,
-
     PrintPreview,
     PrintConfig,
     Export,
@@ -577,9 +574,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Ctrl+G "Switch To" destination list (census 14.2), non-null only while that column is open.</summary>
     [ObservableProperty] private SwitchToViewModel? _switchTo;
 
-    /// <summary>The Ctrl+I "More Details" panel (census 14.4), non-null only while that column is open.</summary>
-    [ObservableProperty] private MoreDetailsViewModel? _moreDetails;
-
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
 
@@ -650,7 +644,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Form16A is null && Form27D is null && Form27A is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null && SwitchTo is null && MoreDetails is null
+        && SaveView is null && SavedViews is null && SwitchTo is null
         && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
@@ -745,7 +739,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSwitchToChanged(SwitchToViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnMoreDetailsChanged(MoreDetailsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -3053,51 +3046,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ReleaseOpenCompany();
         Message = "Company shut. Select or create a company to continue.";
     }
-
-    // ------------------------------------------------------------- 14.4 More Details (Ctrl+I)
-
-    /// <summary>
-    /// Whether <b>Ctrl+I More Details</b> can fire here. Vendor: More Details adds values <i>"to a master or
-    /// voucher for the current instance"</i>, so it is scoped to an open voucher-entry screen.
-    ///
-    /// <para>🔴 <b>Scoping it is the fix, not a limitation.</b> Before this table <c>Ctrl+I</c> ran
-    /// <c>ToggleItemInvoice()</c> with NO context guard at all — it was consumed app-wide, on every screen,
-    /// including the ~157 where the toggle is a no-op.</para>
-    /// </summary>
-    public bool CanOpenMoreDetails => CurrentScreen == Screen.VoucherEntry && VoucherEntry is not null;
-
-    /// <summary>
-    /// <b>Ctrl+I — More Details</b> (census 14.4). Vendor, verbatim: <i>"press Ctrl+I (More Details) to enter
-    /// any of the values <b>without activating the options in F12 (Configure)</b>."</i>
-    ///
-    /// <para>So More Details is the <b>per-instance</b> surfacing of option-gated optional fields, and the
-    /// defining behaviour is the half in bold: the owning option keeps its value. See
-    /// <see cref="MoreDetailsViewModel"/>, which reaches the fields through per-instance override flags and
-    /// never writes the knob.</para>
-    /// </summary>
-    public void OpenMoreDetails()
-    {
-        if (!CanOpenMoreDetails || VoucherEntry is not { } entry) return;
-        if (MoreDetails is not null) return;  // re-press must not stack a second
-
-        var panel = new MoreDetailsViewModel(entry);
-        MoreDetails = panel;
-        Columns.Add(new GatewayColumn(panel.Title, panel));
-        ActiveColumnIndex = Columns.Count - 1;
-        CurrentScreen = Screen.MoreDetails;
-        ScreenTitle = panel.Title;
-        SyncActiveColumn();
-        BuildButtonBar();
-    }
-
-    /// <summary>Down arrow on the More Details panel.</summary>
-    public void MoreDetailsMoveDown() => MoreDetails?.MoveDown();
-
-    /// <summary>Up arrow on the More Details panel.</summary>
-    public void MoreDetailsMoveUp() => MoreDetails?.MoveUp();
-
-    /// <summary>Enter / Ctrl+A on the More Details panel — reveals the highlighted field for this instance.</summary>
-    public void TakeMoreDetailsRow() => MoreDetails?.Activate();
 
     /// <summary>
     /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
@@ -5546,7 +5494,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SaveView = null;
         SavedViews = null;
         SwitchTo = null;
-        MoreDetails = null;
         PrintPreview = null;
         PrintConfigPanel = null;
         ExportPanel = null;
@@ -9054,14 +9001,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
-        // Ctrl+I — More Details (census 14.4): the per-instance surfacing of option-gated optional fields.
-        // 🔴 THIS ROW USED TO READ "Ctrl+I | As Invoice" AND IT WAS ADVERTISING THE WRONG THING. Ctrl+I is the
-        // vendor's More Details chord; the item-invoice toggle is reached by Ctrl+H "Change Mode" below, which
-        // is the vendor's chord for changing voucher mode and which is the next row on this bar. ToggleItemInvoice
-        // itself is unchanged and still has a click route through that row, so no capability left the bar — only
-        // the mislabelled chord did. Leaving the old caption would have been a bar advertising a keystroke the
-        // shell no longer routes, which is the dead-shortcut defect this project has already had to fix twice.
-        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "More Details", OpenMoreDetails, CanOpenMoreDetails));
+        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
         // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
         // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
         ButtonBar.Add(new ButtonBarItem("Ctrl+H", "Change Mode", ChangeMode, IsChangeModeEntry));

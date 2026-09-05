@@ -111,18 +111,27 @@ public static class ShellChordTable
             vm => vm.Company is not null,
             vm => vm.ShutCompany()),
 
-        // ── Ctrl+I — More Details ─────────────────────────────────────────────────────────────────────────
-        // Vendor, verbatim: "To add more details to a master or voucher for the current instance", and on the
-        // Contra Register page: "press Ctrl+I (More Details) to enter any of the values WITHOUT ACTIVATING THE
-        // OPTIONS IN F12 (Configure)."
-        // 🔴 RELEASED FROM THE ITEM-INVOICE TOGGLE, AND NO CAPABILITY IS LOST. On main this chord ran
-        // vm.ToggleItemInvoice() with NO context guard whatsoever, i.e. it was swallowed app-wide on every
-        // screen including the ones where the toggle is a no-op. The verb keeps Ctrl+H, which is its
-        // vendor-attested chord ("To change mode – open vouchers in different modes", Vouchers & Masters
-        // section) and which is already bound and already tested. See MoreDetailsViewModel.
-        new("Ctrl+I", Key.I, KeyModifiers.Control,
-            vm => vm.CanOpenMoreDetails,
-            vm => vm.OpenMoreDetails()),
+        // ── Ctrl+I — More Details — DELIBERATELY NOT IN THIS TABLE ───────────────────────────────────────
+        // 🔴 Census 14.4 (More Details) is the vendor's Ctrl+I: "To add more details to a master or voucher for
+        // the current instance." It is NOT claimed here, and the omission is a finding rather than an
+        // oversight — the reasoning belongs beside the table so the next agent does not "fix" it.
+        //
+        // Taking Ctrl+I means taking it FROM vm.ToggleItemInvoice(), and the case for that was argued on the
+        // premise that it "costs nothing, because Ctrl+H already carries mode switching". MEASURED IN THIS
+        // TREE, THAT PREMISE IS FALSE:
+        //   • Ctrl+H -> ChangeMode() is a THREE-WAY CYCLE: As Voucher -> Item Invoice -> Accounting Invoice.
+        //   • Ctrl+I -> ToggleItemInvoice() is a TWO-WAY toggle that never lands in Accounting mode, and
+        //     tests/Apex.Desktop.Tests/ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle
+        //     locks exactly that, deliberately, alongside a sibling test that locks Ctrl+H's three-way cycle.
+        // They are different verbs. Releasing Ctrl+I therefore does not re-home a capability, it DELETES the
+        // only keyboard door to one: ToggleItemInvoice's sole surviving caller would be a mouse Click handler
+        // (MainWindow.axaml:2202) in a keyboard-first product.
+        //
+        // That trade may well be right on fidelity grounds — our two-way toggle is an Apex invention the vendor
+        // does not attest, and docs/full-clone-census.md's T2-14 already grades the binding as wrong. But that
+        // same cell says "Chord ruling required — see U-6. OPEN.", and the wave-7 design lists it as decision
+        // D-1, OWED TO THE USER. An open ruling is not a build agent's to take, least of all by deleting the
+        // shipped test that guards the incumbent. 14.4 waits for the ruling.
     };
 
     /// <summary>

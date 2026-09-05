@@ -25,10 +25,19 @@ namespace Apex.Desktop.ViewModels;
 ///
 /// <para>🔴 <b>WHAT THIS MENU DELIBERATELY DOES NOT OFFER, and why the omission is the honest answer.</b>
 /// <list type="bullet">
-/// <item><b>TallyVault · Change User · Edit Log</b> — the last three rows of the vendor's list. All three are
-/// census area 16 (security &amp; audit), which is outside this build. A row that opens a "not available"
-/// message is worse than no row: it advertises a capability the product does not have. The column discloses
-/// them in a header line instead of pretending the list is complete.</item>
+/// <item>The <b>last three rows of the vendor's list</b> — its data-vault, change-user and edit-log entries.
+/// All three are census area 16 (security &amp; audit), which is outside this build. A row that opens a "not
+/// available" message is worse than no row: it advertises a capability the product does not have. The column
+/// discloses the gap in a header line instead of pretending the list is complete.</item>
+/// <item>🔴 <b>The disclosure names the CAPABILITY FAMILY, never the vendor's row names, and that is a rule
+/// rather than a style choice.</b> The first of those three rows is a vendor PRODUCT NAME carrying the "Tally"
+/// brand, and this application must never render that brand in a user-visible string — the suite enforces it
+/// with <c>Assert.DoesNotContain("Tally", …)</c> in a dozen places. An earlier draft of this menu shipped
+/// <c>"Not in this build: TallyVault, Change User, Edit Log (security &amp; audit)"</c> straight onto the
+/// screen, which was a brand leak; it was ALSO 888px of text in a 350px column, cut mid-word at 39% with no
+/// ellipsis, so the operator actually read <c>"NOT IN THIS BUILD: TALLYV"</c>. Both faults are locked out by
+/// tests now. The vendor's own row names stay in the test file, where naming the reference product is
+/// correct.</item>
 /// <item><b>"Shut Company" is NOT on the vendor's Alt+K list.</b> Census row 14.9's own title puts it there;
 /// the vendor page does not. Shut is attested on the SHORTCUT page as <c>Ctrl+F3</c> — "To shut the currently
 /// loaded companies" — so it is offered here carrying that chord, which is where the vendor documents it, and
@@ -48,17 +57,17 @@ public static class CompanyMenu
     public static readonly IReadOnlyList<string> OfferedVerbs = new[] { "Create", "Alter", "Select", "Shut" };
 
     /// <summary>
-    /// The three vendor rows this build cannot honour. Named for the same reason: the disclosure line that
-    /// names them and the test that locks the disclosure read the same list.
+    /// 🔴 THE HONEST DISCLOSURE — so nobody, operator or later agent, reads a four-row menu as the whole
+    /// feature. It names the capability FAMILY the three withheld vendor rows belong to (census area 16,
+    /// security &amp; audit) rather than the rows themselves, because the first of them is a vendor product
+    /// name carrying the "Tally" brand and this application never renders that brand. See the type remarks.
+    ///
+    /// <para><b>It is a constant, not a composed string, and it is length-budgeted.</b> A cascade header is
+    /// drawn uppercase at LetterSpacing 1.5, which costs ~12.5px per character against ~350px of column, so a
+    /// header pays for every word. This one needs two wrapped lines and a test measures that it is fully
+    /// readable — the predecessor line was composed from a list, grew to 888px, and was silently cut.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> WithheldVerbs = new[] { "TallyVault", "Change User", "Edit Log" };
-
-    /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE. It names the vendor rows this build does not have, so nobody — operator or
-    /// later agent — reads a four-row menu as the whole feature. A test locks it.
-    /// </summary>
-    public static string Disclosure =>
-        "Not in this build: " + string.Join(", ", WithheldVerbs) + " (security & audit)";
+    public const string Disclosure = "Security & audit actions are not in this build";
 
     /// <summary>
     /// Builds the Alt+K column for the company named <paramref name="companyName"/>.
