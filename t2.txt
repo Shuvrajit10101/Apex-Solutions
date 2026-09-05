@@ -1,0 +1,11 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Apex.Ledger -> C:\Users\dkpho\apexf2\src\Apex.Ledger\bin\Release\net10.0\Apex.Ledger.dll
+  Apex.Ledger.Io -> C:\Users\dkpho\apexf2\src\Apex.Ledger.Io\bin\Release\net10.0\Apex.Ledger.Io.dll
+  Apex.Persistence.Sqlite -> C:\Users\dkpho\apexf2\src\Apex.Persistence.Sqlite\bin\Release\net10.0\Apex.Persistence.Sqlite.dll
+  Apex.Desktop -> C:\Users\dkpho\apexf2\src\Apex.Desktop\bin\Release\net10.0\Apex.Desktop.dll
+  Apex.Desktop.Tests -> C:\Users\dkpho\apexf2\tests\Apex.Desktop.Tests\bin\Release\net10.0\Apex.Desktop.Tests.dll
+Test run for C:\Users\dkpho\apexf2\tests\Apex.Desktop.Tests\bin\Release\net10.0\Apex.Desktop.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     6, Skipped:     0, Total:     6, Duration: 2 s - Apex.Desktop.Tests.dll (net10.0)

@@ -41,6 +41,10 @@ public enum Screen
     // column over the live report exactly like the F12 config panel beside it.
     BasisOfValues,
 
+    // Census 2.13 — the Ctrl+J "Exception Reports" panel over the Chart of Accounts: the vendor's derived
+    // "Show Unused" view ("List of Ledgers (Unused)"). Same cascade-column shape as BasisOfValues above.
+    ExceptionReports,
+
     ReportSortFilter,
     AddComparisonColumn,
     AutoColumns,
@@ -592,6 +596,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Ctrl+B "Basis of Values" (Scale Factor) panel view model, non-null only while that
     /// column is open (W2-13a, census row 14.5).</summary>
     [ObservableProperty] private BasisOfValuesViewModel? _basisOfValues;
+
+    /// <summary>The Ctrl+J "Exception Reports" panel view model, non-null only while that column is open over the
+    /// Chart of Accounts (census row 2.13 — the derived "Show Unused" view).</summary>
+    [ObservableProperty] private ExceptionReportsViewModel? _exceptionReports;
 
     /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
     [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
@@ -2656,6 +2664,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (BasisOfValues is null) return;
         BasisOfValues.Apply();
         if (CurrentScreen == Screen.BasisOfValues) Back();
+    }
+
+    // ============================================= census 2.13: Ctrl+J Exception Reports (Show Unused)
+
+    /// <summary>
+    /// <b>Ctrl+J — Exception Reports.</b> Opens the "Show Unused" panel as its own cascading column to the RIGHT of
+    /// the open Chart of Accounts, mirroring <see cref="OpenBasisOfValues"/> exactly. The tree stays live beneath
+    /// it so applying re-projects in place.
+    ///
+    /// <para>Scoped to the Chart of Accounts and refused quietly everywhere else, so the chord is a safe no-op
+    /// app-wide. It is the vendor's own chord for this feature and was unbound in this application.</para>
+    /// </summary>
+    public void OpenExceptionReports()
+    {
+        if (!IsChartOfAccountsScreen) return;
+        if (ExceptionReports is not null) return;     // panel already open — don't stack a second one
+
+        var panel = new ExceptionReportsViewModel(ChartOfAccounts!);
+        ExceptionReports = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ExceptionReports;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Apply button on the Ctrl+J panel: apply the chosen view to the live tree, then pop the panel so
+    /// the operator lands back on the re-filtered Chart of Accounts rather than on a spent column.
+    /// </summary>
+    public void ApplyExceptionReports()
+    {
+        if (ExceptionReports is null) return;
+        ExceptionReports.Apply();
+
+        // The tree's own heading changed with the filter ("List of Ledgers (Unused)"), so the shell's title must
+        // follow it — otherwise the operator lands back on a filtered pane still captioned "Chart of Accounts".
+        var caption = ChartOfAccounts?.Title;
+        if (CurrentScreen == Screen.ExceptionReports) Back();
+        if (caption is { Length: > 0 } && CurrentScreen == Screen.ChartOfAccounts)
+        {
+            ScreenTitle = caption;
+            var column = Columns.LastOrDefault(c => c.Chart is not null);
+            if (column is not null) column.Title = caption;
+        }
     }
 
     /// <summary>
@@ -5465,6 +5519,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Form16 = null;
         ReportConfig = null;
         BasisOfValues = null;
+        ExceptionReports = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
@@ -8946,6 +9001,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case CostCentreMasterViewModel ccm:
                 CostCentreMaster = ccm;
                 return Screen.CostCentreMaster;
+            // 🔴 ADDED BY census 2.13, and it fixes a PRE-EXISTING gap rather than serving only the new panel.
+            // The Chart of Accounts had no arm here at all, so popping ANY column that sat over it — the Ctrl+J
+            // Exception Reports panel now, and an Alt+C create-master column all along — fell through to
+            // `default` and dumped the operator on the GATEWAY, losing the tree and its highlight. Every other
+            // page that can carry a column above it is listed here; this one was simply missed.
+            case ChartOfAccountsViewModel coa:
+                ChartOfAccounts = coa;
+                return Screen.ChartOfAccounts;
             default:
                 return Screen.Gateway;
         }
@@ -9295,6 +9358,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
             Reports is { SupportsScaleFactor: true }));
+
+        // Census 2.13 — Ctrl+J EXCEPTION REPORTS ("Show Unused"). Enabled on exactly the predicate the key arm
+        // and OpenExceptionReports both enforce (the Chart of Accounts is the open page), and dimmed everywhere
+        // else, for the IV-31 reason spelled out on the Ctrl+B row above: an enabled badge that fires nothing is
+        // a defect, not a convenience.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReports,
+            IsChartOfAccountsScreen));
         // NOTE ON Ctrl+B (updated by W2-13a): Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 (register
         // row IV-5) removed the binding, and this note used to say there was deliberately no Ctrl+B row at all.
         // The chord now carries the verb the reference product puts on it — Basis of Values — and its row is

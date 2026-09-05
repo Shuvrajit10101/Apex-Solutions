@@ -235,6 +235,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Ctrl+B "Basis of Values" panel (non-null only for that W2-13a column).</summary>
     public BasisOfValuesViewModel? BasisOfValues => Page as BasisOfValuesViewModel;
 
+    /// <summary>The hosted Ctrl+J "Exception Reports" panel (non-null only for that column; census 2.13).</summary>
+    public ExceptionReportsViewModel? ExceptionReports => Page as ExceptionReportsViewModel;
+
     /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
     public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;
 

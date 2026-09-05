@@ -16146,6 +16146,55 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+J "Exception Reports" panel (census 2.13 — the derived "Show Unused" view).
+                         A Miller-column page beside the Chart of Accounts it filters, never a stacked overlay.
+                         Nothing is stored: "unused" is recomputed from the vouchers on every rebuild, so this
+                         panel changes what the tree DISPLAYS and edits no master. -->
+                    <ContentControl IsVisible="{Binding ExceptionReports, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ExceptionReports}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ExceptionReportsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ScreenTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12"
+                                    VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MinWidth="260">
+                                <TextBlock Text="View" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="An unused ledger is one no voucher has ever been posted against and no other master names. The books are unchanged."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <RadioButton GroupName="ExceptionReportView" Content="All groups and ledgers"
+                                             IsChecked="{Binding IsAllMasters, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExceptionReportView" Content="Show Unused"
+                                             IsChecked="{Binding IsShowUnused, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyExceptionReportsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
                     <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintConfigPanel}">
