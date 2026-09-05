@@ -193,6 +193,39 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-14 (census 14.1) — GO TO (Alt+G), and the keys that belong to it while it is up.              │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // Grounding: help.tallysolutions.com's shortcut table — Alt+G, "To primarily open a report, and create
+        // masters and vouchers in the flow of work". Alt+G was measured FREE before this arm was written (zero
+        // `Key.G` hits anywhere in src/Apex.Desktop), so unlike the Insert-Voucher / Company-menu / More-Details
+        // chords it needed no ruling and displaces nothing.
+        //
+        // This block sits at the VERY TOP of the chain deliberately, and in two halves:
+        //   • Alt+G opens the overlay from ANYWHERE — that is the whole feature ("without having to move out of
+        //     the screen you have already opened"), so it must not be filtered by any screen guard below.
+        //   • While the overlay IS up it OWNS Up / Down / Enter / Escape. Without that, Down would arrow the
+        //     cascade column hidden behind the overlay and Enter would drill it — the operator would be driving
+        //     a menu they cannot see. Every other key (the letters they are typing) falls through to the search
+        //     box, which is focused.
+        if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            if (vm.IsGoToOpen) vm.CloseGoTo(); else vm.OpenGoTo();
+            e.Handled = true;
+            return;
+        }
+
+        if (vm.IsGoToOpen)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.GoTo!.MoveDown(); e.Handled = true; return;
+                case Key.Up: vm.GoTo!.MoveUp(); e.Handled = true; return;
+                case Key.Enter: vm.ActivateGoTo(); e.Handled = true; return;
+                case Key.Escape: vm.CloseGoTo(); e.Handled = true; return;
+            }
+        }
+
         // WI-3: Ctrl+Enter on a master LIST row opens that master for ALTERATION. This must sit ahead of every
         // other Enter arm below — the plain-Enter drill immediately after ignores modifiers, and the
         // IsMasterAcceptScreen arm in the switch would otherwise raise "Accept Stock Item? (Y/N)" instead. The VM
@@ -1532,6 +1565,20 @@ public partial class MainWindow : Window
 
     private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
         => Vm?.AccountGroupMaster?.Create();
+
+    /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
+    private void OnMultiMasterCreateClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiMasterCreate?.Accept();
+
+    /// <summary>
+    /// W2-14 — puts the caret in the Go To search box the instant the overlay is realised, so Alt+G is followed
+    /// by typing and nothing else. Without this the keystrokes after Alt+G would go to whatever held focus
+    /// behind the overlay, which is the screen the operator is trying to leave.
+    /// </summary>
+    private void OnGoToSearchBoxAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is TextBox box) box.Focus();
+    }
 
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();

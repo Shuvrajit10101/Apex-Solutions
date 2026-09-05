@@ -5968,6 +5968,104 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Multi Ledger / Multi Group creation — W2-20 (census 2.12). A grid-entry master:
+                         one "Under Group" header (defaulting to the vendor's "All Items") over a grid that grows
+                         as it is typed. Every cell is a focusable control reached by Tab/arrows, the Dr/Cr cell is
+                         a CheckBox (Space toggles), and Ctrl+A accepts the whole batch — no affordance here needs
+                         a pointer. -->
+                    <ContentControl IsVisible="{Binding MultiMasterCreate, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiMasterCreate}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiMasterCreateViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- The header "Under Group" field. "All Items" ⇒ each row picks its own Under. -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="12,10" Margin="0,0,0,10">
+                              <Grid ColumnDefinitions="110,260,*">
+                                <TextBlock Grid.Column="0" Text="Under Group" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding UnderGroupOptions}"
+                                          SelectedItem="{Binding SelectedUnderGroup, Mode=TwoWay}">
+                                  <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MultiMasterUnderOption">
+                                      <TextBlock Text="{Binding Display}"/>
+                                    </DataTemplate>
+                                  </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Grid.Column="2" Margin="12,0,0,0" FontSize="11" FontStyle="Italic"
+                                           VerticalAlignment="Center" Foreground="#6A6A6A" TextWrapping="Wrap"
+                                           Text="Pick a group to put every row under it, or leave &quot;All Items&quot; to choose per row."/>
+                              </Grid>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="40,*,210,140,64">
+                                <TextBlock Grid.Column="0" Text="#" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="1" Text="{Binding NameColumnHeader}" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Opening Balance" Classes="colHdr"
+                                           TextAlignment="Right" IsVisible="{Binding ShowsOpeningBalance}"/>
+                                <TextBlock Grid.Column="4" Text="Dr/Cr" Classes="colHdr"
+                                           IsVisible="{Binding ShowsOpeningBalance}"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:MultiMasterRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="40,*,210,140,64" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding Number}" Margin="0,0,6,0"
+                                                   TextAlignment="Right" VerticalAlignment="Center"
+                                                   FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                                 Margin="4,0" FontSize="12.5"/>
+                                        <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" Margin="4,0"
+                                                  ItemsSource="{Binding UnderOptions}"
+                                                  SelectedItem="{Binding Under, Mode=TwoWay}"
+                                                  IsEnabled="{Binding UnderIsEditable}"
+                                                  PlaceholderText="Under…">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="ledger:Group">
+                                              <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBox Grid.Column="3" Text="{Binding OpeningBalanceText, Mode=TwoWay}"
+                                                 IsVisible="{Binding ShowsOpeningBalance}"
+                                                 Margin="4,0" FontSize="12.5" TextAlignment="Right"/>
+                                        <CheckBox Grid.Column="4" Content="Cr" Margin="6,0,0,0"
+                                                  IsVisible="{Binding ShowsOpeningBalance}"
+                                                  IsChecked="{Binding OpeningIsCredit, Mode=TwoWay}"
+                                                  VerticalAlignment="Center"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource AlertRed}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Create All (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnMultiMasterCreateClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Stock Group master (create + list) -->
                     <ContentControl IsVisible="{Binding StockGroupMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding StockGroupMaster}">
@@ -17490,5 +17588,62 @@
                        TextTrimming="CharacterEllipsis"
                        Text="{Binding AcceptPromptText}"/>
         </Border>
+
+        <!-- ============ W2-14 (census 14.1): Go To (Alt+G) ============
+             Spans every row and is declared LAST so it floats OVER whatever is on screen — the vendor's framing
+             is "without having to move out of the screen you have already opened", so the screen underneath is
+             never torn down and is exactly as it was if the overlay is dismissed. Keyboard-only: the search box
+             takes focus on open, Up/Down/Enter/Escape are owned by the window's tunnel handler while it is up. -->
+        <Grid Grid.Row="0" Grid.RowSpan="4" IsVisible="{Binding IsGoToOpen}" Background="#66000000">
+            <Border Width="620" MaxHeight="460" VerticalAlignment="Top" Margin="0,90,0,0"
+                    Background="White" BorderBrush="{StaticResource BrandNavy}" BorderThickness="2"
+                    BoxShadow="0 6 18 0 #40000000">
+                <ContentControl Content="{Binding GoTo}">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GoToViewModel">
+                            <Grid RowDefinitions="Auto,Auto,*,Auto">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}" Padding="12,7">
+                                    <TextBlock Text="Go To" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                                </Border>
+
+                                <TextBox Grid.Row="1" Name="GoToSearchBox" Margin="10,10,10,6"
+                                         Text="{Binding SearchText, Mode=TwoWay}"
+                                         AttachedToVisualTree="OnGoToSearchBoxAttached"
+                                         Watermark="Type a report, master or voucher name…"/>
+
+                                <ScrollViewer Grid.Row="2" Margin="10,0">
+                                    <ItemsControl ItemsSource="{Binding Results}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:GoToDestination">
+                                                <Border Padding="8,4"
+                                                        Background="{Binding IsSelected,
+                                                                    Converter={StaticResource SelBrush}}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Label}" FontSize="12.5"
+                                                                   FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding Section}" FontSize="10.5"
+                                                                   Foreground="#6A6A6A"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+
+                                <StackPanel Grid.Row="3" Margin="10,6,10,10" Spacing="2">
+                                    <TextBlock Text="No screen matches that." FontSize="11" FontStyle="Italic"
+                                               Foreground="{StaticResource AlertRed}"
+                                               IsVisible="{Binding HasNoMatch}"/>
+                                    <TextBlock Text="↑ ↓ to move · Enter to open · Esc to close"
+                                               FontSize="10.5" Foreground="#6A6A6A"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
