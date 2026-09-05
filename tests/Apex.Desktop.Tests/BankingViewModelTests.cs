@@ -268,7 +268,18 @@ public sealed class BankingViewModelTests : IDisposable
         var submenu = vm.Columns[^1];
         Assert.True(submenu.IsMenu);
         var labels = submenu.Items.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Bank Reconciliation", "Import Bank Statement" }, labels);
+        // Updated deliberately for the wave-7 banking documents (census 8.4 / 8.7): the column used to carry
+        // exactly the two reconciliation pages, which is the shortfall census row 8.9 records. It is still an
+        // EXACT assertion, in order — loosening it to Assert.Contains would stop it noticing a row that
+        // silently disappears, which is the whole reason this assertion exists.
+        Assert.Equal(
+            new[]
+            {
+                "Bank Reconciliation", "Import Bank Statement",
+                "Cheque Printing",
+                "Payment Advice (Suppliers)",
+            },
+            labels);
 
         // Drilling into the first item (Bank Reconciliation) adds exactly ONE page column.
         vm.DrillIn();

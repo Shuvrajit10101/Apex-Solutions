@@ -27,6 +27,15 @@ namespace Apex.Ledger.Io;
 /// integers of <see cref="ChequeLayout"/> mean the only floating-point step is the one conversion to points. The
 /// same cheque renders byte-identically on every host.</para>
 ///
+/// <para><b>🔴 REACHABILITY, STATED PLAINLY: NO OPERATOR CAN REACH THIS RENDERER TODAY.</b> It is driven by
+/// <c>Ledger.ChequeLayout</c>, which does not persist — the <c>cheque_layouts</c> table is this wave's single
+/// schema migration and it could not be taken on this branch (the branch was cut at schema v52 and main has
+/// since moved to v53, so numbering it here either collides or leaves a hole the migration chain cannot cross).
+/// A loaded company therefore always has a <c>null</c> layout, <see cref="Validate"/> always refuses, and the
+/// <b>leaf never prints</b>. The code, its guards and its tests are correct and complete and go live the moment
+/// the migration lands; until then row 8.4 ships on its <i>Cheque Printing report</i> half alone, and nothing
+/// here may be reported as delivered. See the block in <c>Ledger.cs</c> for the exact unblock.</para>
+///
 /// <para><b>🔴 SOURCE-SILENCE, STATED RATHER THAN INVENTED.</b> (a) The Cheque Dimensions screen enumerates no
 /// <i>A/C-payee crossing</i> element, so this renderer draws none. (b) It gives no <i>type size</i>, so one fixed
 /// body size is used (<see cref="BodyFontSize"/>) and the vendor's width areas do the fitting — the size is ours,
@@ -188,6 +197,10 @@ public static class ChequePdf
     /// are obtained without inventing any.</para>
     ///
     /// <para>Needs only the leaf size; every other measure may still be zero.</para>
+    ///
+    /// <para><b>🔴 No caller in <c>src/</c> yet, deliberately.</b> Its button belongs on the cheque-dimensions
+    /// screen, and that screen cannot exist until the layout persists — see the reachability note on this class.
+    /// It is exercised by <c>ChequePdfTests</c> and lands with the rest of the bundle.</para>
     /// </summary>
     public static byte[] RenderCalibrationSheet(ChequeLayout layout)
     {

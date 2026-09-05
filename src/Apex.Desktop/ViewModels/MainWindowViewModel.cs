@@ -1366,13 +1366,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Builds the "Banking" submenu column (Transactions → Banking), nested under named section headers rather
     /// than dumped flat: <b>Reconciliation</b> (Bank Reconciliation, Import Bank Statement), <b>Cheque
-    /// Management</b> (Cheque Printing) and <b>Slips &amp; Advices</b> (Payment Advice).
+    /// Management</b> (Cheque Printing) and <b>Advices</b> (Payment Advice).
     ///
     /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/banking/</c>, "Banking Utilities in TallyPrime",
     /// puts cheque printing and the payment advice in this same Banking menu;
     /// <c>help.tallysolutions.com/print-cheques/</c> names the Cheque Printing report and
     /// <c>help.tallysolutions.com/payment-advice/</c> the supplier advice. The column carried exactly two rows
     /// before this wave, which is the shortfall census row 8.9 records.</para>
+    ///
+    /// <para><b>🔴 The third header is "Advices", NOT "Slips &amp; Advices".</b> The Deposit Slip (census row
+    /// 8.6) is not built: its four header fields — account number, branch, account-holder name, bank name — have
+    /// no source on <c>ledgers</c>, and the migration that would add them could not be taken on this branch (see
+    /// the note in <c>Ledger.cs</c>). A section captioned for a document the menu does not carry is exactly how a
+    /// census cell gets graded present when it is absent, so the caption names only what is there. When the
+    /// Deposit Slip lands, rename this to "Slips &amp; Advices" and update
+    /// <c>BankingDocumentsReachabilityTests</c> in the same commit.</para>
     /// </summary>
     private GatewayColumn BuildBankingColumn()
     {
@@ -1382,7 +1390,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(MenuItemViewModel.Header("Cheque Management"));
         col.Add(new MenuItemViewModel("Cheque Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(MenuItemViewModel.Header("Slips & Advices"));
+        col.Add(MenuItemViewModel.Header("Advices"));
         col.Add(new MenuItemViewModel("Payment Advice (Suppliers)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }

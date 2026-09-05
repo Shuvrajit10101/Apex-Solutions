@@ -4588,6 +4588,37 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- Cheque Printing (catalog §8; census 8.4). Shown only for a ledger under
+                                     Bank Accounts / Bank OD A/c, which is where the vendor captures it
+                                     (help.tallysolutions.com/cheque-payments-set-up/, "Specify Cheque Range and
+                                     Format in Bank Ledger"). These two fields are schema-v5 columns that had NO
+                                     screen at all until this block: without them the Cheque Printing report is
+                                     structurally empty for every company. The label column is Auto, not a fixed
+                                     width — "Name of bank (on cheque)" measures wider than 180px at 12.5pt and
+                                     would be sliced at the TextBox border. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowChequePrinting}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Cheque Printing" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <CheckBox Content="Enable cheque printing"
+                                              IsChecked="{Binding EnableChequePrinting, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <Grid ColumnDefinitions="Auto,*"
+                                          IsVisible="{Binding EnableChequePrinting}">
+                                      <TextBlock Grid.Column="0" Text="Name of bank (on cheque)"
+                                                 FontWeight="SemiBold" Margin="0,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1"
+                                               Text="{Binding ChequePrintingBankName, Mode=TwoWay}"
+                                               PlaceholderText="defaults to the ledger name"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party Mailing Details (WI-4). Shown for ANY party ledger — deliberately not
                                      behind an F11 flag, unlike the GST block below. The State/UT field lives in
                                      the GST block only: there is ONE party State (the place-of-supply driver),
