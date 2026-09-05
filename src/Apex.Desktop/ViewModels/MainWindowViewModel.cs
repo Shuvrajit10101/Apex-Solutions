@@ -2731,8 +2731,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenPrintConfig()
     {
-        if (PrintPreview is not { SupportsPrintConfig: true } preview) return; // only over a voucher/invoice preview
-        if (PrintConfigPanel is not null) return;                              // panel already open — don't stack
+        // W2-31 (census 12.4): the panel now opens over ANY preview, not just a voucher/invoice. The F8 format,
+        // F9 paper, F5 copies and F10 range/starting-number knobs apply to every document kind — and a report is
+        // the surface most prints come from, so gating the whole panel on the RQ-12 document knobs left the F8/F9/
+        // F5/F10 half unreachable from the screen that needs it most. The document knobs themselves are still
+        // voucher/invoice-only; the panel hides them via PrintConfigViewModel.SupportsDocumentKnobs.
+        if (PrintPreview is not { } preview) return;              // nothing being previewed
+        if (PrintConfigPanel is not null) return;                 // panel already open — don't stack
 
         var panel = new PrintConfigViewModel(preview);
         PrintConfigPanel = panel;

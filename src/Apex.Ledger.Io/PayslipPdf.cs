@@ -139,6 +139,8 @@ public static class PayslipPdf
         writer.Text(left, y, attendance, page.FooterFontSize, bold: false);
 
         DrawFooter(writer, page, left, right);
+        // W2-31 (census 12.4) F5: collated copies. One copy repeats nothing (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
         return writer.Build();
     }
 

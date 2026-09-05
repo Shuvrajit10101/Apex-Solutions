@@ -15697,39 +15697,98 @@
                                        HorizontalAlignment="Center" Margin="0,0,0,10"
                                        TextTrimming="CharacterEllipsis"/>
 
-                            <Border Grid.Row="2" Background="White"
+                            <!-- W2-31 added four knob groups to this panel, so it can now exceed a 720-DIP
+                                 viewport's height. Without a scroller the Apply button falls off the bottom and
+                                 the whole panel becomes unusable at the narrowest supported size. -->
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                            <Border Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300">
 
-                                <!-- RQ-12: title override -->
-                                <TextBlock Text="Document title override" FontWeight="Bold"
-                                           Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
-                                         PlaceholderText="(blank = template default, e.g. TAX INVOICE)"/>
+                                <!-- RQ-12 document knobs — voucher / invoice only (a report has no narration
+                                     and no CGST Rule 48(1) copy). Hidden, not disabled, over a report. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsDocumentKnobs}">
+                                  <!-- RQ-12: title override -->
+                                  <TextBlock Text="Document title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = template default, e.g. TAX INVOICE)"/>
 
-                                <!-- RQ-12: narration -->
-                                <CheckBox Content="Print narration"
-                                          IsChecked="{Binding ShowNarration, Mode=TwoWay}"
-                                          Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- RQ-12: narration -->
+                                  <CheckBox Content="Print narration"
+                                            IsChecked="{Binding ShowNarration, Mode=TwoWay}"
+                                            Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-12: copy marking -->
-                                <TextBlock Text="Copy marking" FontWeight="Bold"
+                                  <!-- RQ-12: copy marking -->
+                                  <TextBlock Text="Copy marking" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <RadioButton GroupName="CopyMark" Content="None"
+                                               IsChecked="{Binding IsCopyNone, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Original for Recipient"
+                                               IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Duplicate for Transporter"
+                                               IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
+                                               IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+
+                                <!-- W2-31 (census 12.4) page knobs — every document kind. F8 print format. -->
+                                <TextBlock Text="Print format (F8)" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <RadioButton GroupName="CopyMark" Content="None"
-                                             IsChecked="{Binding IsCopyNone, Mode=TwoWay}"
+                                <RadioButton GroupName="PrintFormat" Content="Neat Mode"
+                                             IsChecked="{Binding IsNeat, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Original for Recipient"
-                                             IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
+                                <RadioButton GroupName="PrintFormat" Content="Dot Matrix Format (condensed)"
+                                             IsChecked="{Binding IsDotMatrix, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Duplicate for Transporter"
-                                             IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
-                                             Foreground="{StaticResource BrandNavy}"/>
-                                <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
-                                             IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
+                                <RadioButton GroupName="PrintFormat" Content="Quick / Draft Format (no rules)"
+                                             IsChecked="{Binding IsQuickDraft, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
 
-                                <TextBlock Text="Logo embedding is deferred (later polish)."
+                                <!-- W2-31: F9 paper -->
+                                <TextBlock Text="Paper (F9)" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <RadioButton GroupName="PrintPaper" Content="Plain paper"
+                                             IsChecked="{Binding IsPlainPaper, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="PrintPaper" Content="Pre-printed stationery"
+                                             IsChecked="{Binding IsPrePrinted, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- W2-31: F5 copies, F10 range + starting number -->
+                                <TextBlock Text="Copies and pages (F5 / F10)" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Number of copies" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Copies, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="From page" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding FirstPage, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="To page (0 = end)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding LastPage, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Start page number" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding StartPageNumber, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <TextBlock Text="Print produces a PDF — there is no printer selection or spooler yet, so a copy count is a count of document sets inside the file. Logo embedding is deferred."
                                            FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
 
                                 <Button Content="Apply (Ctrl+A)" Padding="14,6" HorizontalAlignment="Left"
@@ -15737,6 +15796,7 @@
                                         Click="OnApplyPrintConfigClick"/>
                               </StackPanel>
                             </Border>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -15772,6 +15832,20 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                 <RadioButton GroupName="ExportFormat" Content="PDF (printable)"
                                              IsChecked="{Binding IsPdf, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <!-- W2-25 (census 13.6): the four File-Format-list entries that were missing.
+                                     JPEG is deliberately NOT offered — it needs a rasteriser (design ruling R14). -->
+                                <RadioButton GroupName="ExportFormat" Content="HTML (web publishing)"
+                                             IsChecked="{Binding IsHtml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="XML (data interchange)"
+                                             IsChecked="{Binding IsXml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="JSON (data exchange)"
+                                             IsChecked="{Binding IsJson, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="ASCII (comma delimited, .txt)"
+                                             IsChecked="{Binding IsAscii, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- RQ-16: destination -->

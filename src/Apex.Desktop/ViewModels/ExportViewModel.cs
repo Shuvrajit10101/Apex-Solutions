@@ -71,6 +71,13 @@ public sealed partial class ExportViewModel : ViewModelBase
     public bool IsXlsx { get => Format == ExportFormat.Xlsx; set { if (value) Format = ExportFormat.Xlsx; } }
     public bool IsPdf { get => Format == ExportFormat.Pdf; set { if (value) Format = ExportFormat.Pdf; } }
 
+    // W2-25 (census 13.6): the four formats from the vendor's File Format list that were missing. JPEG is NOT
+    // offered — it needs a rasteriser and is carved out by design ruling R14, so 13.6 stays PARTIAL.
+    public bool IsHtml { get => Format == ExportFormat.Html; set { if (value) Format = ExportFormat.Html; } }
+    public bool IsXml { get => Format == ExportFormat.Xml; set { if (value) Format = ExportFormat.Xml; } }
+    public bool IsJson { get => Format == ExportFormat.Json; set { if (value) Format = ExportFormat.Json; } }
+    public bool IsAscii { get => Format == ExportFormat.Ascii; set { if (value) Format = ExportFormat.Ascii; } }
+
     /// <summary>Shell ctor for a REPORT: seed from the open report; default the folder to Documents and the name
     /// to the title. CSV/XLSX use <see cref="ReportTabularProjector"/>; PDF uses the rich report layout.</summary>
     public ExportViewModel(ReportsViewModel report)
@@ -113,6 +120,10 @@ public sealed partial class ExportViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsCsv));
         OnPropertyChanged(nameof(IsXlsx));
         OnPropertyChanged(nameof(IsPdf));
+        OnPropertyChanged(nameof(IsHtml));
+        OnPropertyChanged(nameof(IsXml));
+        OnPropertyChanged(nameof(IsJson));
+        OnPropertyChanged(nameof(IsAscii));
         OnPropertyChanged(nameof(ExtensionHint));
         OnPropertyChanged(nameof(ResolvedFileName));
     }
@@ -155,6 +166,12 @@ public sealed partial class ExportViewModel : ViewModelBase
                 {
                     FooterText = "Apex Solutions  -  Page {page} of {pages}",
                 }),
+                // W2-25: the four added formats all serialize the SAME tabular projection CSV/XLSX use, so the
+                // figures are identical whichever the user picks (RQ-15 fidelity across formats).
+                ExportFormat.Html => HtmlReportWriter.Write(_projectTabular()),
+                ExportFormat.Xml => XmlReportWriter.Write(_projectTabular()),
+                ExportFormat.Json => JsonReportWriter.Write(_projectTabular()),
+                ExportFormat.Ascii => AsciiReportWriter.Write(_projectTabular()),
                 _ => Array.Empty<byte>(),
             };
 
