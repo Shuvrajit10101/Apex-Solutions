@@ -1562,6 +1562,10 @@ public partial class MainWindow : Window
     private void OnApplyPfClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.ApplyPf();
 
+    // GST offline return files (W2-06) — writes the selected return's JSON to the chosen export folder.
+    private void OnExportGstReturnJsonClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstOfflineReturns?.ExportJson();
+
     private void OnExportEcrClick(object? sender, RoutedEventArgs e)
         => Vm?.PfEcrReport?.ExportEcr();
 
