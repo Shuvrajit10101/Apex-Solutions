@@ -36,6 +36,7 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
     private static readonly DateOnly FyStart = new(2024, 4, 1);
     private static readonly DateOnly PurchaseDate = new(2024, 4, 3);
     private static readonly DateOnly SaleDate = new(2024, 4, 5);
+    private static readonly DateOnly RcmDate = new(2024, 4, 8);
 
     private readonly string _tempDir;
     private readonly CompanyStorage _storage;
@@ -150,6 +151,77 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
         return vm;
     }
 
+    /// <summary>
+    /// A Regular GST company carrying BOTH reverse-charge ITC kinds, so that GSTR-3B row 4(A)(2) and row 4(A)(3)
+    /// hold DIFFERENT figures and a row that silently sums the two is visible:
+    /// <list type="bullet">
+    ///   <item>an <b>import of services</b> of ₹20,000 @18% ⇒ IGST ₹3,600.00 — GSTR-3B table 4(A)(2);</item>
+    ///   <item>a <b>domestic inter-state</b> legal fee of ₹10,000 @18% ⇒ IGST ₹1,800.00 — GSTR-3B table 4(A)(3).</item>
+    /// </list>
+    /// Both are posted in April 2024 so the April period picks them up.
+    /// </summary>
+    private MainWindowViewModel NewRegularGstCompanyWithBothRcmKinds(string name)
+    {
+        var vm = NewSeededCompany(name);
+        var c = vm.Company!;
+        var gst = new GstService(c);
+        EnableGst(c, GstRegistrationType.Regular);
+        gst.SeedAdvancedGst(); // seeds the notified RCM categories BuildReverseCharge resolves against
+
+        var rcm = new RcmService(c);
+
+        var legal = Add(c, "Legal Fees", "Indirect Expenses", true);
+        legal.SalesPurchaseGst = new StockItemGstDetails
+        {
+            Taxability = GstTaxability.Taxable,
+            RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Services,
+            ReverseChargeApplicable = true,
+            RcmCategoryId = c.Gst!.RcmCategories.First(x => x.SupplyNature == "Legal").Id,
+        };
+        var advocate = Add(c, "Advocate (Gujarat)", "Sundry Creditors", false);
+        advocate.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = "24AAACC1206D1ZM", StateCode = "24" };
+
+        var consulting = Add(c, "Foreign Consulting", "Indirect Expenses", true);
+        consulting.SalesPurchaseGst = new StockItemGstDetails
+        {
+            Taxability = GstTaxability.Taxable,
+            RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Services,
+            ReverseChargeApplicable = true,
+            RcmCategoryId = c.Gst!.RcmCategories.First(x => x.SupplyNature == "Legal").Id,
+        };
+        var overseas = Add(c, "Overseas Consultant", "Sundry Creditors", false);
+        overseas.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Unregistered };
+
+        PostRcm(c, legal, advocate, Money.FromRupees(10000m),
+            rcm.BuildReverseCharge(Money.FromRupees(10000m), null, legal, advocate.PartyGst, RcmDate,
+                RcmService.SupplyKind.Domestic));
+        PostRcm(c, consulting, overseas, Money.FromRupees(20000m),
+            rcm.BuildReverseCharge(Money.FromRupees(20000m), null, consulting, overseas.PartyGst, RcmDate,
+                RcmService.SupplyKind.ImportOfServices));
+
+        _storage.Save(c);
+        vm.ShowGateway();
+        return vm;
+    }
+
+    /// <summary>Posts the RCM inward Purchase: Dr Expense / Cr Party (supplier charges zero tax) + the balanced pair.</summary>
+    private static void PostRcm(
+        Company c, DomainLedger expense, DomainLedger party, Money value, RcmService.RcmPosting posting)
+    {
+        Assert.True(posting.Applies, "the RCM fixture must actually raise a reverse-charge pair");
+        var lines = new List<EntryLine>
+        {
+            new(expense.Id, value, DrCr.Debit),
+            new(party.Id, value, DrCr.Credit),
+        };
+        lines.AddRange(posting.Lines);
+        var type = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id;
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), type, RcmDate, lines));
+    }
+
     private static string Figure(GstOfflineReturnsViewModel page, string label) =>
         page.Figures.Single(f => f.Label == label).Value;
 
@@ -174,6 +246,57 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
         var labels = vm.Columns[^1].Items.Where(i => i.IsSelectable).Select(i => i.Label).ToList();
         Assert.Contains("GSTR-9A", labels);
         Assert.Contains("Offline Return Files (JSON)", labels);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The reachability standard for this slice.</b> Calling <c>OpenGstOfflineReturns()</c> from a test proves
+    /// only that a method exists — this project has already shipped <c>CompanyStorage.Rename()</c> and
+    /// <c>CostReports.BuildLedgerBreakup</c> fully written, fully tested and callable by nobody. So this test drives
+    /// the row the way the keyboard does: highlight it in the cascade and press Enter (<c>DrillIn</c>), through the
+    /// real <c>OpenPageOf</c> dispatch, from the Gateway root down.
+    /// </summary>
+    [Fact]
+    public void The_offline_return_files_menu_row_opens_the_page_when_a_user_drills_into_it()
+    {
+        var vm = NewRegularGstCompany("Offline Drill Co");
+
+        vm.ShowGstAdvancedReturnsMenu();
+        SelectByLabel(vm.Columns[^1], "Offline Return Files (JSON)");
+        vm.DrillIn();
+
+        Assert.Equal(Screen.GstOfflineReturns, vm.CurrentScreen);
+        Assert.NotNull(vm.GstOfflineReturns);
+        Assert.NotEmpty(vm.GstOfflineReturns!.Figures);
+        Assert.True(vm.GstOfflineReturns.BuildJson().Length > 0);
+    }
+
+    /// <summary>
+    /// Census row 6.13 (GSTR-9A) the same way: the composition menu row must actually land on the GSTR-9A form.
+    /// This is a menu row that dispatches into the shared offline-returns page, NOT a GSTR-9A report page of its own
+    /// — the row moves ABSENT → PARTIAL, and is recorded as PARTIAL.
+    /// </summary>
+    [Fact]
+    public void The_gstr9a_menu_row_opens_the_page_on_gstr9a_when_a_user_drills_into_it()
+    {
+        var vm = NewCompositionCompany("Offline 9A Drill Co");
+
+        vm.ShowCompositionReturnsMenu();
+        SelectByLabel(vm.Columns[^1], "GSTR-9A");
+        vm.DrillIn();
+
+        Assert.Equal(Screen.GstOfflineReturns, vm.CurrentScreen);
+        Assert.Equal("GSTR-9A", vm.GstOfflineReturns!.SelectedReturn!.Label);
+    }
+
+    private static void SelectByLabel(GatewayColumn column, string label)
+    {
+        for (var i = 0; i < column.Items.Count; i++)
+            if (column.Items[i].IsSelectable && column.Items[i].Label == label)
+            {
+                column.SetSelected(i);
+                return;
+            }
+        throw new Xunit.Sdk.XunitException($"No selectable row labelled '{label}' in column '{column.Title}'.");
     }
 
     [Fact]
@@ -265,6 +388,32 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
         Assert.Equal(-36000L, doc.RootElement.GetProperty("tbl6_1_net_camt_paisa").GetInt64());
     }
 
+    /// <summary>
+    /// 🔴 <b>Wrong-money regression lock.</b> GSTR-3B row <b>4(A)(3)</b> is, verbatim per CBIC Circular
+    /// No. 170/02/2022-GST (Table 2, Table 4 "(A) ITC Available"), <i>"3. Inward Supplies liable to Reverse Charge
+    /// <b>(other than 1 &amp; 2 above)</b>"</i> — rows 1 and 2 being import of goods and import of services. That
+    /// circular's own worked example books ITC on import of services (IGST ₹50,000) to 4(A)(2) and ITC on inward
+    /// supplies under RCM (CGST ₹25,000 + SGST ₹25,000) to 4(A)(3); the import figure appears in 4(A)(3) nowhere.
+    /// <para>
+    /// The page originally bound the 4(A)(3) row to <c>Gstr3b.TotalRcmItc</c>, which that record documents (and
+    /// computes) as Σ 4(A)(2) <b>+</b> 4(A)(3) — so the screen showed a label and a figure that disagreed, and the
+    /// import-of-services IGST was counted twice on one filed return.
+    /// </para>
+    /// Hand-derived from the fixture: 4(A)(2) = 18% of ₹20,000 = <b>₹3,600.00</b>; 4(A)(3) = 18% of ₹10,000 =
+    /// <b>₹1,800.00</b>. The defect showed ₹5,400.00 on the 4(A)(3) row.
+    /// </summary>
+    [Fact]
+    public void Gstr3b_row_4A3_excludes_the_import_of_services_itc_that_row_4A2_already_carries()
+    {
+        var vm = NewRegularGstCompanyWithBothRcmKinds("Offline Rcm Split Co");
+        vm.OpenGstOfflineReturns(GstOfflineReturnKind.Gstr3b);
+        var page = vm.GstOfflineReturns!;
+        page.SelectedPeriod = page.Periods.Single(p => p.Label == "April 2024");
+
+        Assert.Equal("3,600.00", Figure(page, "4(A)(2) ITC on import of services"));
+        Assert.Equal("1,800.00", Figure(page, "4(A)(3) ITC on other reverse-charge inward"));
+    }
+
     [Fact]
     public void Export_writes_the_named_json_file_through_the_seam()
     {
@@ -284,6 +433,58 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
         Assert.EndsWith(".json", writtenPath!);
         Assert.Equal(page.BuildJson(), writtenBytes);
         Assert.Contains("Exported", page.ExportStatus);
+    }
+
+    /// <summary>
+    /// The export destination must be a real, findable folder before the user touches anything. With
+    /// <c>ExportFolder</c> empty the path handed to <c>File.WriteAllBytes</c> is a bare file name, so the return
+    /// file lands in the process working directory — beside the executable — with no picker and no way for the user
+    /// to know where it went. Every other shipped export page on this app (Form 16, Form 16A, Form 24Q, Form 26Q,
+    /// the ESI contribution report) seeds My Documents in its constructor; this page must match them.
+    /// </summary>
+    [Fact]
+    public void The_export_folder_defaults_to_my_documents_so_the_file_never_lands_in_the_working_directory()
+    {
+        var vm = NewRegularGstCompany("Offline Folder Co");
+        vm.OpenGstOfflineReturns();
+        var page = vm.GstOfflineReturns!;
+
+        Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), page.ExportFolder);
+        Assert.False(string.IsNullOrWhiteSpace(page.ExportFolder));
+
+        string? writtenPath = null;
+        Assert.True(page.ExportJson((p, _) => writtenPath = p));
+        Assert.Equal(Path.Combine(page.ExportFolder, page.ExportFileName), writtenPath);
+    }
+
+    /// <summary>
+    /// <c>ExportFileName</c> and <c>FinancialPeriodCode</c> are computed from the selected form + period and are
+    /// bound in the view (the file-name placeholder). Without a change notification the placeholder keeps showing the
+    /// file name of whatever was selected when the page opened, while the button writes a different file.
+    /// </summary>
+    [Fact]
+    public void Changing_the_form_or_the_period_renotifies_the_derived_file_name()
+    {
+        var vm = NewRegularGstCompany("Offline Notify Co");
+        vm.OpenGstOfflineReturns(GstOfflineReturnKind.Gstr1);
+        var page = vm.GstOfflineReturns!;
+        page.SelectedPeriod = page.Periods.Single(p => p.Label == "April 2024");
+        Assert.Equal($"GSTR-1_{GstinMaharashtra}_042024.json", page.ExportFileName);
+
+        var raised = new List<string>();
+        page.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        page.SelectedPeriod = page.Periods.Single(p => p.Label == "May 2024");
+        Assert.Contains(nameof(page.ExportFileName), raised);
+        Assert.Contains(nameof(page.FinancialPeriodCode), raised);
+        Assert.Equal($"GSTR-1_{GstinMaharashtra}_052024.json", page.ExportFileName);
+
+        raised.Clear();
+        page.SelectedReturn = page.Returns.Single(r => r.Label == "GSTR-9");
+        Assert.Contains(nameof(page.ExportFileName), raised);
+        Assert.Contains(nameof(page.FinancialPeriodCode), raised);
+        // GSTR-9 collapses to the full year, whose last month is March 2025.
+        Assert.Equal($"GSTR-9_{GstinMaharashtra}_032025.json", page.ExportFileName);
     }
 
     [Fact]

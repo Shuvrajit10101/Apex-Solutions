@@ -122,6 +122,14 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         _selectedYear = FinancialYears.FirstOrDefault();
         _selectedReturn = (preselect is { } k ? Returns.FirstOrDefault(r => r.Kind == k) : null)
                           ?? Returns.FirstOrDefault();
+
+        // Seed a real, findable export destination, exactly as every other shipped export page on this app does
+        // (Form 16 / 16A / 24Q / 26Q, the ESI contribution report). Left empty, Path.Combine collapses to a bare file
+        // name and File.WriteAllBytes drops the return file into the process working directory with no picker and no
+        // way for the user to find it again.
+        try { ExportFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
+        catch { ExportFolder = string.Empty; }
+
         RebuildPeriods();
         Rebuild();
     }
@@ -237,6 +245,12 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         ExportStatus = string.Empty;
         GstinText = string.IsNullOrWhiteSpace(_company.Gst?.Gstin) ? "GSTIN —" : $"GSTIN {_company.Gst!.Gstin}";
 
+        // Both are computed from the selected form + period and are BOUND in the view (the file-name placeholder).
+        // Raised here — on every path, including the no-return-applies early return below — so the placeholder can
+        // never keep naming a file the Export button is no longer going to write.
+        OnPropertyChanged(nameof(FinancialPeriodCode));
+        OnPropertyChanged(nameof(ExportFileName));
+
         if (SelectedReturn is null || SelectedPeriod is null)
         {
             Subtitle = _company.Name;
@@ -305,7 +319,10 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         Add("3.1(d) Reverse-charge IGST", r.RcmOutwardIgst);
         Add("3.1(d) Reverse-charge Cess", r.RcmOutwardCess);
         Add("4(A)(2) ITC on import of services", r.RcmItcImportIgst);
-        Add("4(A)(3) ITC on other reverse-charge inward", r.TotalRcmItc);
+        // 4(A)(3) is expressly "other than 1 & 2 above" (CBIC Circular No. 170/02/2022-GST, Table 2, table 4(A) row 3),
+        // so it must NOT re-count the import-of-services IGST shown on the 4(A)(2) row above. TotalRcmItc spans BOTH
+        // rows and is the wrong source here — TotalRcmItcOther is 4(A)(3) alone.
+        Add("4(A)(3) ITC on other reverse-charge inward", r.TotalRcmItcOther);
         Add("4(A)(5) ITC CGST", r.ItcCgst);
         Add("4(A)(5) ITC SGST", r.ItcSgst);
         Add("4(A)(5) ITC IGST", r.ItcIgst);

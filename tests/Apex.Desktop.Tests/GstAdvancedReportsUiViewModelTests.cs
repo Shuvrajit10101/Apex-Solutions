@@ -268,11 +268,18 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         vm.ShowGstAdvancedReturnsMenu();
         Assert.Equal(GatewayMenu.GstAdvancedReturns, vm.CurrentGatewayMenu);
         var advanced = vm.Columns[^1].Items.Where(i => i.IsSelectable).Select(i => i.Label).ToList();
+        // "Offline Return Files (JSON)" (W2-06) is the 9th row. This exact-list lock is deliberately brittle in BOTH
+        // directions so that every addition is judged, not absorbed: the row is admitted here because GstReturnJson
+        // shipped with five writers and ZERO production callers — no screen, menu or keystroke reached any of them, so
+        // the file a dealer uploads could not be produced at all — and this row is the route. It is proved reachable,
+        // not merely present, by GstOfflineReturnsUiViewModelTests
+        // .The_offline_return_files_menu_row_opens_the_page_when_a_user_drills_into_it.
         Assert.Equal(
             new[]
             {
                 "Electronic Ledgers", "ITC Set-Off", "ITC Reversal", "GSTR-2B Reconciliation",
                 "ITC Gate", "QRMP / IFF", "GST Amendments", "e-Invoice / e-Way Status",
+                "Offline Return Files (JSON)",
             },
             advanced);
     }

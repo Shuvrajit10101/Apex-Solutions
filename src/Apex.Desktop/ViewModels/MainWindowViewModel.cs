@@ -3909,7 +3909,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Return Files (JSON) for a Regular dealer; → Composition Returns → Offline Return Files (JSON) for a Composition
     /// dealer). This is the ONLY route to <see cref="Apex.Ledger.Io.GstReturnJson"/> — before W2-06 that writer had zero
     /// production callers, so the file a dealer uploads could not be produced at all (census row 6.10 / T1-11).
-    /// <paramref name="preselect"/> opens the page already on one form (how the "GSTR-9A" menu row reaches row 6.13).
+    /// <paramref name="preselect"/> opens the page already on one form. That is how the "GSTR-9A" menu row reaches
+    /// census row 6.13 — and it is all it does: a menu row that dispatches onto this shared page, NOT a GSTR-9A report
+    /// page of its own. Row 6.13 therefore moves ABSENT → <b>PARTIAL</b>; it is not closed.
     /// A no-op unless GST is enabled — a GST-off company has no return to file (ER-13).
     /// </summary>
     public void OpenGstOfflineReturns(GstOfflineReturnKind? preselect = null)
