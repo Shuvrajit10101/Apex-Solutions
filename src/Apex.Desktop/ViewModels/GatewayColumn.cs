@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -228,6 +228,9 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
     public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
+
+    /// <summary>The hosted Ctrl+B "Basis of Values" panel (non-null only for that W2-13a column).</summary>
+    public BasisOfValuesViewModel? BasisOfValues => Page as BasisOfValuesViewModel;
 
     /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
     public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;

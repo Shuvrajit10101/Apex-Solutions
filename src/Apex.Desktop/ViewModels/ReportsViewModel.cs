@@ -144,6 +144,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     private ReportSortFilter _sortFilter = ReportSortFilter.None;
 
+    /// <summary>
+    /// The W2-13a Ctrl+B "Basis of Values" <b>Scale Factor</b> (census row 14.5). Like
+    /// <see cref="_sortFilter"/> it is a pure PRESENTATION value carried alongside the engine options and
+    /// never handed to the engine: the projection is built from the unscaled books and the divide is applied
+    /// on the way into a row cell, so percentages, sort magnitudes and every Grand Total stay engine-computed.
+    /// It starts at <see cref="ReportScale.Default"/>, so an untouched report is byte-for-byte the pre-slice
+    /// output.
+    /// </summary>
+    private ReportScale _scale = ReportScale.Default;
+
     /// <summary>The effective as-of upper bound for the current report — the chosen period end, or the default.</summary>
     private DateOnly _asOf => _options.Period?.To ?? _options.AsOfDate;
 
@@ -612,6 +622,55 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The active sort/filter VIEW (RQ-3 Alt+F12). <see cref="ReportSortFilter.None"/> = the default view.</summary>
     public ReportSortFilter SortFilter => _sortFilter;
 
+    // ---- W2-13a: Ctrl+B "Basis of Values" → Scale Factor (census row 14.5) ----
+
+    /// <summary>The Scale Factor the figures are DISPLAYED in (Ctrl+B). <see cref="ReportScale.Default"/> = rupees.</summary>
+    public ReportScale Scale => _scale;
+
+    /// <summary>
+    /// True for the reports this slice's Scale Factor acts on — the three accounting statements
+    /// (Trial Balance / Balance Sheet / Profit &amp; Loss).
+    ///
+    /// <para>🔴 <b>The scope is NAMED rather than implied, and it is narrower than the reference product's.</b>
+    /// The vendor offers Ctrl+B on the inventory and cash/funds-flow reports as well (and on Stock Summary it
+    /// also carries a Stock Valuation Method and a Godown/Stock-Position basis, none of which this slice
+    /// builds). Every report kind outside this set answers <c>false</c> and
+    /// <see cref="ApplyScale"/> refuses on it, so nothing on screen can silently pretend to be scaled. Row 14.5
+    /// is therefore NOT closed by this slice — see the slice artefact for the named residual.</para>
+    /// </summary>
+    public bool SupportsScaleFactor => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss;
+
+    /// <summary>
+    /// Ctrl+B — sets the Scale Factor and re-projects. A no-op on a report that does not support it (the state
+    /// stays <see cref="ReportScale.Default"/>), so a refused scale can never leave a half-scaled grid.
+    /// </summary>
+    public void ApplyScale(ReportScale scale)
+    {
+        if (!SupportsScaleFactor) return;
+        _scale = scale;
+        OnPropertyChanged(nameof(Scale));
+        Show(Kind);
+    }
+
+    /// <summary>
+    /// The scale value of a figure, for display only (see <see cref="ReportScales.Apply"/>). Every accounting
+    /// row cell goes through this; nothing else in the class does.
+    /// </summary>
+    private Money Scaled(Money money) => ReportScales.Apply(_scale, money);
+
+    /// <summary>
+    /// 🔴 The header clause that says which unit the figures are in, e.g. <c>"  —  ₹ in Thousands"</c>. Empty at
+    /// <see cref="ReportScale.Default"/>.
+    ///
+    /// <para>This is not decoration. A Trial Balance that silently reads "105.00" where the books say
+    /// ₹1,05,000 is a misstated financial statement, so a scaled report is required to declare its unit in its
+    /// own subtitle — the same line that already declares the as-of, the scenario and the detail level.</para>
+    /// </summary>
+    private string ScaleSuffix => _scale == ReportScale.Default
+        ? string.Empty
+        : $"  —  ₹ in {ReportScales.Label(_scale)}";
+
     /// <summary>True for the reports RQ-2 detailed↔summary applies to (TB / BS / P&amp;L / Stock Summary).</summary>
     public bool SupportsDetailToggle => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
@@ -707,6 +766,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Kind = kind;
         OnPropertyChanged(nameof(SupportsScenario));
         OnPropertyChanged(nameof(SupportsDetailToggle));
+        // W2-13a: a kind that cannot scale must not inherit a scale from the kind before it — otherwise the
+        // grid would silently show divided figures on a report whose header carries no unit clause.
+        OnPropertyChanged(nameof(SupportsScaleFactor));
+        if (!SupportsScaleFactor && _scale != ReportScale.Default)
+        {
+            _scale = ReportScale.Default;
+            OnPropertyChanged(nameof(Scale));
+        }
         // The layout flags are computed from Kind; notify the view so the right DataTemplate shows.
         OnPropertyChanged(nameof(IsInventoryReport));
         OnPropertyChanged(nameof(IsGstReport));
@@ -1283,7 +1350,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // scenario rides along.
         var tb = TrialBalance.Build(_company, _options);
         Title = "Trial Balance";
-        Subtitle = $"{CompanyName}  —  {AsOfOrPeriodClause}{ScenarioSuffix}{DetailSuffix}";
+        Subtitle = $"{CompanyName}  —  {AsOfOrPeriodClause}{ScenarioSuffix}{DetailSuffix}{ScaleSuffix}";
         IsTwoColumn = true;
 
         var detailRows = tb.Rows.OrderBy(r => r.GroupName).ThenBy(r => r.LedgerName).ToList();
@@ -1308,7 +1375,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 var r = shown[i];
                 var particulars = pct is null ? r.LedgerName : r.LedgerName + PercentSuffix(pct[i]);
                 // RQ-7: carry the owning ledger id so Enter drills into that ledger's vouchers (LedgerBook).
-                Rows.Add(DrCrLedgerLine(particulars, r.Debit, r.Credit, r.GroupName, r.LedgerId));
+                // W2-13a: Scaled() is the Ctrl+B display divide — the ROW CELL is scaled, never the projection.
+                Rows.Add(DrCrLedgerLine(particulars, Scaled(r.Debit), Scaled(r.Credit), r.GroupName, r.LedgerId));
             }
         }
         else
@@ -1324,11 +1392,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
             foreach (var g in shown)
             {
                 var (dr, cr) = SplitSigned(g.Amount);
-                Rows.Add(ReportRow.DrCrLine(g.Key, dr, cr));
+                Rows.Add(ReportRow.DrCrLine(g.Key, Scaled(dr), Scaled(cr)));
             }
         }
 
-        Rows.Add(ReportRow.DrCrTotal("Grand Total", tb.TotalDebit, tb.TotalCredit));
+        // The Grand Total is scaled by the SAME divide as the rows above it, or the column would not foot.
+        Rows.Add(ReportRow.DrCrTotal("Grand Total", Scaled(tb.TotalDebit), Scaled(tb.TotalCredit)));
     }
 
     // --------------------------------------------------------------- Balance Sheet
@@ -1338,7 +1407,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // RQ-1 as-of + RQ-6 closing-stock basis pass through ReportOptions; scenario rides along.
         var bs = BalanceSheet.Build(_company, _asOf, _options);
         Title = "Balance Sheet";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}{DetailSuffix}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}{DetailSuffix}{ScaleSuffix}";
         IsTwoColumn = false;
 
         AddBalanceSheetSide("Liabilities", "Total Liabilities",
@@ -1367,7 +1436,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
             {
                 var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
                 // RQ-7: carry the owning ledger id (Guid.Empty for the synthetic heads → not drillable).
-                Rows.Add(LedgerLine(particulars, shown[i].Amount, shown[i].GroupName, shown[i].LedgerId));
+                // W2-13a: the Ctrl+B display divide (percentages above were computed over the UNSCALED set).
+                Rows.Add(LedgerLine(particulars, Scaled(shown[i].Amount), shown[i].GroupName, shown[i].LedgerId));
             }
         }
         else
@@ -1383,11 +1453,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
             for (var i = 0; i < shown.Count; i++)
             {
                 var particulars = pct is null ? shown[i].Key : shown[i].Key + PercentSuffix(pct[i]);
-                Rows.Add(ReportRow.Line(particulars, shown[i].Amount));
+                Rows.Add(ReportRow.Line(particulars, Scaled(shown[i].Amount)));
             }
         }
 
-        Rows.Add(ReportRow.Total(totalLabel, total));
+        Rows.Add(ReportRow.Total(totalLabel, Scaled(total)));
     }
 
     // --------------------------------------------------------------- Profit & Loss
@@ -1400,7 +1470,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var plClause = _options.Period is { } p
             ? $"for the period {FormatDate(p.From)} to {FormatDate(p.To)}"
             : $"for the period ending {FormatDate(_asOf)}";
-        Subtitle = $"{CompanyName}  —  {plClause}{ScenarioSuffix}{DetailSuffix}";
+        Subtitle = $"{CompanyName}  —  {plClause}{ScenarioSuffix}{DetailSuffix}{ScaleSuffix}";
         IsTwoColumn = false;
 
         AddProfitAndLossSide("Income", "Total Income",
@@ -1411,7 +1481,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
         var magnitude = new Money(Math.Abs(pl.NetProfit.Amount));
-        Rows.Add(ReportRow.Total(label, magnitude));
+        Rows.Add(ReportRow.Total(label, Scaled(magnitude)));
     }
 
     /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
@@ -1442,10 +1512,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         for (var i = 0; i < shown.Count; i++)
         {
             var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
-            Rows.Add(LedgerLine(particulars, shown[i].Amount, string.Empty, shown[i].LedgerId));
+            Rows.Add(LedgerLine(particulars, Scaled(shown[i].Amount), string.Empty, shown[i].LedgerId));
         }
 
-        Rows.Add(ReportRow.Total(totalLabel, total));
+        Rows.Add(ReportRow.Total(totalLabel, Scaled(total)));
     }
 
     // ---- Dr/Cr signed helpers (Money is unsigned magnitude + side; TB rows split across two columns) ----

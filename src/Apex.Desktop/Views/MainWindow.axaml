@@ -15987,6 +15987,57 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+B "Basis of Values" panel (W2-13a / census 14.5 — the report Scale Factor).
+                         A Miller-column page beside the F12 config panel, never a stacked overlay. It changes
+                         DISPLAY only: the projection re-runs over the unscaled books and the divide lands on the
+                         row cells, which is why the report's own subtitle gains a "₹ in <unit>" clause. -->
+                    <ContentControl IsVisible="{Binding BasisOfValues, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BasisOfValues}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BasisOfValuesViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
+                              <StackPanel Spacing="10">
+                                <TextBlock Text="Scale Factor" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="Figures are shown divided by the chosen unit. The books are unchanged."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <ComboBox ItemsSource="{Binding ScaleOptions}"
+                                          SelectedItem="{Binding SelectedScale, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch" FontSize="13">
+                                  <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ReportScaleOption">
+                                      <TextBlock Text="{Binding Display}"/>
+                                    </DataTemplate>
+                                  </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyBasisOfValuesClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
                     <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintConfigPanel}">
