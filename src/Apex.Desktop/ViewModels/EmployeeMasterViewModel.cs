@@ -11,12 +11,19 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>An employee row for the existing-employees list on the master screen.</summary>
-public sealed class EmployeeListRow
+public sealed partial class EmployeeListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Group { get; init; } = string.Empty;
     public string Designation { get; init; } = string.Empty;
     public string Regime { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the employee this row displays (census 7.16).</summary>
+    public Guid MasterId { get; init; }
+
+    string IPayrollMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>An employee-group picker option (required — an employee must belong to a group).</summary>

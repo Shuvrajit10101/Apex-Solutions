@@ -3025,6 +3025,139 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    // =============================================================== the file / folder chooser (census 13.10, T1-20)
+
+    /// <summary>
+    /// What the operator should be asked to point at, for whichever path-carrying screen is open — or
+    /// <c>null</c> when the current screen carries no data path, which makes the browse chord a safe no-op
+    /// everywhere else.
+    ///
+    /// <para><b>Why the decision lives here and not in the view.</b> Which screen needs a folder and which needs
+    /// a file is product behaviour, not shell plumbing: the backup destination and the export destination are
+    /// FOLDERS (the file name is composed from the company/report name and a timestamp on the panel itself),
+    /// while the restore source and the import source are existing FILES, and the <c>.eml</c> hand-off and the
+    /// print-preview PDF are files being SAVED. Putting that in the view model is what lets a headless test
+    /// prove we ask the operating system for the right shape of thing.</para>
+    ///
+    /// <para><b>Divergence, labelled as ours (R7 silence rule).</b> The vendor documents that these paths are
+    /// configurable and that a backup path is set from the Data menu, but does not attest a browse control or a
+    /// chord for one on these screens. The chord <b>Alt+B</b> and the wording below are OURS. Ctrl+B was not
+    /// available and must not be taken — it is the vendor's "Basis of Values" and is reserved unbound.</para>
+    /// </summary>
+    public FilePathPickRequest? BrowseRequest() => CurrentScreen switch
+    {
+        Screen.BackupCompany when BackupCompanyPanel is { } backup =>
+            FilePathPickRequest.Folder("Choose the folder to save the backup into", backup.Folder),
+
+        Screen.RestoreCompany when RestoreCompanyPanel is { } restore =>
+            FilePathPickRequest.OpenFile("Choose the backup archive to restore from",
+                FolderOf(restore.FilePath),
+                new FilePathFileType("Apex Solutions backup",
+                    new[] { "*" + Apex.Persistence.Sqlite.CompanyBackup.ArchiveExtension }),
+                AnyFile),
+
+        Screen.ImportData when ImportDataPanel is { } import =>
+            FilePathPickRequest.OpenFile("Choose the file to import",
+                FolderOf(import.FilePath),
+                ImportFileType(import.Format),
+                AnyFile),
+
+        Screen.ExportData when ExportDataPanel is { } exportData =>
+            FilePathPickRequest.Folder("Choose the folder to export into", exportData.Folder),
+
+        Screen.Export when ExportPanel is { } export =>
+            FilePathPickRequest.Folder("Choose the folder to export into", export.Folder),
+
+        Screen.EmailCompose when EmailCompose is { } email =>
+            FilePathPickRequest.SaveFile("Save the e-mail message as", string.Empty,
+                SafePathStem(email.DocumentTitle) + ".eml",
+                new FilePathFileType("E-mail message", new[] { "*.eml" })),
+
+        Screen.PrintPreview when PrintPreview is { } preview =>
+            FilePathPickRequest.SaveFile("Save the PDF as", string.Empty,
+                SafePathStem(preview.ReportTitle) + ".pdf",
+                new FilePathFileType("PDF document", new[] { "*.pdf" })),
+
+        _ => null,
+    };
+
+    private static readonly FilePathFileType AnyFile = new("All files", new[] { "*" });
+
+    private static FilePathFileType ImportFileType(ImportDataFormat format) => format switch
+    {
+        ImportDataFormat.Xml => new FilePathFileType("Canonical XML", new[] { "*.xml" }),
+        ImportDataFormat.Csv => new FilePathFileType("Comma-separated values", new[] { "*.csv" }),
+        _ => new FilePathFileType("Canonical JSON", new[] { "*.json" }),
+    };
+
+    /// <summary>The folder a typed path already points into, so the dialog opens where the operator already is.</summary>
+    private static string FolderOf(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        try { return System.IO.Path.GetDirectoryName(path) ?? string.Empty; }
+        catch (ArgumentException) { return string.Empty; }   // a malformed typed path just means "no start folder"
+    }
+
+    /// <summary>Turns a document title into a safe file-name stem (invalid path chars → '_'; blank → "Apex").</summary>
+    private static string SafePathStem(string? title)
+    {
+        var stem = string.IsNullOrWhiteSpace(title) ? "Apex" : title.Trim();
+        foreach (var c in System.IO.Path.GetInvalidFileNameChars())
+            stem = stem.Replace(c, '_');
+        return stem;
+    }
+
+    /// <summary>
+    /// Takes the operator's answer from the chooser and puts it where the open screen keeps its path.
+    ///
+    /// <para><b><c>null</c> means the dialog was cancelled and MUST change nothing</b> — the typed value stays
+    /// exactly as it was. That is not a nicety: on the Restore panel the path in the box is the archive that is
+    /// about to overwrite a whole company, and a cancelled dialog silently blanking it (or worse, half-setting
+    /// it) would be a data-loss trap of exactly the kind this feature exists to remove.</para>
+    ///
+    /// <para>On the two SAVE screens the answer is a destination for bytes that are already rendered, so applying
+    /// it writes the file there and then — that is what "Save as" means. Everywhere else it fills a field and the
+    /// operator still presses the screen's own accept key.</para>
+    ///
+    /// <para>Returns true when a path was applied.</para>
+    /// </summary>
+    public bool ApplyBrowsedPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        switch (CurrentScreen)
+        {
+            case Screen.BackupCompany when BackupCompanyPanel is { } backup:
+                backup.Folder = path;
+                return true;
+
+            case Screen.RestoreCompany when RestoreCompanyPanel is { } restore:
+                restore.FilePath = path;
+                return true;
+
+            case Screen.ImportData when ImportDataPanel is { } import:
+                import.FilePath = path;
+                return true;
+
+            case Screen.ExportData when ExportDataPanel is { } exportData:
+                exportData.Folder = path;
+                return true;
+
+            case Screen.Export when ExportPanel is { } export:
+                export.Folder = path;
+                return true;
+
+            case Screen.EmailCompose:
+                return SaveEmail(path);
+
+            case Screen.PrintPreview:
+                return SavePrintPreview(path);
+
+            default:
+                return false;
+        }
+    }
+
     /// <summary>Ctrl+E / the Examine button on the Restore panel: read the manifest, arm nothing. Returns success.</summary>
     public bool ExamineRestore() => RestoreCompanyPanel?.Examine() ?? false;
 
@@ -5284,7 +5417,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>What an armed Alt+D confirmation is about to delete. <see cref="None"/> means the confirmation
     /// currently up (if any) belongs to another verb.</summary>
-    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem }
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster }
 
     /// <summary>
     /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
@@ -5336,7 +5469,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
             || IsChartOfAccountsScreen
-            || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false }));
+            || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false })
+            // 7.16 — the payroll masters, on the SAME rule as the Stock Item master: the existing-list is a
+            // delete surface, an OPEN ALTERATION of one of its rows is not.
+            || PayrollMasterScreen is { IsAltering: false });
 
     /// <summary>
     /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
@@ -5426,6 +5562,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Screen.VoucherDetail => RequestDeleteVoucher(VoucherDetail?.VoucherId),
             Screen.ChartOfAccounts => RequestDeleteChartRow(),
             Screen.StockItemMaster => RequestDeleteStockItemRow(),
+            Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
+                or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster or Screen.PayHeadMaster
+                => RequestDeletePayrollMasterRow(),
             _ => false,
         };
     }
@@ -5621,6 +5760,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     Company.RemoveStockItem(item);
                     break;
 
+                // 7.16 — the payroll masters. Their referential guards live inside the payroll/pay-head services
+                // (predefined categories, groups with children or employees under them, units that are a
+                // component of a compound unit or an attendance type's unit, …) rather than in
+                // MasterDeletionRules, and they throw with their own message. The screen re-resolves the id
+                // rather than caching an entity, so the guard is re-asked immediately before the irreversible
+                // act, exactly as the four cases above do.
+                case DeletionTarget.PayrollMaster:
+                {
+                    if (PayrollMasterScreen is not { } list) return;
+                    if (list.HighlightedMasterRow is not { } row || row.MasterId != id) return;
+                    what = $"{Capitalise(list.MasterKindLabel)} '{row.MasterName}'";
+                    list.DeleteMaster(id);
+                    break;
+                }
+
                 default:
                     return;
             }
@@ -5694,8 +5848,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case DeletionTarget.StockItem:
                 StockItemMaster?.ReloadExistingItems();
                 break;
+            case DeletionTarget.PayrollMaster:
+                PayrollMasterScreen?.ReloadExisting();
+                break;
         }
     }
+
+    /// <summary>"employee category" → "Employee category", for the deleted-notice sentence. The kind labels are
+    /// written lower case because the CONFIRMATION reads them mid-sentence; the notice starts with them.</summary>
+    private static string Capitalise(string label) =>
+        string.IsNullOrEmpty(label) ? label : char.ToUpperInvariant(label[0]) + label[1..];
 
     // ============================================ Phase 10.11 S5d: Ctrl+Enter — ALTER the highlighted voucher
 
@@ -6848,6 +7010,109 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsStockItemMasterScreen =>
         CurrentScreen == Screen.StockItemMaster && StockItemMaster is not null;
 
+    // ======================================================= census 7.16: Alter + Delete on the payroll masters
+
+    /// <summary>
+    /// The open payroll master screen, seen through the one interface the arrows, Ctrl+Enter and Alt+D all use —
+    /// or <c>null</c> when the live screen is not a payroll master.
+    ///
+    /// <para><b>ONE resolver, deliberately.</b> Census row 7.16 records the defect as a capability missing across
+    /// <i>all eight</i> payroll master kinds "rather than eight coincidences", and eight parallel shell arms is
+    /// exactly how one kind silently ends up gated differently from the other seven. A screen either appears here
+    /// and gets all three verbs, or it appears on none of them.</para>
+    /// </summary>
+    public IPayrollMasterList? PayrollMasterScreen => CurrentScreen switch
+    {
+        Screen.EmployeeCategoryMaster => EmployeeCategoryMaster,
+        Screen.EmployeeGroupMaster => EmployeeGroupMaster,
+        Screen.EmployeeMaster => EmployeeMaster,
+        Screen.PayrollUnitMaster => PayrollUnitMaster,
+        Screen.AttendanceTypeMaster => AttendanceTypeMaster,
+        Screen.PayHeadMaster => PayHeadMaster,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Ctrl+Enter on a payroll master's existing-list: opens the highlighted master for <b>alteration</b>. Returns
+    /// false (and does nothing) on any other screen, or when nothing is highlighted, so the key stays free.
+    ///
+    /// <para>The <c>ForAlter</c> factories are static and per-type — each builds a whole screen with its own
+    /// pickers — so this is the one place that resolves by screen. Everything the eight kinds genuinely share
+    /// lives on <see cref="IPayrollMasterList"/> instead of being faked here.</para>
+    /// </summary>
+    public bool AlterHighlightedPayrollMasterRow()
+    {
+        if (Company is null) return false;
+        if (PayrollMasterScreen is not { IsAltering: false } list) return false;
+        if (list.HighlightedMasterRow is not { } row) return false;
+
+        var id = row.MasterId;
+        switch (CurrentScreen)
+        {
+            case Screen.EmployeeCategoryMaster:
+            {
+                if (EmployeeCategoryMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeCategoryMaster, m.Caption,
+                    () => EmployeeCategoryMaster = m);
+                return true;
+            }
+            case Screen.EmployeeGroupMaster:
+            {
+                if (EmployeeGroupMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeGroupMaster, m.Caption,
+                    () => EmployeeGroupMaster = m);
+                return true;
+            }
+            case Screen.EmployeeMaster:
+            {
+                if (EmployeeMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeMaster, m.Caption,
+                    () => EmployeeMaster = m);
+                return true;
+            }
+            case Screen.PayrollUnitMaster:
+            {
+                if (PayrollUnitMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PayrollUnitMaster, m.Caption,
+                    () => PayrollUnitMaster = m);
+                return true;
+            }
+            case Screen.AttendanceTypeMaster:
+            {
+                if (AttendanceTypeMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.AttendanceTypeMaster, m.Caption,
+                    () => AttendanceTypeMaster = m);
+                return true;
+            }
+            case Screen.PayHeadMaster:
+            {
+                if (PayHeadMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PayHeadMaster, m.Caption,
+                    () => PayHeadMaster = m);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Arms the confirmation for the highlighted payroll master, exactly the way the Stock Item master's
+    /// list does. The engine service owns the referential guards, and it is asked before the question is put.</summary>
+    private bool RequestDeletePayrollMasterRow()
+    {
+        if (PayrollMasterScreen is not { IsAltering: false } list) return false;
+        if (list.HighlightedMasterRow is not { } row) return false;
+
+        return Arm(DeletionTarget.PayrollMaster, row.MasterId,
+            $"Delete {list.MasterKindLabel} '{row.MasterName}'? This cannot be undone. (Y/N)");
+    }
+
     /// <summary>Spacebar on the Outstandings page: toggle the highlighted bill's multi-select flag.</summary>
     public void ToggleOutstandingSelection()
     {
@@ -7013,6 +7278,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsStockItemMasterScreen)
         {
             StockItemMaster!.MoveHighlight(direction);
+            return;
+        }
+
+        // 7.16: on any payroll master the arrows move the EXISTING-MASTERS highlight (Ctrl+Enter then opens that
+        // master for alteration, Alt+D deletes it). Same placement rule as the two master arms above — these are
+        // page columns, so the IsGatewayCascade branch below would swallow the keystroke and the list never move.
+        if (PayrollMasterScreen is { } payrollMaster)
+        {
+            payrollMaster.MoveHighlight(direction);
             return;
         }
 

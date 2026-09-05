@@ -11,12 +11,21 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A payroll-unit row for the existing-units list on the master screen.</summary>
-public sealed class PayrollUnitListRow
+public sealed partial class PayrollUnitListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Symbol { get; init; } = string.Empty;
     public string FormalName { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public string Detail { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the unit this row displays (census 7.16).</summary>
+    public Guid MasterId { get; init; }
+
+    /// <summary>A payroll unit is named by its SYMBOL — that is what the operator picks it by everywhere else,
+    /// and the delete confirmation must name it the same way.</summary>
+    string IPayrollMasterListRow.MasterName => Symbol;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -35,11 +44,80 @@ public sealed class PayrollUnitListRow
 /// <para>Only reachable when Payroll is enabled. MVVM boundary: references the domain + persistence but no
 /// Avalonia/UI types, so it is headlessly unit-testable.</para>
 /// </summary>
-public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+    private PayrollMasterHighlight<PayrollUnitListRow> _highlight = null!;
+
+    /// <summary>The id of the unit being ALTERED, or <see cref="Guid.Empty"/> in Create mode (7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Payroll Unit Alteration" : "Payroll Unit Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "payroll unit";
+
+    /// <inheritdoc/>
+    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-unit row, or <c>null</c>.</summary>
+    public PayrollUnitListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() { RefreshSimpleUnits(); RefreshList(); }
+
+    /// <inheritdoc/>
+    public void DeleteMaster(Guid id) => new PayrollService(_company).DeletePayrollUnit(id);
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing unit — the same form, pre-filled.
+    ///
+    /// <para>🔴 <b>A COMPOUND unit opens with its STRUCTURE READ-ONLY</b> (<see cref="CanAlterStructure"/> is
+    /// false): first unit, tail unit and conversion factor are constructor-only on the domain type and are the
+    /// arithmetic every attendance figure already recorded against this unit was converted with. Symbol and
+    /// formal name are alterable; the structure is not. A compound unit that is wrong is deleted and re-created.
+    /// Divergence, labelled as ours — and it is the safe half of the two.</para>
+    /// </summary>
+    public static PayrollUnitMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid unitId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindPayrollUnit(unitId) is not { } unit) return null;
+
+        var vm = new PayrollUnitMasterViewModel(company, storage, onChanged);
+        vm._editingId = unitId;
+        vm.IsCompound = unit.IsCompound;
+        vm.Symbol = unit.Symbol;
+        vm.FormalName = unit.FormalName;
+        vm.DecimalPlacesText = unit.DecimalPlaces.ToString(CultureInfo.InvariantCulture);
+        if (unit.IsCompound)
+        {
+            vm.FirstUnit = unit.FirstUnitId is { } fid ? company.FindPayrollUnit(fid) : null;
+            vm.TailUnit = unit.TailUnitId is { } tid ? company.FindPayrollUnit(tid) : null;
+            var num = unit.ConversionNumerator ?? 0;
+            var den = unit.ConversionDenominator ?? 1;
+            vm.ConversionFactorText = den == 1
+                ? num.ToString(CultureInfo.InvariantCulture)
+                : $"{num}/{den}";
+        }
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CanAlterStructure));
+        return vm;
+    }
+
+    /// <summary>False while altering — the Simple/Compound toggle and the compound components are frozen, because
+    /// changing them would silently re-scale every figure already recorded against this unit.</summary>
+    public bool CanAlterStructure => !IsAltering;
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -77,6 +155,8 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<PayrollUnitListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
 
         RefreshSimpleUnits();
         RefreshList();
@@ -103,6 +183,10 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
     public bool Create()
     {
         Message = null;
+        // 7.16 — ALTERING always takes the simple path, compound or not: the only alterable fields are symbol,
+        // formal name and decimals, and CreateCompound would try to build a SECOND unit from the frozen
+        // components. Routing on IsCompound here would have done exactly that.
+        if (IsAltering) return CreateSimple();
         return IsCompound ? CreateCompound() : CreateSimple();
     }
 
@@ -128,10 +212,16 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
             return false;
         }
 
+        // 7.16 — the SAME Ctrl+A runs the verb the screen is in. Note the compound case routes here too when
+        // altering: only symbol / formal name / decimals are alterable, so there is one alter path, not two.
+        var altering = IsAltering;
         try
         {
             var service = new PayrollService(_company);
-            service.CreateSimplePayrollUnit(symbol, formal, decimals);
+            if (altering)
+                service.AlterPayrollUnit(_editingId, symbol, formal, decimals);
+            else
+                service.CreateSimplePayrollUnit(symbol, formal, decimals);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -142,6 +232,13 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
 
         RefreshSimpleUnits();
         RefreshList();
+        if (altering)
+        {
+            Message = $"Payroll unit '{symbol}' ({formal}) altered.";
+            _onChanged();
+            return true;
+        }
+
         Message = $"Payroll unit '{symbol}' ({formal}) created.";
         Symbol = string.Empty;
         FormalName = string.Empty;
@@ -222,6 +319,9 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
 
     private void RefreshList()
     {
+        // By id, never by index — see PayrollMasterHighlight.RestoreTo for why.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var u in _company.PayrollUnits)
         {
@@ -242,11 +342,14 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
 
             Existing.Add(new PayrollUnitListRow
             {
+                MasterId = u.Id,
                 Symbol = u.Symbol,
                 FormalName = u.FormalName,
                 Kind = u.IsCompound ? "Compound" : "Simple",
                 Detail = detail,
             });
         }
+
+        _highlight.RestoreTo(previous);
     }
 }

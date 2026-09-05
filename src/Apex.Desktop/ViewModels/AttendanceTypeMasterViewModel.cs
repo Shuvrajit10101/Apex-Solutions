@@ -10,12 +10,19 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>An attendance/production-type row for the existing-types list on the master screen.</summary>
-public sealed class AttendanceTypeListRow
+public sealed partial class AttendanceTypeListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public string Unit { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the attendance type this row displays (census 7.16).</summary>
+    public Guid MasterId { get; init; }
+
+    string IPayrollMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>An attendance/production-type "kind" picker option (label + the enum value).</summary>
@@ -58,8 +65,64 @@ public sealed class AttendanceUnitOption
 /// <para>Only reachable when Payroll is enabled. MVVM boundary: references the domain + persistence but no
 /// Avalonia/UI types, so it is headlessly unit-testable.</para>
 /// </summary>
-public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
+    private PayrollMasterHighlight<AttendanceTypeListRow> _highlight = null!;
+
+    /// <summary>The id of the type being ALTERED, or <see cref="Guid.Empty"/> in Create mode (7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering
+        ? "Attendance / Production Type Alteration"
+        : "Attendance / Production Type Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "attendance type";
+
+    /// <inheritdoc/>
+    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-type row, or <c>null</c>.</summary>
+    public AttendanceTypeListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() { RefreshParentOptions(); RefreshUnitOptions(); RefreshList(); }
+
+    /// <inheritdoc/>
+    public void DeleteMaster(Guid id) => new PayrollService(_company).DeleteAttendanceType(id);
+
+    /// <summary>Opens this master in <b>Alter</b> mode over an existing type — the same form, pre-filled.
+    /// Returns <c>null</c> if the id does not resolve.</summary>
+    public static AttendanceTypeMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid typeId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindAttendanceType(typeId) is not { } type) return null;
+
+        var vm = new AttendanceTypeMasterViewModel(company, storage, onChanged);
+        vm._editingId = typeId;
+        vm.Name = type.Name;
+        vm.SelectedKind = vm.Kinds.FirstOrDefault(k => k.Value == type.Kind) ?? vm.Kinds.First();
+        // A type may not be its own parent — take it out of the picker rather than let the operator find out by
+        // being refused. The engine's cycle guard still has the last word on deeper cycles.
+        var self = vm.ParentOptions.FirstOrDefault(o => o.Type?.Id == typeId);
+        if (self is not null) vm.ParentOptions.Remove(self);
+        vm.SelectedParent = vm.ParentOptions.FirstOrDefault(o => o.Type?.Id == type.ParentId)
+                            ?? vm.ParentOptions.FirstOrDefault();
+        vm.SelectedUnit = vm.UnitOptions.FirstOrDefault(o => o.Unit?.Id == type.PayrollUnitId)
+                          ?? vm.UnitOptions.FirstOrDefault();
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
@@ -97,6 +160,8 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<AttendanceTypeListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
 
         Kinds.Add(new AttendanceTypeKindOption { Value = AttendanceTypeKind.AttendancePaid, Display = "Attendance/Leave with Pay" });
         Kinds.Add(new AttendanceTypeKindOption { Value = AttendanceTypeKind.LeaveWithoutPay, Display = "Leave without Pay" });
@@ -133,10 +198,15 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
         var parentId = SelectedParent?.Type?.Id;
         var unitId = SelectedUnit?.Unit?.Id;
 
+        // 7.16 — the SAME Ctrl+A runs the verb the screen is in (see the Caption the operator is reading).
+        var altering = IsAltering;
         try
         {
             var service = new PayrollService(_company);
-            service.CreateAttendanceType(name, SelectedKind.Value, parentId, unitId);
+            if (altering)
+                service.AlterAttendanceType(_editingId, name, SelectedKind.Value, parentId, unitId);
+            else
+                service.CreateAttendanceType(name, SelectedKind.Value, parentId, unitId);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -146,6 +216,14 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
         }
 
         var underLabel = SelectedParent is { IsPrimary: false } p ? p.Type!.Name : "Primary";
+        if (altering)
+        {
+            RefreshList();
+            Message = $"Attendance type '{name}' altered (under {underLabel}).";
+            _onChanged();
+            return true;
+        }
+
         RefreshParentOptions();
         RefreshList();
         Message = $"Attendance type '{name}' created under {underLabel}.";
@@ -182,6 +260,9 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
 
     private void RefreshList()
     {
+        // By id, never by index — see PayrollMasterHighlight.RestoreTo for why.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var a in _company.AttendanceTypes)
         {
@@ -193,12 +274,15 @@ public sealed partial class AttendanceTypeMasterViewModel : ViewModelBase, IMast
                 : "—";
             Existing.Add(new AttendanceTypeListRow
             {
+                MasterId = a.Id,
                 Name = a.Name,
                 Under = under,
                 Kind = DescribeKind(a.Kind),
                 Unit = unit,
             });
         }
+
+        _highlight.RestoreTo(previous);
     }
 
     private static string DescribeKind(AttendanceTypeKind kind) => kind switch

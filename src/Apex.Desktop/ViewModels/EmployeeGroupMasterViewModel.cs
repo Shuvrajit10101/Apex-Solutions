@@ -10,11 +10,18 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>An employee-group row for the existing-groups list on the master screen.</summary>
-public sealed class EmployeeGroupListRow
+public sealed partial class EmployeeGroupListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Salary { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the group this row displays (census 7.16).</summary>
+    public Guid MasterId { get; init; }
+
+    string IPayrollMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -39,11 +46,63 @@ public sealed class ParentEmployeeGroupOption
 /// <para>Only reachable when Payroll is enabled. MVVM boundary: references the domain + persistence but no
 /// Avalonia/UI types, so it is headlessly unit-testable. Mirrors <see cref="StockGroupMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+    private readonly PayrollMasterHighlight<EmployeeGroupListRow> _highlight;
+
+    /// <summary>The id of the group being ALTERED, or <see cref="Guid.Empty"/> in Create mode (7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Employee Group Alteration" : "Employee Group Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "employee group";
+
+    /// <inheritdoc/>
+    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-group row, or <c>null</c>.</summary>
+    public EmployeeGroupListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() { RefreshParentOptions(); RefreshList(); }
+
+    /// <inheritdoc/>
+    public void DeleteMaster(Guid id) => new PayrollService(_company).DeleteEmployeeGroup(id);
+
+    /// <summary>Opens this master in <b>Alter</b> mode over an existing group — the same form, pre-filled.
+    /// Returns <c>null</c> if the id does not resolve.</summary>
+    public static EmployeeGroupMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid groupId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindEmployeeGroup(groupId) is not { } group) return null;
+
+        var vm = new EmployeeGroupMasterViewModel(company, storage, onChanged);
+        vm._editingId = groupId;
+        vm.Name = group.Name;
+        vm.Alias = group.Alias ?? string.Empty;
+        vm.DefineSalaryDetails = group.DefineSalaryDetails;
+        // A group may not be its own parent, and offering itself in the picker is how an operator finds that out
+        // by being refused. Take it out of the list instead — the engine's cycle guard still has the last word.
+        var self = vm.ParentOptions.FirstOrDefault(o => o.Group?.Id == groupId);
+        if (self is not null) vm.ParentOptions.Remove(self);
+        vm.SelectedParent = vm.ParentOptions.FirstOrDefault(o => o.Group?.Id == group.ParentId)
+                            ?? vm.ParentOptions.FirstOrDefault();
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -68,6 +127,8 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<EmployeeGroupListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
 
         RefreshParentOptions();
         RefreshList();
@@ -91,10 +152,15 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
         var parentId = SelectedParent?.Group?.Id;
         var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
 
+        // 7.16 — the SAME Ctrl+A runs the verb the screen is in (see the Caption the operator is reading).
+        var altering = IsAltering;
         try
         {
             var service = new PayrollService(_company);
-            service.CreateEmployeeGroup(name, parentId, alias, DefineSalaryDetails);
+            if (altering)
+                service.AlterEmployeeGroup(_editingId, name, parentId, alias, DefineSalaryDetails);
+            else
+                service.CreateEmployeeGroup(name, parentId, alias, DefineSalaryDetails);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -104,6 +170,14 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
         }
 
         var underLabel = SelectedParent is { IsPrimary: false } p ? p.Group!.Name : "Primary";
+        if (altering)
+        {
+            RefreshList();
+            Message = $"Employee group '{name}' altered (under {underLabel}).";
+            _onChanged();
+            return true;
+        }
+
         RefreshParentOptions();
         RefreshList();
         Message = $"Employee group '{name}' created under {underLabel}.";
@@ -128,6 +202,10 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
 
     private void RefreshList()
     {
+        // By id, never by index — an alter that renames or re-parents a group re-orders the list, and an
+        // index-restored highlight would land on a NEIGHBOURING master that the next Alt+D would delete.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var g in _company.EmployeeGroups)
         {
@@ -136,10 +214,13 @@ public sealed partial class EmployeeGroupMasterViewModel : ViewModelBase, IMaste
                 : "Primary";
             Existing.Add(new EmployeeGroupListRow
             {
+                MasterId = g.Id,
                 Name = g.Name,
                 Under = under,
                 Salary = g.DefineSalaryDetails ? "Defined" : "—",
             });
         }
+
+        _highlight.RestoreTo(previous);
     }
 }

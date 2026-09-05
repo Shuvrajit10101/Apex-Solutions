@@ -15777,12 +15777,15 @@
                                 <!-- RQ-16: destination -->
                                 <TextBlock Text="Destination" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <Grid ColumnDefinitions="90,*">
+                                <!-- 13.10 / T1-20: the destination folder is CHOSEN, not typed from memory. -->
+                                <Grid ColumnDefinitions="90,*,Auto">
                                   <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="(target folder)"/>
+                                  <Button Grid.Column="2" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
@@ -15848,12 +15851,15 @@
                                 <!-- Destination -->
                                 <TextBlock Text="Destination" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <Grid ColumnDefinitions="90,*">
+                                <!-- 13.10 / T1-20: the destination folder is CHOSEN, not typed from memory. -->
+                                <Grid ColumnDefinitions="90,*,Auto">
                                   <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="(target folder)"/>
+                                  <Button Grid.Column="2" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
@@ -15903,12 +15909,17 @@
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="340">
 
-                                <!-- Source file -->
+                                <!-- Source file. 13.10 / T1-20: chosen, not typed from memory. The filter follows
+                                     the Format radio below, so the dialog offers what the panel will actually read. -->
                                 <TextBlock Text="Source file" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the backup / CSV file)"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding FilePath, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the backup / CSV file)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <!-- Format -->
                                 <TextBlock Text="Format" FontWeight="Bold"
@@ -16002,9 +16013,15 @@
                                 <!-- Destination -->
                                 <TextBlock Text="Save into folder" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <TextBox Text="{Binding Folder, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the destination folder)"/>
+                                <!-- 13.10 / T1-20: the folder is CHOSEN, not remembered. The TextBox stays — the
+                                     chooser is an addition, never the only way in. -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding Folder, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the destination folder)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <TextBlock Text="File name" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
@@ -16063,9 +16080,16 @@
 
                                 <TextBlock Text="Backup file" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
-                                         FontFamily="Consolas,Menlo,monospace"
-                                         PlaceholderText="(full path to the .apexbak backup file)"/>
+                                <!-- 13.10 / T1-20: THE headline case. A user restoring from a backup had to type
+                                     the full archive path from memory, and a mistyped restore path is the
+                                     difference between a backup feature and a data-loss event. -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBox Grid.Column="0" Text="{Binding FilePath, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(full path to the .apexbak backup file)"/>
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="6,0,0,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                </Grid>
 
                                 <TextBlock Text="Restore into" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
@@ -16171,12 +16195,16 @@
                                              FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
                                 </Grid>
 
-                                <Grid ColumnDefinitions="*,Auto">
+                                <Grid ColumnDefinitions="*,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"
                                              IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource BrandNavy}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Save .eml (Ctrl+A)" Padding="14,6"
+                                  <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say
+                                       WHERE, which is what the shipped code-behind comment asked a later slice for. -->
+                                  <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
+                                          Click="OnBrowseForPathClick"/>
+                                  <Button Grid.Column="2" Content="Save .eml (Ctrl+A)" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnSaveEmailClick"/>
                                 </Grid>
@@ -16693,12 +16721,15 @@
                               </ItemsControl>
                             </ScrollViewer>
 
-                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
                               <TextBlock Grid.Column="0" Text="{Binding Status}"
                                          IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                          Foreground="{StaticResource BrandNavy}" FontSize="12"
                                          VerticalAlignment="Center" TextWrapping="Wrap"/>
-                              <Button Grid.Column="1" Content="Save PDF (Ctrl+A)" Padding="14,6"
+                              <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say WHERE. -->
+                              <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
+                                      Click="OnBrowseForPathClick"/>
+                              <Button Grid.Column="2" Content="Save PDF (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnSavePrintPreviewClick"/>
                             </Grid>
