@@ -6,6 +6,7 @@ using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using CommunityToolkit.Mvvm.ComponentModel;
+using DomainLedger = Apex.Ledger.Domain.Ledger;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -28,20 +29,31 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
 }
 
 /// <summary>
-/// The keyboard-first <b>Multi-Account Printing</b> panel (W2-32 / census 12.6), hosted as its own cascading
-/// Miller column under Reports → Statements of Accounts, never a stacked overlay — the same shape as
-/// <see cref="ExportViewModel"/> and <see cref="PrintConfigViewModel"/>.
+/// The intended keyboard-first <b>Multi-Account Printing</b> panel (W2-32).
 ///
-/// <para><b>What it closes.</b> Before this slice the print opener built <i>exactly one</i> preview from
-/// <i>exactly one</i> report or one drilled voucher, so there was no way to print a set of accounts at all
-/// (census 12.6). This panel picks a set of accounts and a document kind, projects each into its own
-/// <see cref="PrintReport"/>, and hands the whole set to one print preview — which renders them into ONE PDF,
-/// one account per sheet, numbered across the job.</para>
+/// <para>🔴 <b>NOT REACHABLE. THIS TYPE HAS NO CALLERS AND CLOSES NO CENSUS ROW.</b> Nothing constructs a
+/// <c>MultiAccountPrintViewModel</c>: it appears in no <c>MainWindowViewModel</c> member, no menu route, no
+/// <c>MainWindow.axaml</c> template, and no test. Together with
+/// <see cref="MultiAccountPrintProjector"/> it is ~432 lines of finished-looking, unexercised code, and a user
+/// has no way to reach any of it. <b>Census rows 12.6 and 12.7 therefore remain OPEN.</b>
 ///
-/// <para><b>It also carries two of census 12.7's three documents</b> — the <i>reminder letter</i> and the
-/// <i>confirmation of accounts</i> — because in the reference product those are not standalone templates but
-/// multi-account print/export outputs, which is exactly what this panel produces. Their wording and shape are
-/// OURS (ruling 9); see <see cref="MultiAccountPrintProjector"/>.</para>
+/// <para>This header previously read that the panel was "hosted as its own cascading Miller column under
+/// Reports → Statements of Accounts" and described "what it closes". <b>Both claims were false</b> — no such
+/// hosting was ever written. They are corrected here rather than left standing, because this project's most
+/// repeated defect is precisely a careful, correct-looking, unreachable component being counted as delivered
+/// (<c>CompanyStorage.Rename()</c>, <c>CostReports.BuildLedgerBreakup</c>), and a doc comment asserting a route
+/// that does not exist is how a later census pass gets fooled into moving the row.</para>
+///
+/// <para><b>What remains to reach it</b> (none of it written): a <c>MultiAccountPrint</c> screen + panel member
+/// on <c>MainWindowViewModel</c> with an open method; a menu entry nested under Reports → Statements of Accounts
+/// — never a flat dump; a <c>DataTemplate</c> in <c>MainWindow.axaml</c> bound to this type; key routing for the
+/// panel; and a realised-control reachability lock in the idiom of
+/// <c>ExportFormatRealisedReachabilityTests</c>. Until then the engine half — <c>ReportPdf.Render</c> over a
+/// document SET — is the only part of W2-32 that is real, and it is covered by
+/// <c>Apex.Ledger.Io.Tests/MultiDocumentPrintTests.cs</c>.</para>
+///
+/// <para>The code is retained rather than deleted because it is coherent and the projection is sound; it is
+/// labelled rather than trusted.</para>
 ///
 /// <para>No clock: the "as at" date is supplied by the shell, so the panel stays deterministic in tests.</para>
 /// </summary>
@@ -104,7 +116,7 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         _from = from;
         _asOf = asOf;
 
-        var ordered = new List<Ledger>(company.Ledgers);
+        var ordered = new List<DomainLedger>(company.Ledgers);
         ordered.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         foreach (var l in ordered)
         {
@@ -118,7 +130,7 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         }
     }
 
-    private static string GroupNameOf(Company company, Ledger ledger)
+    private static string GroupNameOf(Company company, DomainLedger ledger)
     {
         foreach (var g in company.Groups)
             if (g.Id == ledger.GroupId) return g.Name;

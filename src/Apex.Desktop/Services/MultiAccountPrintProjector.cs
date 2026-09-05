@@ -4,12 +4,17 @@ using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
+using DomainLedger = Apex.Ledger.Domain.Ledger;
 
 namespace Apex.Desktop.Services;
 
 /// <summary>
-/// The document a multi-account print job produces, one per selected account (W2-32 / census 12.6, and the
-/// two multi-account outputs of census 12.7).
+/// The document a multi-account print job produces, one per selected account (W2-32).
+///
+/// <para>🔴 <b>NOT REACHABLE — census rows 12.6 and 12.7 stay OPEN.</b> The only caller of this projector is
+/// <see cref="Apex.Desktop.ViewModels.MultiAccountPrintViewModel"/>, which is itself constructed by nothing:
+/// no shell member, no menu route, no XAML template, no test. Naming a census row here records what this code
+/// is FOR, never that the row has moved — see that type's header for what reaching it would take.</para>
 ///
 /// <para>🔴 <b>DOCUMENT CHARACTER (T0-11).</b> <b>None of these three is a tax invoice or a bill of supply, and
 /// none may ever become one.</b> Entitlement to ISSUE a tax invoice is CGST s31(1), which puts it on the
@@ -94,7 +99,7 @@ public static class MultiAccountPrintProjector
         return documents;
     }
 
-    private static Ledger? FindLedger(Company company, Guid id)
+    private static DomainLedger? FindLedger(Company company, Guid id)
     {
         foreach (var l in company.Ledgers)
             if (l.Id == id) return l;
@@ -103,7 +108,7 @@ public static class MultiAccountPrintProjector
 
     // ------------------------------------------------------------------ the ledger account statement
 
-    private static PrintReport LedgerAccount(Company company, Ledger ledger, DateOnly from, DateOnly asOf)
+    private static PrintReport LedgerAccount(Company company, DomainLedger ledger, DateOnly from, DateOnly asOf)
     {
         var book = LedgerBook.Build(company, ledger.Id, from, asOf);
         var rows = new List<PrintRow>
@@ -151,7 +156,7 @@ public static class MultiAccountPrintProjector
 
     // ------------------------------------------------------------------ the reminder letter
 
-    private static PrintReport ReminderLetter(Company company, Ledger ledger, DateOnly asOf)
+    private static PrintReport ReminderLetter(Company company, DomainLedger ledger, DateOnly asOf)
     {
         var bills = Outstandings.OpenBillsFor(company, ledger, asOf);
         var rows = new List<PrintRow>
@@ -207,7 +212,7 @@ public static class MultiAccountPrintProjector
 
     // ------------------------------------------------------------------ the confirmation of accounts
 
-    private static PrintReport Confirmation(Company company, Ledger ledger, DateOnly asOf)
+    private static PrintReport Confirmation(Company company, DomainLedger ledger, DateOnly asOf)
     {
         var balance = LedgerBalances.Closing(company, ledger, asOf);
         var bills = Outstandings.OpenBillsFor(company, ledger, asOf);

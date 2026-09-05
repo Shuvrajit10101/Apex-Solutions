@@ -85,24 +85,42 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>F12: the copy-marking label (None / Original / Duplicate / Triplicate). Changing it re-renders.</summary>
     [ObservableProperty] private CopyMarking _copyMarking = CopyMarking.None;
 
-    // ---- W2-31 (census 12.4) print knobs — these apply to EVERY preview kind, not just voucher/invoice. ----
+    // ---- W2-31 (census 12.4) print knobs. --------------------------------------------------------------
+    //
+    // 🔴 TWO CORRECTIONS TO WHAT THIS BLOCK USED TO CLAIM.
+    //
+    // 1. It said these "apply to EVERY preview kind". They do not. Only ReportPdf reads PageConfig's
+    //    Formatted* / Draws* / IncludesPage / StartPageNumber members; InvoicePdf, VoucherPdf, PayslipPdf and
+    //    PosReceiptPdf read ONLY EffectiveCopies. The copy count is the one knob that is universal. The panel
+    //    now gates the rest on PrintConfigViewModel.SupportsPageKnobs.
+    //
+    // 2. Each summary below was tagged with a function key — F8, F9, F5, F10 — as though the key were bound.
+    //    NONE of them is: `PrintConfigPanel` appears nowhere in MainWindow.axaml.cs, so with the panel open
+    //    those keys fall through to the global F-key switch (F10 navigates away via ShowOtherVouchersMenu).
+    //    The key names are removed rather than left to mislead; binding them is open work.
 
-    /// <summary>F8: the print format (Neat / Dot Matrix / Quick-Draft). Changing it re-renders.</summary>
+    /// <summary>The print format (Neat / Dot Matrix / Quick-Draft). Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
     [ObservableProperty] private PrintFormat _printFormat = PrintFormat.Neat;
 
-    /// <summary>F9: plain paper or pre-printed stationery. Changing it re-renders.</summary>
+    /// <summary>Plain paper or pre-printed stationery. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
     [ObservableProperty] private PaperKind _paper = PaperKind.Plain;
 
-    /// <summary>F5: how many collated copies of the whole document the file carries. Changing it re-renders.</summary>
+    /// <summary>How many collated copies of the whole document the file carries. Changing it re-renders.
+    /// Honoured by <b>every</b> renderer.</summary>
     [ObservableProperty] private int _copies = 1;
 
-    /// <summary>F10: the first page of the document to print (1-based). Changing it re-renders.</summary>
+    /// <summary>The first page of the document to print (1-based). Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
     [ObservableProperty] private int _firstPage = 1;
 
-    /// <summary>F10: the last page to print (1-based); 0 means to the end. Changing it re-renders.</summary>
+    /// <summary>The last page to print (1-based); 0 means to the end. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
     [ObservableProperty] private int _lastPage;
 
-    /// <summary>F10: the page number the first sheet carries. Changing it re-renders.</summary>
+    /// <summary>The page number the first sheet carries. Changing it re-renders.
+    /// Honoured by <see cref="ReportPdf"/> only.</summary>
     [ObservableProperty] private int _startPageNumber = 1;
 
     /// <summary>The page count of the rendered PDF / preview (for the heading).</summary>

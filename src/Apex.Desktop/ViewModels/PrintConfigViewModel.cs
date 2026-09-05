@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Apex.Ledger.Io;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -39,11 +39,31 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     public bool SupportsDocumentKnobs => _preview.SupportsPrintConfig;
 
     /// <summary>
-    /// True when the W2-31 <b>page</b> knobs apply — the F8 print format, the F9 paper toggle, the F5 copy count
-    /// and the F10 range/starting number. They apply to EVERY preview kind, which is why this panel now opens
-    /// over a report preview as well; before this slice a report had no configuration column at all.
+    /// True when the W2-31 <b>page-layout</b> knobs apply — the print format, the paper toggle, and the page
+    /// range / starting number.
+    ///
+    /// <para>🔴 <b>This returned a bare <c>true</c>, and that was wrong.</b> Measured against the renderers,
+    /// only <see cref="ReportPdf"/> reads <c>PageConfig</c>'s <c>Formatted*</c>, <c>Draws*</c>,
+    /// <c>IncludesPage</c> and <c>StartPageNumber</c> members. <c>InvoicePdf</c>, <c>VoucherPdf</c>,
+    /// <c>PayslipPdf</c> and <c>PosReceiptPdf</c> read <b>only</b> <c>EffectiveCopies</c>. So over a voucher or
+    /// invoice the panel showed a format, a paper choice, a page range and a starting number that the renderer
+    /// then ignored: the operator could set them, apply, and get byte-identical output. Offering a control that
+    /// does nothing is the same defect as a caption naming a key that is not bound, and it is now gated on the
+    /// renderer that will actually be asked to honour it. <c>PrintConfigKnobsMoveTheBytesTests</c> holds this
+    /// by rendering and comparing bytes, so it cannot be satisfied by relabelling.</para>
+    ///
+    /// <para>Withdrawing the knobs is the honest half of the fix, not the whole of it: teaching the four document
+    /// renderers to honour a page range remains open work, and when they do, this predicate widens and the lock
+    /// keeps guarding the pairing rather than forbidding it.</para>
     /// </summary>
-    public bool SupportsPageKnobs => true;
+    public bool SupportsPageKnobs => _preview.Kind == PrintPreviewViewModel.PrintKind.Report;
+
+    /// <summary>
+    /// True whenever the copy count applies — which is <b>always</b>: every one of the five renderers ends with
+    /// <c>writer.RepeatAllPages(page.EffectiveCopies)</c>. Kept separate from <see cref="SupportsPageKnobs"/> so
+    /// withdrawing the inert layout knobs from a document cannot also withdraw the one that works.
+    /// </summary>
+    public bool SupportsCopies => true;
 
     /// <summary>F12: an optional document-title override (blank ⇒ the template default). Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private string _titleOverride = string.Empty;
@@ -60,32 +80,34 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     public bool IsCopyDuplicate { get => CopyMarking == CopyMarking.Duplicate; set { if (value) CopyMarking = CopyMarking.Duplicate; } }
     public bool IsCopyTriplicate { get => CopyMarking == CopyMarking.Triplicate; set { if (value) CopyMarking = CopyMarking.Triplicate; } }
 
-    // ---- W2-31 (census 12.4): the F8 / F9 / F5 / F10 page knobs ----------------------------------------
+    // ---- W2-31 (census 12.4): the page knobs. The key names F8 / F9 / F5 / F10 are NOT used here: no key
+    // is routed for this panel (`PrintConfigPanel` appears nowhere in MainWindow.axaml.cs), so naming one
+    // would assert a binding that does not exist. ----------------------------------------
 
-    /// <summary>F8: the print format (Neat / Dot Matrix / Quick-Draft). Applied on <see cref="Apply"/>.</summary>
+    /// <summary>The print format (Neat / Dot Matrix / Quick-Draft). Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private PrintFormat _printFormat = PrintFormat.Neat;
 
-    /// <summary>F9: plain paper or pre-printed stationery. Applied on <see cref="Apply"/>.</summary>
+    /// <summary>Plain paper or pre-printed stationery. Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private PaperKind _paper = PaperKind.Plain;
 
-    /// <summary>F5: how many collated copies of the whole document. Applied on <see cref="Apply"/>.</summary>
+    /// <summary>How many collated copies of the whole document. Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private int _copies = 1;
 
-    /// <summary>F10: the first page to print (1-based). Applied on <see cref="Apply"/>.</summary>
+    /// <summary>The first page to print (1-based). Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private int _firstPage = 1;
 
-    /// <summary>F10: the last page to print; 0 = to the end. Applied on <see cref="Apply"/>.</summary>
+    /// <summary>The last page to print; 0 = to the end. Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private int _lastPage;
 
-    /// <summary>F10: the number the first printed sheet carries. Applied on <see cref="Apply"/>.</summary>
+    /// <summary>The number the first printed sheet carries. Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private int _startPageNumber = 1;
 
-    // Radio-style bindings for the F8 format (one true at a time).
+    // Radio-style bindings for the print format (one true at a time).
     public bool IsNeat { get => PrintFormat == PrintFormat.Neat; set { if (value) PrintFormat = PrintFormat.Neat; } }
     public bool IsDotMatrix { get => PrintFormat == PrintFormat.DotMatrix; set { if (value) PrintFormat = PrintFormat.DotMatrix; } }
     public bool IsQuickDraft { get => PrintFormat == PrintFormat.QuickDraft; set { if (value) PrintFormat = PrintFormat.QuickDraft; } }
 
-    // Radio-style bindings for the F9 paper axis.
+    // Radio-style bindings for the paper axis.
     public bool IsPlainPaper { get => Paper == PaperKind.Plain; set { if (value) Paper = PaperKind.Plain; } }
     public bool IsPrePrinted { get => Paper == PaperKind.PrePrinted; set { if (value) Paper = PaperKind.PrePrinted; } }
 
