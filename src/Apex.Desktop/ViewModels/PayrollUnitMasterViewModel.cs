@@ -23,7 +23,7 @@ public sealed partial class PayrollUnitListRow : ObservableObject, IPayrollMaste
 
     /// <summary>A payroll unit is named by its SYMBOL — that is what the operator picks it by everywhere else,
     /// and the delete confirmation must name it the same way.</summary>
-    string IPayrollMasterListRow.MasterName => Symbol;
+    string IMasterListRow.MasterName => Symbol;
 
     [ObservableProperty] private bool _isHighlighted;
 }
@@ -64,7 +64,7 @@ public sealed partial class PayrollUnitMasterViewModel : ViewModelBase, IMasterL
     public string MasterKindLabel => "payroll unit";
 
     /// <inheritdoc/>
-    public IPayrollMasterListRow? HighlightedMasterRow => _highlight.Row;
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
 
     /// <summary>The highlighted existing-unit row, or <c>null</c>.</summary>
     public PayrollUnitListRow? HighlightedRow => _highlight.Row;
