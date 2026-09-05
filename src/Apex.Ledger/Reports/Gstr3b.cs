@@ -116,9 +116,25 @@ public sealed record Gstr3b(
     /// <summary>Σ Table 3.1(d) reverse-charge outward liability across the GST heads (excludes cess, ER-2).</summary>
     public Money TotalRcmOutward => new(RcmOutwardCgst.Amount + RcmOutwardSgst.Amount + RcmOutwardIgst.Amount);
 
-    /// <summary>Σ Table 4(A)(2)+4(A)(3) reverse-charge ITC across the GST heads (excludes cess, ER-2).</summary>
+    /// <summary>
+    /// Σ Table 4(A)(2)+4(A)(3) reverse-charge ITC across the GST heads (excludes cess, ER-2).
+    /// <para>🔴 This spans <b>two</b> form rows. Anything that displays or exports a figure captioned <b>4(A)(3)</b>
+    /// must use <see cref="TotalRcmItcOther"/> instead — 4(A)(3) is expressly "other than 1 &amp; 2 above", so
+    /// including <see cref="RcmItcImportIgst"/> in it double-counts the import-of-services credit.</para>
+    /// </summary>
     public Money TotalRcmItc => new(
         RcmItcImportIgst.Amount + RcmItcOtherCgst.Amount + RcmItcOtherSgst.Amount + RcmItcOtherIgst.Amount);
+
+    /// <summary>
+    /// Σ <b>Table 4(A)(3) alone</b> across the GST heads (excludes cess, ER-2) — the credit on inward supplies liable
+    /// to reverse charge <i>other than</i> import of goods (4(A)(1)) and import of services (4(A)(2)).
+    /// <para>Authority: CBIC Circular No. 170/02/2022-GST, Table 2, "4. Eligible ITC → (A) ITC Available (whether in
+    /// full or part)", row <i>"3. Inward Supplies liable to Reverse Charge (other than 1 &amp; 2 above)"</i>; that
+    /// circular's worked example books the import-of-services IGST to 4(A)(2) and only the domestic RCM CGST/SGST to
+    /// 4(A)(3).</para>
+    /// </summary>
+    public Money TotalRcmItcOther =>
+        new(RcmItcOtherCgst.Amount + RcmItcOtherSgst.Amount + RcmItcOtherIgst.Amount);
 
     /// <summary>
     /// Σ net tax payable across heads (display-only). Negative-head credits are netted in, mirroring the

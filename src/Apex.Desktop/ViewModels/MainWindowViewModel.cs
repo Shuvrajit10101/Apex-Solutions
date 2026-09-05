@@ -36,6 +36,11 @@ public enum Screen
     AddVoucherPicker,
 
     ReportConfig,
+
+    // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
+    // column over the live report exactly like the F12 config panel beside it.
+    BasisOfValues,
+
     ReportSortFilter,
     AddComparisonColumn,
     AutoColumns,
@@ -57,6 +62,10 @@ public enum Screen
     InventoryVoucherEntry,
     LedgerMaster,
     AccountGroupMaster,
+
+    /// <summary>W2-20 (census 2.12) — the Multi Ledger / Multi Group grid-entry creation screen.</summary>
+    MultiMasterCreate,
+
     ChartOfAccounts,
     Outstandings,
     CostCategoryMaster,
@@ -98,6 +107,11 @@ public enum Screen
     // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
     Gstr9Report,
     Gstr9cReport,
+
+    // The GST offline-return JSON files page (W2-06; census row 6.10) — surfaced for BOTH registration types, under
+    // Reports → Statutory Reports → GST Returns (Advanced) (Regular) and → Composition Returns (Composition).
+    GstOfflineReturns,
+
     ElectronicLedgersReport,
     ItcSetOffReport,
     ItcReversalReport,
@@ -117,6 +131,12 @@ public enum Screen
     ImportGstr2b,
     GenerateEInvoice,
     GenerateEWayBill,
+
+    // W2-03 (census 2.4, 5.10, 5.11) — the Voucher Type master: create / alter / display / delete, the numbering
+    // method picker, the two user flags, and Show Inactive -> activate. Reached from Masters -> Create -> Voucher
+    // Type. It is the ONLY route in this application that can flip VoucherType.IsActive, which is what makes the
+    // seeded-inactive payroll voucher types postable.
+    VoucherTypeMaster,
 
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
@@ -300,6 +320,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The accounting-Group master view model, non-null only while that page column is open (WI-7).</summary>
     [ObservableProperty] private AccountGroupMasterViewModel? _accountGroupMaster;
 
+    /// <summary>The W2-20 Multi Ledger / Multi Group grid, non-null only while that page column is open.</summary>
+    [ObservableProperty] private MultiMasterCreateViewModel? _multiMasterCreate;
+
+    /// <summary>
+    /// W2-14 (census 14.1) — the Go To (Alt+G) overlay, non-null only while it is up.
+    /// <para>Deliberately NOT a cascade column and NOT a <see cref="Screen"/>: Go To floats OVER whatever the
+    /// operator is doing and leaves it untouched if dismissed — the vendor's own framing is "without having to
+    /// move out of the screen you have already opened". Making it a page column would tear the open screen's
+    /// column down to show it, which is the opposite of the feature.</para>
+    /// </summary>
+    [ObservableProperty] private GoToViewModel? _goTo;
+
+    /// <summary>True while the Go To overlay is up (the window's key arms and the view both gate on it).</summary>
+    public bool IsGoToOpen => GoTo is not null;
+
+    partial void OnGoToChanged(GoToViewModel? value) => OnPropertyChanged(nameof(IsGoToOpen));
+
     /// <summary>The chart-of-accounts tree view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
 
@@ -347,6 +384,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Unit-of-Measure master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private UnitMasterViewModel? _unitMaster;
+
+    /// <summary>The open Voucher Type master, or <c>null</c> (W2-03; census 2.4).</summary>
+    [ObservableProperty] private VoucherTypeMasterViewModel? _voucherTypeMaster;
 
     /// <summary>The Godown master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private GodownMasterViewModel? _godownMaster;
@@ -397,6 +437,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
+
+    /// <summary>The GST offline-return JSON files page (W2-06), non-null only while that page is open.</summary>
+    [ObservableProperty] private GstOfflineReturnsViewModel? _gstOfflineReturns;
 
     /// <summary>The GST electronic-ledgers report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private ElectronicLedgersReportViewModel? _electronicLedgersReport;
@@ -555,6 +598,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
+    /// <summary>The Ctrl+B "Basis of Values" (Scale Factor) panel view model, non-null only while that
+    /// column is open (W2-13a, census row 14.5).</summary>
+    [ObservableProperty] private BasisOfValuesViewModel? _basisOfValues;
+
     /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
     [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
 
@@ -610,12 +657,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsMenuScreen => !IsGatewayCascade
         && Reports is null && VoucherEntry is null && InventoryVoucherEntry is null && LedgerMaster is null
         && AccountGroupMaster is null
+        && MultiMasterCreate is null
         && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
+        && VoucherTypeMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
@@ -628,7 +677,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9Report is null && Gstr9cReport is null && ElectronicLedgersReport is null
+        && Gstr9Report is null && Gstr9cReport is null && GstOfflineReturns is null
+        && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
         && EInvoiceEWayStatusReport is null
@@ -652,6 +702,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnInventoryVoucherEntryChanged(InventoryVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAccountGroupMasterChanged(AccountGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiMasterCreateChanged(MultiMasterCreateViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCategoryMasterChanged(CostCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -668,6 +719,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnStockGroupMasterChanged(StockGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockCategoryMasterChanged(StockCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVoucherTypeMasterChanged(VoucherTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -683,6 +735,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstOfflineReturnsChanged(GstOfflineReturnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnItcSetOffReportChanged(ItcSetOffReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnItcReversalReportChanged(ItcReversalReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1411,6 +1464,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Accounting Masters"));
         col.Add(new MenuItemViewModel("Ledger", () => { }, "Alt+C", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-03 (census 2.4) — the Voucher Type master. Always available: every company has the 24 seeded types
+        // whether or not it ever adds one of its own, and this is the only screen that can reconfigure them or
+        // switch one back on.
+        col.Add(new MenuItemViewModel("Voucher Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // W2-20 (census 2.12) — Multi Masters. The vendor reaches these with Alt+H from the Chart of Accounts;
+        // here they are nested under their own section of the Create column so they are reachable by the same
+        // arrows-and-Enter cascade as every other master, never as a hidden chord (UI contract).
+        col.Add(MenuItemViewModel.Header("Multi Masters"));
+        col.Add(new MenuItemViewModel("Multi Ledger", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Multi Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Cost Masters"));
         col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2117,6 +2181,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("QRMP / IFF", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GST Amendments", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("e-Invoice / e-Way Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-06 (census row 6.10): the offline JSON files a Regular dealer actually uploads — GSTR-1 / 3B / 9 / 9C.
+        col.Add(new MenuItemViewModel("Offline Return Files (JSON)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2184,6 +2250,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Composition Returns"));
         col.Add(new MenuItemViewModel("CMP-08", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-4", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-06 (census rows 6.13 / 6.10): GSTR-9A, the composition annual return, and the offline JSON files.
+        col.Add(new MenuItemViewModel("GSTR-9A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Offline Return Files (JSON)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2566,6 +2635,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
     public void ClearReportSortFilter() => ReportSortFilter?.Clear();
+
+    // =============================================================== W2-13a: Ctrl+B Basis of Values (census 14.5)
+
+    /// <summary>
+    /// <b>Ctrl+B — Basis of Values.</b> Opens the Scale-Factor panel as its own cascading column to the RIGHT of
+    /// the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live
+    /// beneath it so applying re-projects in place.
+    ///
+    /// <para>Refused — quietly, with no column pushed — unless the open report actually supports the scale
+    /// (<see cref="ReportsViewModel.SupportsScaleFactor"/>). A panel that opens on a report it cannot change is
+    /// the dead-control defect this project has caught before; the button-bar row dims in the same condition so
+    /// the key and the badge agree.</para>
+    /// </summary>
+    public void OpenBasisOfValues()
+    {
+        if (Reports is not { SupportsScaleFactor: true }) return;
+        if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
+
+        var panel = new BasisOfValuesViewModel(Reports);
+        BasisOfValues = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BasisOfValues;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Apply button on the Ctrl+B panel: apply the Scale Factor, then pop the panel so the operator
+    /// lands back on the re-scaled report rather than on a spent column.
+    /// </summary>
+    public void ApplyBasisOfValues()
+    {
+        if (BasisOfValues is null) return;
+        BasisOfValues.Apply();
+        if (CurrentScreen == Screen.BasisOfValues) Back();
+    }
 
     /// <summary>
     /// True while a report is the ACTIVE page (or its F12 config panel is open) — the report-parameter
@@ -3057,8 +3164,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The default export folder (the user's Documents), matching the report export ctor.</summary>
     private static string ExportDefaultFolder()
     {
-        try { return System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments); }
-        catch { return string.Empty; }
+        // W2-03 bonus fix: ONE seam, so the empty-string failure mode cannot be re-introduced per screen.
+        // Environment.GetFolderPath returns "" when the platform has no such folder (a Linux CI container
+        // with no HOME), and an empty folder makes Path.Combine collapse to a bare file name - the file
+        // lands in the process working directory, unfindable. See Services.ExportFolderDefault.
+        return Apex.Desktop.Services.ExportFolderDefault.Resolve();
     }
 
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
@@ -3652,6 +3762,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Group Creation", () => AccountGroupMaster = master);
     }
 
+    // =============================================================== screen: multi-master create (W2-20)
+
+    /// <summary>
+    /// W2-20 (census 2.12) — opens the <b>Multi Ledger Creation</b> grid (Masters → Create → Multi Masters →
+    /// Multi Ledger): many ledgers typed into one grid and created in a single all-or-nothing pass, instead of
+    /// one screen per ledger. See <see cref="MultiMasterCreateViewModel"/> for the vendor grounding and for the
+    /// two divergences labelled as ours.
+    /// </summary>
+    public void ShowMultiLedgerCreate() => ShowMultiMasterCreate(MultiMasterKind.Ledger);
+
+    /// <summary>W2-20 — opens the <b>Multi Group Creation</b> grid (Masters → Create → Multi Masters → Multi Group).</summary>
+    public void ShowMultiGroupCreate() => ShowMultiMasterCreate(MultiMasterKind.AccountGroup);
+
+    private void ShowMultiMasterCreate(MultiMasterKind kind)
+    {
+        if (Company is null) return;
+
+        var grid = new MultiMasterCreateViewModel(kind, Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn(grid.Title, grid), Screen.MultiMasterCreate,
+            grid.Title, () => MultiMasterCreate = grid);
+    }
+
     // =============================================================== screen: chart of accounts
 
     /// <summary>
@@ -3802,6 +3934,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>Opens the Unit-of-Measure creation master (Masters → Create → Inventory Masters → Unit).</summary>
+    /// <summary>
+    /// Opens the <b>Voucher Type</b> master (W2-03; census 2.4) as a page column over the cascade — the route
+    /// Masters → Create → Voucher Type takes, and the only route in this application that can reconfigure a
+    /// voucher type or flip its <see cref="Apex.Ledger.Domain.VoucherType.IsActive"/> flag.
+    /// </summary>
+    public void ShowVoucherTypeMaster()
+    {
+        if (Company is null) return;
+        var master = new VoucherTypeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Voucher Type Creation", master), Screen.VoucherTypeMaster,
+            "Voucher Type Creation", () => VoucherTypeMaster = master);
+    }
+
     public void ShowUnitMaster()
     {
         if (Company is null) return;
@@ -4236,6 +4381,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var page = new Gstr9cReportViewModel(Company);
         OpenPageColumn(new GatewayColumn("GSTR-9C", page), Screen.Gstr9cReport,
             "Form GSTR-9C — Reconciliation Statement", () => Gstr9cReport = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>GST offline return files</b> page (Reports → Statutory Reports → GST Returns (Advanced) → Offline
+    /// Return Files (JSON) for a Regular dealer; → Composition Returns → Offline Return Files (JSON) for a Composition
+    /// dealer). This is the ONLY route to <see cref="Apex.Ledger.Io.GstReturnJson"/> — before W2-06 that writer had zero
+    /// production callers, so the file a dealer uploads could not be produced at all (census row 6.10 / T1-11).
+    /// <paramref name="preselect"/> opens the page already on one form. That is how the "GSTR-9A" menu row reaches
+    /// census row 6.13 — and it is all it does: a menu row that dispatches onto this shared page, NOT a GSTR-9A report
+    /// page of its own. Row 6.13 therefore moves ABSENT → <b>PARTIAL</b>; it is not closed.
+    /// A no-op unless GST is enabled — a GST-off company has no return to file (ER-13).
+    /// </summary>
+    public void OpenGstOfflineReturns(GstOfflineReturnKind? preselect = null)
+    {
+        if (Company is null || Company.Gst is not { Enabled: true }) return;
+        var page = new GstOfflineReturnsViewModel(Company, preselect);
+        if (page.Returns.Count == 0) return;   // no return form applies to this registration type
+        OpenPageColumn(new GatewayColumn("Offline Return Files", page), Screen.GstOfflineReturns,
+            "GST Offline Return Files (JSON)", () => GstOfflineReturns = page);
     }
 
     /// <summary>Opens the <b>Electronic Ledgers</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
@@ -5266,6 +5430,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         InventoryVoucherEntry = null;
         LedgerMaster = null;
         AccountGroupMaster = null;
+        MultiMasterCreate = null;
         ChartOfAccounts = null;
         Outstandings = null;
         CostCategoryMaster = null;
@@ -5282,6 +5447,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StockGroupMaster = null;
         StockCategoryMaster = null;
         UnitMaster = null;
+        VoucherTypeMaster = null;
         GodownMaster = null;
         StockItemMaster = null;
         BatchMaster = null;
@@ -5299,6 +5465,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Gstr4Report = null;
         Gstr9Report = null;
         Gstr9cReport = null;
+        GstOfflineReturns = null;
         ElectronicLedgersReport = null;
         ItcSetOffReport = null;
         ItcReversalReport = null;
@@ -5347,6 +5514,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Form16 = null;
         Form12Ba = null;
         ReportConfig = null;
+        BasisOfValues = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
@@ -5416,6 +5584,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+                 or Screen.VoucherTypeMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig or Screen.GstRateSetup
@@ -5423,7 +5592,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.TdsStatPayment or Screen.TcsStatPayment
                  or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
                  or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
-                 or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
+                 or Screen.PayHeadMaster or Screen.SalaryStructureMaster
+                 or Screen.MultiMasterCreate)
             BackFromPage();
     }
 
@@ -5737,7 +5907,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false })
             // 7.16 — the payroll masters, on the SAME rule as the Stock Item master: the existing-list is a
             // delete surface, an OPEN ALTERATION of one of its rows is not.
-            || PayrollMasterScreen is { IsAltering: false });
+            || PayrollMasterScreen is { IsAltering: false }
+            // W2-03 (census 2.4) — the Voucher Type master's existing-list, on the SAME rule.
+            || (CurrentScreen == Screen.VoucherTypeMaster && VoucherTypeMaster is { IsAltering: false }));
 
     /// <summary>
     /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
@@ -5830,6 +6002,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster or Screen.PayHeadMaster
                 => RequestDeletePayrollMasterRow(),
+            // W2-03 (census 2.4) — the Voucher Type master, through the SAME shared IMasterListScreen arm.
+            Screen.VoucherTypeMaster => RequestDeleteMasterListRow(),
             _ => false,
         };
     }
@@ -6084,7 +6258,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 // act, exactly as the four cases above do.
                 case DeletionTarget.PayrollMaster:
                 {
-                    if (PayrollMasterScreen is not { } list) return;
+                    if (MasterListScreen is not { } list) return;
                     if (list.HighlightedMasterRow is not { } row || row.MasterId != id) return;
                     what = $"{Capitalise(list.MasterKindLabel)} '{row.MasterName}'";
                     list.DeleteMaster(id);
@@ -6208,7 +6382,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 StockItemMaster?.ReloadExistingItems();
                 break;
             case DeletionTarget.PayrollMaster:
-                PayrollMasterScreen?.ReloadExisting();
+                MasterListScreen?.ReloadExisting();
                 break;
         }
     }
@@ -6686,11 +6860,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
             or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
             or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+            or Screen.VoucherTypeMaster
             or Screen.BatchMaster or Screen.BomMaster or Screen.ReorderLevelsMaster
             or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
             or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
             or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
-            or Screen.PayHeadMaster or Screen.SalaryStructureMaster;
+            or Screen.PayHeadMaster or Screen.SalaryStructureMaster
+            // W2-20: Enter over the multi-master GRID must ASK, not commit. Enter is the natural
+            // move-to-the-next-cell key in a grid, so a silent Enter-commits would post a half-typed batch of
+            // masters the first time an operator used it as navigation. Ctrl+A still saves outright.
+            or Screen.MultiMasterCreate;
 
     /// <summary>
     /// WI-11 — raises the "Accept? (Y/N)" confirmation over the open master screen. This is the route the
@@ -6833,6 +7012,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.CreateCompany or Screen.AlterCompany => "Company",
         Screen.LedgerMaster => "Ledger",
         Screen.AccountGroupMaster => "Group",
+        Screen.MultiMasterCreate => MultiMasterCreate?.Kind == MultiMasterKind.AccountGroup
+            ? "these Groups"
+            : "these Ledgers",
         Screen.CostCategoryMaster => "Cost Category",
         Screen.CostCentreMaster => "Cost Centre",
         Screen.BudgetMaster => "Budget",
@@ -6841,6 +7023,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.StockGroupMaster => "Stock Group",
         Screen.StockCategoryMaster => "Stock Category",
         Screen.UnitMaster => "Unit",
+        Screen.VoucherTypeMaster => "Voucher Type",
         Screen.GodownMaster => "Godown",
         Screen.StockItemMaster => "Stock Item",
         Screen.BatchMaster => "Batch",
@@ -7514,6 +7697,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     };
 
     /// <summary>
+    /// The open master screen whose existing-list the arrows walk, Alt+D deletes from and a refresh re-renders —
+    /// <see cref="PayrollMasterScreen"/>'s four payroll kinds PLUS the Voucher Type master (W2-03; census 2.4),
+    /// or <c>null</c> on every other screen.
+    ///
+    /// <para><b>Why a union rather than a second set of arms.</b> <see cref="IPayrollMasterList"/>'s own remarks
+    /// give the reason: parallel arms are how one kind silently ends up gated differently from the rest. The
+    /// Voucher Type master needs exactly the five members payroll needed, so it implements the extracted
+    /// <see cref="IMasterListScreen"/> and joins the same arms. Ctrl+Enter stays resolved per screen, because
+    /// <c>ForAlter</c> is a static factory per type that builds a whole screen with its own pickers.</para>
+    /// </summary>
+    public IMasterListScreen? MasterListScreen => CurrentScreen switch
+    {
+        Screen.VoucherTypeMaster => VoucherTypeMaster,
+        _ => PayrollMasterScreen,
+    };
+
+    /// <summary>
     /// Ctrl+Enter on a payroll master's existing-list: opens the highlighted master for <b>alteration</b>. Returns
     /// false (and does nothing) on any other screen, or when nothing is highlighted, so the key stays free.
     ///
@@ -7571,11 +7771,56 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// <b>Ctrl+Enter on the Voucher Type master's existing-list — open the highlighted type for ALTERATION</b>
+    /// (W2-03; census 2.4). Returns false (a quiet no-op) on any other screen, or when nothing is highlighted, so
+    /// the chord stays free.
+    ///
+    /// <para>Its own arm rather than a case inside <see cref="AlterHighlightedPayrollMasterRow"/> for the reason
+    /// that method's remarks give: <c>ForAlter</c> is a static factory per type, so alteration is the one verb
+    /// that cannot be shared through <see cref="IMasterListScreen"/>. Every OTHER verb is shared.</para>
+    /// </summary>
+    public bool AlterHighlightedVoucherTypeRow()
+    {
+        if (Company is null) return false;
+        if (CurrentScreen != Screen.VoucherTypeMaster) return false;
+        if (VoucherTypeMaster is not { IsAltering: false } list) return false;
+        if (list.HighlightedRow is not { } row) return false;
+
+        if (VoucherTypeMasterViewModel.ForAlter(Company, _storage, row.MasterId, onChanged: () => { })
+            is not { } m) return false;
+        OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.VoucherTypeMaster, m.Caption,
+            () => VoucherTypeMaster = m);
+        return true;
+    }
+
+    /// <summary>
+    /// <b>Space on the Voucher Type master's existing-list — activate or deactivate the highlighted type</b>
+    /// (W2-03; census 5.11). Returns false on every other screen so the key stays free.
+    ///
+    /// <para>This is the gesture <c>VoucherTypeResolver</c>'s remarks record as having "meant nothing": before it,
+    /// <see cref="Apex.Ledger.Domain.VoucherType.IsActive"/> had no write route anywhere in the product except
+    /// <c>JobWorkService</c> and a rollback restore inside a <c>catch</c>, so a seeded-inactive type — the whole
+    /// payroll family — could never be switched on.</para>
+    /// </summary>
+    public bool ToggleHighlightedVoucherTypeActive()
+    {
+        if (CurrentScreen != Screen.VoucherTypeMaster) return false;
+        return VoucherTypeMaster?.ToggleActiveOnHighlighted() ?? false;
+    }
+
     /// <summary>Arms the confirmation for the highlighted payroll master, exactly the way the Stock Item master's
     /// list does. The engine service owns the referential guards, and it is asked before the question is put.</summary>
-    private bool RequestDeletePayrollMasterRow()
+    private bool RequestDeletePayrollMasterRow() => RequestDeleteMasterListRow();
+
+    /// <summary>
+    /// Arms the confirmation for whatever <see cref="MasterListScreen"/> has highlighted — the ONE arm shared by
+    /// the four payroll master kinds and, since W2-03, the Voucher Type master. The engine service owns the
+    /// referential guards and is asked when the answer is Y, not here, exactly as the payroll arm always did.
+    /// </summary>
+    private bool RequestDeleteMasterListRow()
     {
-        if (PayrollMasterScreen is not { IsAltering: false } list) return false;
+        if (MasterListScreen is not { IsAltering: false } list) return false;
         if (list.HighlightedMasterRow is not { } row) return false;
 
         return Arm(DeletionTarget.PayrollMaster, row.MasterId,
@@ -7767,9 +8012,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // 7.16: on any payroll master the arrows move the EXISTING-MASTERS highlight (Ctrl+Enter then opens that
         // master for alteration, Alt+D deletes it). Same placement rule as the two master arms above — these are
         // page columns, so the IsGatewayCascade branch below would swallow the keystroke and the list never move.
-        if (PayrollMasterScreen is { } payrollMaster)
+        if (MasterListScreen is { } masterList)
         {
-            payrollMaster.MoveHighlight(direction);
+            masterList.MoveHighlight(direction);
             return;
         }
 
@@ -7867,6 +8112,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 if (AccountGroupMaster is { IsAltering: true }) AccountGroupMaster.Alter();
                 else AccountGroupMaster?.Create();
                 return;
+            // W2-20: Ctrl+A accepts the WHOLE multi-master grid in one all-or-nothing pass.
+            case Screen.MultiMasterCreate:
+                MultiMasterCreate?.Accept();
+                return;
             case Screen.CostCategoryMaster:
                 CostCategoryMaster?.Create();
                 return;
@@ -7925,6 +8174,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.AttendanceTypeMaster:
                 AttendanceTypeMaster?.Create();
+                return;
+            case Screen.VoucherTypeMaster:
+                VoucherTypeMaster?.Create();
                 return;
             case Screen.PayHeadMaster:
                 PayHeadMaster?.Create();
@@ -8029,6 +8281,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.Form26Q:
                 Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
                 return;
+            case Screen.GstOfflineReturns:
+                GstOfflineReturns?.ExportJson(); // Ctrl+A writes the selected return's offline JSON (primary action)
+                return;
             case Screen.PfEcrReport:
                 PfEcrReport?.ExportEcr(); // Ctrl+A exports the ECR 2.0 flat file (the return's primary action)
                 return;
@@ -8115,7 +8370,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ClearSubScreens();
         CurrentScreen = Screen.Gateway;
 
-        var (column, menu, title) = item.Label switch
+        // The fallback is the historical behaviour of this switch's `_` arm and is kept EXACTLY: an unrecognised
+        // Group label lands on the Create column. It lives here rather than inside SubmenuFor so that the lookup
+        // can answer "no such submenu" honestly — W2-14's index must not walk into a Create column that a typo
+        // conjured, and would silently mis-file every one of its rows if it did.
+        var (column, menu, title) = SubmenuFor(item.Label, CurrentGatewayMenu)
+            ?? (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions");
+
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentGatewayMenu = menu;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// The Group-label → submenu-column table, as a PURE lookup: it builds a column and names the menu and
+    /// title it would carry, without touching a single piece of shell state. Returns <c>null</c> for a label
+    /// that names no submenu.
+    ///
+    /// <para><b>Why <paramref name="parentMenu"/> is a parameter and not <see cref="CurrentGatewayMenu"/>.</b>
+    /// Two labels are ambiguous — "Batch" is a Group under Inventory Reports and a Page (the batch master)
+    /// under Create; "Ledger" is a Group under Account Books and a Page (the ledger master) everywhere else.
+    /// Taking the parent explicitly is what lets W2-14's Go To index resolve them from a stored ancestor path
+    /// instead of from wherever the operator happens to be standing.</para>
+    /// </summary>
+    private (GatewayColumn Column, GatewayMenu Menu, string Title)? SubmenuFor(
+        string label, GatewayMenu parentMenu)
+    {
+        return label switch
         {
             "Vouchers" => (BuildVouchersColumn(), GatewayMenu.Vouchers,
                 "Gateway of Apex Solutions — Vouchers"),
@@ -8135,7 +8420,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Inventory Reports"),
             // "Batch" is a Group ONLY under Inventory Reports (under Create it is a Page → the batch master); the
             // Inventory-Reports hub is the active parent here, so drilling it opens the batch-reports submenu.
-            "Batch" when CurrentGatewayMenu == GatewayMenu.InventoryReports => (
+            "Batch" when parentMenu == GatewayMenu.InventoryReports => (
                 BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
                 "Gateway of Apex Solutions — Batch Reports"),
             "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
@@ -8152,7 +8437,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book"),
             // "Ledger" is a Group ONLY under Account Books (elsewhere it is a Page → the ledger master); the
             // Account-Books hub is the active parent here, so drilling it opens the all-ledgers book picker.
-            "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
+            "Ledger" when parentMenu == GatewayMenu.AccountBooks => (
                 BuildLedgerBookPickerColumn("Ledger", _ => true),
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
             // W2-12 (census 11.7): the two group reports each open a picker of the company's own groups.
@@ -8189,16 +8474,172 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Backup / Restore (the R-7 carve-out).
             "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
                 "Gateway of Apex Solutions — Backup / Restore"),
-            _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
+            _ => null,
         };
+    }
 
-        Columns.Add(column);
-        column.SelectFirstSelectable();
-        ActiveColumnIndex = Columns.Count - 1;
-        CurrentGatewayMenu = menu;
-        ScreenTitle = title;
+    // =============================================================== W2-14: Go To (Alt+G)
+
+    /// <summary>
+    /// W2-14 (census 14.1) — raises the <b>Go To</b> overlay over whatever is on screen.
+    ///
+    /// <para>The index is rebuilt on every open rather than cached, and that is deliberate: half this menu is
+    /// conditional on company feature flags (Payroll, TDS/TCS, batches, BOM, price levels, the GST dealer
+    /// kind), so a cached index would offer a screen the operator had just switched off — or hide one they had
+    /// just switched on. Rebuilding costs one pass over a few hundred menu rows.</para>
+    /// </summary>
+    public void OpenGoTo()
+    {
+        if (!CanOpenGoTo) return;
+        GoTo = new GoToViewModel(BuildGoToIndex());
+    }
+
+    /// <summary>
+    /// True when Go To can actually raise something — nothing to jump to before a company is open, since the
+    /// whole index IS the open company's own menu.
+    ///
+    /// <para>The button-bar badge and <see cref="OpenGoTo"/> both read this ONE predicate, so the bar can never
+    /// advertise an enabled "Alt+G · Go To" that fires nothing (register defect IV-31), and can never dim a
+    /// chord that would in fact have worked.</para>
+    /// </summary>
+    public bool CanOpenGoTo =>
+        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+
+    /// <summary>
+    /// The single door Alt+G and the button bar's "Go To" badge both run, so key and button cannot drift into
+    /// doing different things — the failure this file records for Alt+C and for Alt+A.
+    /// </summary>
+    public void ToggleGoTo()
+    {
+        if (IsGoToOpen) CloseGoTo();
+        else OpenGoTo();
+    }
+
+    /// <summary>Dismisses the Go To overlay, leaving the screen underneath exactly as it was.</summary>
+    public void CloseGoTo() => GoTo = null;
+
+    /// <summary>
+    /// Enter on the highlighted Go To result — REPLAYS the ordinary cascade navigation to it: back to the
+    /// Gateway root, drill each Group on the stored path, then open the target Page row.
+    ///
+    /// <para><b>Why replay rather than dispatch the label directly.</b> The ~180-case page dispatch reads
+    /// <see cref="CurrentGatewayMenu"/> for its context-sensitive arms ("Price List" is a master under Create
+    /// and a report under Inventory Reports; "Ledger" is a master except under Account Books). Jumping
+    /// straight to the label from wherever the operator stood would run those arms against the WRONG parent.
+    /// Replaying puts the shell in exactly the state the arms expect, and as a bonus leaves the cascade
+    /// columns behind the new page so the operator can walk back up the path they landed on.</para>
+    ///
+    /// <para>Returns <c>false</c> without navigating and WITHOUT closing when nothing is highlighted, so an
+    /// Enter on an empty result list is a no-op the operator can simply retype past.</para>
+    /// </summary>
+    public bool ActivateGoTo()
+    {
+        if (GoTo?.Selected is not { } destination) return false;
+        if (Company is null) return false;
+
+        ShowGateway();
+
+        foreach (var groupLabel in destination.Path)
+        {
+            var column = Columns[ActiveColumnIndex];
+            var group = column.Items.FirstOrDefault(
+                i => i.IsSelectable && i.Kind == MenuItemKind.Group && i.Label == groupLabel);
+            // A path that no longer resolves means a feature flag went off between building the index and
+            // pressing Enter. Leave the operator on the Gateway rather than half-way down a dead path.
+            if (group is null) { CloseGoTo(); return false; }
+
+            column.SetSelected(column.Items.IndexOf(group));
+            SyncActiveColumn();
+            OpenGroupOf(group);
+        }
+
+        var wantedKind = destination.OpensSubmenu ? MenuItemKind.Group : MenuItemKind.Page;
+        var last = Columns[ActiveColumnIndex];
+        var target = last.Items.FirstOrDefault(
+            i => i.IsSelectable && i.Kind == wantedKind && i.Label == destination.Label);
+        if (target is null) { CloseGoTo(); return false; }
+
+        last.SetSelected(last.Items.IndexOf(target));
         SyncActiveColumn();
-        BuildButtonBar();
+        if (destination.OpensSubmenu) OpenGroupOf(target);
+        else OpenPageOf(target);
+        CloseGoTo();
+        return true;
+    }
+
+    /// <summary>
+    /// Walks the REAL Gateway menu and collects every Page row it can reach, with the Group path that reaches
+    /// it. Building the index from the menu itself — rather than from a hand-written table of destinations — is
+    /// what stops Go To drifting: a row added to any menu builder appears here automatically, and a row removed
+    /// disappears with it.
+    /// </summary>
+    private IReadOnlyList<GoToDestination> BuildGoToIndex()
+    {
+        var into = new List<GoToDestination>();
+        if (Company is null) return into;
+        WalkGoTo(BuildRootColumn(), GatewayMenu.Root, new List<string>(), prefix: null, into, depth: 0);
+        return into;
+    }
+
+    /// <summary>
+    /// The breadcrumb for a row: its column's ancestry, plus the section header it sits under. A blank half is
+    /// treated as absent, so a row in an unheaded column never gets a breadcrumb that opens with a stray "→".
+    /// </summary>
+    private static string GoToSection(string? prefix, string? header)
+    {
+        var p = string.IsNullOrWhiteSpace(prefix) ? null : prefix;
+        var h = string.IsNullOrWhiteSpace(header) ? null : header;
+        if (p is null) return h ?? string.Empty;
+        return h is null ? p : $"{p} → {h}";
+    }
+
+    private void WalkGoTo(
+        GatewayColumn column, GatewayMenu menu, List<string> path, string? prefix,
+        List<GoToDestination> into, int depth)
+    {
+        // 🔴 A DATA-DRIVEN column is a picker over COMPANY DATA — every row is a ledger or group NAME. Walking
+        // into one would put a Go To row on screen per ledger and bury the reports the feature exists to find.
+        // The picker itself is still indexed as a destination by its parent; only its contents are skipped.
+        if (column.Kind == GatewayColumnKind.DataDriven) return;
+        if (depth > 6) return;   // the menu is a shallow tree; this only bounds a future accidental cycle.
+
+        string? header = null;
+        foreach (var item in column.Items)
+        {
+            if (item.IsHeader)
+            {
+                // A submenu column usually repeats its own name as its first header ("Outstandings" inside the
+                // Outstandings column). Dropping the repeat keeps the breadcrumb from reading "… → Outstandings
+                // → Outstandings".
+                header = path.Count > 0 && string.Equals(item.Label, path[^1], StringComparison.Ordinal)
+                    ? null
+                    : item.Label;
+                continue;
+            }
+
+            var section = GoToSection(prefix, header);
+
+            switch (item.Kind)
+            {
+                case MenuItemKind.Page:
+                    into.Add(new GoToDestination(item.Label, section, path.ToArray(), opensSubmenu: false));
+                    break;
+
+                case MenuItemKind.Group:
+                    if (SubmenuFor(item.Label, menu) is not { } sub) break;
+                    // The hub is itself a destination. Several report families are groups rather than pages —
+                    // the Account-Books pickers among them — so an index of pages alone could not reach the
+                    // Cash Book at all, which is precisely the kind of screen Go To exists to find.
+                    into.Add(new GoToDestination(item.Label, section, path.ToArray(), opensSubmenu: true));
+                    path.Add(item.Label);
+                    WalkGoTo(sub.Column, sub.Menu, path, GoToSection(section, item.Label), into, depth + 1);
+                    path.RemoveAt(path.Count - 1);
+                    break;
+
+                // MenuItemKind.Action ("Quit — Change Company") is not a destination: Go To navigates, it does
+                // not run verbs that close the company out from under the screen the operator is standing on.
+            }
+        }
     }
 
     /// <summary>Opens the page column for a highlighted Page item (report / voucher / ledger / chart).</summary>
@@ -8240,11 +8681,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Trial Balance": OpenReport(ReportKind.TrialBalance); break;
             case "Ledger": ShowLedgerMaster(); break;
             case "Group": ShowAccountGroupMaster(); break;
+            // W2-20 (census 2.12) — the two multi-master grids.
+            case "Multi Ledger": ShowMultiLedgerCreate(); break;
+            case "Multi Group": ShowMultiGroupCreate(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Stock Group": ShowStockGroupMaster(); break;
             case "Stock Category": ShowStockCategoryMaster(); break;
             case "Unit": ShowUnitMaster(); break;
+            case "Voucher Type": ShowVoucherTypeMaster(); break;
             case "Godown": ShowGodownMaster(); break;
             case "Stock Item": ShowStockItemMaster(); break;
             case "Reorder Levels": ShowReorderLevelsMaster(); break;
@@ -8269,6 +8714,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // GST Returns (Advanced).
             case "GSTR-9": OpenGstr9Report(); break;
             case "GSTR-9C": OpenGstr9cReport(); break;
+            // The offline-return JSON page (W2-06). "GSTR-9A" opens it already on the composition annual return —
+            // the only route that form has ever had (census row 6.13).
+            case "GSTR-9A": OpenGstOfflineReturns(GstOfflineReturnKind.Gstr9a); break;
+            case "Offline Return Files (JSON)": OpenGstOfflineReturns(); break;
             case "Electronic Ledgers": OpenElectronicLedgersReport(); break;
             case "ITC Set-Off": OpenItcSetOffReport(); break;
             case "ITC Reversal": OpenItcReversalReport(); break;
@@ -8546,6 +8995,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case AccountGroupMasterViewModel agm:
                 AccountGroupMaster = agm;
                 return Screen.AccountGroupMaster;
+            case MultiMasterCreateViewModel mmc:
+                MultiMasterCreate = mmc;
+                return Screen.MultiMasterCreate;
             case StockItemMasterViewModel sim:
                 StockItemMaster = sim;
                 return Screen.StockItemMaster;
@@ -8889,6 +9341,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
             () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
 
+        // W2-14 (row 14.1) — Alt+G GO TO. Advertised for the same reason Alt+2 above is: a chord nobody can
+        // find is not a feature, and this file already states that rule twice. Go To is worse than most in that
+        // respect — it has no menu row and no screen of its own by design, so the badge is the ONLY thing that
+        // tells an operator the chord exists. The click runs `ToggleGoTo`, the identical door the key runs, and
+        // the badge is enabled on exactly the predicate that door enforces.
+        ButtonBar.Add(new ButtonBarItem("Alt+G", "Go To", ToggleGoTo, CanOpenGoTo));
+
         // Create master + report quick-jumps (enabled once a company is open).
         // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster
         // directly, so on the Manufacturing-Journal / BOM screens the key created a Stock Item while the button
@@ -8900,9 +9359,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
             hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
-        // NOTE: there is deliberately NO "Ctrl+B" row here. Ctrl+B was the Bill-Settlement badge until Phase 10.11
-        // S2 (register row IV-5) removed the binding; leaving the badge would paint a red accelerator for a key
-        // that fires nothing, which is register defect IV-31. Settlement is advertised on the Alt+A row above.
+
+        // W2-13a (census 14.5) — Ctrl+B BASIS OF VALUES. This is the row the Alt+A note below says was
+        // deliberately absent: Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 removed the binding,
+        // and the chord was left free precisely because in the reference product it is Basis of Values
+        // (OutstandingsViewModel records that in its own remarks). It is now that, and nothing else.
+        // ENABLED only where the open report can actually be re-scaled, and DIMMED everywhere else, because an
+        // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
+            Reports is { SupportsScaleFactor: true }));
+        // NOTE ON Ctrl+B (updated by W2-13a): Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 (register
+        // row IV-5) removed the binding, and this note used to say there was deliberately no Ctrl+B row at all.
+        // The chord now carries the verb the reference product puts on it — Basis of Values — and its row is
+        // emitted ABOVE, guarded so it is only enabled where it fires. Settlement remains on the Alt+A row above
+        // and is NOT reachable from Ctrl+B: the old destructive path is gone, not re-pointed.
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.

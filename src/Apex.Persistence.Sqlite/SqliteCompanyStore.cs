@@ -1291,6 +1291,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 52;
         }
 
+        // v52 → v53: add the two Voucher Type user-flag columns (print_after_saving,
+        // provide_narration_for_each_ledger), then bump the marker. Existing v52 data survives untouched
+        // (ALTER … ADD COLUMN only; no new table, no index) and it deliberately carries NO back-fill UPDATE: a v52
+        // voucher type had neither flag, so the column DEFAULT 0 is the literal truth about every existing row
+        // rather than a convenient stand-in. Contrast MigrateV50ToV51, whose back-fill IS load-bearing.
+        if (version == 52)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV52ToV53;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 53);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 53;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2261,7 +2286,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
-                   is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero
+                   is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
+                   print_after_saving, provide_narration_for_each_ledger
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2303,6 +2329,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 preventDuplicate: r.GetInt64(19) != 0,
                 numberWidth: (int)r.GetInt64(20),
                 prefillWithZero: r.GetInt64(21) != 0,
+                // v53 (W2-03; census 5.11): the two attested user flags, read verbatim.
+                printAfterSaving: r.GetInt64(22) != 0,
+                provideNarrationForEachLedger: r.GetInt64(23) != 0,
                 prefixes: prefixByType.GetValueOrDefault(id),
                 suffixes: suffixByType.GetValueOrDefault(id));
             list.Add(type);
@@ -5435,8 +5464,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
                      use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
-                     is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz);
+                     is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
+                     print_after_saving, provide_narration_for_each_ledger)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz, $pas, $pnl);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5461,6 +5491,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pd", t.PreventDuplicate ? 1 : 0);            // v47 (numbering S3)
             cmd.Parameters.AddWithValue("$nw", t.NumberWidth);                         // v47 (numbering S3)
             cmd.Parameters.AddWithValue("$pfz", t.PrefillWithZero ? 1 : 0);            // v47 (numbering S3)
+            cmd.Parameters.AddWithValue("$pas", t.PrintAfterSaving ? 1 : 0);           // v53 (W2-03; census 5.11)
+            cmd.Parameters.AddWithValue("$pnl", t.ProvideNarrationForEachLedger ? 1 : 0); // v53 (W2-03; census 5.11)
             cmd.ExecuteNonQuery();
         }
     }

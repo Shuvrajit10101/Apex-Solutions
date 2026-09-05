@@ -193,6 +193,39 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-14 (census 14.1) — GO TO (Alt+G), and the keys that belong to it while it is up.              │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // Grounding: help.tallysolutions.com's shortcut table — Alt+G, "To primarily open a report, and create
+        // masters and vouchers in the flow of work". Alt+G was measured FREE before this arm was written (zero
+        // `Key.G` hits anywhere in src/Apex.Desktop), so unlike the Insert-Voucher / Company-menu / More-Details
+        // chords it needed no ruling and displaces nothing.
+        //
+        // This block sits at the VERY TOP of the chain deliberately, and in two halves:
+        //   • Alt+G opens the overlay from ANYWHERE — that is the whole feature ("without having to move out of
+        //     the screen you have already opened"), so it must not be filtered by any screen guard below.
+        //   • While the overlay IS up it OWNS Up / Down / Enter / Escape. Without that, Down would arrow the
+        //     cascade column hidden behind the overlay and Enter would drill it — the operator would be driving
+        //     a menu they cannot see. Every other key (the letters they are typing) falls through to the search
+        //     box, which is focused.
+        if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            vm.ToggleGoTo();          // the identical door the button bar's "Alt+G · Go To" badge runs
+            e.Handled = true;
+            return;
+        }
+
+        if (vm.IsGoToOpen)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.GoTo!.MoveDown(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
+                case Key.Up: vm.GoTo!.MoveUp(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
+                case Key.Enter: vm.ActivateGoTo(); e.Handled = true; return;
+                case Key.Escape: vm.CloseGoTo(); e.Handled = true; return;
+            }
+        }
+
         // WI-3: Ctrl+Enter on a master LIST row opens that master for ALTERATION. This must sit ahead of every
         // other Enter arm below — the plain-Enter drill immediately after ignores modifiers, and the
         // IsMasterAcceptScreen arm in the switch would otherwise raise "Accept Stock Item? (Y/N)" instead. The VM
@@ -212,6 +245,16 @@ public partial class MainWindow : Window
         // many the VM resolves, not a claim that all eight are done. See MainWindowViewModel.PayrollMasterScreen.
         if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && vm.AlterHighlightedPayrollMasterRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // W2-03 (census 2.4) — THE SAME CHORD, THE SAME RULE, on the Voucher Type master's existing-list. Its own
+        // arm because ForAlter is a static factory per master type; every other verb on that list (arrows, Alt+D,
+        // refresh) is genuinely shared through IMasterListScreen rather than duplicated.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedVoucherTypeRow())
         {
             e.Handled = true;
             return;
@@ -355,6 +398,9 @@ public partial class MainWindow : Window
         {
             if (vm.CurrentScreen == Screen.ReportConfig)
                 vm.ApplyReportConfig();
+            // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
+            else if (vm.CurrentScreen == Screen.BasisOfValues)
+                vm.ApplyBasisOfValues();
             else if (vm.CurrentScreen == Screen.ReportSortFilter)
                 vm.ApplyReportSortFilter();
             else if (vm.CurrentScreen == Screen.AddComparisonColumn)
@@ -951,6 +997,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W2-13a (census row 14.5) — Ctrl+B opens BASIS OF VALUES (the report Scale Factor) over the live report.
+        // help.tallysolutions.com gives Ctrl+B as "To views values in different ways in a report"; the chord was
+        // verified free before it was taken (every other Key.B arm in this file carries Alt, and the bare-B menu
+        // quick-jump at the bottom is guarded by CanQuickJump, which excludes a report page).
+        // 🔴 The guard is the EXACT condition the button-bar row is enabled on, and that is deliberate. Guarding
+        // only on IsReportContext would leave the arm consuming Ctrl+B on a report that cannot scale, i.e. a key
+        // that is swallowed and fires nothing beside a badge that is honestly dimmed — the two would disagree,
+        // which is the defect SettlementFromOutstandingsTests exists to keep out. Here they cannot.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Reports is { SupportsScaleFactor: true })
+        {
+            vm.OpenBasisOfValues();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+K (RQ-8) opens the "Saved Views" list — the company's saved report views (open/apply or delete one).
         // Available over any report page; needs a company. Checked before the global Alt shortcuts.
         if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
@@ -1041,6 +1104,15 @@ public partial class MainWindow : Window
         if (e.Key == Key.Space && vm.IsOutstandingsScreen && !IsTyping(e))
         {
             vm.ToggleOutstandingSelection();
+            e.Handled = true;
+            return;
+        }
+
+        // W2-03 (census 5.11) — Spacebar ACTIVATES / DEACTIVATES the highlighted voucher type. `!IsTyping(e)` is
+        // load-bearing on this screen and not merely copied: the master carries a Name and an Abbreviation box, and
+        // without the guard a space typed into either would silently switch a voucher type off.
+        if (e.Key == Key.Space && !IsTyping(e) && vm.ToggleHighlightedVoucherTypeActive())
+        {
             e.Handled = true;
             return;
         }
@@ -1533,6 +1605,50 @@ public partial class MainWindow : Window
     private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
         => Vm?.AccountGroupMaster?.Create();
 
+    /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
+    private void OnMultiMasterCreateClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiMasterCreate?.Accept();
+
+    /// <summary>
+    /// W2-14 — puts the caret in the Go To search box the instant the overlay is realised, so Alt+G is followed
+    /// by typing and nothing else. Without this the keystrokes after Alt+G would go to whatever held focus
+    /// behind the overlay, which is the screen the operator is trying to leave.
+    /// </summary>
+    private void OnGoToSearchBoxAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is TextBox box) box.Focus();
+    }
+
+    /// <summary>
+    /// W2-14 — drags the results panel to the highlighted row.
+    ///
+    /// <para>🔴 Why this cannot be left to the framework. Everywhere else in this shell a ScrollViewer follows
+    /// the keyboard for free, because the thing being moved is FOCUS and a focused control brings itself into
+    /// view. Go To deliberately keeps focus in the search box — that is the whole interaction, type and arrow
+    /// at once — so its rows are never focused and nothing scrolls on their behalf. The overlay opens
+    /// UNFILTERED over the entire menu, a couple of hundred rows in a 460px panel, so without this the
+    /// highlight is off the bottom of the panel after a dozen presses of Down and the operator is pressing
+    /// Enter on a screen whose name they were never shown.</para>
+    /// </summary>
+    private void ScrollGoToSelectionIntoView()
+    {
+        var index = Vm?.GoTo?.SelectedIndex ?? -1;
+        if (index < 0) return;
+
+        // The overlay lives inside a DataTemplate, so it is not a named field on this window.
+        var list = this.GetVisualDescendants().OfType<ItemsControl>()
+            .FirstOrDefault(c => c.Name == "GoToResults");
+        if (list?.ContainerFromIndex(index) is Control row) row.BringIntoView();
+    }
+
+    /// <summary>
+    /// W2-14 — retyping re-ranks the list and puts the highlight back on row one, so the panel has to come back
+    /// up with it. Posted rather than called inline: the rebuilt rows do not have containers until the layout
+    /// pass that follows this keystroke, and asking for row one's container before that returns nothing.
+    /// </summary>
+    private void OnGoToSearchTextChanged(object? sender, TextChangedEventArgs e)
+        => Dispatcher.UIThread.Post(ScrollGoToSelectionIntoView, DispatcherPriority.Background);
+
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
 
@@ -1683,6 +1799,10 @@ public partial class MainWindow : Window
     private void OnApplyPfClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.ApplyPf();
 
+    // GST offline return files (W2-06) — writes the selected return's JSON to the chosen export folder.
+    private void OnExportGstReturnJsonClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstOfflineReturns?.ExportJson();
+
     private void OnExportEcrClick(object? sender, RoutedEventArgs e)
         => Vm?.PfEcrReport?.ExportEcr();
 
@@ -1757,6 +1877,11 @@ public partial class MainWindow : Window
 
     private void OnCreatePayrollUnitClick(object? sender, RoutedEventArgs e)
         => Vm?.PayrollUnitMaster?.Create();
+
+    /// <summary>W2-03 — the Voucher Type master's Accept button. Runs the SAME verb Ctrl+A runs (create or
+    /// alter, per the screen's caption), so the pointer and the keyboard cannot diverge.</summary>
+    private void OnCreateVoucherTypeClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherTypeMaster?.Create();
 
     private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
@@ -1950,6 +2075,11 @@ public partial class MainWindow : Window
     private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSelectedSavedView();
 
+    /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
+    private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyBasisOfValues();
+
+
     /// <summary>
     /// "Save PDF" on the Print-Preview panel: writes the rendered bytes to a file. The renderer is disk-free;
     /// this thin layer just picks a path (the user's Documents folder with a report-derived file name) and calls
@@ -1960,11 +2090,11 @@ public partial class MainWindow : Window
         if (Vm is { } vm) SavePrintPreviewToDocuments(vm);
     }
 
-    /// <summary>Picks a Documents-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
+    /// <summary>Picks a default-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
     private static void SavePrintPreviewToDocuments(MainWindowViewModel vm)
     {
         if (vm.PrintPreview is not { } preview) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = Services.ExportFolderDefault.Resolve();   // never empty - see ExportFolderDefault
         var name = SafeFileName(preview.ReportTitle) + ".pdf";
         vm.SavePrintPreview(Path.Combine(dir, name));
     }
@@ -1978,7 +2108,7 @@ public partial class MainWindow : Window
     private static void SaveEmailToDocuments(MainWindowViewModel vm)
     {
         if (vm.EmailCompose is not { } compose) return;
-        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dir = Services.ExportFolderDefault.Resolve();   // never empty - see ExportFolderDefault
         var name = SafeFileName(compose.DocumentTitle) + ".eml";
         vm.SaveEmail(Path.Combine(dir, name));
     }
