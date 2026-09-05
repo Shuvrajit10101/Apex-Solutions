@@ -172,6 +172,11 @@ public static class InvoicePdf
             DrawFooter(writer, page, left, right, total, total);
         }
 
+        // W2-31 (census 12.4) F5: collated copies of the whole invoice — the case the knob exists for, since
+        // CGST Rule 48(1) prepares a goods invoice in triplicate. The COPY MARKING is a separate knob
+        // (<see cref="PrintConfig.CopyMarking"/>): this repeats the document, it does not re-label each set.
+        // One copy repeats nothing, so the shipped byte stream is untouched (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
         return writer.Build();
     }
 

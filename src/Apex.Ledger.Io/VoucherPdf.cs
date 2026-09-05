@@ -95,6 +95,9 @@ public static class VoucherPdf
             DrawFooter(writer, page, left, right, total, total);
         }
 
+        // W2-31 (census 12.4) F5: collated copies of the whole voucher. One copy repeats nothing, so the shipped
+        // byte stream is untouched (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
         return writer.Build();
     }
 

@@ -1,12 +1,38 @@
 namespace Apex.Ledger.Io;
 
-/// <summary>The file format a report/master-list is exported to (RQ-14/16). PDF export is rendered by
-/// <see cref="ReportPdf"/>; CSV/XLSX by <see cref="CsvWriter"/>/<see cref="XlsxWriter"/>.</summary>
+/// <summary>
+/// The file format a report/master-list is exported to (RQ-14/16). PDF export is rendered by
+/// <see cref="ReportPdf"/>; CSV/XLSX by <see cref="CsvWriter"/>/<see cref="XlsxWriter"/>; HTML, XML, JSON and
+/// ASCII by <see cref="HtmlReportWriter"/>, <see cref="XmlReportWriter"/>, <see cref="JsonReportWriter"/> and
+/// <see cref="AsciiReportWriter"/> (W2-25 / census 13.6).
+///
+/// <para><b>Members are APPENDED, never renumbered.</b> The ordinal is not persisted today, but the enum is
+/// public API and a saved export config could carry one; the four W2-25 members therefore sit after the three
+/// that shipped.</para>
+///
+/// <para><b>What is still missing, stated rather than hidden.</b> The vendor's File Format list has seven
+/// entries; <b>JPEG (Image) <c>.jpg</c> is not among ours</b> — it needs a rasteriser (a dependency or a
+/// hand-rolled encoder) and is carved out by design ruling R14, so census row 13.6 does <b>not</b> close on
+/// this enum. Our <see cref="Csv"/> (<c>.csv</c>) and <see cref="Ascii"/> (<c>.txt</c>) are the SAME
+/// comma-delimited records; see <see cref="AsciiReportWriter"/> for why both exist.</para>
+/// </summary>
 public enum ExportFormat
 {
     Csv,
     Xlsx,
     Pdf,
+
+    /// <summary>HTML (Web-Publishing), <c>.html</c> — a self-contained single-table document.</summary>
+    Html,
+
+    /// <summary>XML (Data Interchange), <c>.xml</c> — a report document, NOT the whole-company canonical XML.</summary>
+    Xml,
+
+    /// <summary>JSON (Data Exchange), <c>.json</c> — a report document, NOT the whole-company canonical JSON.</summary>
+    Json,
+
+    /// <summary>ASCII (Comma Delimited), <c>.txt</c> — the delimited records with no byte-order mark.</summary>
+    Ascii,
 }
 
 /// <summary>
@@ -37,6 +63,12 @@ public sealed class ExportConfig
         ExportFormat.Csv => "csv",
         ExportFormat.Xlsx => "xlsx",
         ExportFormat.Pdf => "pdf",
+        // W2-25: the four extensions are the vendor File Format list's own (census 13.6), including ASCII's
+        // .txt — which is why Ascii is a member of its own rather than a rename of Csv.
+        ExportFormat.Html => "html",
+        ExportFormat.Xml => "xml",
+        ExportFormat.Json => "json",
+        ExportFormat.Ascii => "txt",
         _ => "dat",
     };
 

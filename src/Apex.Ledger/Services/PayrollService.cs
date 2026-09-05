@@ -273,6 +273,38 @@ public sealed class PayrollService
         return category;
     }
 
+    /// <summary>
+    /// Alters an existing employee category IN PLACE, against its stable id — so a rename follows every employee
+    /// already classified under it rather than forking a second category.
+    ///
+    /// <para>Re-runs exactly the invariants <see cref="CreateEmployeeCategory"/> enforces, with one difference
+    /// that is the whole reason this cannot be "create with the same id": the uniqueness check must <b>exclude
+    /// the category being altered</b>, or saving a category without renaming it would refuse itself.</para>
+    ///
+    /// <para>A <b>predefined</b> category is refused, for the same reason deletion refuses it — it is part of the
+    /// company's seeded shape and other code names it.</para>
+    /// </summary>
+    public EmployeeCategory AlterEmployeeCategory(
+        Guid categoryId, string name, bool allocateRevenueItems, bool allocateNonRevenueItems)
+    {
+        var category = _company.FindEmployeeCategory(categoryId)
+            ?? throw new InvalidOperationException($"Employee category {categoryId} not found.");
+        if (category.IsPredefined)
+            throw new InvalidOperationException($"Predefined employee category '{category.Name}' cannot be altered.");
+
+        var trimmed = RequireName(name, "employee category");
+        if (!allocateRevenueItems && !allocateNonRevenueItems)
+            throw new InvalidOperationException(
+                "An employee category must allocate revenue and/or non-revenue items (at least one must be Yes).");
+        if (_company.FindEmployeeCategoryByName(trimmed) is { } clash && clash.Id != categoryId)
+            throw new InvalidOperationException($"An employee category named '{trimmed}' already exists.");
+
+        category.Name = trimmed;
+        category.AllocateRevenueItems = allocateRevenueItems;
+        category.AllocateNonRevenueItems = allocateNonRevenueItems;
+        return category;
+    }
+
     /// <summary>Deletes an employee category, blocked while it is predefined or referenced by any employee.</summary>
     public void DeleteEmployeeCategory(Guid categoryId)
     {
@@ -313,6 +345,33 @@ public sealed class PayrollService
         group.ParentId = parentId;
         try { EnsureEmployeeGroupParentValid(group); }
         catch { group.ParentId = previous; throw; }
+    }
+
+    /// <summary>
+    /// Alters an existing employee group in place, against its stable id. Uniqueness excludes the group being
+    /// altered (see <see cref="AlterEmployeeCategory"/> for why), and the re-parent goes through
+    /// <see cref="SetEmployeeGroupParent"/> so the cycle guard — which already existed and had no UI caller — is
+    /// the one and only place that rule lives.
+    /// </summary>
+    public EmployeeGroup AlterEmployeeGroup(
+        Guid groupId, string name, Guid? parentId, string? alias, bool defineSalaryDetails)
+    {
+        var group = _company.FindEmployeeGroup(groupId)
+            ?? throw new InvalidOperationException($"Employee group {groupId} not found.");
+
+        var trimmed = RequireName(name, "employee group");
+        if (_company.FindEmployeeGroupByName(trimmed) is { } clash && clash.Id != groupId)
+            throw new InvalidOperationException($"An employee group named '{trimmed}' already exists.");
+
+        // Re-parent FIRST: it is the only change that can be refused by an invariant of its own, and
+        // SetEmployeeGroupParent restores the previous parent on refusal. Doing it first means a refused
+        // re-parent leaves the name and the flag untouched too, rather than half-applying the alteration.
+        SetEmployeeGroupParent(groupId, parentId);
+
+        group.Name = trimmed;
+        group.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        group.DefineSalaryDetails = defineSalaryDetails;
+        return group;
     }
 
     /// <summary>Deletes an employee group, blocked while it has child groups or employees under it.</summary>
@@ -387,6 +446,52 @@ public sealed class PayrollService
         return employee;
     }
 
+    /// <summary>
+    /// Alters an existing employee's identity fields in place, against the stable id — so a rename follows every
+    /// attendance entry, salary structure and payroll voucher already keyed to that employee.
+    ///
+    /// <para>Deliberately covers only the fields <see cref="CreateEmployee"/> validates. Everything else on the
+    /// entity (designation, gender, bank details, elected regime) is plain settable state the screen writes
+    /// directly, exactly as it does on create — this method exists for the invariants, not to be a second
+    /// property bag that would drift out of step with the first.</para>
+    /// </summary>
+    public Employee AlterEmployee(
+        Guid employeeId,
+        string name,
+        Guid employeeGroupId,
+        Guid? employeeCategoryId = null,
+        string? employeeNumber = null,
+        string? pan = null,
+        string? uan = null,
+        string? esiNumber = null,
+        DateOnly? dateOfJoining = null)
+    {
+        var employee = _company.FindEmployee(employeeId)
+            ?? throw new InvalidOperationException($"Employee {employeeId} not found.");
+
+        var trimmed = RequireName(name, "employee");
+        if (_company.FindEmployeeByName(trimmed) is { } clash && clash.Id != employeeId)
+            throw new InvalidOperationException($"An employee named '{trimmed}' already exists.");
+        if (_company.FindEmployeeGroup(employeeGroupId) is null)
+            throw new InvalidOperationException($"Employee group {employeeGroupId} not found.");
+        if (employeeCategoryId is { } cid && _company.FindEmployeeCategory(cid) is null)
+            throw new InvalidOperationException($"Employee category {cid} not found.");
+
+        ValidatePan(pan);
+        ValidateUan(uan);
+        ValidateEsi(esiNumber);
+
+        employee.Name = trimmed;
+        employee.EmployeeGroupId = employeeGroupId;
+        employee.EmployeeCategoryId = employeeCategoryId;
+        employee.EmployeeNumber = string.IsNullOrWhiteSpace(employeeNumber) ? null : employeeNumber.Trim();
+        employee.Pan = string.IsNullOrWhiteSpace(pan) ? null : pan.Trim();
+        employee.Uan = string.IsNullOrWhiteSpace(uan) ? null : uan.Trim();
+        employee.EsiNumber = string.IsNullOrWhiteSpace(esiNumber) ? null : esiNumber.Trim();
+        employee.DateOfJoining = dateOfJoining;
+        return employee;
+    }
+
     /// <summary>Deletes an employee. (No later master references an employee in this slice, so this always
     /// succeeds; the attendance/payroll-voucher guard arrives with those slices.)</summary>
     public void DeleteEmployee(Guid employeeId)
@@ -436,6 +541,32 @@ public sealed class PayrollService
         return unit;
     }
 
+    /// <summary>
+    /// Alters a payroll unit's symbol, formal name and decimal places in place.
+    ///
+    /// <para><b>The compound STRUCTURE is deliberately not alterable</b> — first unit, tail unit and conversion
+    /// factor are constructor-only on <see cref="PayrollUnit"/> and are the arithmetic every attendance figure
+    /// already recorded against this unit was converted with. Changing them silently re-scales history. A
+    /// compound unit that is wrong is deleted (the guard refuses it while anything depends on it) and re-created.
+    /// This is a divergence, labelled as ours, and it is the safe half of the two.</para>
+    /// </summary>
+    public PayrollUnit AlterPayrollUnit(Guid unitId, string symbol, string formalName, int decimalPlaces)
+    {
+        var unit = _company.FindPayrollUnit(unitId)
+            ?? throw new InvalidOperationException($"Payroll unit {unitId} not found.");
+
+        var trimmed = RequireName(symbol, "payroll unit symbol");
+        if (_company.FindPayrollUnitByName(trimmed) is { } clash && clash.Id != unitId)
+            throw new InvalidOperationException($"A payroll unit '{trimmed}' already exists.");
+        if (decimalPlaces is < 0 or > 4)
+            throw new InvalidOperationException("A payroll unit's decimal places must be between 0 and 4.");
+
+        unit.Symbol = trimmed;
+        unit.FormalName = formalName ?? string.Empty;
+        unit.DecimalPlaces = decimalPlaces;
+        return unit;
+    }
+
     /// <summary>Deletes a payroll unit, blocked while it is a component of a compound payroll unit or the period /
     /// production unit of an attendance type.</summary>
     public void DeletePayrollUnit(Guid unitId)
@@ -480,6 +611,31 @@ public sealed class PayrollService
         type.ParentId = parentId;
         try { EnsureAttendanceTypeParentValid(type); }
         catch { type.ParentId = previous; throw; }
+    }
+
+    /// <summary>
+    /// Alters an attendance/production type in place. Uniqueness excludes the type being altered; the re-parent
+    /// goes through <see cref="SetAttendanceTypeParent"/>, first, so its cycle guard is the only place that rule
+    /// lives and a refused re-parent leaves the rest of the alteration unapplied.
+    /// </summary>
+    public AttendanceType AlterAttendanceType(
+        Guid typeId, string name, AttendanceTypeKind kind, Guid? parentId, Guid? payrollUnitId)
+    {
+        var type = _company.FindAttendanceType(typeId)
+            ?? throw new InvalidOperationException($"Attendance type {typeId} not found.");
+
+        var trimmed = RequireName(name, "attendance type");
+        if (_company.FindAttendanceTypeByName(trimmed) is { } clash && clash.Id != typeId)
+            throw new InvalidOperationException($"An attendance type named '{trimmed}' already exists.");
+        if (payrollUnitId is { } uid && _company.FindPayrollUnit(uid) is null)
+            throw new InvalidOperationException($"Payroll unit {uid} not found.");
+
+        SetAttendanceTypeParent(typeId, parentId);
+
+        type.Name = trimmed;
+        type.Kind = kind;
+        type.PayrollUnitId = payrollUnitId;
+        return type;
     }
 
     /// <summary>Deletes an attendance type, blocked while it has child types.</summary>

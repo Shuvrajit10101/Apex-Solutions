@@ -390,6 +390,21 @@ are no longer open defects — they are kept for the record, with the fixing com
 > `plan.md:268` → **`plan.md:290`** · `MainWindowViewModel.cs:4895-4923` → **`:4893-4930`** (`RequestMasterAccept()`
 > at `:4904`). `docs/voucher-entry-specification.md:101` is **unchanged and still false** — the Fix instruction to
 > correct it had not been carried out; it is corrected there now, dated 2026-08-15.
+>
+> **†† 2026-09-05 (b1 + b4 landings, PRs #47 and #49) — THE TITLE IS NOW WRONG IN TWO OF ITS FOUR NOUNS, AND THE
+> 2026-08-15 LINE "Alt+D still deletes nothing" IS SUPERSEDED.** `Alt+D` now really deletes: **a COMPANY**
+> (`DeletionTarget.Company` → `PerformOpenCompanyDeletion`, behind the Y/N confirmation, removing the `.db` and
+> landing on Company Select — census row **1.4**, now `COMPLETE`), and **four of the eight PAYROLL MASTER kinds**
+> (`DeletionTarget.PayrollMaster` — census row **7.16**, now `PARTIAL` at 4 of 8). The enum is now
+> `{ None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company }`.
+> ⚠️ **The row is NOT struck, because what remains open is still substantial:** the **voucher**, **ledger** and
+> **group** arms named in the title are the ones still to re-derive against HEAD, and the payroll half is only
+> half done — pay head is blocked on **T2-38** (an engine gap: `PayHeadService` has no `Alter` at all), and
+> salary structure and tax declaration are unscoped.
+> 🔴 **This note deliberately does NOT re-audit the whole entry.** The failure mode this document keeps catching
+> is the sweeping correction that itself goes stale within one commit — so it records only what these two
+> landings changed. **Whoever next touches IV-4 should re-derive all four nouns against HEAD rather than trusting
+> the title, the 2026-08-15 note, or this one.**
 
 | | |
 |---|---|
@@ -1636,6 +1651,34 @@ Y — also permanent, different claim. **NEITHER** = *"I could not reach a sourc
 | **Citation** | **[web]** `help.tallysolutions.com/backup-restore-company-data-tally/`, read 2026-09-04 (§1.3 item 22). |
 | **How it got in** | Deliberate: a timestamped name makes accidental overwrite of the previous backup impossible. |
 | **Fix** | 🔴 **None, and this row exists to say so explicitly: record it as INVENTED, not as a defect.** It is filed here rather than in the gap register because the wave-3 pass drew that line itself, and because **a register that files every departure as harm loses the ability to say which departures are harm.** ⚠️ **The rest of row 13.1 IS harm and is filed as T2-30** — no company picker, no multi-company backup, no persisted path. **Do not let this row launder that one.** |
+
+---
+
+### IV-62 · Our export File Format list carries an EIGHTH entry the vendor's does not: `CSV (.csv)` alongside `ASCII (.txt)`
+**LOW** · Class **C** · Area **DATA** · ruling-9 category **(b)** — the source attests a different shape and we departed from it on purpose
+
+| | |
+|---|---|
+| **What the customer experiences** | The export dialog offers **seven** formats. Six map one-for-one onto the vendor's list; the seventh, **`CSV (comma-separated)` writing `.csv`**, has no counterpart in the reference product, and a user who knows that product will look for *ASCII (Comma Delimited)* and find **both** it and a near-twin above it. |
+| **What we invented** | **Keeping `Csv` as a format of its own after adding `Ascii`.** The vendor's *ASCII (Comma Delimited)* writes **`.txt`**; ours writes **`.txt`** correctly as `ExportFormat.Ascii`, and `ExportFormat.Csv` (`.csv`) is retained beside it. |
+| **What Tally does** | Offers exactly seven File Format entries: *ASCII (Comma Delimited)* `.txt` · *Excel (Spreadsheet)* `.xlsx` · *HTML (Web-Publishing)* `.html` · *JPEG (Image)* `.jpg` · *JSON (Data Exchange)* `.json` · *PDF (Read-only Document)* `.pdf` · *XML (Data Interchange)* `.xml`. **There is no separate CSV entry.** |
+| **Citation** | **[web]** two independent official vendor pages, agreeing, read 2026-09-04 in the wave-2 reports/printing pass and recorded verbatim in census row **13.6**. |
+| **How it got in** | `Csv` predates the comparison and is depended on by the existing whole-company and master-list export paths. When `Ascii` was added 2026-09-05 (b5, PR #50) the honest options were to *rename* `Csv` — silently changing the extension every existing caller and every user's muscle memory expects — or to add `Ascii` beside it and say so. **The second was chosen and `ExportConfig.cs` states it in the enum's own doc comment**: "Our `Csv` (`.csv`) and `Ascii` (`.txt`) are the SAME vendor entry under two extensions." |
+| **Fix** | 🔴 **None proposed; this row exists to LABEL it as ours (ruling 9), not to schedule a change.** If parity ever outweighs compatibility the fix is to drop `Csv` and re-point its callers at `Ascii` — but that is a breaking change to a shipped path and belongs to a user decision, not to a print slice. ⚠️ **Do not "fix" this by deleting the `.csv` extension; the census row it belongs to (13.6) is `PARTIAL` for a different reason entirely — JPEG.** |
+
+---
+
+### IV-63 · The print-configuration panel names NO function keys where the vendor names four — and we declined to invent them
+**MEDIUM** · Class **C** · Area **PRINT** · ruling-9 category **(c)** — no admissible source speaks to what OUR keys should do, so nothing was bound
+
+| | |
+|---|---|
+| **What the customer experiences** | The print-configuration panel offers its settings with **no keyboard accelerators named on them at all**. A user of the reference product reaches for `F8` to change print format, `F9` for paper, `F5` for copies and `F10` for page numbering, and **none of those keys does anything here**. On a keyboard-first product that is a real cost. |
+| **What we invented** | 🔴 **Nothing — and that is the entry.** The captions previously *advertised* `F8`/`F9`/`F5`/`F10` while **nothing routed them**, which is worse than silence: it promises a gesture that does not exist. The b5 landing (PR #50) **removed the captions rather than binding the keys**, and added a lock shaped as a SUBSET rule (**advertised ⊆ routed**) so the panel can never again name a key it does not route. |
+| **What Tally does** | Puts the print-configuration axes on four separate keys: `F8` **Print Format** (Dot Matrix Format / Neat Mode / Quick-Draft Format), `F9` **paper** (Plain ↔ Pre-Printed), `F5` **number of copies and Type of Copy**, `F10` **starting page number and page ranges**. |
+| **Citation** | **[web]** the official vendor print-configuration page, as recorded in census row **12.4**, which corrected that row's own target list on 2026-09-04. |
+| **How it got in** | **RULING 14: the `tally/` corpus is gone**, and `help.tallysolutions.com` was not consulted for the *binding* question during the b5 slice. Binding keys without a source would have been a fidelity guess dressed as a feature — and three TallyPrime report keys are **already** squatted by unrelated screens on this product (**IV-28**), so guessing a fourth set is exactly the move that created that entry. |
+| **Fix** | 🔴 **A USER DECISION, not an implementation detail (R12).** Two admissible routes: **(1)** supply the vendor page and bind the four keys to the axes it names — but first check each against the app's existing app-wide bindings, because IV-28 records that this product has already lost three such keys; or **(2)** accept shipping **our own** bindings as a documented divergence labelled as ours under ruling 9. **Until one is chosen, silence is the correct state** — the subset lock permits the real work and blocks only the false advertisement. Census row **12.4** carries the same note. |
 
 ---
 

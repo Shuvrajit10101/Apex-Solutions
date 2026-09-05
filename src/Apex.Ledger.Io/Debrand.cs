@@ -14,6 +14,18 @@ public static partial class Debrand
     private static partial Regex BrandRegex();
 
     /// <summary>
+    /// True when <paramref name="text"/> carries the forbidden brand (case-insensitive).
+    ///
+    /// <para><b>Why a predicate exists beside <see cref="Text"/>.</b> <see cref="Text"/> also collapses runs of
+    /// whitespace and trims — right for a field it always owns, but a caller that scrubs an existing, shipped
+    /// output stream would move every byte of every clean document just to close a hole that only opens when the
+    /// brand is actually present. Testing first and scrubbing only when it is keeps the clean path byte-identical
+    /// (ER-13) while still closing the hole (ER-11). <see cref="ReportPdf"/> uses it for exactly that.</para>
+    /// </summary>
+    public static bool Contains(string? text)
+        => !string.IsNullOrEmpty(text) && BrandRegex().IsMatch(text);
+
+    /// <summary>
     /// Returns <paramref name="text"/> with every case-insensitive occurrence of the forbidden brand removed,
     /// then collapses any doubled spaces the removal left and trims the ends. Null/blank input is passed through
     /// unchanged (as an empty string for null).
