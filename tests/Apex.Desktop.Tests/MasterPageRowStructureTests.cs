@@ -71,6 +71,9 @@ public sealed class MasterPageRowStructureTests
         ["Budget"] = v => v.ShowBudgetMaster(),
         ["Currency"] = v => v.ShowCurrencyMaster(),
         ["AccountGroup"] = v => v.ShowAccountGroupMaster(),
+        // W2-20 — the two multi-master grids share one template (5-row variant, list in row 3), so registering
+        // the ledger flavour covers the shape for both.
+        ["MultiLedger"] = v => v.ShowMultiLedgerCreate(),
         ["StockGroup"] = v => v.ShowStockGroupMaster(),
         ["StockCategory"] = v => v.ShowStockCategoryMaster(),
         ["Unit"] = v => v.ShowUnitMaster(),
@@ -409,8 +412,9 @@ public sealed class MasterPageRowStructureTests
     [AvaloniaFact]
     public void Every_known_master_page_is_covered_by_this_suite()
     {
-        Assert.Equal(24, Drivers.Count);
+        Assert.Equal(25, Drivers.Count);
         Assert.Contains("PriceLists", Drivers.Keys);   // the 5-row variant the grep misses
+        Assert.Contains("MultiLedger", Drivers.Keys);  // W2-20 — registered deliberately, per this test's purpose
         Assert.Contains("Ledger", Drivers.Keys);       // already-fixed, regression-locked here
         Assert.Contains("Scenario", Drivers.Keys);     // already-fixed, regression-locked here
         Assert.Contains("Employee", Drivers.Keys);     // already-fixed, regression-locked here

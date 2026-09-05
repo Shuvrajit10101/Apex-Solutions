@@ -193,6 +193,39 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ W2-14 (census 14.1) — GO TO (Alt+G), and the keys that belong to it while it is up.              │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // Grounding: help.tallysolutions.com's shortcut table — Alt+G, "To primarily open a report, and create
+        // masters and vouchers in the flow of work". Alt+G was measured FREE before this arm was written (zero
+        // `Key.G` hits anywhere in src/Apex.Desktop), so unlike the Insert-Voucher / Company-menu / More-Details
+        // chords it needed no ruling and displaces nothing.
+        //
+        // This block sits at the VERY TOP of the chain deliberately, and in two halves:
+        //   • Alt+G opens the overlay from ANYWHERE — that is the whole feature ("without having to move out of
+        //     the screen you have already opened"), so it must not be filtered by any screen guard below.
+        //   • While the overlay IS up it OWNS Up / Down / Enter / Escape. Without that, Down would arrow the
+        //     cascade column hidden behind the overlay and Enter would drill it — the operator would be driving
+        //     a menu they cannot see. Every other key (the letters they are typing) falls through to the search
+        //     box, which is focused.
+        if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            vm.ToggleGoTo();          // the identical door the button bar's "Alt+G · Go To" badge runs
+            e.Handled = true;
+            return;
+        }
+
+        if (vm.IsGoToOpen)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.GoTo!.MoveDown(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
+                case Key.Up: vm.GoTo!.MoveUp(); ScrollGoToSelectionIntoView(); e.Handled = true; return;
+                case Key.Enter: vm.ActivateGoTo(); e.Handled = true; return;
+                case Key.Escape: vm.CloseGoTo(); e.Handled = true; return;
+            }
+        }
+
         // WI-3: Ctrl+Enter on a master LIST row opens that master for ALTERATION. This must sit ahead of every
         // other Enter arm below — the plain-Enter drill immediately after ignores modifiers, and the
         // IsMasterAcceptScreen arm in the switch would otherwise raise "Accept Stock Item? (Y/N)" instead. The VM
@@ -1571,6 +1604,50 @@ public partial class MainWindow : Window
 
     private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
         => Vm?.AccountGroupMaster?.Create();
+
+    /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
+    private void OnMultiMasterCreateClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiMasterCreate?.Accept();
+
+    /// <summary>
+    /// W2-14 — puts the caret in the Go To search box the instant the overlay is realised, so Alt+G is followed
+    /// by typing and nothing else. Without this the keystrokes after Alt+G would go to whatever held focus
+    /// behind the overlay, which is the screen the operator is trying to leave.
+    /// </summary>
+    private void OnGoToSearchBoxAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is TextBox box) box.Focus();
+    }
+
+    /// <summary>
+    /// W2-14 — drags the results panel to the highlighted row.
+    ///
+    /// <para>🔴 Why this cannot be left to the framework. Everywhere else in this shell a ScrollViewer follows
+    /// the keyboard for free, because the thing being moved is FOCUS and a focused control brings itself into
+    /// view. Go To deliberately keeps focus in the search box — that is the whole interaction, type and arrow
+    /// at once — so its rows are never focused and nothing scrolls on their behalf. The overlay opens
+    /// UNFILTERED over the entire menu, a couple of hundred rows in a 460px panel, so without this the
+    /// highlight is off the bottom of the panel after a dozen presses of Down and the operator is pressing
+    /// Enter on a screen whose name they were never shown.</para>
+    /// </summary>
+    private void ScrollGoToSelectionIntoView()
+    {
+        var index = Vm?.GoTo?.SelectedIndex ?? -1;
+        if (index < 0) return;
+
+        // The overlay lives inside a DataTemplate, so it is not a named field on this window.
+        var list = this.GetVisualDescendants().OfType<ItemsControl>()
+            .FirstOrDefault(c => c.Name == "GoToResults");
+        if (list?.ContainerFromIndex(index) is Control row) row.BringIntoView();
+    }
+
+    /// <summary>
+    /// W2-14 — retyping re-ranks the list and puts the highlight back on row one, so the panel has to come back
+    /// up with it. Posted rather than called inline: the rebuilt rows do not have containers until the layout
+    /// pass that follows this keystroke, and asking for row one's container before that returns nothing.
+    /// </summary>
+    private void OnGoToSearchTextChanged(object? sender, TextChangedEventArgs e)
+        => Dispatcher.UIThread.Post(ScrollGoToSelectionIntoView, DispatcherPriority.Background);
 
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
