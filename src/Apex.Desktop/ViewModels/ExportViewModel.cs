@@ -227,7 +227,14 @@ public sealed partial class ExportViewModel : ViewModelBase
         };
     }
 
-    private static string DefaultFolder() => DefaultExportFolder.Resolve();
+    private static string DefaultFolder()
+    {
+        // W2-03 bonus fix: ONE seam, so the empty-string failure mode cannot be re-introduced per screen.
+        // Environment.GetFolderPath returns "" when the platform has no such folder (a Linux CI container
+        // with no HOME), and an empty folder makes Path.Combine collapse to a bare file name - the file
+        // lands in the process working directory, unfindable. See Services.ExportFolderDefault.
+        return Apex.Desktop.Services.ExportFolderDefault.Resolve();
+    }
 
     /// <summary>Turns a report title into a safe file-name stem (invalid path chars → '_'; blank → "Report").</summary>
     private static string SafeName(string? title)

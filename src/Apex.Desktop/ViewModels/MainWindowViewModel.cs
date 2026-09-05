@@ -122,6 +122,12 @@ public enum Screen
     GenerateEInvoice,
     GenerateEWayBill,
 
+    // W2-03 (census 2.4, 5.10, 5.11) — the Voucher Type master: create / alter / display / delete, the numbering
+    // method picker, the two user flags, and Show Inactive -> activate. Reached from Masters -> Create -> Voucher
+    // Type. It is the ONLY route in this application that can flip VoucherType.IsActive, which is what makes the
+    // seeded-inactive payroll voucher types postable.
+    VoucherTypeMaster,
+
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
     TdsStatPayment,
@@ -350,6 +356,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Unit-of-Measure master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private UnitMasterViewModel? _unitMaster;
+
+    /// <summary>The open Voucher Type master, or <c>null</c> (W2-03; census 2.4).</summary>
+    [ObservableProperty] private VoucherTypeMasterViewModel? _voucherTypeMaster;
 
     /// <summary>The Godown master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private GodownMasterViewModel? _godownMaster;
@@ -615,6 +624,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
+        && VoucherTypeMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
@@ -667,6 +677,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnStockGroupMasterChanged(StockGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockCategoryMasterChanged(StockCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVoucherTypeMasterChanged(VoucherTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1409,6 +1420,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Accounting Masters"));
         col.Add(new MenuItemViewModel("Ledger", () => { }, "Alt+C", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-03 (census 2.4) — the Voucher Type master. Always available: every company has the 24 seeded types
+        // whether or not it ever adds one of its own, and this is the only screen that can reconfigure them or
+        // switch one back on.
+        col.Add(new MenuItemViewModel("Voucher Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Cost Masters"));
         col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -3053,8 +3068,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return null;
     }
 
-    /// <summary>The default export folder, matching the report export ctor. Never empty on any platform.</summary>
-    private static string ExportDefaultFolder() => DefaultExportFolder.Resolve();
+    /// <summary>The default export folder (the user's Documents), matching the report export ctor.</summary>
+    private static string ExportDefaultFolder()
+    {
+        // W2-03 bonus fix: ONE seam, so the empty-string failure mode cannot be re-introduced per screen.
+        // Environment.GetFolderPath returns "" when the platform has no such folder (a Linux CI container
+        // with no HOME), and an empty folder makes Path.Combine collapse to a bare file name - the file
+        // lands in the process working directory, unfindable. See Services.ExportFolderDefault.
+        return Apex.Desktop.Services.ExportFolderDefault.Resolve();
+    }
 
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
     public bool ApplyExport() => ExportPanel?.Apply() ?? false;
@@ -3797,6 +3819,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>Opens the Unit-of-Measure creation master (Masters → Create → Inventory Masters → Unit).</summary>
+    /// <summary>
+    /// Opens the <b>Voucher Type</b> master (W2-03; census 2.4) as a page column over the cascade — the route
+    /// Masters → Create → Voucher Type takes, and the only route in this application that can reconfigure a
+    /// voucher type or flip its <see cref="Apex.Ledger.Domain.VoucherType.IsActive"/> flag.
+    /// </summary>
+    public void ShowVoucherTypeMaster()
+    {
+        if (Company is null) return;
+        var master = new VoucherTypeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Voucher Type Creation", master), Screen.VoucherTypeMaster,
+            "Voucher Type Creation", () => VoucherTypeMaster = master);
+    }
+
     public void ShowUnitMaster()
     {
         if (Company is null) return;
@@ -5264,6 +5299,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StockGroupMaster = null;
         StockCategoryMaster = null;
         UnitMaster = null;
+        VoucherTypeMaster = null;
         GodownMaster = null;
         StockItemMaster = null;
         BatchMaster = null;
@@ -5397,6 +5433,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+                 or Screen.VoucherTypeMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig or Screen.GstRateSetup
@@ -5718,7 +5755,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false })
             // 7.16 — the payroll masters, on the SAME rule as the Stock Item master: the existing-list is a
             // delete surface, an OPEN ALTERATION of one of its rows is not.
-            || PayrollMasterScreen is { IsAltering: false });
+            || PayrollMasterScreen is { IsAltering: false }
+            // W2-03 (census 2.4) — the Voucher Type master's existing-list, on the SAME rule.
+            || (CurrentScreen == Screen.VoucherTypeMaster && VoucherTypeMaster is { IsAltering: false }));
 
     /// <summary>
     /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
@@ -5811,6 +5850,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster or Screen.PayHeadMaster
                 => RequestDeletePayrollMasterRow(),
+            // W2-03 (census 2.4) — the Voucher Type master, through the SAME shared IMasterListScreen arm.
+            Screen.VoucherTypeMaster => RequestDeleteMasterListRow(),
             _ => false,
         };
     }
@@ -6065,7 +6106,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 // act, exactly as the four cases above do.
                 case DeletionTarget.PayrollMaster:
                 {
-                    if (PayrollMasterScreen is not { } list) return;
+                    if (MasterListScreen is not { } list) return;
                     if (list.HighlightedMasterRow is not { } row || row.MasterId != id) return;
                     what = $"{Capitalise(list.MasterKindLabel)} '{row.MasterName}'";
                     list.DeleteMaster(id);
@@ -6189,7 +6230,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 StockItemMaster?.ReloadExistingItems();
                 break;
             case DeletionTarget.PayrollMaster:
-                PayrollMasterScreen?.ReloadExisting();
+                MasterListScreen?.ReloadExisting();
                 break;
         }
     }
@@ -6667,6 +6708,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
             or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
             or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+            or Screen.VoucherTypeMaster
             or Screen.BatchMaster or Screen.BomMaster or Screen.ReorderLevelsMaster
             or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
             or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
@@ -6822,6 +6864,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.StockGroupMaster => "Stock Group",
         Screen.StockCategoryMaster => "Stock Category",
         Screen.UnitMaster => "Unit",
+        Screen.VoucherTypeMaster => "Voucher Type",
         Screen.GodownMaster => "Godown",
         Screen.StockItemMaster => "Stock Item",
         Screen.BatchMaster => "Batch",
@@ -7495,6 +7538,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     };
 
     /// <summary>
+    /// The open master screen whose existing-list the arrows walk, Alt+D deletes from and a refresh re-renders —
+    /// <see cref="PayrollMasterScreen"/>'s four payroll kinds PLUS the Voucher Type master (W2-03; census 2.4),
+    /// or <c>null</c> on every other screen.
+    ///
+    /// <para><b>Why a union rather than a second set of arms.</b> <see cref="IPayrollMasterList"/>'s own remarks
+    /// give the reason: parallel arms are how one kind silently ends up gated differently from the rest. The
+    /// Voucher Type master needs exactly the five members payroll needed, so it implements the extracted
+    /// <see cref="IMasterListScreen"/> and joins the same arms. Ctrl+Enter stays resolved per screen, because
+    /// <c>ForAlter</c> is a static factory per type that builds a whole screen with its own pickers.</para>
+    /// </summary>
+    public IMasterListScreen? MasterListScreen => CurrentScreen switch
+    {
+        Screen.VoucherTypeMaster => VoucherTypeMaster,
+        _ => PayrollMasterScreen,
+    };
+
+    /// <summary>
     /// Ctrl+Enter on a payroll master's existing-list: opens the highlighted master for <b>alteration</b>. Returns
     /// false (and does nothing) on any other screen, or when nothing is highlighted, so the key stays free.
     ///
@@ -7552,11 +7612,56 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// <b>Ctrl+Enter on the Voucher Type master's existing-list — open the highlighted type for ALTERATION</b>
+    /// (W2-03; census 2.4). Returns false (a quiet no-op) on any other screen, or when nothing is highlighted, so
+    /// the chord stays free.
+    ///
+    /// <para>Its own arm rather than a case inside <see cref="AlterHighlightedPayrollMasterRow"/> for the reason
+    /// that method's remarks give: <c>ForAlter</c> is a static factory per type, so alteration is the one verb
+    /// that cannot be shared through <see cref="IMasterListScreen"/>. Every OTHER verb is shared.</para>
+    /// </summary>
+    public bool AlterHighlightedVoucherTypeRow()
+    {
+        if (Company is null) return false;
+        if (CurrentScreen != Screen.VoucherTypeMaster) return false;
+        if (VoucherTypeMaster is not { IsAltering: false } list) return false;
+        if (list.HighlightedRow is not { } row) return false;
+
+        if (VoucherTypeMasterViewModel.ForAlter(Company, _storage, row.MasterId, onChanged: () => { })
+            is not { } m) return false;
+        OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.VoucherTypeMaster, m.Caption,
+            () => VoucherTypeMaster = m);
+        return true;
+    }
+
+    /// <summary>
+    /// <b>Space on the Voucher Type master's existing-list — activate or deactivate the highlighted type</b>
+    /// (W2-03; census 5.11). Returns false on every other screen so the key stays free.
+    ///
+    /// <para>This is the gesture <c>VoucherTypeResolver</c>'s remarks record as having "meant nothing": before it,
+    /// <see cref="Apex.Ledger.Domain.VoucherType.IsActive"/> had no write route anywhere in the product except
+    /// <c>JobWorkService</c> and a rollback restore inside a <c>catch</c>, so a seeded-inactive type — the whole
+    /// payroll family — could never be switched on.</para>
+    /// </summary>
+    public bool ToggleHighlightedVoucherTypeActive()
+    {
+        if (CurrentScreen != Screen.VoucherTypeMaster) return false;
+        return VoucherTypeMaster?.ToggleActiveOnHighlighted() ?? false;
+    }
+
     /// <summary>Arms the confirmation for the highlighted payroll master, exactly the way the Stock Item master's
     /// list does. The engine service owns the referential guards, and it is asked before the question is put.</summary>
-    private bool RequestDeletePayrollMasterRow()
+    private bool RequestDeletePayrollMasterRow() => RequestDeleteMasterListRow();
+
+    /// <summary>
+    /// Arms the confirmation for whatever <see cref="MasterListScreen"/> has highlighted — the ONE arm shared by
+    /// the four payroll master kinds and, since W2-03, the Voucher Type master. The engine service owns the
+    /// referential guards and is asked when the answer is Y, not here, exactly as the payroll arm always did.
+    /// </summary>
+    private bool RequestDeleteMasterListRow()
     {
-        if (PayrollMasterScreen is not { IsAltering: false } list) return false;
+        if (MasterListScreen is not { IsAltering: false } list) return false;
         if (list.HighlightedMasterRow is not { } row) return false;
 
         return Arm(DeletionTarget.PayrollMaster, row.MasterId,
@@ -7734,9 +7839,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // 7.16: on any payroll master the arrows move the EXISTING-MASTERS highlight (Ctrl+Enter then opens that
         // master for alteration, Alt+D deletes it). Same placement rule as the two master arms above — these are
         // page columns, so the IsGatewayCascade branch below would swallow the keystroke and the list never move.
-        if (PayrollMasterScreen is { } payrollMaster)
+        if (MasterListScreen is { } masterList)
         {
-            payrollMaster.MoveHighlight(direction);
+            masterList.MoveHighlight(direction);
             return;
         }
 
@@ -7892,6 +7997,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.AttendanceTypeMaster:
                 AttendanceTypeMaster?.Create();
+                return;
+            case Screen.VoucherTypeMaster:
+                VoucherTypeMaster?.Create();
                 return;
             case Screen.PayHeadMaster:
                 PayHeadMaster?.Create();
@@ -8210,6 +8318,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Stock Group": ShowStockGroupMaster(); break;
             case "Stock Category": ShowStockCategoryMaster(); break;
             case "Unit": ShowUnitMaster(); break;
+            case "Voucher Type": ShowVoucherTypeMaster(); break;
             case "Godown": ShowGodownMaster(); break;
             case "Stock Item": ShowStockItemMaster(); break;
             case "Reorder Levels": ShowReorderLevelsMaster(); break;

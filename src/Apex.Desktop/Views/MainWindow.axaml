@@ -2167,10 +2167,22 @@
                                       <TextBlock Text="Provisional — off books" Foreground="#EAF1FF" FontSize="10"/>
                                     </Border>
                                   </StackPanel>
+                                  <!-- census 5.10: read-only preview under an auto-numbering method... -->
                                   <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
-                                             VerticalAlignment="Center" Margin="16,0,0,0">
+                                             VerticalAlignment="Center" Margin="16,0,0,0"
+                                             IsVisible="{Binding !IsVoucherNumberEditable}">
                                     <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                   </TextBlock>
+                                  <!-- ...and a TYPEABLE box under Manual / Automatic (Manual Override), which is
+                                       what makes those two methods usable rather than merely selectable. -->
+                                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                              VerticalAlignment="Center" Margin="16,0,0,0"
+                                              IsVisible="{Binding IsVoucherNumberEditable}">
+                                    <TextBlock Text="No." Foreground="#CFE0FF" FontSize="12"
+                                               VerticalAlignment="Center"/>
+                                    <TextBox Width="110" FontSize="12" VerticalAlignment="Center"
+                                             Text="{Binding VoucherNumber, Mode=TwoWay}"/>
+                                  </StackPanel>
                                   <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                            Text="{Binding DateText, Mode=TwoWay}"
                                            FontSize="12" VerticalAlignment="Center"/>
@@ -3655,10 +3667,21 @@
                                 <TextBlock Grid.Column="0" Text="{Binding TypeName}"
                                            Foreground="White" FontWeight="Bold" FontSize="15"
                                            VerticalAlignment="Center"/>
+                                <!-- census 5.10: read-only preview under an auto-numbering method... -->
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
-                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                           VerticalAlignment="Center" Margin="0,0,18,0"
+                                           IsVisible="{Binding !IsVoucherNumberEditable}">
                                   <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
+                                <!-- ...and a TYPEABLE box under Manual / Automatic (Manual Override). -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                            VerticalAlignment="Center" Margin="0,0,18,0"
+                                            IsVisible="{Binding IsVoucherNumberEditable}">
+                                  <TextBlock Text="No." Foreground="#CFE0FF" FontSize="12"
+                                             VerticalAlignment="Center"/>
+                                  <TextBox Width="110" FontSize="12" VerticalAlignment="Center"
+                                           Text="{Binding VoucherNumber, Mode=TwoWay}"/>
+                                </StackPanel>
                                 <CheckBox Grid.Column="2" Content="Post-Dated (Ctrl+T)"
                                           IsChecked="{Binding IsPostDated, Mode=TwoWay}"
                                           Foreground="#CFE0FF" FontSize="11"
@@ -3993,10 +4016,21 @@
                                 <TextBlock Grid.Column="0" Text="{Binding TypeName}"
                                            Foreground="White" FontWeight="Bold" FontSize="15"
                                            VerticalAlignment="Center"/>
+                                <!-- census 5.10: read-only preview under an auto-numbering method... -->
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
-                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                           VerticalAlignment="Center" Margin="0,0,18,0"
+                                           IsVisible="{Binding !IsVoucherNumberEditable}">
                                   <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
+                                <!-- ...and a TYPEABLE box under Manual / Automatic (Manual Override). -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                            VerticalAlignment="Center" Margin="0,0,18,0"
+                                            IsVisible="{Binding IsVoucherNumberEditable}">
+                                  <TextBlock Text="No." Foreground="#CFE0FF" FontSize="12"
+                                             VerticalAlignment="Center"/>
+                                  <TextBox Width="110" FontSize="12" VerticalAlignment="Center"
+                                           Text="{Binding VoucherNumber, Mode=TwoWay}"/>
+                                </StackPanel>
                                 <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
@@ -4218,10 +4252,21 @@
                                 <TextBlock Grid.Column="0" Text="{Binding TypeName}"
                                            Foreground="White" FontWeight="Bold" FontSize="15"
                                            VerticalAlignment="Center"/>
+                                <!-- census 5.10: read-only preview under an auto-numbering method... -->
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
-                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                           VerticalAlignment="Center" Margin="0,0,18,0"
+                                           IsVisible="{Binding !IsVoucherNumberEditable}">
                                   <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
+                                <!-- ...and a TYPEABLE box under Manual / Automatic (Manual Override). -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                            VerticalAlignment="Center" Margin="0,0,18,0"
+                                            IsVisible="{Binding IsVoucherNumberEditable}">
+                                  <TextBlock Text="No." Foreground="#CFE0FF" FontSize="12"
+                                             VerticalAlignment="Center"/>
+                                  <TextBox Width="110" FontSize="12" VerticalAlignment="Center"
+                                           Text="{Binding VoucherNumber, Mode=TwoWay}"/>
+                                </StackPanel>
                                 <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
@@ -6132,6 +6177,143 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Voucher Type master (W2-03; census 2.4/5.10/5.11) — create + alter + list, the
+                         numbering-method picker, the two attested user flags, and Show Inactive -> activate. -->
+                    <ContentControl IsVisible="{Binding VoucherTypeMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding VoucherTypeMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:VoucherTypeMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="130,*,110,140">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Export Sales"/>
+                                  <TextBlock Grid.Column="2" Text="Abbreviation" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Abbreviation, Mode=TwoWay}"
+                                           PlaceholderText="e.g. ExpS"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="130,*,110,*">
+                                  <TextBlock Grid.Column="0" Text="Type of Voucher" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding BaseTypes}"
+                                            SelectedItem="{Binding SelectedBaseType, Mode=TwoWay}"
+                                            IsEnabled="{Binding CanChooseBaseType}"
+                                            PlaceholderText="base kind...">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:VoucherBaseTypeOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Numbering" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding NumberingMethods}"
+                                            SelectedItem="{Binding SelectedNumbering, Mode=TwoWay}"
+                                            PlaceholderText="method...">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:NumberingMethodOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <TextBlock IsVisible="{Binding !CanChooseBaseType}"
+                                           Text="The type of voucher cannot be changed on an existing voucher type — every voucher already posted under it was booked with that behaviour."
+                                           FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+
+                                <StackPanel Orientation="Horizontal" Spacing="18">
+                                  <CheckBox Content="Activate this Voucher Type"
+                                            IsChecked="{Binding IsActive, Mode=TwoWay}" FontSize="12.5"/>
+                                  <CheckBox Content="Print voucher after saving"
+                                            IsChecked="{Binding PrintAfterSaving, Mode=TwoWay}" FontSize="12.5"/>
+                                  <CheckBox Content="Provide narration for each ledger in voucher"
+                                            IsChecked="{Binding ProvideNarrationForEachLedger, Mode=TwoWay}" FontSize="12.5"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Accept (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateVoucherTypeClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="2,0,2,8">
+                              <CheckBox Grid.Column="0" Content="Show Inactive"
+                                        IsChecked="{Binding ShowInactive, Mode=TwoWay}" FontSize="12.5"/>
+                              <TextBlock Grid.Column="1" Text="{Binding ShowInactiveHint}"
+                                         VerticalAlignment="Center" Margin="14,0,0,0"
+                                         FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                            </Grid>
+
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,140,170,80,60">
+                                <TextBlock Grid.Column="0" Text="Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Type of Voucher" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Numbering" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Abbrev." Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Active" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="4" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:VoucherTypeListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,140,170,80,60" Height="24">
+                                        <!-- Keyboard highlight: Alt+D and Space act on THIS row, so the cursor
+                                             must be visible before either can be pressed. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding BaseType}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Numbering}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Abbreviation}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Active}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                            <views:EmptyState Grid.Row="4" Message="No voucher types to show."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

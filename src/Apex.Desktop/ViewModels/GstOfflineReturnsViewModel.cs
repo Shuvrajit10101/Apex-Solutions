@@ -126,9 +126,9 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         // Seed a real, findable export destination, exactly as every other shipped export page on this app does
         // (Form 16 / 16A / 24Q / 26Q, the ESI contribution report). Left empty, Path.Combine collapses to a bare file
         // name and File.WriteAllBytes drops the return file into the process working directory with no picker and no
-        // way for the user to find it again. DefaultExportFolder is the one rule that guarantees a non-empty result
+        // way for the user to find it again. ExportFolderDefault is the one rule that guarantees a non-empty result
         // on every platform — My Documents resolves to "" on Linux when XDG user dirs are unconfigured.
-        ExportFolder = DefaultExportFolder.Resolve();
+        ExportFolder = Apex.Desktop.Services.ExportFolderDefault.Resolve();
 
         RebuildPeriods();
         Rebuild();

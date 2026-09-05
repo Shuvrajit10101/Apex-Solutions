@@ -445,7 +445,8 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
     /// <para><b>The assertion is deliberately NOT against <c>MyDocuments</c>.</b> On Linux that lookup returns the
     /// EMPTY STRING when XDG user dirs are unconfigured, so an equality check against it compares <c>""</c> to
     /// <c>""</c> and passes VACUOUSLY on the one platform where the defect is real — which is how it shipped. The
-    /// page is pinned to <see cref="DefaultExportFolder"/>, whose own suite proves the ladder is never blank, and
+    /// page is pinned to <see cref="Apex.Desktop.Services.ExportFolderDefault"/>, whose own suite proves the ladder
+    /// is never blank, and
     /// the non-blank and not-the-working-directory assertions below bite on every platform.</para>
     /// </summary>
     [Fact]
@@ -455,7 +456,7 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
         vm.OpenGstOfflineReturns();
         var page = vm.GstOfflineReturns!;
 
-        Assert.Equal(DefaultExportFolder.Resolve(), page.ExportFolder);
+        Assert.Equal(Apex.Desktop.Services.ExportFolderDefault.Resolve(), page.ExportFolder);
         Assert.False(string.IsNullOrWhiteSpace(page.ExportFolder));
         Assert.True(Path.IsPathRooted(page.ExportFolder), page.ExportFolder);
         Assert.NotEqual(

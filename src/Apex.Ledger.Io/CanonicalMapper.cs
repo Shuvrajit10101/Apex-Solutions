@@ -608,6 +608,10 @@ public static class CanonicalMapper
         PreventDuplicate = t.PreventDuplicate,
         NumberWidth = t.NumberWidth,
         PrefillWithZero = t.PrefillWithZero,
+        // v53 (W2-03; census 5.11): the two attested user flags, omitted at default so an untouched type is
+        // byte-identical (ER-13).
+        PrintAfterSaving = t.PrintAfterSaving,
+        ProvideNarrationForEachLedger = t.ProvideNarrationForEachLedger,
         Prefixes = MapAffixes(t.Prefixes),
         Suffixes = MapAffixes(t.Suffixes),
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,

@@ -811,6 +811,22 @@ public sealed record VoucherTypeDto
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool PrefillWithZero { get; init; }
 
+    /// <summary>"Print voucher after saving" (W2-03; census 5.11; schema v53). ATTESTED at
+    /// help.tallysolutions.com. Default false. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13; see
+    /// <see cref="PreventDuplicate"/>) so a company that never opened the Voucher Type master emits no new key.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PrintAfterSaving { get; init; }
+
+    /// <summary>"Provide narration for each ledger in voucher" (W2-03; census 5.11; schema v53). ATTESTED at
+    /// help.tallysolutions.com; <c>false</c> is the single common narration every pre-v53 type carried. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ProvideNarrationForEachLedger { get; init; }
+
     /// <summary>The date-effective <b>Prefix</b> rows (voucher-numbering S3; numbering-design-v2 §1.2), or
     /// <c>null</c> when the type has none. Marked
     /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> so a type with no prefix
