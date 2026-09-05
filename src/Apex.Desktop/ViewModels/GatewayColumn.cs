@@ -243,9 +243,6 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+K "Saved Views" list panel (non-null only for that RQ-8 column).</summary>
     public SavedViewsViewModel? SavedViews => Page as SavedViewsViewModel;
 
-    /// <summary>The hosted Alt+G "Go To" jump index (non-null only for that W2-14 / census-14.1 column).</summary>
-    public GoToViewModel? GoTo => Page as GoToViewModel;
-
     /// <summary>The hosted P / Ctrl+P "Print Preview" panel (non-null only for that RQ-9 column).</summary>
     public PrintPreviewViewModel? PrintPreview => Page as PrintPreviewViewModel;
 

@@ -16796,69 +16796,6 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: Alt+G "Go To" (W2-14 / census 14.1 — the jump-anywhere index over the shell's own
-                         openers). Keyboard-first: the query box takes focus on open, typing narrows by word
-                         prefix, Up/Down moves the highlight, Enter travels, Esc pops back to what was underneath.
-                         Every row shows its PARENT SECTION beside the label, so the index reads as the nested
-                         hierarchy the Gateway uses and never as a flat dump of screen names. -->
-                    <ContentControl IsVisible="{Binding GoTo, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding GoTo}">
-                      <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:GoToViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="6">
-                            <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
-                            <TextBlock Grid.Row="1" Text="Type to narrow  ·  Enter to go  ·  Esc to go back"
-                                       FontSize="11" Foreground="#8A8A8A"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"
-                                       TextTrimming="CharacterEllipsis"/>
-
-                            <!-- The typed text stays VISIBLE (the settled type-to-filter contract). -->
-                            <TextBox Grid.Row="2" Classes="go-to-query" Text="{Binding Query, Mode=TwoWay}"
-                                     Watermark="Go To…" FontSize="13" Margin="0,0,0,8"/>
-
-                            <Border Grid.Row="3" Background="White"
-                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
-                              <ListBox ItemsSource="{Binding Results}" SelectedItem="{Binding Selected, Mode=TwoWay}"
-                                       Background="White" BorderThickness="0">
-                                <ListBox.ItemTemplate>
-                                  <DataTemplate x:DataType="vm:GoToDestination">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" Height="30">
-                                      <TextBlock Grid.Column="0" Text="{Binding Label}"
-                                                 VerticalAlignment="Center" Margin="8,0" FontSize="13"
-                                                 Foreground="{StaticResource BrandNavy}"
-                                                 TextTrimming="CharacterEllipsis"
-                                                 ToolTip.Tip="{Binding Path}"/>
-                                      <TextBlock Grid.Column="1" Text="{Binding Section}"
-                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
-                                                 Foreground="#8A8A8A"
-                                                 TextTrimming="CharacterEllipsis"/>
-                                      <TextBlock Grid.Column="2" Text="{Binding Hint}"
-                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
-                                                 Foreground="{StaticResource BrandNavy}"
-                                                 TextTrimming="CharacterEllipsis"/>
-                                    </Grid>
-                                  </DataTemplate>
-                                </ListBox.ItemTemplate>
-                              </ListBox>
-                            </Border>
-
-                            <TextBlock Grid.Row="4" Text="{Binding Status}"
-                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
-                                       Margin="2,0,0,8" TextWrapping="Wrap"/>
-
-                            <Grid Grid.Row="5" ColumnDefinitions="*,Auto">
-                              <Button Grid.Column="1" Content="Go (Enter)" Padding="14,6"
-                                      Background="{StaticResource BrandNavy}" Foreground="White"
-                                      Click="OnGoToClick"/>
-                            </Grid>
-                          </Grid>
-                        </DataTemplate>
-                      </ContentControl.ContentTemplate>
-                    </ContentControl>
-
                     <!-- PAGE: Print Preview (RQ-9 / DP-8 — render the report to a de-branded PDF and preview it) -->
                     <ContentControl IsVisible="{Binding PrintPreview, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintPreview}">

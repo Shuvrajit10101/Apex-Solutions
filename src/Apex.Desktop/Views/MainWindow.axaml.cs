@@ -980,23 +980,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        // W2-14 (census row 14.1) — Alt+G opens GO TO, the jump-anywhere index. Available wherever a company is
-        // open, deliberately NOT gated to the Gateway: the vendor's own definition is "in the flow of work"
-        // (help.tallysolutions.com keyboard shortcuts, Alt+G). It is checked HERE, ahead of the generic Alt
-        // menu-mnemonic block further down, so the letter G is never consumed by a menu quick-jump first.
-        // 🔴 Ctrl+G ("Switch To") is a DIFFERENT verb in that same source and is deliberately unbound — census
-        // row 14.2 stays ABSENT rather than being conflated with this one. The Control exclusion below is what
-        // keeps that true: Ctrl+Alt+G must not open Go To either.
-        if (e.Key == Key.G && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
-            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.Company is not null && !IsTyping(e))
-        {
-            vm.OpenGoTo();
-            Dispatcher.UIThread.Post(FocusGoToQueryBox, DispatcherPriority.Loaded);
-            e.Handled = true;
-            return;
-        }
-
         // P / Ctrl+P (RQ-9) opens the Print Preview of the CURRENT report — renders it to a de-branded PDF and
         // shows the paginated layout; "Save PDF" writes the bytes. Report context only (so the bare P never
         // fires while a drill column is active). Checked before the bare-P menu quick-jump (Profit & Loss),
@@ -1987,32 +1970,10 @@ public partial class MainWindow : Window
     private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSelectedSavedView();
 
-    /// <summary>"Go" on the Alt+G Go To panel (W2-14 / census 14.1) — the SAME door Enter runs, so the button and
-    /// the key can never travel to two different places.</summary>
-    private void OnGoToClick(object? sender, RoutedEventArgs e)
-        => Vm?.RunSelectedGoTo();
-
     /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
 
-    /// <summary>
-    /// Focuses the Go To query box so the panel is usable with the keyboard alone the instant it opens — Alt+G
-    /// then type is the whole interaction. Deferred to the next layout pass because the box is still
-    /// materialising when the chord is handled (the same reason F2's date-box focus is deferred).
-    /// </summary>
-    private void FocusGoToQueryBox()
-    {
-        foreach (var box in this.GetVisualDescendants().OfType<TextBox>())
-        {
-            if (!box.Classes.Contains("go-to-query")) continue;
-            if (!box.IsEffectivelyVisible || !box.IsEffectivelyEnabled) continue;
-
-            box.Focus();
-            box.SelectAll();
-            return;
-        }
-    }
 
     /// <summary>
     /// "Save PDF" on the Print-Preview panel: writes the rendered bytes to a file. The renderer is disk-free;
