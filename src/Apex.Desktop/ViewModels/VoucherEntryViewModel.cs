@@ -1044,6 +1044,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
 
     partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+    /// <summary>
+    /// <b>census 5.10 — may the operator TYPE the Voucher No. on this screen?</b> True under
+    /// <see cref="NumberingMethod.Manual"/> (they must — the engine never numbers a Manual voucher) and under
+    /// <see cref="NumberingMethod.AutomaticManualOverride"/> (they may, over the suggested number). False under
+    /// Automatic, Multi-user Auto and None, where the field stays the read-only preview it has always been.
+    ///
+    /// <para>Before the Voucher Type master shipped, the Voucher No. was a <c>&lt;Run&gt;</c> inside a
+    /// <c>TextBlock</c> on all four entry screens and there was no way to choose Manual anyway. Now that the
+    /// method is selectable, a Manual type WITHOUT this would post every voucher unnumbered — the picker would be
+    /// a label over a broken book.</para>
+    /// </summary>
+    public bool IsVoucherNumberEditable => _type.AllowsManualNumberEntry;
+
 
     /// <summary>
     /// Ctrl+T — marks this voucher <b>post-dated</b> (catalog §8, post-dated cheques): the posted voucher

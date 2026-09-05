@@ -70,6 +70,7 @@ public sealed class NegativeStockFlagSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);
@@ -131,6 +132,7 @@ public sealed class NegativeStockFlagSchemaTests
             // state a user's pre-v50 database is in.
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);
@@ -164,6 +166,7 @@ public sealed class NegativeStockFlagSchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);
