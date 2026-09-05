@@ -1046,6 +1046,31 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Alt+O on the E-Mail compose column — HAND THE COMPOSED mailto: TO THE OS MAIL CLIENT.
+        //
+        // This arm exists because `EmailComposeViewModel.MailtoUri` was a fully-computed, change-notified,
+        // twice-tested property with ZERO consumers anywhere in src/: no binding, no command, and
+        // `Process.Start` appeared nowhere in the repository. The panel's own summary said the mailto "opens
+        // the OS mail client" and nothing in the shipped application opened anything — the dead-capability
+        // shape this project has already filed twice (CostReports.BuildLedgerBreakup; MultiAccountPrintViewModel,
+        // census T2-40). Alt+O and the panel's button are the two doors, and both run the one method.
+        //
+        // It MUST be tested before the bare-O Import arm below, which accepts Alt+O too. The two guards are
+        // disjoint today (that one requires Screen.Gateway) but ordering makes the precedence explicit rather
+        // than incidental — the same reason the Alt+Y arm sits above the bare-Y arm further down.
+        //
+        // No !IsTyping guard, per the screen-scoped Alt+letter convention established above: the caret is
+        // normally IN the To/Subject/Body box when the operator wants to hand off, Alt+letter emits no
+        // character, and the arm is scoped to a screen where the only meaning of O is "Open".
+        if (e.Key == Key.O && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.EmailCompose)
+        {
+            vm.OpenMailtoInMailClient();
+            e.Handled = true;
+            return;
+        }
+
         // O / Alt+O (Gateway → Import; RQ-20..24) opens the "Import" panel: read a canonical JSON/XML backup (or a
         // flat CSV) + choose the duplicate policy, then engine-routed apply into the open company. Only on the bare
         // Gateway cascade (a company is open, no page/voucher/master column on top, not typing) — the header hint
@@ -2050,6 +2075,11 @@ public partial class MainWindow : Window
     {
         if (Vm is { } vm) SaveEmailToDocuments(vm);
     }
+
+    /// <summary>"Open in Mail Client (Alt+O)" on the compose panel — the SAME door Alt+O runs. Until this
+    /// handler, <c>EmailComposeViewModel.MailtoUri</c> had no consumer anywhere in <c>src/</c>.</summary>
+    private void OnOpenMailClientClick(object? sender, RoutedEventArgs e)
+        => Vm?.OpenMailtoInMailClient();
 
     private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveSmtpSettings();

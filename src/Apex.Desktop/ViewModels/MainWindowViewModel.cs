@@ -58,6 +58,15 @@ public enum Screen
     RestoreCompany,
     EmailCompose,
     SmtpSettings,
+
+    /// <summary>
+    /// W / the "WhatsApp" badge (census row 14.10) — the "Share via WhatsApp" panel: save the document, then
+    /// open a prepared <c>wa.me</c> link. It is a SIBLING of <see cref="EmailCompose"/> on the same share
+    /// family and carries the same offline contract: nothing is sent, and (WhatsApp's link scheme carrying
+    /// text only) the file is NOT attached — the operator attaches the saved file themselves.
+    /// </summary>
+    WhatsAppShare,
+
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -634,6 +643,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
     [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
+
+    /// <summary>The W "Share via WhatsApp" panel (census row 14.10), non-null only while that column is open.</summary>
+    [ObservableProperty] private WhatsAppShareViewModel? _whatsAppShare;
 
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
@@ -3181,6 +3193,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else
             return;                                      // nothing to e-mail
 
+        panel.Launcher = Launcher;      // the OS hand-off seam (a test substitutes a recording double)
         EmailCompose = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -3194,6 +3207,67 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// attachment) to <paramref name="path"/>. The composer never touches disk — this is the only write. A no-op
     /// when no compose panel is open. Returns whether the file was written. Nothing is sent.</summary>
     public bool SaveEmail(string path) => EmailCompose?.SaveEml(path) ?? false;
+
+    /// <summary>
+    /// The OS hand-off seam shared by every panel that opens something outside the application (the e-mail
+    /// panel's <c>mailto:</c>, the WhatsApp share panel's <c>wa.me</c> link). Settable so a test can supply a
+    /// recording double — no CI runner has a mail client, a browser or an <c>xdg-open</c>.
+    /// </summary>
+    public Apex.Desktop.Services.IExternalLauncher Launcher { get; set; }
+        = Apex.Desktop.Services.ShellExternalLauncher.Default;
+
+    /// <summary>
+    /// Alt+O / the "Open in Mail Client" button on the compose panel: hand the composed <c>mailto:</c> to the
+    /// OS default mail client. A no-op returning false when no compose panel is open. Nothing is sent — the
+    /// mail client opens a DRAFT, and (RFC 6068) no attachment can ride a mailto.
+    /// </summary>
+    public bool OpenMailtoInMailClient() => EmailCompose?.OpenInMailClient() ?? false;
+
+    // ================================================== screen: share via WhatsApp (census row 14.10)
+
+    /// <summary>
+    /// W / the "WhatsApp" badge — opens the "Share via WhatsApp" panel for the CURRENT report or the drilled
+    /// voucher / tax invoice, as its own cascading column to the RIGHT of the page, never a stacked overlay.
+    /// It is the SECOND CHANNEL on the same share seam as <see cref="OpenEmailCompose"/> and carries the same
+    /// guard (<see cref="IsPrintablePage"/>), the same "no-op if already open" rule, and the same offline
+    /// contract.
+    ///
+    /// <para>🔴 <b>What it deliberately is NOT.</b> The reference product's WhatsApp feature is a WhatsApp
+    /// Business API integration through a commercial BSP: a WABA is mandatory, a personal number cannot be
+    /// used, and there is no account-free path. We have no WABA and no credentials, and an outbound call to a
+    /// third-party commercial API would break this application's offline-by-construction posture. So this
+    /// panel SAVES the document and hands over a prepared <c>wa.me</c> link — see
+    /// <see cref="WhatsAppShareViewModel"/> for the full reasoning and the operator-facing notice.</para>
+    /// </summary>
+    public void OpenWhatsAppShare()
+    {
+        if (WhatsAppShare is not null) return;   // panel already open — don't stack a second one
+
+        WhatsAppShareViewModel panel;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            panel = new WhatsAppShareViewModel(vd);      // share the drilled voucher / tax invoice
+        else if (IsReportContext && Reports is { } r)
+            panel = new WhatsAppShareViewModel(r);       // share the open report
+        else
+            return;                                      // nothing to share
+
+        panel.Launcher = Launcher;
+        WhatsAppShare = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.WhatsAppShare;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the share panel: write the rendered document to
+    /// <paramref name="path"/>. This is step ONE — <see cref="ShareViaWhatsApp"/> refuses until it succeeds.</summary>
+    public bool SaveWhatsAppDocument(string path) => WhatsAppShare?.SaveDocument(path) ?? false;
+
+    /// <summary>Alt+O / the "Open in WhatsApp" button: hand the prepared <c>wa.me</c> link to the OS. Sends
+    /// nothing, and attaches nothing — the panel's status line says so.</summary>
+    public bool ShareViaWhatsApp() => WhatsAppShare?.Share() ?? false;
 
     // =============================================================== screen: SMTP settings (RQ-27)
 
@@ -3382,6 +3456,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             FilePathPickRequest.SaveFile("Save the e-mail message as", string.Empty,
                 SafePathStem(email.DocumentTitle) + ".eml",
                 new FilePathFileType("E-mail message", new[] { "*.eml" })),
+
+        Screen.WhatsAppShare when WhatsAppShare is { } share =>
+            FilePathPickRequest.SaveFile("Save the document to share as", string.Empty,
+                share.SuggestedFileName,
+                new FilePathFileType("PDF document", new[] { "*.pdf" })),
 
         Screen.PrintPreview when PrintPreview is { } preview =>
             FilePathPickRequest.SaveFile("Save the PDF as", string.Empty,
@@ -5479,6 +5558,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         RestoreCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
+        WhatsAppShare = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }

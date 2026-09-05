@@ -206,10 +206,55 @@ public sealed partial class EmailComposeViewModel : ViewModelBase
         }
     }
 
-    partial void OnToChanged(string value) => OnPropertyChanged(nameof(MailtoUri));
+    partial void OnToChanged(string value) { OnPropertyChanged(nameof(MailtoUri)); OnPropertyChanged(nameof(CanOpenInMailClient)); }
     partial void OnCcChanged(string value) => OnPropertyChanged(nameof(MailtoUri));
     partial void OnSubjectChanged(string value) => OnPropertyChanged(nameof(MailtoUri));
     partial void OnBodyChanged(string value) => OnPropertyChanged(nameof(MailtoUri));
+
+    /// <summary>
+    /// The seam that hands the <see cref="MailtoUri"/> to the OS mail client. Settable so a test can supply a
+    /// recording double; defaults to the real shell launcher because the SHIPPED panel must open a real client.
+    /// </summary>
+    public IExternalLauncher Launcher { get; set; } = ShellExternalLauncher.Default;
+
+    /// <summary>True once there is a recipient, i.e. once <see cref="MailtoUri"/> is non-empty.</summary>
+    public bool CanOpenInMailClient => MailtoUri.Length > 0;
+
+    /// <summary>
+    /// 🔴 <b>THE DOOR THAT DID NOT EXIST.</b> Hands <see cref="MailtoUri"/> to the OS default mail client via
+    /// <see cref="Launcher"/>, and reports the outcome on <see cref="Status"/>.
+    ///
+    /// <para>Until this method, <see cref="MailtoUri"/> was computed, change-notified on four properties and
+    /// covered by two tests, and <b>nothing in <c>src/</c> consumed it</b> — the class's own summary claimed
+    /// the mailto "opens the OS mail client" while no code path in the application opened anything. The URI
+    /// was correct and unreachable, which is worse than absent: the tests were green for a feature the
+    /// operator could not use. This is the ONLY caller, and the panel's button and Alt+O both run it.</para>
+    ///
+    /// <para>Still offline: a <c>mailto:</c> hands the OS a pre-filled COMPOSE window. Nothing is sent, and an
+    /// attachment cannot ride a mailto (RFC 6068) — for the PDF the operator saves the <c>.eml</c>. The status
+    /// line says both, so the panel never implies a delivery it did not make.</para>
+    /// </summary>
+    public bool OpenInMailClient()
+    {
+        var uri = MailtoUri;
+        if (uri.Length == 0)
+        {
+            Status = "Enter at least one recipient (To) before opening your mail client.";
+            return false;
+        }
+
+        if (!Launcher.Open(uri))
+        {
+            Status = "Could not open your mail client. Save the .eml instead and open it from there.";
+            return false;
+        }
+
+        Status = HasAttachment
+            ? "Opened a draft in your mail client. Nothing was sent, and the attachment did NOT travel with it — "
+              + "save the .eml for a message that carries the document."
+            : "Opened a draft in your mail client. Nothing was sent.";
+        return true;
+    }
 
     /// <summary>Builds the <see cref="EmlMessage"/> the composer turns into bytes. The Date VALUE is formatted
     /// here from the injected "now" (RFC 5322), and the Message-ID is deterministic (document seed + timestamp)

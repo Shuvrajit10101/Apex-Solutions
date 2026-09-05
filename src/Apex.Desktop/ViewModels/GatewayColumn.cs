@@ -277,6 +277,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
     public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
 
+    /// <summary>The hosted W "Share via WhatsApp" panel (non-null only for that census-14.10 column).</summary>
+    public WhatsAppShareViewModel? WhatsAppShare => Page as WhatsAppShareViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 
