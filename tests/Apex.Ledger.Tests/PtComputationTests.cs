@@ -8,9 +8,10 @@ namespace Apex.Ledger.Tests;
 /// <summary>
 /// Phase-8 slice-6 <b>Professional-Tax computation</b> contract (RQ-11; Article 276(2)) — the pure
 /// <see cref="ProfessionalTax"/> band selection + February over-charge + gender scope + ₹2,500/year cumulative cap.
-/// The headline oracles are the A14-verified state slabs: MH man ₹12,000 → ₹200/mo (₹300 Feb, FY total ₹2,500);
-/// MH man ₹9,000 → ₹175/mo; MH woman ₹12,000 → ₹0; KA ₹30,000 → ₹200/mo + ₹300 Feb = ₹2,500; KA ₹20,000 → ₹0;
-/// WB ₹15,000 → ₹110/mo; WB ₹30,000 → ₹150/mo.
+/// The headline oracles are the state slabs, each read off the issuing state's own published rate schedule (the URLs
+/// are quoted at <c>ProfessionalTax.SeedSlabTables</c>): MH man ₹12,000 → ₹200/mo (₹300 Feb, FY total ₹2,500);
+/// MH man ₹9,000 → ₹175/mo; MH woman ₹12,000 → ₹0; <b>KA ₹30,000 → a FLAT ₹200/mo, FY total ₹2,400 — Karnataka's
+/// schedule has no February provision</b>; KA ₹20,000 → ₹0; WB ₹15,000 → ₹110/mo; WB ₹30,000 → ₹150/mo.
 /// </summary>
 public sealed class PtComputationTests
 {
@@ -102,13 +103,16 @@ public sealed class PtComputationTests
     // ---------------------------------------------------------------- Karnataka (no gender)
 
     [Fact]
-    public void Ka_30000_is_200_per_month_plus_300_february_totalling_2500()
+    public void Ka_30000_is_a_flat_200_every_month_totalling_2400()
     {
+        // Was `Ka_30000_is_200_per_month_plus_300_february_totalling_2500` and asserted the DEFECT: it locked in the
+        // unsourced ₹300 February over-charge and the ₹2,500 year. Corrected against the Karnataka schedule
+        // (see the test below for the verbatim entry and the URL).
         var slab = Slab(KA, "Male"); // KA ignores gender (Any table wins)
         Assert.Equal(PtGenderScope.Any, slab.GenderScope);
         Assert.Equal(R(200m), ProfessionalTax.MonthlyBeforeCap(slab, 30000m, 6));
-        Assert.Equal(R(300m), ProfessionalTax.MonthlyBeforeCap(slab, 30000m, 2));
-        Assert.Equal(2500m, FullYearTotal(slab, 30000m));
+        Assert.Equal(R(200m), ProfessionalTax.MonthlyBeforeCap(slab, 30000m, 2));
+        Assert.Equal(2400m, FullYearTotal(slab, 30000m));
     }
 
     [Fact]
@@ -118,6 +122,44 @@ public sealed class PtComputationTests
         Assert.Equal(Money.Zero, ProfessionalTax.MonthlyBeforeCap(slab, 20000m, 6));
         Assert.Equal(Money.Zero, ProfessionalTax.MonthlyBeforeCap(slab, 24999m, 6));
         Assert.Equal(R(200m), ProfessionalTax.MonthlyBeforeCap(slab, 25000m, 6)); // ≥25,000 → 200
+    }
+
+    [Fact]
+    public void Ka_top_band_is_a_flat_200_every_month_with_no_february_over_charge()
+    {
+        // 🔴 T0-NEW-A (wave 6, area 7) — WRONG MONEY, ₹100 per Karnataka employee per year.
+        // Karnataka SCHEDULE [See Section 3(2)] Sl. No. 1, verbatim: "Salary or wage earners whose salary or wage
+        // or both, as the case may be, for a month is Rs. 25,000-00 and above — Rs. 200-00 per month."
+        // It is a FLAT monthly rate. The word "February" does not occur ANYWHERE in that schedule — zero hits over
+        // the full `pdftotext -raw` extraction (113 lines) of
+        // https://ptax.karnataka.gov.in/documents/pt%20amendment%20bill.pdf
+        // The "Rs. 2,500-00 per annum" that appears elsewhere in the same schedule belongs to OTHER classes of
+        // person (Sl. Nos. 2–12 — registered persons, employers, professionals), NOT to salary earners; and the
+        // ₹2,500 of Article 276(2) is a CAP, not a target. Karnataka simply does not levy up to it.
+        var slab = Slab(KA, null);
+        Assert.Equal(R(200m), ProfessionalTax.MonthlyBeforeCap(slab, 30000m, month: 2));  // February is ₹200, NOT ₹300
+        Assert.Equal(2400m, FullYearTotal(slab, 30000m));                                 // 12 × ₹200 = ₹2,400
+        // Structural: the top band carries no month override at all, so nothing can re-introduce the over-charge.
+        Assert.Empty(slab.SelectBand(30000m)!.MonthOverrides);
+        // Why the ₹2,500 cap never caught this: the over-deduction landed EXACTLY at the cap, so the safety net
+        // never fired. The correct year is strictly under it.
+        Assert.True(FullYearTotal(slab, 30000m) < ProfessionalTax.AnnualCap);
+    }
+
+    [Fact]
+    public void Mh_keeps_the_february_over_charge_its_own_schedule_does_provide()
+    {
+        // The February rule is REAL in Maharashtra and must survive the Karnataka correction — this test exists so a
+        // future reader cannot delete PtMonthOverride wholesale. Maharashtra SCHEDULE I (SEE SECTION 3), block
+        // "1/4/2023 onwards", entry 1, verbatim: "(c) exceed rupees ten thousand ; two thousand five hundred per
+        // annum to be paid in in following manner :— (a) two hundred per month except for the month of February ;
+        // (b) three hundred for the month of February;" — and the identical two-line manner for women above ₹25,000.
+        Assert.Equal(R(300m), ProfessionalTax.MonthlyBeforeCap(Slab(MH, "Male"), 12000m, month: 2));
+        Assert.Equal(R(300m), ProfessionalTax.MonthlyBeforeCap(Slab(MH, "Female"), 30000m, month: 2));
+        Assert.Equal(2500m, FullYearTotal(Slab(MH, "Male"), 12000m));
+        Assert.Equal(2500m, FullYearTotal(Slab(MH, "Female"), 30000m));
+        // West Bengal's schedule has no February provision either — it must stay override-free.
+        Assert.Empty(Slab(WB, null).SelectBand(50000m)!.MonthOverrides);
     }
 
     // ---------------------------------------------------------------- West Bengal (no gender, no Feb quirk)
