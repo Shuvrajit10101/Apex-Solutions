@@ -12,10 +12,10 @@ namespace Apex.Desktop.Tests;
 /// <summary>
 /// 🔴 <b>THE HONEST STATE OF CENSUS ROW 7.16 — and the two traps the half-finished half leaves behind.</b>
 ///
-/// <para>Row 7.16 asks for Alter + Delete on <b>eight</b> payroll master kinds. <b>Four</b> are done and driven
-/// end-to-end by <see cref="PayrollMasterAlterDeleteTests"/>: employee category, employee group, payroll unit and
-/// attendance/production type. The other four are NOT: <c>EmployeeMasterViewModel</c> and
-/// <c>PayHeadMasterViewModel</c> implement neither <see cref="IPayrollMasterList"/> nor a <c>ForAlter</c> factory
+/// <para>Row 7.16 asks for Alter + Delete on <b>eight</b> payroll master kinds. <b>Five</b> are done and driven
+/// end-to-end by <see cref="PayrollMasterAlterDeleteTests"/>: employee category, employee group, payroll unit,
+/// attendance/production type and — since W7-D2 — the <b>employee</b> master itself. The other three are NOT:
+/// <c>PayHeadMasterViewModel</c> implements neither <see cref="IPayrollMasterList"/> nor a <c>ForAlter</c> factory
 /// (and <c>PayHeadService</c> has no Alter method at all), and the salary-structure and tax-declaration masters
 /// were never considered. This fixture is the LOCK that keeps that fact true in the code rather than only in a
 /// report — an over-claimed row is this project's most-repeated defect, and a report cannot go red.</para>
@@ -90,24 +90,24 @@ public sealed class PayrollMasterHalfWiredKindsTests
     }
 
     /// <summary>
-    /// Trap 2. The employee master is NOT on the Alt+D / Ctrl+Enter surface yet, and must not be until it really
+    /// Trap 2. The PAY HEAD master is NOT on the Alt+D / Ctrl+Enter surface yet, and must not be until it really
     /// implements <see cref="IPayrollMasterList"/> with a working <c>ForAlter</c>. When someone finishes the
     /// slice, this test goes RED — which is the correct and intended signal to delete it and add the kind to
     /// <see cref="PayrollMasterAlterDeleteTests"/> and
     /// <see cref="PayrollMasterHighlightVisibilityTests"/> instead. It is a "not yet", not a "never".
+    ///
+    /// <para>W7-D2: the EMPLOYEE half of this test was retired exactly that way. The employee master now
+    /// implements the interface and carries <c>ForAlter</c>, so it is covered by
+    /// <c>PayrollMasterAlterDeleteTests.Employee_alters_by_identity_and_deletes</c> and by the highlight fixture
+    /// instead. It is not merely un-asserted here — it is asserted in the OTHER direction there, which is what
+    /// stops the retirement being a quiet loss of coverage.</para>
     /// </summary>
     [AvaloniaFact]
-    public void The_employee_and_pay_head_masters_are_not_yet_on_the_payroll_master_verb_surface()
+    public void The_pay_head_master_is_not_yet_on_the_payroll_master_verb_surface()
     {
         var (vm, dir) = NewCompany("Half Wired Co");
         try
         {
-            vm.ShowEmployeeMaster();
-            Assert.Equal(Screen.EmployeeMaster, vm.CurrentScreen);
-            Assert.True(vm.EmployeeMaster is not null, "the employee master did not open; this would assert nothing");
-            Assert.Null(vm.PayrollMasterScreen);
-            Assert.False(vm.AlterHighlightedPayrollMasterRow());
-
             vm.ShowPayHeadMaster();
             Assert.Equal(Screen.PayHeadMaster, vm.CurrentScreen);
             Assert.True(vm.PayHeadMaster is not null, "the pay head master did not open; this would assert nothing");

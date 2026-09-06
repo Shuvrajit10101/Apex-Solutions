@@ -61,6 +61,35 @@ public static class ReportTabularProjector
             rows.Add(new TabularRow(cells, isTotal: r.IsTotal));
         }
 
+        // ---- The matrix's optional SECOND section (W7-D2): PF Form 6A page 2. One export sheet carries one column
+        // band, so page 2 is appended as a captioned block (its title, its own headings, then its rows) rather than
+        // being dropped. Its figures stay typed as numbers so the spreadsheet still sums the challan account heads —
+        // which is the one arithmetic anybody actually does with page 2.
+        if (vm.PayrollRows2.Count > 0)
+        {
+            rows.Add(TabularRow.Header(TabularCell.Text(vm.PayrollSection2Title)));
+            var headings = new TabularCell[vm.PayrollColumns2.Count];
+            for (int i = 0; i < vm.PayrollColumns2.Count; i++)
+                headings[i] = TabularCell.Text(vm.PayrollColumns2[i].Header);
+            rows.Add(TabularRow.Header(headings));
+            foreach (var r in vm.PayrollRows2)
+            {
+                var cells = new TabularCell[r.Cells.Count];
+                for (int i = 0; i < r.Cells.Count; i++)
+                {
+                    var cell = r.Cells[i];
+                    cells[i] = cell.IsNumeric && TryParseAmount(cell.Text, out var v)
+                        ? TabularCell.Number(v)
+                        : TabularCell.Text(cell.Text);
+                }
+                rows.Add(new TabularRow(cells, isTotal: r.IsTotal));
+            }
+        }
+
+        // ---- The statutory footnotes: the only thing that says a blank column is unmaintained rather than broken.
+        foreach (var note in vm.PayrollFootnotes)
+            rows.Add(TabularRow.Of(TabularCell.Text(note)));
+
         return new TabularExport(vm.Title, columns, rows);
     }
 

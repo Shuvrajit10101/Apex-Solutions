@@ -2148,9 +2148,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private GatewayColumn BuildPayrollStatutoryReportsColumn()
     {
         var col = new GatewayColumn("Payroll");
-        col.Add(MenuItemViewModel.Header("Payroll Statutory"));
+
+        // W7-D2 — NESTED, not a flat dump. Thirteen rows under one "Payroll Statutory" header would be exactly the
+        // flat column the standing UI rule forbids, and it would also stop matching the reference product, which
+        // nests these under Provident Fund / Employee State Insurance sub-groups. Three headers, same treatment
+        // BuildCreateColumn() already uses.
+        col.Add(MenuItemViewModel.Header("Provident Fund"));
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 3A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 5", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 6A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 10", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PF Form 12A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Employee State Insurance"));
         col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 3", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 5", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Form 6", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Other Payroll Statutory"));
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
         // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
@@ -2476,6 +2493,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         WireReportDrills(reports);
         OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
             () => Reports = reports);
+    }
+
+    /// <summary>
+    /// Opens one of the eight W7-D2 <b>payroll statutory forms</b> (PF Forms 3A / 5 / 6A / 10 / 12A — census 7.20;
+    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page. Gated on <see cref="Company.PayrollStatutoryEnabled"/>
+    /// exactly as the PF ECR and ESI monthly-contribution pages are, so a company that is not enrolled for payroll
+    /// statutory never reaches one (ER-13) and its menu is byte-identical to the pre-slice column.
+    /// </summary>
+    public void OpenPayrollStatutoryForm(ReportKind kind)
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+        OpenReport(kind);
     }
 
     /// <summary>
@@ -8067,15 +8096,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.PayrollUnitMaster => PayrollUnitMaster,
         Screen.AttendanceTypeMaster => AttendanceTypeMaster,
 
-        // 🔴 FOUR OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
-        // Screen.EmployeeMaster and Screen.PayHeadMaster are DELIBERATELY absent: EmployeeMasterViewModel and
-        // PayHeadMasterViewModel implement neither IPayrollMasterList nor a ForAlter factory, so listing them
-        // here would not compile — and listing them once they merely compile would be worse, because appearing
+        // W7-D2 (census T0-13): the EMPLOYEE master joins the family. It now implements IPayrollMasterList and
+        // carries a ForAlter factory, so it can be driven end-to-end — which is the bar for appearing here.
+        // Altering an employee is the ONLY keystroke in the product that can set Employee.DateOfLeaving, and
+        // three engines read that field (PF Form 10 selects its rows by it; ESI Form 5 column 7(A) reads
+        // "still working" from it). Without this arm those two statutory returns are permanently, silently empty.
+        Screen.EmployeeMaster => EmployeeMaster,
+
+        // 🔴 FIVE OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
+        // Screen.PayHeadMaster is DELIBERATELY absent: PayHeadMasterViewModel implements neither
+        // IPayrollMasterList nor a ForAlter factory, so listing it
+        // here would not compile — and listing it once it merely compiles would be worse, because appearing
         // in this switch is what grants a screen the arrows, Ctrl+Enter AND Alt+D in a single step. A kind is
         // added here only when it can be driven end-to-end. The remainder, precisely:
-        //   • Employee   — PayrollService.AlterEmployee and DeleteEmployee both exist; the view model needs the
-        //                  six interface members, ForAlter, the Ctrl+A IsAltering branch, and the highlight bar
-        //                  in its row template. Its list rows already carry a real MasterId.
         //   • Pay head   — blocked further back: PayHeadService has NO Alter method at all.
         //   • Salary structure master and tax declaration master — never considered by the slice.
         // PayrollMasterHalfWiredKindsTests locks all of the above, so this comment cannot quietly go stale.
@@ -8132,8 +8165,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => EmployeeGroupMaster = m);
                 return true;
             }
-            // No Screen.EmployeeMaster arm: EmployeeMasterViewModel has no ForAlter factory yet. See the
-            // four-of-eight note on PayrollMasterScreen above for the exact remainder.
+            case Screen.EmployeeMaster:
+            {
+                // W7-D2 / census T0-13 — the route in to Employee.DateOfLeaving.
+                if (EmployeeMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeMaster, m.Caption,
+                    () => EmployeeMaster = m);
+                return true;
+            }
             case Screen.PayrollUnitMaster:
             {
                 if (PayrollUnitMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
@@ -9186,6 +9226,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
+            // W7-D2 — the PF statutory forms beyond the ECR (census 7.20) and the ESI statutory forms beyond the
+            // monthly contribution file (census 7.21). Each is a payroll-matrix report, so Ctrl+P prints it and
+            // the tabular export serves it through the same projectors the other payroll grids already use.
+            case "PF Form 3A": OpenPayrollStatutoryForm(ReportKind.PfForm3A); break;
+            case "PF Form 5": OpenPayrollStatutoryForm(ReportKind.PfForm5); break;
+            case "PF Form 6A": OpenPayrollStatutoryForm(ReportKind.PfForm6A); break;
+            case "PF Form 10": OpenPayrollStatutoryForm(ReportKind.PfForm10); break;
+            case "PF Form 12A": OpenPayrollStatutoryForm(ReportKind.PfForm12A); break;
+            case "ESI Form 3": OpenPayrollStatutoryForm(ReportKind.EsiForm3); break;
+            case "ESI Form 5": OpenPayrollStatutoryForm(ReportKind.EsiForm5); break;
+            case "ESI Form 6": OpenPayrollStatutoryForm(ReportKind.EsiForm6); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
             case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
