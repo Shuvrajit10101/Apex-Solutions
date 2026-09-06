@@ -401,6 +401,9 @@ public partial class MainWindow : Window
             // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
             else if (vm.CurrentScreen == Screen.BasisOfValues)
                 vm.ApplyBasisOfValues();
+            // Census 2.13: Ctrl+A on the Ctrl+J panel applies the chosen view and pops back to the filtered tree.
+            else if (vm.CurrentScreen == Screen.ExceptionReports)
+                vm.ApplyExceptionReports();
             else if (vm.CurrentScreen == Screen.ReportSortFilter)
                 vm.ApplyReportSortFilter();
             else if (vm.CurrentScreen == Screen.AddComparisonColumn)
@@ -1152,6 +1155,21 @@ public partial class MainWindow : Window
             && vm.IsReportContext && vm.Reports is { SupportsScaleFactor: true })
         {
             vm.OpenBasisOfValues();
+            e.Handled = true;
+            return;
+        }
+
+        // Census row 2.13 — Ctrl+J opens EXCEPTION REPORTS ("Show Unused") over the live Chart of Accounts.
+        // help.tallysolutions.com's Chart of Accounts page gives the route verbatim: Alt+G (Go To) > Chart of
+        // Accounts > Ledgers, then "Ctrl+J (Exception Reports) > Show Unused", producing the "List of Ledgers
+        // (Unused)". The chord was verified free before it was taken — this is the ONLY Key.J arm in this file.
+        // 🔴 Guarded on the SAME condition OpenExceptionReports refuses on, so the key never gets swallowed on a
+        // screen where it fires nothing; without the guard Ctrl+J would be consumed app-wide for no effect.
+        if (e.Key == Key.J && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsChartOfAccountsScreen)
+        {
+            vm.OpenExceptionReports();
             e.Handled = true;
             return;
         }
@@ -2287,6 +2305,10 @@ public partial class MainWindow : Window
     /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
+
+    /// <summary>The Apply button on the Ctrl+J Exception Reports panel (census 2.13).</summary>
+    private void OnApplyExceptionReportsClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyExceptionReports();
 
 
     /// <summary>

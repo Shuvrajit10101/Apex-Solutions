@@ -189,7 +189,10 @@ public sealed class LegacyCostAllocationLoadTests
         // v52 was owned by the VOUCHER EDIT LOG, which adds ONE new table (`voucher_edit_log`) and no column
         // to any existing table; **v53 is owned by W2-03 (the Voucher Type master)**, which adds exactly two
         // columns to `voucher_types` (`print_after_saving`, `provide_narration_for_each_ledger`) — so it touches
-        // nothing in cost_allocations either, and the G-2 contract this test guards is still storage-free.
-        Assert.Equal(53, Schema.CurrentVersion);
+        // nothing in cost_allocations either, and the G-2 contract this test guards is still storage-free;
+        // **v54 is owned by W-F2 (Credit Limits, census 10.1)**, which adds exactly three columns to `ledgers`
+        // (`credit_limit_paisa`, `check_credit_days_on_entry`, `override_credit_limit_post_dated`) — again nothing
+        // in cost_allocations, so the G-2 contract this test guards remains storage-free.
+        Assert.Equal(54, Schema.CurrentVersion);
     }
 }

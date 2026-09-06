@@ -211,7 +211,7 @@ the **first** category.
   the PDF title and the on-screen preview mirror all re-derive from **one** classification record. Today each
   derives the document kind independently — the exact split that produced FIX-W1e.
 - **The Credit / Debit Note document is DECOUPLED from census T0-10.** A note cannot carry inventory lines at
-  all: `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws on every post (reached from
+  all: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws on every post (reached from
   `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`) and
   `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert. Because
   Rule 53 is value-level, a **legally complete note ships without waiting for T0-10**.
