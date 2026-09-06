@@ -98,7 +98,9 @@ public static class PosReceiptPdf
         writer.Text(left, y, "Bill No: " + data.BillNumber, page.BodyFontSize);
         RightText(writer, "Date: " + data.DateText, left, right, y, page.BodyFontSize, bold: false);
         y -= page.BodyFontSize + 2;
-        writer.Text(left, y, "Customer: " + (string.IsNullOrWhiteSpace(data.Party) ? "(cash)" : Debrand.Text(data.Party)), page.BodyFontSize);
+        // 🔴 RULING 18: the customer's own name, printed on the receipt handed to that customer. Not ours to
+        // rewrite — a walk-in whose business carries the vendor token would be handed a bill naming somebody else.
+        writer.Text(left, y, "Customer: " + (string.IsNullOrWhiteSpace(data.Party) ? "(cash)" : data.Party), page.BodyFontSize);
         y -= 6;
         writer.Line(left, y, right, y, 0.5);
         y -= page.BodyFontSize + 2;
@@ -199,12 +201,15 @@ public static class PosReceiptPdf
         y -= page.RowHeight;
         foreach (var t in data.Tenders)
         {
+            // The tender LABEL is one of this product's four fixed captions ("Cash", "Credit/Debit Card", …), so
+            // it keeps the ER-11 guard. The REFERENCE beneath it is composed from the BANK NAME on the cheque
+            // ("<bank> Cheque No. <n>") — a bank's name, which Ruling 18 puts out of the de-brander's reach.
             writer.Text(left + 6, y, Debrand.Text(t.Label), page.BodyFontSize);
             RightText2(writer, Fmt(t.Amount), rateR, amtR, y, page.BodyFontSize, bold: false);
             y -= page.RowHeight;
             if (!string.IsNullOrWhiteSpace(t.Reference))
             {
-                writer.Text(left + 12, y, Debrand.Text(t.Reference), page.FooterFontSize);
+                writer.Text(left + 12, y, t.Reference, page.FooterFontSize);
                 y -= page.RowHeight;
             }
         }

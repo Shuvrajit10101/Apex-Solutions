@@ -121,13 +121,31 @@ public class FvuWriter27EQTests
         Assert.NotEmpty(a);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18</b>, for the same reason as the 26Q case: the buyer on a 27EQ collectee record
+    /// is a CUSTOMER whose name is matched against their PAN. The collector half of the file is ours and stays
+    /// de-branded.
+    /// </summary>
     [Fact]
-    public void File_never_contains_the_third_party_brand_even_from_a_party_name()
+    public void A_collectees_own_name_reaches_the_file_intact_while_our_own_fields_stay_debranded()
     {
-        // A user types the forbidden brand into a buyer name — it must be scrubbed out of the produced file (ER-11).
         var q1 = Form27EQ.Build(GoldenCompany("Tally Traders"), 2025, 1);
         var text = Encoding.UTF8.GetString(FvuWriter.Write(q1));
-        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Tally Traders", text, StringComparison.Ordinal);
+        Assert.Equal(1, CountBrand(text));
+        Assert.DoesNotContain("Tally^Traders", text, StringComparison.Ordinal);
+    }
+
+    private static int CountBrand(string text)
+    {
+        int n = 0;
+        for (int i = text.IndexOf("tally", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf("tally", i + 5, StringComparison.OrdinalIgnoreCase))
+        {
+            n++;
+        }
+        return n;
     }
 
     [Fact]

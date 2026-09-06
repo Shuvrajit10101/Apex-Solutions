@@ -80,7 +80,9 @@ public static class Form27DPdf
         double ey = blockTop;
         writer.Text(mid + 6, ey, "Collectee (Certificate issued to)", page.FooterFontSize, bold: true);
         ey -= page.BodyFontSize + 2;
-        ey = KeyVal(writer, mid + 6, ey, "Name:", cert.Collectee.Name, page);
+        // 🔴 RULING 18: the collectee is the COUNTERPARTY this certificate is issued to, and this name is filed
+        // against their PAN. The COLLECTOR block above is OUR company and keeps the ER-11 guard.
+        ey = KeyVal(writer, mid + 6, ey, "Name:", cert.Collectee.Name, page, debrandValue: false);
         ey = KeyVal(writer, mid + 6, ey, "PAN:", cert.Collectee.Pan, page);
 
         y = Math.Min(dy, ey) - 2;

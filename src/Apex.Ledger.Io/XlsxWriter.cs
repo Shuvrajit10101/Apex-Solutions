@@ -121,7 +121,9 @@ public static class XlsxWriter
                 string cellRef = RowRef(i, r);
                 if (cell.Type == CellType.Number && cell.HasNumber)
                     return NumberCellXml(cellRef, cell.NumberValue);
-                string text = TabularDebrand.Cell(cell.TextValue);
+                // 🔴 Ruling 18: book data is written verbatim. The HEADER row above is a product-authored caption
+                // and keeps its scrub; a body cell holds a party/bank/item name that is not ours to rewrite.
+                string text = cell.TextValue ?? string.Empty;
                 return text.Length == 0 ? string.Empty : TextCellXml(cellRef, text);
             });
         }

@@ -86,12 +86,15 @@ public static class HtmlReportWriter
 
     private static string ClassOf(CellType type) => type == CellType.Number ? "n" : "t";
 
-    /// <summary>A number cell renders its exact invariant figure; a text cell is de-branded, escaped, and its
-    /// embedded newlines become <c>&lt;br&gt;</c> so a multi-line address survives as multiple lines.</summary>
+    /// <summary>A number cell renders its exact invariant figure; a text cell is escaped verbatim and its
+    /// embedded newlines become <c>&lt;br&gt;</c> so a multi-line address survives as multiple lines.
+    /// <para>🔴 Ruling 18: no de-brand here. A body cell is book data — a customer, supplier or bank name, an
+    /// address, a narration — and rewriting it would alter the counterparty's own name in the exported page.
+    /// The escape stays; it changes rendering, not the name.</para></summary>
     private static string CellHtml(TabularCell cell)
     {
         if (cell.Type == CellType.Number) return cell.NumberText;
-        string text = Escape(TabularDebrand.Cell(cell.TextValue));
+        string text = Escape(cell.TextValue ?? string.Empty);
         return text.Replace("\r\n", "<br>").Replace("\r", "<br>").Replace("\n", "<br>");
     }
 

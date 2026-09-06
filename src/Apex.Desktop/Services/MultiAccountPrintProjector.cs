@@ -270,6 +270,12 @@ public static class MultiAccountPrintProjector
         return new PrintReport
         {
             Title = TitleFor(MultiAccountDocumentKind.LedgerAccount) + " - " + ReportPrintProjector.Ascii(ledger.Name),
+            // 🔴 RULING 18. This is the ONE heading in the product that concatenates a product-authored label
+            // with a MASTER NAME the user typed. Without this flag the renderer's ER-11 guard strips the vendor
+            // token out of the ledger's name, so a real customer named after it is printed under a mangled name
+            // on the very statement posted to them. The label half is a compile-time constant, so waiving the
+            // guard over the whole heading leaks nothing of ours. Subtitle stays guarded: it is OUR company name.
+            TitleCarriesMasterName = true,
             Subtitle = ReportPrintProjector.Ascii(company.Name)
                 + "  -  " + Day(from) + " to " + Day(asOf),
             Columns = new[]

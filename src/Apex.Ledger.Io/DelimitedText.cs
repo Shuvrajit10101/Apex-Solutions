@@ -46,9 +46,13 @@ internal static class DelimitedText
             // A Number cell carries our OWN invariant figure (e.g. -355000.50) — it must stay a plain number a
             // spreadsheet can sum, so it is NOT injection-guarded. Only free-text (a user-typed label/narration)
             // can start with a formula trigger, so the guard is applied to text fields alone.
+            // 🔴 RULING 18: a text cell is BOOK DATA (a party/bank/item name, a narration, a bill reference) and
+            // is exported VERBATIM. The de-brand that used to run here rewrote a counterparty's legal name inside
+            // the customer's own spreadsheet. The formula-injection guard stays — that is a safety property of
+            // the FILE FORMAT, not an edit to the name.
             fields[i] = cell.Type == CellType.Number
                 ? cell.NumberText                                  // invariant scale-preserving; empty for a valueless number cell
-                : Neutralize(TabularDebrand.Cell(cell.TextValue)); // de-brand (newline-safe) then guard formula injection
+                : Neutralize(cell.TextValue ?? string.Empty);
         }
         return fields;
     }

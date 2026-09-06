@@ -154,7 +154,7 @@ public static class FvuWriter
 
     private static void WriteDeductee(StringBuilder sb, int challanSeq, int seq, Form26QDeducteeRow row) =>
         WriteRecord(sb,
-            "DD", Int(challanSeq), Int(seq), Text(row.DeducteePan), Text(row.DeducteeName),
+            "DD", Int(challanSeq), Int(seq), Text(row.DeducteePan), Name(row.DeducteeName),
             Text(row.SectionCode), Text(row.FvuSectionCode), Date(row.DeductionDate),
             Money(row.AmountPaid), Money(row.TdsAmount), Rate(row.RateBasisPoints),
             row.PanApplied ? "Y" : "N", Text(row.Section197Reason));
@@ -224,7 +224,7 @@ public static class FvuWriter
 
     private static void WriteCollectee(StringBuilder sb, int challanSeq, int seq, Form27EQCollecteeRow row) =>
         WriteRecord(sb,
-            "CL", Int(challanSeq), Int(seq), Text(row.CollecteePan), Text(row.CollecteeName),
+            "CL", Int(challanSeq), Int(seq), Text(row.CollecteePan), Name(row.CollecteeName),
             Text(row.CollectionCode), Text(row.FvuCollectionCode), Date(row.CollectionDate),
             Money(row.AmountReceived), Money(row.TcsAmount), Rate(row.RateBasisPoints),
             row.PanApplied ? "Y" : "N", Text(row.LowerCollectionReason));
@@ -238,6 +238,20 @@ public static class FvuWriter
         // can never corrupt the record framing. Deterministic; no culture leak.
         var cleaned = Debrand.Text(value);
         return cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    /// <summary>
+    /// 🔴 <b>RULING 18 — a COUNTERPARTY'S legal name, delimiter-safed but NEVER de-branded.</b> The deductee on a
+    /// 26Q line and the collectee on a 27EQ line are the supplier / customer this return is filed about, and the
+    /// name here is matched against their PAN by the department. <see cref="Text"/> strips a case-insensitive
+    /// vendor token, so a real party carrying that token was filed under a name that is not theirs — a
+    /// name-vs-PAN mismatch in a statutory return, not a cosmetic edit. The record-framing guard stays, because
+    /// that is a property of the FILE FORMAT: a stray delimiter or newline in a name would corrupt the record.
+    /// </summary>
+    private static string Name(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
     }
 
     private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);

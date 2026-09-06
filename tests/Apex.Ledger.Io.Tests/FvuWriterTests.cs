@@ -89,13 +89,36 @@ public class FvuWriterTests
         Assert.NotEmpty(a);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18 — the old assertion locked in a statutory defect.</b> It read "a user types
+    /// the forbidden brand into a party name — it must be scrubbed out of the produced file", but the party on a
+    /// 26Q deductee record is a SUPPLIER whose name the department matches against their PAN. Scrubbing it filed
+    /// the return under a name that is not theirs, and disagreed with the Form 16A issued for the same row. The
+    /// deductor half of the file — our TAN, our responsible person — is ours and stays de-branded.
+    /// </summary>
     [Fact]
-    public void File_never_contains_the_third_party_brand_even_from_a_party_name()
+    public void A_deductees_own_name_reaches_the_file_intact_while_our_own_fields_stay_debranded()
     {
-        // A user types the forbidden brand into a party name — it must be scrubbed out of the produced file (ER-11).
         var q1 = Form26Q.Build(GoldenCompany("Tally Consultants"), 2025, 1);
         var text = Encoding.UTF8.GetString(FvuWriter.Write(q1));
-        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+
+        // The counterparty's legal name is filed exactly as it stands in the books...
+        Assert.Contains("Tally Consultants", text, StringComparison.Ordinal);
+        // ...and it is the ONLY place the token appears, so nothing of ours leaked alongside it.
+        Assert.Equal(1, CountBrand(text));
+        // The record framing still survives a name (the delimiter guard is a file-format property, not a scrub).
+        Assert.DoesNotContain("Tally^Consultants", text, StringComparison.Ordinal);
+    }
+
+    private static int CountBrand(string text)
+    {
+        int n = 0;
+        for (int i = text.IndexOf("tally", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf("tally", i + 5, StringComparison.OrdinalIgnoreCase))
+        {
+            n++;
+        }
+        return n;
     }
 
     [Fact]

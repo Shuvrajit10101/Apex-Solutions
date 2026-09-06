@@ -82,7 +82,10 @@ public static class Form16APdf
         double ey = blockTop;
         writer.Text(mid + 6, ey, "Deductee (Certificate issued to)", page.FooterFontSize, bold: true);
         ey -= page.BodyFontSize + 2;
-        ey = KeyVal(writer, mid + 6, ey, "Name:", cert.Deductee.Name, page);
+        // 🔴 RULING 18: the deductee is the COUNTERPARTY this certificate is issued to, and this name is filed
+        // against their PAN. De-branding it printed a supplier's TDS certificate under a name that is not theirs
+        // and does not match the return. The DEDUCTOR block above is OUR company and keeps the ER-11 guard.
+        ey = KeyVal(writer, mid + 6, ey, "Name:", cert.Deductee.Name, page, debrandValue: false);
         ey = KeyVal(writer, mid + 6, ey, "PAN:", cert.Deductee.Pan, page);
 
         y = Math.Min(dy, ey) - 2;

@@ -60,8 +60,10 @@ public static class JsonReportWriter
                 if (cell.Type == CellType.Number)
                     sb.Append("{ \"type\": \"number\", \"value\": ").Append(cell.NumberText).Append(" }");
                 else
+                    // 🔴 Ruling 18: book data is emitted verbatim (escaped, not de-branded) — a counterparty's
+                    // name must round-trip out of this file exactly as it stands in the books.
                     sb.Append("{ \"type\": \"text\", \"value\": \"")
-                      .Append(Escape(TabularDebrand.Cell(cell.TextValue))).Append("\" }");
+                      .Append(Escape(cell.TextValue ?? string.Empty)).Append("\" }");
             }
             sb.Append("] }");
             sb.Append(r == export.Rows.Count - 1 ? "\r\n" : ",\r\n");

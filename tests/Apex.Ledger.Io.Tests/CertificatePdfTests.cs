@@ -167,13 +167,42 @@ public sealed class CertificatePdfTests
         Assert.Equal(a, b);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18 — this test previously asserted the defect.</b> It was named
+    /// <c>Form16A_debrands_a_tally_named_deductee</c> and demanded that a deductee legally named "Tally
+    /// Consultants" have that token stripped. The deductee is the COUNTERPARTY: Form 16A is issued TO them and
+    /// the name is matched against their PAN by the department, so the old behaviour handed a supplier a
+    /// statutory certificate naming somebody who does not exist, and disagreed with the 26Q return filed about
+    /// them. The deductor block, the "For &lt;deductor&gt;" signatory line and the <c>/Title</c> metadata are OURS
+    /// and are still asserted brand-free in the same breath — de-branding did not stop, it stopped at the
+    /// counterparty.
+    /// </summary>
     [Fact]
-    public void Form16A_debrands_a_tally_named_deductee()
+    public void Form16A_keeps_a_deductees_own_name_intact_while_our_side_stays_debranded()
     {
         var (c, deducteeId) = BuildTdsCompany("Tally Consultants");
         var cert = Form16A.Build(c, 2025, 1, deducteeId);
-        var bytes = Form16APdf.Render(cert, new PageConfig());
-        Assert.DoesNotContain("tally", AsLatin1(bytes).ToLowerInvariant());
+        string s = AsLatin1(Form16APdf.Render(cert, new PageConfig()));
+
+        // The counterparty's legal name is printed EXACTLY as it stands in the books.
+        Assert.Contains("Tally Consultants", s);
+        // Our own strings still carry no third-party brand: the ONLY occurrence of the token in the whole
+        // document is the one inside the deductee's own name. A leak anywhere else raises the count.
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        Assert.Contains("/Producer (Apex Solutions)", s);
+        Assert.Contains("For Return Co", s);
+    }
+
+    /// <summary>Case-insensitive count of the forbidden vendor token in a rendered document.</summary>
+    private static int OccurrencesOfBrand(string text)
+    {
+        int n = 0;
+        for (int i = text.IndexOf("tally", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf("tally", i + 5, StringComparison.OrdinalIgnoreCase))
+        {
+            n++;
+        }
+        return n;
     }
 
     [Fact]
@@ -226,13 +255,21 @@ public sealed class CertificatePdfTests
         Assert.Equal(a, b);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18</b>, for the same reason as the Form 16A case above: the collectee is the
+    /// customer the TCS certificate is issued to, and their legal name is not ours to rewrite. The collector
+    /// block and the signatory line are ours and stay de-branded.
+    /// </summary>
     [Fact]
-    public void Form27D_debrands_a_tally_named_collectee()
+    public void Form27D_keeps_a_collectees_own_name_intact_while_our_side_stays_debranded()
     {
         var (c, collecteeId) = BuildTcsCompany("Tally Scrap Buyers");
         var cert = Form27D.Build(c, 2025, 1, collecteeId);
-        var bytes = Form27DPdf.Render(cert, new PageConfig());
-        Assert.DoesNotContain("tally", AsLatin1(bytes).ToLowerInvariant());
+        string s = AsLatin1(Form27DPdf.Render(cert, new PageConfig()));
+
+        Assert.Contains("Tally Scrap Buyers", s);
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        Assert.Contains("/Producer (Apex Solutions)", s);
     }
 
     // ================================================================ Form 27A (control chart)

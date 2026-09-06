@@ -57,7 +57,9 @@ public static class XmlReportWriter
                 }
                 else
                 {
-                    string text = Escape(TabularDebrand.Cell(cell.TextValue));
+                    // 🔴 Ruling 18: book data is emitted verbatim (escaped, not de-branded). The COLUMN attribute
+                    // above is a product-authored caption and keeps its scrub.
+                    string text = Escape(cell.TextValue ?? string.Empty);
                     if (text.Length == 0)
                         sb.Append("      <Cell column=\"").Append(column).Append("\" type=\"Text\" />\r\n");
                     else
