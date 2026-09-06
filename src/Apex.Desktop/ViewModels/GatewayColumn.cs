@@ -262,6 +262,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted F12 print-config panel over a voucher/invoice preview (non-null only for that RQ-12 column).</summary>
     public PrintConfigViewModel? PrintConfigPanel => Page as PrintConfigViewModel;
 
+    /// <summary>The hosted Ctrl+P "Printer" panel over a preview (non-null only for that census-12.5 column).</summary>
+    public PrinterSelectionViewModel? PrinterPanel => Page as PrinterSelectionViewModel;
+
     /// <summary>The hosted W2-32 "Multi-Account Printing" panel (non-null only for that census-12.6 column).</summary>
     public MultiAccountPrintViewModel? MultiAccountPrint => Page as MultiAccountPrintViewModel;
 
