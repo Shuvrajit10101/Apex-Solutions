@@ -44,7 +44,7 @@ public sealed class PayrollMasterHighlightVisibilityTests
     private static readonly Color HighlightFill = Color.Parse("#FFF3CD");
 
     /// <summary>
-    /// The four payroll master kinds that carry a working Alt+D today. Each driver opens the screen through the
+    /// The five payroll master kinds that carry a working Alt+D today. Each driver opens the screen through the
     /// view model and leaves TWO masters in the existing-list, so "the bar is on the highlighted row" and "the
     /// bar is not on the other row" are both answerable — a template that painted the bar unconditionally would
     /// satisfy the first clause alone.
@@ -86,6 +86,19 @@ public sealed class PayrollMasterHighlightVisibilityTests
             m.Name = "Absent";
             m.SelectedUnit = m.UnitOptions.First(o => o.Unit is not null);
             Assert.True(m.Create(), m.Message);
+        },
+        // W7-D2 / census T0-13 — the employee master joined the Alt+D / Ctrl+Enter surface, so its row template
+        // has to draw the cursor too. It was the FIFTH kind and its list had no highlight bar at all until now.
+        ["Employee"] = vm =>
+        {
+            vm.ShowEmployeeGroupMaster();
+            var g = vm.EmployeeGroupMaster!;
+            g.Name = "Sales"; Assert.True(g.Create(), g.Message);
+
+            vm.ShowEmployeeMaster();
+            var m = vm.EmployeeMaster!;
+            m.Name = "Asha"; m.SelectedGroup = m.GroupOptions.First(); Assert.True(m.Create(), m.Message);
+            m.Name = "Bala"; m.SelectedGroup = m.GroupOptions.First(); Assert.True(m.Create(), m.Message);
         },
     };
 
@@ -238,10 +251,11 @@ public sealed class PayrollMasterHighlightVisibilityTests
     [AvaloniaFact]
     public void Every_payroll_master_kind_that_carries_alt_d_is_covered_here()
     {
-        Assert.Equal(4, Drivers.Count);
+        Assert.Equal(5, Drivers.Count);
         Assert.Contains("EmployeeCategory", Drivers.Keys);
         Assert.Contains("EmployeeGroup", Drivers.Keys);
         Assert.Contains("PayrollUnit", Drivers.Keys);
         Assert.Contains("AttendanceType", Drivers.Keys);
+        Assert.Contains("Employee", Drivers.Keys);
     }
 }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -25,16 +26,44 @@ namespace Apex.Desktop.ViewModels;
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
     /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice — or the
-    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, or a payroll Payslip (RQ-16).
+    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, a payroll Payslip (RQ-16),
+    /// a SET of reports printed as one collated job (W2-32 / census 12.6),
+    /// or a <b>cheque</b> inked onto a pre-printed bank leaf (census row 8.4).
     /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
-    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip }
+    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip, ReportSet, Cheque, PaymentAdviceLetter }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
     private readonly PrintReport? _report;
+
+    /// <summary>The document SET a <see cref="PrintKind.ReportSet"/> preview prints (W2-32). Null on every other
+    /// kind.</summary>
+    private readonly IReadOnlyList<PrintReport>? _documents;
     private readonly VoucherPrintData? _voucher;
     private readonly InvoicePrintData? _invoice;
     private readonly PosReceiptData? _receipt;
     private readonly Payslip? _payslip;
+    private readonly ChequePrintData? _cheque;
+
+    /// <summary>The bank's cheque dimensions this preview inks against. Set only in <see cref="PrintKind.Cheque"/>
+    /// mode, alongside <see cref="_cheque"/>.</summary>
+    private readonly ChequeLayout? _chequeLayout;
+
+    // The supplier payment-advice letters (census 8.7) and the letterhead they are written on. Set only in
+    // PrintKind.PaymentAdviceLetter mode.
+    private readonly IReadOnlyList<SupplierPaymentAdviceRow>? _advices;
+    private readonly string _adviceCompanyName = string.Empty;
+    private readonly string? _adviceCompanyAddress;
+
+    /// <summary>
+    /// <c>help.tallysolutions.com/payment-advice/</c>, "Print each transaction on a fresh page" — one letter per
+    /// page (the default) or all of them flowing together. Re-renders on change.
+    /// </summary>
+    [ObservableProperty] private bool _adviceFreshPageEach = true;
+
+    partial void OnAdviceFreshPageEachChanged(bool value)
+    {
+        if (Kind == PrintKind.PaymentAdviceLetter) Render();
+    }
 
     /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the document re-rendered) when
     /// the size/orientation is changed via the toggles below.</summary>
@@ -46,6 +75,16 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// always come from the Io renderer — this is presentation-only.</summary>
     private PrintReport _previewReport = new();
 
+    /// <summary>
+    /// The documents the on-screen preview paginates, in print order. On every single-document kind this is the
+    /// one <see cref="_previewReport"/>; on a <see cref="PrintKind.ReportSet"/> it is the whole job.
+    ///
+    /// <para>It exists because the pane must mirror what <see cref="ReportPdf"/> actually does with a set: each
+    /// document starts a FRESH SHEET and carries its OWN title band and column geometry. Paginating a job as one
+    /// long row list would show the operator a single merged statement and then print a stack of separate ones.</para>
+    /// </summary>
+    private IReadOnlyList<PrintReport> _previewDocuments = Array.Empty<PrintReport>();
+
     /// <summary>Which document kind this preview renders.</summary>
     public PrintKind Kind { get; }
 
@@ -54,6 +93,18 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>True for a voucher / tax-invoice preview — the F12 print-config knobs (title override, narration
     /// toggle, copy marking) apply. False for a plain report preview (those knobs are inert there).</summary>
     public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice;
+
+    /// <summary>
+    /// True while this preview is holding the supplier payment-advice LETTERS (census 8.7) — the one thing that
+    /// makes <see cref="AdviceFreshPageEach"/> mean anything, and therefore the visibility of its checkbox.
+    ///
+    /// <para><b>🔴 Why it exists.</b> <c>AdviceFreshPageEach</c> shipped as an observable property with a
+    /// re-render hook, a <c>PaymentAdvicePdf</c> parameter and a passing PDF test — and <b>no binding in
+    /// <c>MainWindow.axaml</c></b>, so the letters always printed one-per-page and the vendor's "Print each
+    /// transaction on a fresh page" (<c>help.tallysolutions.com/payment-advice/</c>) had no operator route. A
+    /// toggle nobody can reach is not a toggle.</para>
+    /// </summary>
+    public bool IsPaymentAdviceLetter => Kind == PrintKind.PaymentAdviceLetter;
 
     /// <summary>The report title being printed (heading line).</summary>
     public string ReportTitle { get; }
@@ -140,11 +191,87 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
+    /// <summary>
+    /// Preview a <b>cheque</b> (census row 8.4) via <c>ChequePdf</c> — ink laid onto a page the exact size of the
+    /// bank's pre-printed leaf, not A4. The F12 document knobs (title override, narration, copy marking) do NOT
+    /// apply: there is no title band, no narration and no "duplicate" wording on a negotiable instrument.
+    ///
+    /// <para><b>Throws <see cref="InvalidOperationException"/> carrying <c>ChequePdf.Validate</c>'s message when the
+    /// cheque must not be printed</b> (no dimensions set for the bank, no instrument number, no payee). The caller
+    /// surfaces that text instead of opening a preview — a cheque with a guessed offset is not a cosmetic defect.
+    /// Grounded in <c>help.tallysolutions.com/print-cheques/</c>, "Print Cheque from Payment Voucher".</para>
+    /// </summary>
+    public PrintPreviewViewModel(ChequePrintData cheque, ChequeLayout layout)
+    {
+        _cheque = cheque ?? throw new ArgumentNullException(nameof(cheque));
+        _chequeLayout = layout ?? throw new ArgumentNullException(nameof(layout));
+        if (ChequePdf.Validate(cheque, layout) is { } refusal) throw new InvalidOperationException(refusal);
+        Kind = PrintKind.Cheque;
+        ReportTitle = string.IsNullOrEmpty(cheque.InstrumentNumber)
+            ? "Cheque"
+            : $"Cheque No. {cheque.InstrumentNumber}";
+        _config = BuildConfig();
+        Render();
+    }
+
+    /// <summary>
+    /// Preview the <b>supplier payment advice letters</b> (census row 8.7) via <c>PaymentAdvicePdf</c> — the
+    /// letters themselves, not the grid that lists them. <c>help.tallysolutions.com/payment-advice/</c>.
+    /// </summary>
+    public PrintPreviewViewModel(
+        IReadOnlyList<SupplierPaymentAdviceRow> advices,
+        string companyName,
+        string? companyAddress,
+        string reportTitle)
+    {
+        _advices = advices ?? throw new ArgumentNullException(nameof(advices));
+        _adviceCompanyName = companyName ?? string.Empty;
+        _adviceCompanyAddress = companyAddress;
+        Kind = PrintKind.PaymentAdviceLetter;
+        ReportTitle = reportTitle ?? string.Empty;
+        _config = BuildConfig();
+        Render();
+    }
+
     /// <summary>Testable ctor: preview a pre-built report print model directly (RQ-9).</summary>
     public PrintPreviewViewModel(PrintReport report, string reportTitle)
     {
         _report = report ?? throw new ArgumentNullException(nameof(report));
         Kind = PrintKind.Report;
+        ReportTitle = reportTitle ?? string.Empty;
+        _config = BuildConfig();
+        Render();
+    }
+
+    /// <summary>
+    /// Preview a SET of already-projected documents as ONE collated print job (W2-32 / census 12.6) via
+    /// <see cref="ReportPdf"/>'s multi-document overload — the multi-account / multi-voucher range print.
+    ///
+    /// <para>🔴 <b>This constructor is the whole reason row 12.6 was refused.</b> The engine half
+    /// (<c>ReportPdf.Render</c> over a document set) and the projector half
+    /// (<c>MultiAccountPrintProjector</c>) both shipped and were both correct; there was simply no way to get a
+    /// SET into a preview, so <c>MultiAccountPrintViewModel</c> had nobody to hand its job to and the whole
+    /// ~432 lines were reachable by nobody. It is added here rather than by widening the single-report
+    /// constructor because the two render through different overloads and paginate differently.</para>
+    ///
+    /// <para>The W2-31 page knobs apply, because <see cref="ReportPdf"/> is the renderer that honours them; the
+    /// F12 document knobs (title override, narration, copy marking) do not, exactly as for a single report.
+    /// A one-document set renders byte-identically to that document alone (ER-13) — <c>ReportPdf</c>'s
+    /// single-document overload delegates to the same code path.</para>
+    /// </summary>
+    /// <param name="documents">The job, in print order. Each document starts a fresh sheet.</param>
+    /// <param name="reportTitle">The heading the preview column carries for the job as a whole.</param>
+    public PrintPreviewViewModel(IReadOnlyList<PrintReport> documents, string reportTitle)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        // A job of NOTHING is refused rather than previewed as a blank sheet. The caller (the multi-account panel)
+        // already reports "select at least one account"; letting an empty job through to here would put a blank
+        // page on screen and call it output, which is the mistake-reported-as-a-document shape this project keeps
+        // finding. The panel's own guard is the operator-facing message; this is the structural backstop.
+        if (documents.Count == 0)
+            throw new ArgumentException("a print job must contain at least one document", nameof(documents));
+        _documents = documents;
+        Kind = PrintKind.ReportSet;
         ReportTitle = reportTitle ?? string.Empty;
         _config = BuildConfig();
         Render();
@@ -240,6 +367,14 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Invoice => InvoicePdf.Render(_invoice!, BuildPrintConfig(), _config),
             PrintKind.Receipt => PosReceiptPdf.Render(_receipt!, _config),
             PrintKind.Payslip => PayslipPdf.Render(_payslip!, _config),
+            // The leaf is its own page size, so the A4/Letter + orientation knobs deliberately do not reach it:
+            // a cheque is printed on the bank's paper, not on ours.
+            PrintKind.Cheque => ChequePdf.Render(_cheque!, _chequeLayout!),
+            PrintKind.PaymentAdviceLetter => PaymentAdvicePdf.Render(
+                _advices!, _adviceCompanyName, _adviceCompanyAddress, _config, AdviceFreshPageEach),
+            // W2-32: the SET goes through the multi-document overload, so the pane and the paper agree about a
+            // job — one PDF, each document on its own sheet, numbering running across the whole job.
+            PrintKind.ReportSet => ReportPdf.Render(_documents!, _config),
             _ => ReportPdf.Render(_report!, _config),
         };
         OnPropertyChanged(nameof(PdfBytes));
@@ -250,18 +385,24 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Invoice => BuildInvoicePreviewReport(),
             PrintKind.Receipt => BuildReceiptPreviewReport(),
             PrintKind.Payslip => BuildPayslipPreviewReport(),
+            PrintKind.Cheque => BuildChequePreviewReport(),
+            PrintKind.PaymentAdviceLetter => BuildAdvicePreviewReport(),
+            // A set has no single preview report; the first document stands in for the pane's own bookkeeping
+            // (nothing reads it on this path — the pagination below walks _previewDocuments instead).
+            PrintKind.ReportSet => _documents![0],
             _ => _report!,
         };
+        _previewDocuments = Kind == PrintKind.ReportSet ? _documents! : new[] { _previewReport };
 
         Pages.Clear();
         int pageNo = 0;
-        foreach (var rows in PaginateForPreview())
+        foreach (var (document, rows) in PaginateForPreview())
         {
             pageNo++;
-            Pages.Add(BuildPreviewPage(rows, pageNo));
+            Pages.Add(BuildPreviewPage(document, rows, pageNo));
         }
         if (Pages.Count == 0)
-            Pages.Add(BuildPreviewPage(new List<PrintRow>(), 1));
+            Pages.Add(BuildPreviewPage(_previewReport, new List<PrintRow>(), 1));
 
         // Backfill the "of N" now the total is known.
         foreach (var p in Pages) p.SetTotalPages(Pages.Count);
@@ -314,7 +455,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     // ---- lightweight preview pagination (mirrors ReportPdf's row-per-height overflow) ----
 
-    private IEnumerable<List<PrintRow>> PaginateForPreview()
+    private IEnumerable<(PrintReport Document, List<PrintRow> Rows)> PaginateForPreview()
     {
         // Approximate the renderer's rows-per-page from the content height and row height so the preview page
         // breaks read like the PDF. This is presentation-only; the authoritative bytes come from ReportPdf.
@@ -323,17 +464,31 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             - (_config.FooterFontSize + 6);
         int perPage = Math.Max(1, (int)(contentHeight / _config.RowHeight));
 
-        var current = new List<PrintRow>();
-        foreach (var row in _previewReport.Rows)
+        // W2-32: EACH DOCUMENT STARTS A FRESH SHEET, mirroring ReportPdf.Render(IReadOnlyList<PrintReport>, …).
+        // On the single-document kinds the outer loop runs once and the row-splitting below is character-for-
+        // character what it always was, so every existing preview paginates exactly as it did (ER-13).
+        foreach (var document in _previewDocuments)
         {
-            if (current.Count >= perPage)
+            var current = new List<PrintRow>();
+            bool yielded = false;
+            foreach (var row in document.Rows)
             {
-                yield return current;
-                current = new List<PrintRow>();
+                if (current.Count >= perPage)
+                {
+                    yield return (document, current);
+                    yielded = true;
+                    current = new List<PrintRow>();
+                }
+                current.Add(row);
             }
-            current.Add(row);
+            if (current.Count > 0)
+                yield return (document, current);
+            // A document with no rows at all still occupies its sheet — ReportPdf gives it one, so the pane must
+            // show one. Without this a job of three statements, one of them empty, would preview as two sheets
+            // and print as three.
+            else if (!yielded)
+                yield return (document, current);
         }
-        if (current.Count > 0) yield return current;
     }
 
     /// <summary>
@@ -380,16 +535,25 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     private static double PreviewColumnWidth(PrintColumn column) =>
         Math.Max(PreviewMinimumCellWidth, Math.Round(column.Weight * PreviewWidthPerWeightUnit));
 
-    private PreviewPage BuildPreviewPage(List<PrintRow> rows, int pageNo)
+    /// <summary>
+    /// Lays out one preview sheet for <paramref name="document"/> — its own title band, its own column captions
+    /// and its own weights.
+    ///
+    /// <para>W2-32: the document is a PARAMETER rather than the field it used to read, because a job's sheets do
+    /// not share a layout. A ledger account (six columns) and a reminder letter (four) print in one job, and
+    /// laying the letter's cells out on the statement's column widths would put its figures under captions that
+    /// do not govern them.</para>
+    /// </summary>
+    private PreviewPage BuildPreviewPage(PrintReport document, List<PrintRow> rows, int pageNo)
     {
-        var widths = new double[_previewReport.Columns.Count];
-        for (int i = 0; i < widths.Length; i++) widths[i] = PreviewColumnWidth(_previewReport.Columns[i]);
+        var widths = new double[document.Columns.Count];
+        for (int i = 0; i < widths.Length; i++) widths[i] = PreviewColumnWidth(document.Columns[i]);
 
         var lines = new List<PreviewLine>(rows.Count);
         foreach (var r in rows)
         {
-            var cells = new List<PreviewCell>(_previewReport.Columns.Count);
-            for (int i = 0; i < _previewReport.Columns.Count; i++)
+            var cells = new List<PreviewCell>(document.Columns.Count);
+            for (int i = 0; i < document.Columns.Count; i++)
             {
                 string text = i < r.Cells.Count ? (r.Cells[i] ?? string.Empty) : string.Empty;
                 if (i == 0 && r.Indent > 0) text = new string(' ', r.Indent) + text;
@@ -398,11 +562,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             lines.Add(new PreviewLine(cells, r.IsHeader, r.IsTotal));
         }
 
-        var headers = new List<PreviewCell>(_previewReport.Columns.Count);
-        for (int i = 0; i < _previewReport.Columns.Count; i++)
-            headers.Add(new PreviewCell(_previewReport.Columns[i].Header, widths[i]));
+        var headers = new List<PreviewCell>(document.Columns.Count);
+        for (int i = 0; i < document.Columns.Count; i++)
+            headers.Add(new PreviewCell(document.Columns[i].Header, widths[i]));
 
-        return new PreviewPage(_previewReport.Title, _previewReport.Subtitle, headers, lines, pageNo);
+        return new PreviewPage(document.Title, document.Subtitle, headers, lines, pageNo);
     }
 
     // ---- voucher / invoice preview projections (presentation-only text mirror of the PDF) ----
@@ -713,6 +877,107 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             {
                 new PrintColumn("Particulars", 3, CellAlign.Left),
                 new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// A lightweight on-screen mirror of the supplier payment-advice letters (the authoritative bytes come from
+    /// <c>PaymentAdvicePdf</c>): the addressee, the bill-wise detail, the deduction where there is one, and the
+    /// net paid. Deductions are shown ONLY when the letter shows them, so the mirror can never imply a nil
+    /// withholding the letter is silent about.
+    /// </summary>
+    private PrintReport BuildAdvicePreviewReport()
+    {
+        var rows = new List<PrintRow>();
+        foreach (var a in _advices!)
+        {
+            rows.Add(PrintRow.Header(ReportPrintProjector.Ascii(a.AddresseeName),
+                $"Vch No. {a.FormattedNumber}", a.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)));
+            foreach (var b in a.Bills)
+                rows.Add(new PrintRow(ReportPrintProjector.Ascii(b.BillReference), string.Empty,
+                    IndianFormat.AmountAlways(b.Amount)));
+            if (a.Bills.Count == 0)
+                rows.Add(new PrintRow("(no bill-wise detail recorded)", string.Empty, string.Empty));
+            rows.Add(new PrintRow("Gross Amount", string.Empty, IndianFormat.AmountAlways(a.GrossAmount)));
+            if (a.TdsDeducted.Amount != 0m)
+                rows.Add(new PrintRow("Less: Tax Deducted at Source", string.Empty,
+                    IndianFormat.AmountAlways(a.TdsDeducted)));
+            rows.Add(PrintRow.Total("Net Amount Paid", string.Empty, IndianFormat.AmountAlways(a.NetPaid)));
+        }
+        if (rows.Count == 0)
+            rows.Add(PrintRow.Header("No supplier payments in this period.", string.Empty, string.Empty));
+
+        return new PrintReport
+        {
+            Title = "Payment Advice",
+            Subtitle = ReportPrintProjector.Ascii(_adviceCompanyName),
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 3, CellAlign.Left),
+                new PrintColumn("Reference", 1.5, CellAlign.Left),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// A lightweight on-screen mirror of the cheque (the authoritative bytes come from <c>ChequePdf</c>).
+    ///
+    /// <para><b>🔴 THE MIRROR SHOWS EXACTLY WHAT THE RENDERER INKS — NO MORE.</b> Every line below is gated on the
+    /// SAME <c>ChequeLayout.ChequeElementIsSet</c> predicate the renderer gates on, so a preview can never promise
+    /// a payee name or a date that the bytes leave off the leaf. That divergence — a mirror stating what the PDF
+    /// suppresses — is the defect the bill-of-supply receipt path already had to close once, and on a negotiable
+    /// instrument it would be the operator approving one document and the bank receiving another.</para>
+    /// </summary>
+    private PrintReport BuildChequePreviewReport()
+    {
+        var c = _cheque!;
+        var l = _chequeLayout!;
+        var rows = new List<PrintRow>
+        {
+            PrintRow.Header(ReportPrintProjector.Ascii(c.BankName), string.Empty),
+        };
+
+        if (c.ChequeDate is { } d && ChequeLayout.ChequeElementIsSet(l.DateTopTmm, l.DateLeftTmm))
+            rows.Add(new PrintRow("Date", d.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.PayeeTopTmm, l.PayeeLeftTmm))
+            rows.Add(new PrintRow("Pay", ReportPrintProjector.Ascii(c.PayeeName)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.WordsLine1TopTmm, l.WordsLine1LeftTmm))
+        {
+            var words = l.PrintCurrencyFormalName
+                ? IndianAmountInWords.Convert(c.Amount.Amount, c.CurrencyFormalName, c.CurrencyMinorName)
+                : IndianAmountInWords.Convert(c.Amount.Amount);
+            rows.Add(new PrintRow("Rupees", ReportPrintProjector.Ascii(words)));
+        }
+
+        if (ChequeLayout.ChequeElementIsSet(l.FiguresTopTmm, l.FiguresLeftTmm))
+            rows.Add(new PrintRow("Amount", IndianFormat.AmountAlways(c.Amount)));
+
+        if (ChequeLayout.ChequeElementIsSet(l.SignTopTmm, l.SignLeftTmm))
+        {
+            if (c.PrintCompanyName && !string.IsNullOrWhiteSpace(c.CompanyName))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(c.CompanyName)));
+            if (!string.IsNullOrWhiteSpace(l.Salutation1))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation1!)));
+            if (!string.IsNullOrWhiteSpace(l.Salutation2))
+                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation2!)));
+        }
+
+        return new PrintReport
+        {
+            Title = ReportTitle,
+            // States the leaf the ink is laid on, so the operator can see at a glance that the page in the printer
+            // is the one the dimensions were measured against.
+            Subtitle = $"leaf {l.LeafWidthTmm / 10} x {l.LeafHeightTmm / 10} mm",
+            Columns = new[]
+            {
+                new PrintColumn("Field", 1.2, CellAlign.Left),
+                new PrintColumn("Inked on the leaf", 3.5, CellAlign.Left),
             },
             Rows = rows,
         };

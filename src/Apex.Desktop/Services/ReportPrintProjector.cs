@@ -63,6 +63,32 @@ public static class ReportPrintProjector
             rows.Add(new PrintRow { Cells = cells, IsTotal = r.IsTotal });
         }
 
+        // ---- The matrix's optional SECOND section (W7-D2): PF Form 6A page 2, the twelve monthly challan
+        // remittances. PrintReport carries ONE column band, so page 2 is appended as a captioned block: its own
+        // heading row, then its own column headings as a header row, then its rows. ReportPdf tolerates a row with
+        // fewer cells than the band has columns (ReportPdf.cs:244 pads with blanks), so page 2's narrower row does
+        // not corrupt page 1's band. Dropping it instead — which is what this projector did before — made 6A's
+        // challan reconciliation, the whole point of the second page, unprintable.
+        if (vm.PayrollRows2.Count > 0)
+        {
+            rows.Add(PrintRow.Header(Ascii(vm.PayrollSection2Title)));
+            var headings = new string[vm.PayrollColumns2.Count];
+            for (int i = 0; i < vm.PayrollColumns2.Count; i++) headings[i] = Ascii(vm.PayrollColumns2[i].Header);
+            rows.Add(PrintRow.Header(headings));
+            foreach (var r in vm.PayrollRows2)
+            {
+                var cells = new string[r.Cells.Count];
+                for (int i = 0; i < r.Cells.Count; i++) cells[i] = Ascii(r.Cells[i].Text);
+                rows.Add(new PrintRow { Cells = cells, IsTotal = r.IsTotal });
+            }
+        }
+
+        // ---- The statutory footnotes. A PF/ESI form prints columns that are deliberately blank because this book
+        // does not maintain their source; the footnote is what distinguishes that from a bug. A printed form whose
+        // footnotes were left on screen is a printed form that misrepresents itself.
+        foreach (var note in vm.PayrollFootnotes)
+            rows.Add(new PrintRow(Ascii(note)));
+
         return new PrintReport { Title = Ascii(vm.Title), Subtitle = Ascii(vm.Subtitle), Columns = columns, Rows = rows };
     }
 

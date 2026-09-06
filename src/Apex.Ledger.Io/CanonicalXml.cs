@@ -267,6 +267,12 @@ public static class CanonicalXml
             Opt("alias", l.Alias), Attr("isPredefined", l.IsPredefined),
             Attr("maintainBillByBill", l.MaintainBillByBill),
             OptInt("defaultCreditPeriodDays", l.DefaultCreditPeriodDays),
+            // Census 10.1. OptLong, not Attr-with-a-default: the attribute is ABSENT for "no limit" and present as
+            // "0" for a limit of zero. Collapsing those two on the wire would either unfreeze a blocked party or
+            // freeze every unlimited one on import.
+            OptLong("creditLimitPaisa", l.CreditLimitPaisa),
+            OptTrue("checkCreditDaysOnEntry", l.CheckCreditDaysOnEntry),
+            OptTrue("overrideCreditLimitWithPostDated", l.OverrideCreditLimitWithPostDated),
             OptBool("costCentresApplicable", l.CostCentresApplicable),
             Attr("enableChequePrinting", l.EnableChequePrinting),
             Opt("chequePrintingBankName", l.ChequePrintingBankName),
@@ -1209,6 +1215,11 @@ public static class CanonicalXml
         Alias = Str(e, "alias"), IsPredefined = Bool(e, "isPredefined"),
         MaintainBillByBill = Bool(e, "maintainBillByBill"),
         DefaultCreditPeriodDays = OptInt(e, "defaultCreditPeriodDays"),
+        // Census 10.1. An absent attribute reads null = "no limit", which is what every pre-v54 document carried,
+        // so an older document imports byte-for-byte to the ledger it always did (ER-13).
+        CreditLimitPaisa = OptLong(e, "creditLimitPaisa"),
+        CheckCreditDaysOnEntry = Bool(e, "checkCreditDaysOnEntry"),
+        OverrideCreditLimitWithPostDated = Bool(e, "overrideCreditLimitWithPostDated"),
         CostCentresApplicable = OptBool(e, "costCentresApplicable"),
         EnableChequePrinting = Bool(e, "enableChequePrinting"),
         ChequePrintingBankName = Str(e, "chequePrintingBankName"),

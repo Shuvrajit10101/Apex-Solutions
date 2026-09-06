@@ -338,18 +338,26 @@ public sealed class GratuityBonusConfigReportViewModelTests : IDisposable
         vm.ShowPayrollStatutoryReportsMenu();
         Assert.Equal(GatewayMenu.PayrollStatutoryReports, vm.CurrentGatewayMenu);
 
+        // W7-D2 (census 7.20 / 7.21) added the eight PF and ESI statutory FORMS to this column and, because
+        // thirteen rows under one header would be the flat dump the standing UI rule forbids, split it into three
+        // named sections. This assertion is updated with the membership DELIBERATELY — it is the shipped test the
+        // wave design named in advance as the one it would break, and it must never be "fixed" by loosening
+        // Assert.Equal to Assert.Contains, which would stop it noticing a row going missing.
         var items = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
         Assert.Equal(
             new[]
             {
-                "PF ECR / Challan", "ESI Monthly Contribution", "PT Deduction Register",
-                "Gratuity Provision", "Bonus Register",
+                "PF ECR / Challan", "PF Form 3A", "PF Form 5", "PF Form 6A", "PF Form 10", "PF Form 12A",
+                "ESI Monthly Contribution", "ESI Form 3", "ESI Form 5", "ESI Form 6",
+                "PT Deduction Register", "Gratuity Provision", "Bonus Register",
             },
             items);
 
-        // Never a flat dump — one "Payroll Statutory" section header.
+        // Never a flat dump — the rows nest under the three statute headers, matching the reference product.
         var headers = vm.Menu.Where(m => m.IsHeader).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Payroll Statutory" }, headers);
+        Assert.Equal(
+            new[] { "Provident Fund", "Employee State Insurance", "Other Payroll Statutory" },
+            headers);
     }
 
     [Fact]

@@ -63,11 +63,98 @@ public sealed class TaxRegimeOption
 /// create an Employee Group first when none exist. MVVM boundary: references the domain + persistence but no
 /// Avalonia/UI types, so it is headlessly unit-testable.</para>
 /// </summary>
-public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+    private readonly PayrollMasterHighlight<EmployeeListRow> _highlight;
+
+    /// <summary>The id of the employee being ALTERED, or <see cref="Guid.Empty"/> in Create mode (census 7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Employee Alteration" : "Employee Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "employee";
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-employee row, or <c>null</c>.</summary>
+    public EmployeeListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() { RefreshPickers(); RefreshList(); }
+
+    /// <inheritdoc/>
+    public void DeleteMaster(Guid id) => new PayrollService(_company).DeleteEmployee(id);
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing employee — the same form, pre-filled. Returns
+    /// <c>null</c> if the id does not resolve.
+    ///
+    /// <para>🔴 <b>This factory is what makes <see cref="Employee.DateOfLeaving"/> reachable at all</b> (census
+    /// T0-13). Three engines read that field — PF <b>Form 10</b> is literally <i>the return of members leaving
+    /// service during the month</i>, and ESI <b>Form 5</b> column 7(A) is <i>whether the insured person is still
+    /// working</i> — and until this screen could ALTER an employee there was no keystroke anywhere in the product
+    /// that could set it. A leaving date is not a fact you know when you create an employee, so surfacing the field
+    /// on the create form alone would have been a route that no operator could ever actually use.</para>
+    /// </summary>
+    public static EmployeeMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid employeeId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindEmployee(employeeId) is not { } employee) return null;
+
+        var vm = new EmployeeMasterViewModel(company, storage, onChanged);
+        vm._editingId = employeeId;
+        vm.Name = employee.Name;
+        vm.EmployeeNumber = employee.EmployeeNumber ?? string.Empty;
+        vm.SelectedGroup = vm.GroupOptions.FirstOrDefault(o => o.Group.Id == employee.EmployeeGroupId)
+                           ?? vm.GroupOptions.FirstOrDefault();
+        vm.SelectedCategory = vm.CategoryOptions.FirstOrDefault(o => o.Category?.Id == employee.EmployeeCategoryId)
+                              ?? vm.CategoryOptions.FirstOrDefault();
+        vm.DateOfJoiningText = DateText(employee.DateOfJoining);
+        vm.DateOfLeavingText = DateText(employee.DateOfLeaving);
+        vm.Designation = employee.Designation ?? string.Empty;
+        vm.SelectedGender = vm.GenderOptions.FirstOrDefault(
+            g => string.Equals(g, employee.Gender, StringComparison.OrdinalIgnoreCase)) ?? vm.GenderOptions.First();
+        vm.Pan = employee.Pan ?? string.Empty;
+        vm.Uan = employee.Uan ?? string.Empty;
+        vm.EsiNumber = employee.EsiNumber ?? string.Empty;
+        vm.SelectedRegime = vm.Regimes.FirstOrDefault(r => r.Value == employee.ApplicableTaxRegime)
+                            ?? vm.Regimes.First();
+        vm.DateOfBirthText = DateText(employee.DateOfBirth);
+        vm.Location = employee.Location ?? string.Empty;
+        vm.Function = employee.Function ?? string.Empty;
+        vm.Aadhaar = employee.Aadhaar ?? string.Empty;
+        vm.PfAccountNumber = employee.PfAccountNumber ?? string.Empty;
+        vm.BankAccountNumber = employee.BankAccountNumber ?? string.Empty;
+        vm.BankName = employee.BankName ?? string.Empty;
+        vm.BankIfsc = employee.BankIfsc ?? string.Empty;
+        vm.PfApplicable = employee.PfApplicable;
+        vm.PfContributeOnHigherWages = employee.PfContributeOnHigherWages;
+        vm.PfJoinDateText = DateText(employee.PfJoinDate);
+        vm.EsiApplicable = employee.EsiApplicable;
+        vm.EsiPersonWithDisability = employee.IsPersonWithDisability;
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>Renders a stored date back into the ISO text the form parses. <see cref="ApexDate"/> parses
+    /// day-first, but <c>yyyy-MM-dd</c> is unambiguous under it, so a round-trip through the box cannot silently
+    /// swap day and month the way a <c>dd/MM</c> rendering could when re-parsed under another convention.</summary>
+    private static string DateText(DateOnly? value)
+        => value is { } d ? d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : string.Empty;
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -99,6 +186,14 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
     [ObservableProperty] private EmployeeCategoryOption? _selectedCategory;
     [ObservableProperty] private string _employeeNumber = string.Empty;
     [ObservableProperty] private string _dateOfJoiningText = string.Empty;
+
+    /// <summary>
+    /// The employee's <b>date of leaving service</b> (census T0-13) — the field PF <b>Form 10</b> selects its rows
+    /// by and ESI <b>Form 5</b> column 7(A) reads "still working" from. Blank means the member is still in service;
+    /// clearing a previously-set date puts them back in service, which is why the alter path writes the parsed
+    /// value unconditionally rather than only when it is non-null.
+    /// </summary>
+    [ObservableProperty] private string _dateOfLeavingText = string.Empty;
     [ObservableProperty] private string _designation = string.Empty;
     [ObservableProperty] private string? _selectedGender;
     [ObservableProperty] private string _pan = string.Empty;
@@ -146,6 +241,8 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<EmployeeListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
 
         Regimes.Add(new TaxRegimeOption { Value = TaxRegime.New, Display = "New Regime" });
         Regimes.Add(new TaxRegimeOption { Value = TaxRegime.Old, Display = "Old Regime" });
@@ -180,8 +277,18 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
         if (!TryParseOptionalDate(DateOfJoiningText, "Date of joining", out var doj)) return false;
+        if (!TryParseOptionalDate(DateOfLeavingText, "Date of leaving", out var dol)) return false;
         if (!TryParseOptionalDate(DateOfBirthText, "Date of birth", out var dob)) return false;
         if (!TryParseOptionalDate(PfJoinDateText, "PF join date", out var pfJoin)) return false;
+
+        // A member cannot leave before they joined. Both dates are on this one form, so the contradiction is
+        // caught where it is entered rather than surfacing later as a PF Form 10 row in a month before the
+        // member existed.
+        if (doj is { } joined && dol is { } left && left < joined)
+        {
+            Message = "Date of leaving cannot be earlier than the date of joining.";
+            return false;
+        }
 
         // A PF-applicable member is keyed on its 12-digit UAN — pre-validate BEFORE creating so a bad value is a
         // friendly message and never leaves a half-created employee on the in-memory company.
@@ -200,19 +307,35 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
 
+        // 7.16 — the SAME Ctrl+A runs the verb the screen is in (see the Caption the operator is reading).
+        var altering = IsAltering;
         try
         {
             var service = new PayrollService(_company);
-            var employee = service.CreateEmployee(
-                name,
-                SelectedGroup.Group.Id,
-                SelectedCategory?.Category?.Id,
-                BlankToNull(EmployeeNumber),
-                BlankToNull(Pan),
-                BlankToNull(Uan),
-                BlankToNull(EsiNumber),
-                doj);
+            var employee = altering
+                ? service.AlterEmployee(
+                    _editingId,
+                    name,
+                    SelectedGroup.Group.Id,
+                    SelectedCategory?.Category?.Id,
+                    BlankToNull(EmployeeNumber),
+                    BlankToNull(Pan),
+                    BlankToNull(Uan),
+                    BlankToNull(EsiNumber),
+                    doj)
+                : service.CreateEmployee(
+                    name,
+                    SelectedGroup.Group.Id,
+                    SelectedCategory?.Category?.Id,
+                    BlankToNull(EmployeeNumber),
+                    BlankToNull(Pan),
+                    BlankToNull(Uan),
+                    BlankToNull(EsiNumber),
+                    doj);
 
+            // Written unconditionally, on BOTH verbs: a blank box means "still in service", so clearing a date
+            // that was set has to put the member back into service rather than leave the old date standing.
+            employee.DateOfLeaving = dol;
             employee.Designation = BlankToNull(Designation);
             employee.Gender = SelectedGender is null or "—" ? null : SelectedGender;
             employee.ApplicableTaxRegime = (SelectedRegime ?? Regimes.First()).Value;
@@ -225,13 +348,19 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             employee.BankName = BlankToNull(BankName);
             employee.BankIfsc = BlankToNull(BankIfsc);
             // PF details (re-validates the UAN as a backstop; throws a friendly message if it slips through).
-            if (wantsPf)
-                service.SetEmployeePfDetails(employee.Id, applicable: true,
+            // On ALTER the call is made whether or not the box is ticked, because un-ticking it has to be able to
+            // withdraw the member from PF; on CREATE a fresh employee is already non-applicable, so the call is
+            // made only when it is wanted. It is skipped entirely when the block is not on screen (ShowPfDetails
+            // false ⇒ a non-statutory company), so a company that never sees these fields can never have them
+            // silently rewritten by an unrelated edit.
+            if (wantsPf || (altering && ShowPfDetails))
+                service.SetEmployeePfDetails(employee.Id, applicable: wantsPf,
                     contributeOnHigherWages: PfContributeOnHigherWages, pfJoinDate: pfJoin);
             // ESI details (re-validates the 10-digit IP number as a backstop); a person-with-disability gets the
-            // higher ₹25,000 coverage ceiling.
-            if (wantsEsi)
-                service.SetEmployeeEsiDetails(employee.Id, applicable: true, personWithDisability: EsiPersonWithDisability);
+            // higher ₹25,000 coverage ceiling. Same create/alter asymmetry, for the same reason.
+            if (wantsEsi || (altering && ShowEsiDetails))
+                service.SetEmployeeEsiDetails(employee.Id, applicable: wantsEsi,
+                    personWithDisability: EsiPersonWithDisability);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -240,11 +369,25 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
 
+        if (altering)
+        {
+            // The form STAYS filled after an alter — the operator is looking at the master they just changed, and
+            // blanking it would read as "it was created and cleared". Only the list is re-rendered.
+            RefreshList();
+            Message = $"Employee '{name}' altered."
+                    + (dol is { } leftOn
+                        ? $" Date of leaving {leftOn.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}."
+                        : string.Empty);
+            _onChanged();
+            return true;
+        }
+
         RefreshList();
         Message = $"Employee '{name}' created under {SelectedGroup.Group.Name}.";
         Name = string.Empty;
         EmployeeNumber = string.Empty;
         DateOfJoiningText = string.Empty;
+        DateOfLeavingText = string.Empty;
         Designation = string.Empty;
         SelectedGender = GenderOptions.First();
         Pan = string.Empty;
@@ -326,6 +469,10 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
 
     private void RefreshList()
     {
+        // By id, never by index — an alter that renames an employee re-orders the list, and an index-restored
+        // highlight would land on a NEIGHBOURING master that the next Alt+D would delete.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var e in _company.Employees.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
         {
@@ -343,6 +490,8 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
                 Regime = e.ApplicableTaxRegime == TaxRegime.Old ? "Old" : "New",
             });
         }
+
+        _highlight.RestoreTo(previous);
     }
 
     private static string? BlankToNull(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
