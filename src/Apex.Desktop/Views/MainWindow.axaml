@@ -8789,7 +8789,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:EmployeeMasterViewModel">
                           <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Employee Creation"
+                            <!-- W7-D2: BOUND, not the literal "Employee Creation" it used to be. Ctrl+A runs the
+                                 verb the screen is in, so this heading is the operator's only on-screen signal of
+                                 which one that is. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -8895,6 +8898,22 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding DateOfBirthText, Mode=TwoWay}"
                                            PlaceholderText="yyyy-MM-dd (optional)"/>
+                                </Grid>
+
+                                <!-- W7-D2 / census T0-13 — DATE OF LEAVING. This box is the only route in the
+                                     product to Employee.DateOfLeaving, and three engines read that field: PF
+                                     Form 10 IS the return of members leaving service in the month, and ESI
+                                     Form 5 column 7(A) reads "still working" from it. Blank = still in service.
+                                     It sits beside Date of Joining so the pair reads as one span of service. -->
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Date of Leaving" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DateOfLeavingText, Mode=TwoWay}"
+                                           PlaceholderText="yyyy-MM-dd — blank while in service"/>
+                                  <TextBlock Grid.Column="2" Grid.ColumnSpan="2"
+                                             Text="Set on alteration (Ctrl+Enter on the list below) when a member leaves."
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
                                 </Grid>
 
                                 <!-- Additional statutory / location / bank details (RQ-2): captured here so an
@@ -9022,6 +9041,12 @@
                                   <DataTemplate x:DataType="vm:EmployeeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,180,160,90" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. It is
+                                             ALSO the cursor Ctrl+Enter opens for alteration, which is the only
+                                             route to Date of Leaving (T0-13). -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>

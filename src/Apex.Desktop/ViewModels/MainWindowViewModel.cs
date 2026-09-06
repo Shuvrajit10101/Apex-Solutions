@@ -7660,15 +7660,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.PayrollUnitMaster => PayrollUnitMaster,
         Screen.AttendanceTypeMaster => AttendanceTypeMaster,
 
-        // 🔴 FOUR OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
-        // Screen.EmployeeMaster and Screen.PayHeadMaster are DELIBERATELY absent: EmployeeMasterViewModel and
-        // PayHeadMasterViewModel implement neither IPayrollMasterList nor a ForAlter factory, so listing them
-        // here would not compile — and listing them once they merely compile would be worse, because appearing
+        // W7-D2 (census T0-13): the EMPLOYEE master joins the family. It now implements IPayrollMasterList and
+        // carries a ForAlter factory, so it can be driven end-to-end — which is the bar for appearing here.
+        // Altering an employee is the ONLY keystroke in the product that can set Employee.DateOfLeaving, and
+        // three engines read that field (PF Form 10 selects its rows by it; ESI Form 5 column 7(A) reads
+        // "still working" from it). Without this arm those two statutory returns are permanently, silently empty.
+        Screen.EmployeeMaster => EmployeeMaster,
+
+        // 🔴 FIVE OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
+        // Screen.PayHeadMaster is DELIBERATELY absent: PayHeadMasterViewModel implements neither
+        // IPayrollMasterList nor a ForAlter factory, so listing it
+        // here would not compile — and listing it once it merely compiles would be worse, because appearing
         // in this switch is what grants a screen the arrows, Ctrl+Enter AND Alt+D in a single step. A kind is
         // added here only when it can be driven end-to-end. The remainder, precisely:
-        //   • Employee   — PayrollService.AlterEmployee and DeleteEmployee both exist; the view model needs the
-        //                  six interface members, ForAlter, the Ctrl+A IsAltering branch, and the highlight bar
-        //                  in its row template. Its list rows already carry a real MasterId.
         //   • Pay head   — blocked further back: PayHeadService has NO Alter method at all.
         //   • Salary structure master and tax declaration master — never considered by the slice.
         // PayrollMasterHalfWiredKindsTests locks all of the above, so this comment cannot quietly go stale.
@@ -7725,8 +7729,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => EmployeeGroupMaster = m);
                 return true;
             }
-            // No Screen.EmployeeMaster arm: EmployeeMasterViewModel has no ForAlter factory yet. See the
-            // four-of-eight note on PayrollMasterScreen above for the exact remainder.
+            case Screen.EmployeeMaster:
+            {
+                // W7-D2 / census T0-13 — the route in to Employee.DateOfLeaving.
+                if (EmployeeMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.EmployeeMaster, m.Caption,
+                    () => EmployeeMaster = m);
+                return true;
+            }
             case Screen.PayrollUnitMaster:
             {
                 if (PayrollUnitMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })

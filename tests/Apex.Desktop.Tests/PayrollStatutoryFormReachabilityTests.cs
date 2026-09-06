@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Avalonia;
@@ -337,6 +338,65 @@ public sealed class PayrollStatutoryFormReachabilityTests : IDisposable
         Assert.True(biggestMonthlyAc1 > 0,
             "the fixture produced a nil challan — the numeric assertion would be vacuous");
         Assert.Contains(flat, c => c.HasNumber && c.NumberValue == biggestMonthlyAc1);
+    }
+
+    // ------------------------------------------------------- the leaver, end to end (T0-13 → PF Form 10)
+
+    /// <summary>
+    /// 🔴 <b>THE TEST THAT MAKES PF FORM 10 A LIVE REPORT RATHER THAN A PERMANENTLY EMPTY ONE.</b>
+    ///
+    /// <para>PF Form 10 IS <i>"the return of the members leaving service during the month"</i>: its ONLY row
+    /// selector is <see cref="Employee.DateOfLeaving"/>. That field had zero hits across all of
+    /// <c>src/Apex.Desktop</c> before W7-D2, so no keystroke anywhere in the product could set it and this report
+    /// was guaranteed to render empty forever, for every company, on every month — a form that is reachable and
+    /// useless, which is the exact failure the census counts as absent rather than partial.</para>
+    ///
+    /// <para>So this test does NOT set the field on the domain object. It drives the operator's route — open the
+    /// Employee master, arrow onto the member, Ctrl+Enter to alter, type the leaving date, Ctrl+A — and then opens
+    /// PF Form 10 from its own menu row and asserts the member's name is <b>on screen</b> in the realised grid.
+    /// Setting <c>e.DateOfLeaving</c> directly would pass on the build where the route does not exist.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_member_marked_as_left_through_the_employee_master_appears_on_PF_Form_10()
+    {
+        var (window, vm) = OpenWindow();
+        try
+        {
+            var c = vm.Company!;
+            var member = c.Employees.Single(e => e.PfApplicable);
+            var wageMonth = new DateOnly(c.FinancialYearStart.Year, c.FinancialYearStart.Month, 1);
+
+            // Form 10 is empty BEFORE the operator records the leaving date — otherwise the assertion below
+            // could pass on a report that lists everybody.
+            vm.OpenPayrollStatutoryForm(ReportKind.PfForm10);
+            Pump(window);
+            Assert.False(IsTextVisible(window, member.Name),
+                "PF Form 10 listed a member who has not left — its row selector is not the date of leaving.");
+
+            // ---- the operator's route in, entirely through the shell ----
+            vm.ShowEmployeeMaster();
+            Pump(window);
+            Assert.NotNull(vm.PayrollMasterScreen);
+            for (var i = 0; i < 40 && vm.PayrollMasterScreen!.HighlightedMasterRow?.MasterName != member.Name; i++)
+                vm.PayrollMasterScreen.MoveHighlight(1);
+            Assert.Equal(member.Name, vm.PayrollMasterScreen!.HighlightedMasterRow?.MasterName);
+
+            Assert.True(vm.AlterHighlightedPayrollMasterRow(),
+                "Ctrl+Enter did not open the employee for alteration — Employee.DateOfLeaving has no route in.");
+            var master = vm.EmployeeMaster!;
+            Assert.True(master.IsAltering);
+            master.DateOfLeavingText = wageMonth.AddDays(20).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            Assert.True(master.Create(), master.Message);
+            Assert.Equal(wageMonth.AddDays(20), c.FindEmployee(member.Id)!.DateOfLeaving);
+
+            // ---- and now the return actually has a row on it ----
+            vm.OpenPayrollStatutoryForm(ReportKind.PfForm10);
+            Pump(window);
+            Assert.True(IsTextVisible(window, member.Name),
+                "PF Form 10 is still empty after the member was recorded as having left. The return of members "
+                + "leaving service is unusable unless the leaving date is reachable from the Employee master.");
+        }
+        finally { window.Close(); }
     }
 
     // ------------------------------------------------------------------- the half-set-up payroll
