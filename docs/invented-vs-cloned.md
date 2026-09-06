@@ -1682,6 +1682,28 @@ Y — also permanent, different claim. **NEITHER** = *"I could not reach a sourc
 
 ---
 
+## 2D. ADDED 2026-09-06 — THE ONE THING WAVE 8 / TRACK F3 INVENTED (census row 14.10)
+
+**Scope note.** Wave 8's F3 track built census row **14.10 "WhatsApp sharing of a document"**. Exactly **one**
+divergence needed inventing, and it is a keystroke, not a figure. The row's *substance* — that we save the
+document and hand over a prepared `wa.me` link instead of sending anything — is **not** in this register,
+because it is not a case of building our own behaviour where the vendor publishes one: it is a case of the
+vendor's behaviour being **unbuildable here on stated grounds**, declared on the panel's own face and locked by
+`WhatsAppShareReachabilityTests.The_realised_notice_says_nothing_is_sent_and_the_file_is_not_attached`. See §6
+if that reasoning is later disputed; it belongs with the open questions, not with the inventions.
+
+### IV-64 · `W` / the "WhatsApp" badge is OUR chord — the vendor puts WhatsApp *under* its Share access point, not on its own key
+
+| | |
+|---|---|
+| **Severity** | **LOW** — a discoverability divergence, not a figures one. Nothing is mis-stated; a TallyPrime operator simply will not find this where their muscle memory expects it. |
+| **What TallyPrime does** | WhatsApp is **not a sibling of E-Mail on its own accelerator**. Per `help.tallysolutions.com/configure-for-print-export-share/` (read 2026-09-06), WhatsApp is one **channel under the same Share access point** as Print / Export / E-mail, sharing one configuration layer (file format; company details; party details; document elements). |
+| **What we ship** | A dedicated **`W` / Ctrl+W** chord on any printable page (report or drilled voucher/tax-invoice), opening `Screen.WhatsAppShare` as its own cascading Miller column beside the page — `MainWindow.axaml.cs` (the `Key.W` arm, immediately after the `Key.M` e-mail arm), `MainWindowViewModel.BuildButtonBar()` badge `W` / caption `WhatsApp`. |
+| **How it got in** | The vendor's own chord could not be reused: our **`M` / Ctrl+M is already spent** on the shipped e-mail compose column, so nesting WhatsApp under it would have displaced a shipped behaviour rather than added one. `W` was measured free across the entire key tunnel (`grep -n "Key.W\b" MainWindow.axaml.cs` → **zero hits**) before it was taken. |
+| **Fix** | 🔴 **A USER DECISION (R12), and the more faithful option is the one we did NOT take.** Route **(1)**, recommended: turn the existing Ctrl+M column into a **channel picker** (E-mail / WhatsApp) so one Share access point carries both channels, matching the vendor's shape exactly, and retire `W`. Route **(2)**: keep `W` as a documented divergence. The panel and its view model are already channel-shaped and would move under a picker without change; only the key arm and the button-bar entry would be retired. |
+
+---
+
 ## 3. Grouped by area
 
 ### TAX — tax & money (7)

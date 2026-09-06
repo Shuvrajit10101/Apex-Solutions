@@ -429,6 +429,10 @@ public partial class MainWindow : Window
                 SavePrintPreviewToDocuments(vm);
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
+            // Ctrl+A on the WhatsApp share column writes the document — step ONE of the two-step share. Alt+O
+            // (step two) refuses until this has succeeded, so the file the message names always exists.
+            else if (vm.CurrentScreen == Screen.WhatsAppShare)
+                SaveWhatsAppDocumentToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
                 vm.SaveSmtpSettings();
             // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
@@ -694,6 +698,24 @@ public partial class MainWindow : Window
                 case Key.C: vm.OpenAddComparisonColumn(); e.Handled = true; return;
                 case Key.N: vm.OpenAutoColumns(); e.Handled = true; return;
             }
+        }
+
+        // Alt+C on an open graphical dashboard (census row 14.3) — opens the tile-configuration column for the
+        // highlighted tile. Alt+C is the chord the reference product puts this verb on, so this arm is cloned,
+        // not chosen.
+        //
+        // 🔴 ORDER IS LOAD-BEARING AND THIS ARM IS THE THIRD CLAIMANT OF Alt+C. It must sit BELOW the RQ-4
+        // comparative-column arm above (which is scoped to a report and keeps its Alt+C) and ABOVE the
+        // ledger-creation arm below (which is UNSCOPED — it matches Alt+C whenever a company is open, so
+        // anything placed after it never runs). The dashboard is not a report and not a voucher, so without
+        // this arm Alt+C on a dashboard would silently open the Ledger-creation master instead — a chord
+        // advertising one verb and performing another, which is register row IV-1's exact shape.
+        if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.CurrentScreen == Screen.Dashboard)
+        {
+            vm.OpenDashboardTileConfig();
+            e.Handled = true;
+            return;
         }
 
         // Alt+C opens the Ledger-creation master whenever a company is open.
@@ -1071,6 +1093,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+O on the "Share via WhatsApp" column (census 14.10) — hand the prepared wa.me link to the OS.
+        // The SAME verb as the arm above, on the sibling channel, so one chord means one thing across the share
+        // family. It refuses (with a reason on the panel's status line) until the document has been saved,
+        // because the message text NAMES the file the operator is asked to attach.
+        //
+        // 🔴 This arm SENDS NOTHING. It opens WhatsApp with text pre-filled; WhatsApp's link scheme carries text
+        // only, so the file cannot ride it. See WhatsAppShareViewModel for why the vendor's WABA/BSP feature is
+        // not buildable here and why the smaller honest thing is what ships.
+        if (e.Key == Key.O && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.WhatsAppShare)
+        {
+            vm.ShareViaWhatsApp();
+            e.Handled = true;
+            return;
+        }
+
         // O / Alt+O (Gateway → Import; RQ-20..24) opens the "Import" panel: read a canonical JSON/XML backup (or a
         // flat CSV) + choose the duplicate policy, then engine-routed apply into the open company. Only on the bare
         // Gateway cascade (a company is open, no page/voucher/master column on top, not typing) — the header hint
@@ -1121,6 +1160,22 @@ public partial class MainWindow : Window
         if (e.Key == Key.M && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.OpenEmailCompose();
+            e.Handled = true;
+            return;
+        }
+
+        // W / Ctrl+W (census row 14.10) opens the "Share via WhatsApp" panel for the CURRENT report or the drilled
+        // voucher / tax invoice — the SECOND CHANNEL on the same share seam as M, with the same IsPrintablePage
+        // guard, the same not-while-typing rule and the same offline contract. The header hint reads "W: WhatsApp".
+        //
+        // 🔴 THIS CHORD IS INVENTED, NOT CLONED, AND IS RECORDED AS SUCH IN docs/invented-vs-cloned.md (IV-64).
+        // The reference product does not put WhatsApp on its own key at all: it nests WhatsApp UNDER the same
+        // Alt+M "Share" access point as E-Mail, sharing one configuration layer. Our M / Ctrl+M is already spent on
+        // the e-mail compose column, so the vendor's chord could not be reused without displacing a shipped one.
+        // W was measured free across the whole key tunnel before it was taken. Do not present it as fidelity.
+        if (e.Key == Key.W && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        {
+            vm.OpenWhatsAppShare();
             e.Handled = true;
             return;
         }
@@ -2080,6 +2135,28 @@ public partial class MainWindow : Window
     /// handler, <c>EmailComposeViewModel.MailtoUri</c> had no consumer anywhere in <c>src/</c>.</summary>
     private void OnOpenMailClientClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenMailtoInMailClient();
+
+    /// <summary>"Save document (Ctrl+A)" on the WhatsApp share panel — the SAME door Ctrl+A runs.</summary>
+    private void OnSaveWhatsAppDocumentClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) SaveWhatsAppDocumentToDocuments(vm);
+    }
+
+    /// <summary>"Open in WhatsApp (Alt+O)" on the share panel — the SAME door Alt+O runs. Sends nothing.</summary>
+    private void OnOpenWhatsAppClick(object? sender, RoutedEventArgs e)
+        => Vm?.ShareViaWhatsApp();
+
+    /// <summary>
+    /// Writes the shared document to a Documents-folder path derived from the panel's own suggested file name.
+    /// The same thin path-choosing layer <see cref="SaveEmailToDocuments"/> is, and for the same reason: the view
+    /// model is disk-free so it stays headlessly testable.
+    /// </summary>
+    private static void SaveWhatsAppDocumentToDocuments(MainWindowViewModel vm)
+    {
+        if (vm.WhatsAppShare is not { } share) return;
+        var dir = Services.ExportFolderDefault.Resolve();   // never empty - see ExportFolderDefault
+        vm.SaveWhatsAppDocument(Path.Combine(dir, share.SuggestedFileName));
+    }
 
     private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveSmtpSettings();

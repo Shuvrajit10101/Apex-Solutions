@@ -67,6 +67,15 @@ public enum Screen
     /// </summary>
     WhatsAppShare,
 
+    /// <summary>
+    /// The graphical dashboard (census row 14.3) — Default / Sales / Purchase, reached from Reports → Dashboard.
+    /// Line and bar marks only; pie charts are a documented deliberate non-feature of the surface being cloned.
+    /// </summary>
+    Dashboard,
+
+    /// <summary>Alt+C over an open dashboard: the tile-configuration column.</summary>
+    DashboardTileConfig,
+
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -223,6 +232,9 @@ public enum GatewayMenu
     GstReports,
     Statements,
     ExceptionReports,
+
+    /// <summary>Reports → Dashboard (census row 14.3): the Default / Sales / Purchase graphical dashboards.</summary>
+    Dashboard,
 
     // Account Books family (catalog §16 / RQ-30): Cash Book / Bank Book / Ledger, each drilling to a
     // ledger picker that opens that ledger's LedgerBook (a pure reuse of the existing RQ-7 drill).
@@ -646,6 +658,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The W "Share via WhatsApp" panel (census row 14.10), non-null only while that column is open.</summary>
     [ObservableProperty] private WhatsAppShareViewModel? _whatsAppShare;
+
+    /// <summary>The graphical dashboard (census row 14.3), non-null only while that column is open.</summary>
+    [ObservableProperty] private DashboardViewModel? _dashboard;
 
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
@@ -1210,6 +1225,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Dashboard (census row 14.3) — the graphical dashboards (line and bar charts only; pie charts are a
+        // documented deliberate non-feature). The reference product reaches these from F1 > Settings > Startup,
+        // which has NO HOST in this application (there is no Settings screen and no startup preference anywhere
+        // in src/), so they are nested here under Reports, where they are honestly reachable today.
+        col.Add(new MenuItemViewModel("Dashboard", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
         // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
@@ -2012,6 +2032,80 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind, Guid?)"/>; Negative Stock
     /// and Negative Cash / Bank honour the F2 as-of, the two registers honour the F2/Alt+F2 period.
     /// </summary>
+    /// <summary>
+    /// Builds the "Dashboard" submenu column (Reports → Dashboard; census row 14.3): the three dashboard types
+    /// the reference product ships — <b>Default</b>, <b>Sales</b> and <b>Purchase</b>. Each is a page item
+    /// opening <see cref="Screen.Dashboard"/> through <see cref="OpenDashboard(DashboardKind)"/>.
+    ///
+    /// <para>🔴 <b>The vendor's own route in is not cloned, and this comment is the record of why.</b> There it
+    /// is reached from <c>F1 &gt; Settings &gt; Startup</c> — measured against this tree, there is no Settings
+    /// screen, no Startup preference and no startup-screen mechanism anywhere in <c>src/</c>, so that route has
+    /// no host to hang from. Nesting the dashboards under Reports makes them reachable today; making one of them
+    /// the STARTUP screen is separate work that needs a Settings screen first, and is not claimed here.</para>
+    /// </summary>
+    private GatewayColumn BuildDashboardColumn()
+    {
+        var col = new GatewayColumn("Dashboard");
+        col.Add(MenuItemViewModel.Header("Dashboard"));
+        col.Add(new MenuItemViewModel("Default Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Sales Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Purchase Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Dashboard" submenu column directly (the public entry a hotkey/test uses).</summary>
+    public void ShowDashboardMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Dashboard");
+        OpenSubmenuColumn(BuildDashboardColumn(), GatewayMenu.Dashboard,
+            "Gateway of Apex Solutions — Dashboard");
+    }
+
+    /// <summary>
+    /// Opens a graphical dashboard as its own cascading column to the RIGHT of the Dashboard submenu.
+    ///
+    /// <para><b>The period is the WHOLE financial year</b>, not "up to the last posted voucher" the way an
+    /// as-of report like an Account Book is. A dashboard is a period overview: its x-axis must be the year, so
+    /// the quiet months at the end of it are visible as the real zeros they are, and so the axis does not
+    /// silently change shape every time a voucher is posted. It is derived purely from the company's own
+    /// financial-year start — no clock reads anywhere in this path, so two runs produce identical charts.</para>
+    /// </summary>
+    public void OpenDashboard(DashboardKind kind)
+    {
+        if (Company is not { } company) { ShowCompanySelect(); return; }
+
+        var panel = new DashboardViewModel(company, kind,
+                                           company.FinancialYearStart,
+                                           company.FinancialYearStart.AddYears(1).AddDays(-1));
+        Dashboard = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Dashboard;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Alt+C over an open dashboard — opens the tile-configuration column for the highlighted tile, as a further
+    /// cascading column, never a stacked overlay.
+    /// </summary>
+    public void OpenDashboardTileConfig()
+    {
+        if (Dashboard is not { } dash || dash.Tiles.Count == 0) return;
+        if (dash.TileConfig is not null) return;    // already open — don't stack a second one
+
+        dash.OpenTileConfig();
+        var cfg = dash.TileConfig!;
+        Columns.Add(new GatewayColumn(cfg.Title, cfg));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.DashboardTileConfig;
+        ScreenTitle = cfg.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
     private GatewayColumn BuildExceptionReportsColumn()
     {
         var col = new GatewayColumn("Exception Reports");
@@ -3538,6 +3632,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             case Screen.EmailCompose:
                 return SaveEmail(path);
+
+            // Alt+B on the share panel: the operator says WHERE the shared document goes. Writing it is step ONE
+            // of the two-step share; the wa.me hand-off refuses until this has succeeded.
+            case Screen.WhatsAppShare:
+                return SaveWhatsAppDocument(path);
 
             case Screen.PrintPreview:
                 return SavePrintPreview(path);
@@ -5559,6 +5658,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         EmailCompose = null;
         SmtpSettings = null;
         WhatsAppShare = null;
+        Dashboard = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }
@@ -8458,6 +8558,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Group Vouchers"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
+            // Census 14.3 — the three graphical dashboards.
+            "Dashboard" => (BuildDashboardColumn(), GatewayMenu.Dashboard,
+                "Gateway of Apex Solutions — Dashboard"),
             "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
                 "Gateway of Apex Solutions — Statutory Reports"),
             "TDS Reports" => (BuildTdsReportsColumn(), GatewayMenu.TdsReports,
@@ -8800,6 +8903,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
+            // Census 14.3 — the three graphical dashboards, under Reports → Dashboard.
+            case "Default Dashboard": OpenDashboard(DashboardKind.Default); break;
+            case "Sales Dashboard": OpenDashboard(DashboardKind.Sales); break;
+            case "Purchase Dashboard": OpenDashboard(DashboardKind.Purchase); break;
             case "Sales Register": OpenReport(ReportKind.SalesRegister); break;
             case "Purchase Register": OpenReport(ReportKind.PurchaseRegister); break;
             case "Journal Register": OpenReport(ReportKind.JournalRegister); break;
@@ -8967,6 +9074,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
                 return Screen.VoucherDetail;
+            // A dashboard column survives beneath a just-popped Alt+C tile-configuration column (census 14.3).
+            // 🔴 CloseTileConfig() is load-bearing, not tidying: the configuration panel is bound through
+            // `Dashboard.TileConfig`, so leaving it non-null after its own column has been popped would keep the
+            // panel rendered over a dashboard the operator has already escaped out of.
+            case DashboardViewModel d:
+                Dashboard = d;
+                d.CloseTileConfig();
+                return Screen.Dashboard;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
@@ -9050,6 +9165,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Dashboard" => GatewayMenu.Dashboard,
                     "Statutory Reports" => GatewayMenu.StatutoryReports,
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
@@ -9397,6 +9513,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
         // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
+        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, with the
+        // same printable-page gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
+        // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point, and
+        // our M is already spent) — recorded in docs/invented-vs-cloned.md as IV-64.
+        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
 

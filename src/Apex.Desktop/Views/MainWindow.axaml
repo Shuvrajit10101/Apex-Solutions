@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
         xmlns:conv="using:Apex.Desktop.Converters"
+        xmlns:svc="using:Apex.Desktop.Services"
         xmlns:views="using:Apex.Desktop.Views"
         xmlns:ledger="using:Apex.Ledger.Domain"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -16771,6 +16772,292 @@
                                   <Button Grid.Column="3" Content="Save .eml (Ctrl+A)" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnSaveEmailClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: the graphical dashboard (census row 14.3), Reports → Dashboard.
+                         🔴 EVERY COLOUR ON THIS PAGE IS A NAMED StaticResource AND MUST STAY ONE. There is not a
+                         single literal hex in the chart marks: bars are BrandNavy (positive) / AlertRed
+                         (negative) — the application's own existing sign semantics — the line is BrandNavy, the
+                         gridlines and baseline are GridLine, and the empty-state text is Ink. The app pins
+                         RequestedThemeVariant="Light" today and has one palette; when a variant is added, a page
+                         whose colours are all resource lookups moves for free and one carrying hex does not.
+                         The positive/negative split is done in the view model precisely so no value-to-brush
+                         converter has to name a colour in C#.
+                         Marks are Rectangle (bar) and Polyline (line) placed from view-model-computed pixels —
+                         there is no custom DrawingContext override, because that would be untestable for exactly
+                         the reason a charting library would be. -->
+                    <ContentControl IsVisible="{Binding Dashboard, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Dashboard}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:DashboardViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding PeriodCaption}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto">
+                              <ItemsControl Name="DashboardTiles" ItemsSource="{Binding Tiles}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:DashboardTileViewModel">
+                                    <Border Background="White" BorderBrush="{StaticResource PanelBorder}"
+                                            BorderThickness="1" Margin="0,0,0,10" Padding="12">
+                                      <StackPanel Spacing="6">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                          <TextBlock Grid.Column="0" Text="{Binding Title}" FontWeight="SemiBold"
+                                                     Foreground="{StaticResource BrandNavy}"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding ValueCaption}" FontSize="11"
+                                                     Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
+                                        </Grid>
+
+                                        <!-- 🔴 THE EMPTY STATE. A tile with nothing to plot renders THIS and no
+                                             marks at all. Drawing an axis with a flat line along it for a company
+                                             that posted no vouchers would show "there is nothing here" as
+                                             "everything is zero" — a wrong-figures defect, not a cosmetic one. -->
+                                        <TextBlock Name="TileEmptyMessage" Text="{Binding EmptyMessage}"
+                                                   IsVisible="{Binding IsEmpty}" FontSize="12" FontStyle="Italic"
+                                                   Foreground="{StaticResource Ink}" Margin="0,14,0,14"/>
+
+                                        <Grid IsVisible="{Binding HasMarks}" ColumnDefinitions="Auto,*">
+                                          <!-- value-axis captions, Indian lakh/crore grouped -->
+                                          <ItemsControl Grid.Column="0" ItemsSource="{Binding Ticks}"
+                                                        Width="86" Height="150">
+                                            <ItemsControl.ItemsPanel>
+                                              <ItemsPanelTemplate><Canvas Width="86" Height="150"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.Styles>
+                                              <Style Selector="ItemsControl > ContentPresenter">
+                                                <Setter Property="Canvas.Top" Value="{Binding Y, x:DataType=svc:AxisTick}"/>
+                                              </Style>
+                                            </ItemsControl.Styles>
+                                            <ItemsControl.ItemTemplate>
+                                              <DataTemplate>
+                                                <TextBlock Text="{Binding Caption}" FontSize="10" Width="82"
+                                                           TextAlignment="Right" Margin="0,-7,0,0"
+                                                           Foreground="{StaticResource Ink}"/>
+                                              </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                          </ItemsControl>
+
+                                          <Panel Grid.Column="1" Width="460" Height="150"
+                                                 HorizontalAlignment="Left">
+                                            <!-- gridlines -->
+                                            <ItemsControl ItemsSource="{Binding Ticks}">
+                                              <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><Canvas Width="460" Height="150"/></ItemsPanelTemplate>
+                                              </ItemsControl.ItemsPanel>
+                                              <ItemsControl.Styles>
+                                                <Style Selector="ItemsControl > ContentPresenter">
+                                                  <Setter Property="Canvas.Top" Value="{Binding Y, x:DataType=svc:AxisTick}"/>
+                                                </Style>
+                                              </ItemsControl.Styles>
+                                              <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                  <Rectangle Width="460" Height="1"
+                                                             Fill="{StaticResource GridLine}"/>
+                                                </DataTemplate>
+                                              </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- BAR marks, positive: BrandNavy -->
+                                            <ItemsControl Name="PositiveBarMarks" ItemsSource="{Binding PositiveBars}">
+                                              <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><Canvas Width="460" Height="150"/></ItemsPanelTemplate>
+                                              </ItemsControl.ItemsPanel>
+                                              <ItemsControl.Styles>
+                                                <Style Selector="ItemsControl > ContentPresenter">
+                                                  <Setter Property="Canvas.Left" Value="{Binding X, x:DataType=svc:BarMark}"/>
+                                                  <Setter Property="Canvas.Top" Value="{Binding Y, x:DataType=svc:BarMark}"/>
+                                                </Style>
+                                              </ItemsControl.Styles>
+                                              <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                  <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                                             Fill="{StaticResource BrandNavy}"/>
+                                                </DataTemplate>
+                                              </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- BAR marks, negative: AlertRed, the app's own negative semantic -->
+                                            <ItemsControl Name="NegativeBarMarks" ItemsSource="{Binding NegativeBars}">
+                                              <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><Canvas Width="460" Height="150"/></ItemsPanelTemplate>
+                                              </ItemsControl.ItemsPanel>
+                                              <ItemsControl.Styles>
+                                                <Style Selector="ItemsControl > ContentPresenter">
+                                                  <Setter Property="Canvas.Left" Value="{Binding X, x:DataType=svc:BarMark}"/>
+                                                  <Setter Property="Canvas.Top" Value="{Binding Y, x:DataType=svc:BarMark}"/>
+                                                </Style>
+                                              </ItemsControl.Styles>
+                                              <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                  <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                                             Fill="{StaticResource AlertRed}"/>
+                                                </DataTemplate>
+                                              </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- LINE mark. The point list is built with the INVARIANT culture in
+                                                 the view model; a decimal-comma culture would otherwise emit
+                                                 "1,5,2,5" and this polyline would parse into different points. -->
+                                            <Canvas Width="460" Height="150">
+                                              <Polyline Name="LineMark" Points="{Binding LinePoints}"
+                                                        Stroke="{StaticResource BrandNavy}" StrokeThickness="2"
+                                                        Fill="{x:Null}"/>
+                                            </Canvas>
+                                          </Panel>
+                                        </Grid>
+
+                                        <!-- x-axis captions -->
+                                        <ItemsControl ItemsSource="{Binding Labels}" IsVisible="{Binding HasMarks}"
+                                                      Margin="86,0,0,0">
+                                          <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                              <UniformGrid Rows="1" Width="460" HorizontalAlignment="Left"/>
+                                            </ItemsPanelTemplate>
+                                          </ItemsControl.ItemsPanel>
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding}" FontSize="10" TextAlignment="Center"
+                                                         Foreground="{StaticResource Ink}"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                      </StackPanel>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Alt+C dashboard tile configuration (census row 14.3). Read-only by design: it
+                         reports what the tile shows. No option set has been sourced for the vendor's Alt+C, and
+                         shipping controls that wrote nowhere is the dead-capability shape filed three times. -->
+                    <ContentControl IsVisible="{Binding Dashboard.TileConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Dashboard.TileConfig}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:DashboardTileConfigViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+                            <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MinWidth="260">
+                                <TextBlock Name="TileConfigTitle" Text="{Binding TileTitle}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding MarkCaption}" FontSize="12"
+                                           Foreground="{StaticResource Ink}"/>
+                                <TextBlock Text="{Binding PointsCaption}" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource Ink}"/>
+                                <TextBlock Name="TileConfigNotice" Text="{Binding Notice}" FontSize="11"
+                                           Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: W / Ctrl+W "Share via WhatsApp" panel (census row 14.10).
+                         🔴 READ THE NOTICE BINDING BELOW BEFORE CHANGING THIS TEMPLATE. There is deliberately NO
+                         "Send" control on this panel and there must never be one: the reference product's WhatsApp
+                         feature is a WhatsApp Business API integration through a commercial BSP (a WABA is
+                         mandatory, a personal number cannot be used, and there is no account-free path). We have no
+                         WABA and no credentials, and an outbound call to a third-party commercial API would break
+                         this application's offline-by-construction posture. The two controls here are SAVE (writes
+                         the document) and OPEN (hands a prepared wa.me link to the OS) — and Open is dim until the
+                         document has been saved, because the message text names the file the operator must attach. -->
+                    <ContentControl IsVisible="{Binding WhatsAppShare, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding WhatsAppShare}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:WhatsAppShareViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <!-- The honesty lock, on the operator's own screen: nothing is sent, the file is
+                                     NOT attached, and the operator attaches it themselves. A test pins it. -->
+                                <TextBlock Name="WhatsAppNoticeText" Text="{Binding Notice}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="70,60,*">
+                                  <TextBlock Grid.Column="0" Text="Mobile" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="WhatsAppCountryCodeBox"
+                                           Text="{Binding CountryCode, Mode=TwoWay}" Margin="0,0,6,0"/>
+                                  <TextBox Grid.Column="2" Name="WhatsAppNumberBox"
+                                           Text="{Binding PhoneNumber, Mode=TwoWay}"
+                                           PlaceholderText="recipient's mobile number (digits)"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="Message" FontWeight="SemiBold"
+                                             VerticalAlignment="Top" Margin="0,6,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Message, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="Save as" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Grid.Column="1" Text="{Binding SuggestedFileName}"
+                                             VerticalAlignment="Center" FontSize="12"
+                                             FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+
+                                <!-- The prepared link, shown verbatim so the operator can see exactly what they are
+                                     about to hand the OS. Empty (and hidden) until there is a usable number. -->
+                                <Grid ColumnDefinitions="70,*"
+                                      IsVisible="{Binding WaMeUri, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                  <TextBlock Grid.Column="0" Text="Link" FontWeight="SemiBold"
+                                             VerticalAlignment="Top" Margin="0,2,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Grid.Column="1" Name="WhatsAppLinkText" Text="{Binding WaMeUri}"
+                                             FontSize="11" TextWrapping="Wrap"
+                                             FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                  <TextBlock Grid.Column="0" Name="WhatsAppStatusText" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Name="SaveWhatsAppDocumentButton"
+                                          Content="Save document (Ctrl+A)" Margin="0,0,6,0" Padding="10,4"
+                                          Click="OnSaveWhatsAppDocumentClick"/>
+                                  <!-- Dim until CanShare, i.e. until there IS a number AND the file has been
+                                       written. An enabled control that refuses is the IV-31 defect. -->
+                                  <Button Grid.Column="2" Name="OpenWhatsAppButton"
+                                          Content="Open in WhatsApp (Alt+O)" Padding="14,6"
+                                          IsEnabled="{Binding CanShare}"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnOpenWhatsAppClick"/>
                                 </Grid>
                               </StackPanel>
                             </Border>

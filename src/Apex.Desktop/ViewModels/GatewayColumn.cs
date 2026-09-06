@@ -280,6 +280,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted W "Share via WhatsApp" panel (non-null only for that census-14.10 column).</summary>
     public WhatsAppShareViewModel? WhatsAppShare => Page as WhatsAppShareViewModel;
 
+    /// <summary>The hosted graphical dashboard (non-null only for that census-14.3 column).</summary>
+    public DashboardViewModel? Dashboard => Page as DashboardViewModel;
+
+    /// <summary>The hosted Alt+C dashboard tile-configuration panel (non-null only for that column).</summary>
+    public DashboardTileConfigViewModel? DashboardTileConfig => Page as DashboardTileConfigViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 
