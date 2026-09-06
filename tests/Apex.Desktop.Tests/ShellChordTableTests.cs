@@ -76,6 +76,29 @@ public sealed class ShellChordTableTests : IDisposable
         return (window, vm);
     }
 
+    /// <summary>
+    /// Raises one key-down through the window's REAL handler and reports whether the shell CONSUMED it.
+    ///
+    /// <para>🔴 Observing <c>e.Handled</c> is the point, not a convenience. A chord that is swallowed while its
+    /// action self-guards into a no-op leaves every view-model flag exactly as it was, so a test written
+    /// against the flag passes on the broken build — the vacuity that
+    /// <c>ServiceAccountingInvoiceKeyboardTests.CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode</c>
+    /// records having shipped once already. Copied from that file rather than shared, because a helper this
+    /// small is cheaper duplicated than coupled across two test classes.</para>
+    /// </summary>
+    private static bool KeyWasHandled(MainWindow window, Key key, KeyModifiers modifiers)
+    {
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = modifiers,
+            Source = window,
+        };
+        window.RaiseEvent(args);
+        return args.Handled;
+    }
+
     // ================================================================ the table's own invariants
 
     /// <summary>
@@ -162,6 +185,67 @@ public sealed class ShellChordTableTests : IDisposable
 
             // And the incumbent still runs, through its own legacy arm.
             window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
+            Assert.True(entry.IsItemInvoice);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE APP-WIDE SWALLOW, CLOSED — and this is the half of 14.4 that needed no ruling.</b> On
+    /// <c>main</c> the <c>Ctrl+I</c> arm carried NO context guard whatever
+    /// (<c>e.Key == Key.I &amp;&amp; e.KeyModifiers.HasFlag(Control)</c>), so it set <c>e.Handled = true</c> on
+    /// all ~157 screens while <c>ToggleItemInvoice()</c> self-guards on <c>Screen.VoucherEntry</c> — the chord
+    /// was consumed and silently dead on every report, every master and the Gateway. That is WHY census 14.4
+    /// grades unreachable rather than mis-keyed: any later-placed arm could never have fired.
+    ///
+    /// <para><b>This test bites on <c>e.Handled</c>, deliberately</b>, following the remarks on
+    /// <c>ServiceAccountingInvoiceKeyboardTests.CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode</c> —
+    /// its own earlier version asserted only the mode flag, which the view-model method guards on its own, so
+    /// deleting the tunnel gate left it GREEN. Observing consumption is what actually locks the behaviour.</para>
+    ///
+    /// <para>🔴 <b>FAILS ON TODAY <c>main</c></b>, where the first assertion below sees <c>true</c>. It is
+    /// ruling-neutral: the incumbent keeps the chord on every screen where it does anything, which the second
+    /// half asserts so the first cannot pass vacuously by disabling the chord outright.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_I_is_no_longer_swallowed_where_the_item_invoice_toggle_is_a_no_op()
+    {
+        var (window, vm) = OpenWindow("Ctrl I Swallow Co");
+        try
+        {
+            // 1. The Gateway. ToggleItemInvoice() cannot do anything here, so the key must fall through.
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+            Assert.False(vm.IsInvoiceableEntry);
+            Assert.False(KeyWasHandled(window, Key.I, KeyModifiers.Control),
+                "Ctrl+I was CONSUMED on the Gateway, where the item-invoice toggle is a no-op. That is the "
+                + "app-wide swallow: it is what makes census 14.4's chord unreachable no matter where a "
+                + "More Details arm is later placed.");
+
+            // 2. A report — the surface the vendor's More Details would have to reach.
+            vm.OpenReport(ReportKind.BalanceSheet);
+            Assert.True(vm.IsReportContext);
+            Assert.False(vm.IsInvoiceableEntry);
+            Assert.False(KeyWasHandled(window, Key.I, KeyModifiers.Control),
+                "Ctrl+I was CONSUMED on a report, where the item-invoice toggle is a no-op.");
+
+            // 3. A Journal — a voucher with no item-invoice mode at all. The screen matches, the TYPE does not,
+            //    so this separates the Screen.VoucherEntry half of the guard from the CanBeItemInvoice half.
+            vm.OpenVoucher(VoucherBaseType.Journal);
+            Assert.False(vm.VoucherEntry!.CanBeItemInvoice);
+            Assert.False(vm.IsInvoiceableEntry);
+            Assert.False(KeyWasHandled(window, Key.I, KeyModifiers.Control),
+                "Ctrl+I was CONSUMED on a Journal, which has no item-invoice mode to toggle into.");
+
+            // 4. 🔴 THE NON-VACUITY CONTRAST. On a Sales the SAME keystroke is still consumed and still flips
+            //    the mode — so the three assertions above cannot be passing because the chord was disabled.
+            vm.OpenVoucher(VoucherBaseType.Sales);
+            var entry = vm.VoucherEntry!;
+            Assert.True(vm.IsInvoiceableEntry);
+            Assert.False(entry.IsItemInvoice);
+
+            Assert.True(KeyWasHandled(window, Key.I, KeyModifiers.Control),
+                "Ctrl+I stopped being consumed on a Sales voucher — the incumbent toggle has lost its "
+                + "keyboard door, which is exactly what the OPEN U-6 ruling was meant to decide first.");
             Assert.True(entry.IsItemInvoice);
         }
         finally { window.Close(); }

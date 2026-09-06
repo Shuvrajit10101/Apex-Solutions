@@ -987,7 +987,28 @@ public partial class MainWindow : Window
         // difference on purpose. With this arm gone, vm.ToggleItemInvoice()'s only surviving door was a mouse
         // Click handler. T2-14 itself says "Chord ruling required — see U-6. OPEN.", so the swap needs the
         // ruling first, and it must ship WITH a keyboard door for whatever the toggle becomes.
-        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        //
+        // 🔴 BUT THE APP-WIDE SWALLOW IS FIXED HERE, AND THAT HALF NEEDED NO RULING. On main this arm carried
+        // NO CONTEXT GUARD AT ALL — `e.Key == Key.I && HasFlag(Control)`, nothing else — so it set
+        // e.Handled = true on every one of the ~157 screens, including the ~156 where ToggleItemInvoice() is a
+        // no-op (it self-guards on Screen.VoucherEntry). Ctrl+I was therefore CONSUMED AND SILENTLY DEAD on
+        // every report, every master and the Gateway itself, which is why census 14.4 grades as unreachable
+        // rather than merely mis-keyed: even a correctly-placed later arm could never have fired.
+        //
+        // The gate is IsInvoiceableEntry — VoucherEntry screen AND CanBeItemInvoice — which is EXACTLY the
+        // predicate the button bar already advertises this chord under
+        // (MainWindowViewModel: `new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry)`).
+        // The key and the button it is drawn on now agree; before this, the button greyed out while the key
+        // went on eating the keystroke.
+        //
+        // This is the SAME correction Ctrl+H already carries directly below (gated on vm.IsChangeModeEntry),
+        // made for the same stated reason — "so the key is not swallowed app-wide" — and locked by
+        // ServiceAccountingInvoiceKeyboardTests.CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode, whose
+        // remarks record that an earlier version of THAT test passed vacuously because it asserted the mode
+        // flag (which ChangeMode() guards on its own) instead of observing e.Handled. The Ctrl+I counterpart
+        // below therefore bites on consumption too. Ruling-neutral: the incumbent keeps the chord everywhere
+        // it does anything, so nothing is re-pointed and no capability moves.
+        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsInvoiceableEntry)
         {
             vm.ToggleItemInvoice();
             e.Handled = true;
