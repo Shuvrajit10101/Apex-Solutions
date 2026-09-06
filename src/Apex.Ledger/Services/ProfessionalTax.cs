@@ -102,11 +102,12 @@ public static class ProfessionalTax
     /// monthly rate. Karnataka carried exactly that unsourced ₹300 February override until 2026-09-06 and
     /// over-deducted ₹100 from every Karnataka employee every year (₹2,500 charged against a statutory ₹2,400); the
     /// annual cap never caught it because the over-charge landed exactly <i>at</i> the cap.</para>
-    /// <para>✅ <b>The residual this fix left open is now CLOSED — by schema v54, not by this file.</b> These tables
+    /// <para>✅ <b>The residual this fix left open is now CLOSED — by schema v55, not by this file.</b> These tables
     /// are seeded once, at enrolment (<c>PayrollService.EnableProfessionalTax</c>), and then <b>persisted and
     /// user-editable</b>, so the correction above reaches only companies enrolled after it; a company enrolled for
     /// Karnataka <i>before</i> 2026-09-06 kept the ₹300 February override in its own saved data. That is repaired on
-    /// open by <c>Schema.MigrateV53ToV54</c> (Ruling 16, 2026-09-06), which is <b>fingerprint-gated</b>: it clears
+    /// open by <c>Schema.MigrateV54ToV55</c> (Ruling 16, 2026-09-06 — the ruling named v54, but PR #62 had already
+    /// landed Credit Limits on v54, so the back-fill is v55), which is <b>fingerprint-gated</b>: it clears
     /// the override only from a Karnataka table still matching this seed exactly, and leaves an operator-edited
     /// table alone. <b>Do not add a repair here.</b> Seeding is the future; the migration is history, and correcting
     /// history from the seed would either re-seed live books or clobber operator edits.</para>

@@ -7,9 +7,13 @@ using Xunit;
 namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
-/// Schema v53 → v54 (Ruling 16) — the <b>Karnataka Professional-Tax February back-fill</b>. The first version in
+/// Schema v54 → v55 (Ruling 16) — the <b>Karnataka Professional-Tax February back-fill</b>. The first version in
 /// this schema that adds no DDL whatsoever: it exists only to correct <b>wrong money already persisted in existing
 /// books</b>.
+///
+/// <para>📌 <b>It is v55, not the v54 ruling 16 named.</b> PR #62 (Credit Limits) had already taken and landed v54
+/// on <c>origin/main</c> before the ruling was made, and two migrations cannot share one version number, so the
+/// back-fill was renumbered on merge. Nothing about its behaviour, gating or citation changed.</para>
 ///
 /// <para><b>The defect.</b> The seeded Karnataka PT top band carried a ₹300 February over-charge that no Karnataka
 /// instrument grants. The state's SCHEDULE [See Section 3(2)] Sl. No. 1
@@ -28,8 +32,15 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// Schedule I grants it in terms and dropping the <c>state_code</c> predicate would silently UNDER-deduct there.</para>
 ///
 /// <para>Every "genuine pre-fix v53 book" here is manufactured the honest way — a real store save, the defective
-/// override written back into the row exactly as the old seed wrote it, then
-/// <see cref="SchemaDowngrade.V54ToV53"/> — so the migration runs against real rows through the production store.</para>
+/// override written back into the row exactly as the old seed wrote it, then the FULL downgrade chain
+/// <see cref="SchemaDowngrade.V55ToV54"/> → <see cref="SchemaDowngrade.V54ToV53"/> — so the migration runs against
+/// real rows through the production store, and the book has to climb 53 → 54 → 55 to get back.</para>
+///
+/// <para>🔴 <b>The ladder order is itself a claim under test.</b>
+/// <see cref="A_v53_book_climbs_the_whole_ladder_and_gets_BOTH_v54_and_v55"/> pins that a v53 book arrives carrying
+/// the v54 credit-limit columns AND the v55 Karnataka correction, in that order, and comes back down to a genuine
+/// v53 shape. A renumber that wired the back-fill in as a REPLACEMENT for the v54 rung rather than a rung above it
+/// would pass every other test in this file and silently drop Credit Limits from every migrated book.</para>
 /// </summary>
 public sealed class KarnatakaPtBackfillSchemaTests
 {
@@ -62,10 +73,10 @@ public sealed class KarnatakaPtBackfillSchemaTests
             Assert.Equal(1L, ReadScalar(path,
                 $"SELECT COUNT(*) FROM pt_slab_bands WHERE state_code = '{Karnataka}' AND month_overrides = '{BadFebruary}';"));
 
-            // Reopen through the production store — the v53 → v54 migration runs.
+            // Reopen through the production store — the v53 → v54 → v55 migration chain runs.
             using var reopened = new SqliteCompanyStore(path);
             Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
-            Assert.Equal(54, Schema.CurrentVersion);
+            Assert.Equal(55, Schema.CurrentVersion);
 
             var ka = KarnatakaSlab(reopened.Load(companyId)!);
             var top = ka.Bands[^1];
@@ -340,6 +351,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
                     UPDATE pt_slab_bands SET monthly_amount_paisa = 25000
                     WHERE state_code = '{Karnataka}' AND band_order = 1 AND company_id = '{edited.Id:D}';
                     """);
+                SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -373,7 +385,12 @@ public sealed class KarnatakaPtBackfillSchemaTests
             using (new SqliteCompanyStore(path)) { }                       // first pass: corrects
             var afterFirst = AllPtBands(path);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path))
+            {
+                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V54ToV53(conn);
+                SqliteConnection.ClearPool(conn);
+            }
             Assert.Equal(53L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
 
             using (new SqliteCompanyStore(path)) { }                       // second pass: must move nothing
@@ -385,14 +402,15 @@ public sealed class KarnatakaPtBackfillSchemaTests
     }
 
     /// <summary>
-    /// v54 adds NO DDL, so a v54 database and the same file after <see cref="SchemaDowngrade.V54ToV53"/> must have
+    /// v55 adds NO DDL, so a v55 database and the same file after <see cref="SchemaDowngrade.V55ToV54"/> must have
     /// byte-identical schema — every table, index and column declaration. Asserted over the whole
     /// <c>sqlite_master</c> rather than one table, because "adds nothing" is the entire structural claim of this
-    /// version and a single-table check could not falsify it.
+    /// version and a single-table check could not falsify it. Note the file stops at <b>v54</b>, not v53: the
+    /// credit-limit columns v54 added are still there, which is what makes this a one-rung step.
     /// </summary>
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Downgrade_v54_to_v53_restores_the_v53_shape_and_keeps_the_correction()
+    public void Downgrade_v55_to_v54_restores_the_v54_shape_and_keeps_the_correction()
     {
         var path = TempDbFile.NewPath("apex-kapt-downgrade");
         try
@@ -401,19 +419,23 @@ public sealed class KarnatakaPtBackfillSchemaTests
             using (new SqliteCompanyStore(path)) { }
             Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
 
-            var schemaAtV54 = SchemaFingerprint(path);
-            var bandsAtV54 = AllPtBands(path);
-            var rowCountAtV54 = ReadScalar(path, "SELECT COUNT(*) FROM pt_slab_bands;");
+            var schemaAtV55 = SchemaFingerprint(path);
+            var bandsAtV55 = AllPtBands(path);
+            var rowCountAtV55 = ReadScalar(path, "SELECT COUNT(*) FROM pt_slab_bands;");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V55ToV54(conn); SqliteConnection.ClearPool(conn); }
 
-            Assert.Equal(53L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
-            Assert.Equal(schemaAtV54, SchemaFingerprint(path));                       // no DDL was added, so none is removed
-            Assert.Equal(rowCountAtV54, ReadScalar(path, "SELECT COUNT(*) FROM pt_slab_bands;"));
+            Assert.Equal(54L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal(schemaAtV55, SchemaFingerprint(path));                       // no DDL was added, so none is removed
+            Assert.Equal(rowCountAtV55, ReadScalar(path, "SELECT COUNT(*) FROM pt_slab_bands;"));
+
+            // v55 sits ABOVE v54, so stepping down one rung must leave the v54 credit-limit columns in place.
+            var ledgerColumns = ColumnNames(path, "ledgers");
+            foreach (var col in Schema.V54CreditLimitColumns) Assert.Contains(col, ledgerColumns);
 
             // 🔴 The correction deliberately SURVIVES the downgrade. Restoring a ₹300 February the state never
             // levied, for the sake of symmetry, would re-open the defect in every book that round-trips.
-            Assert.Equal(bandsAtV54, AllPtBands(path));
+            Assert.Equal(bandsAtV55, AllPtBands(path));
             Assert.Equal(0L, ReadScalar(path,
                 $"SELECT COUNT(*) FROM pt_slab_bands WHERE state_code = '{Karnataka}' AND month_overrides = '{BadFebruary}';"));
 
@@ -422,6 +444,86 @@ public sealed class KarnatakaPtBackfillSchemaTests
             Assert.Empty(KarnatakaSlab(reopened.Load(companyId)!).Bands[^1].MonthOverrides);
         }
         finally { TempDbFile.Delete(path); }
+    }
+
+    // ================================================================= the ladder
+
+    /// <summary>
+    /// 🔴 <b>The renumber's own test.</b> User ruling 16 named this back-fill v54; PR #62 had already landed Credit
+    /// Limits on v54, so the back-fill became v55 and had to be wired in as a rung ABOVE v54 rather than in place of
+    /// it. This test is what separates those two outcomes.
+    ///
+    /// <para>A genuine v53 book — carrying the bad Karnataka row and NOT carrying the credit-limit columns — is
+    /// driven up the whole ladder through the production store, and BOTH effects are asserted at the top:
+    /// the three v54 <c>ledgers</c> columns exist, and the v55 Karnataka figure is corrected. A renumber that
+    /// replaced the v54 rung would leave the columns missing and the store would still report v55; a renumber that
+    /// never ran the new rung would leave the ₹300 in place. Then it comes back DOWN both rungs and the v53 shape is
+    /// re-asserted, so the chain is proved in both directions.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void A_v53_book_climbs_the_whole_ladder_and_gets_BOTH_v54_and_v55()
+    {
+        var path = TempDbFile.NewPath("apex-kapt-ladder");
+        try
+        {
+            var companyId = MakePreFixV53Book(path, "KA Ladder Co");
+
+            // Precondition: a REAL v53 book — no credit-limit columns, and the defect present.
+            Assert.Equal(53L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            var atV53 = ColumnNames(path, "ledgers");
+            foreach (var col in Schema.V54CreditLimitColumns) Assert.DoesNotContain(col, atV53);
+            Assert.Equal(1L, ReadScalar(path,
+                $"SELECT COUNT(*) FROM pt_slab_bands WHERE state_code = '{Karnataka}' AND month_overrides = '{BadFebruary}';"));
+
+            // 53 → 54 → 55, through the production store's own ladder.
+            using (var reopened = new SqliteCompanyStore(path))
+            {
+                Assert.Equal(55L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+
+                // v54's effect: the three credit-limit columns exist, and read as "no limit / both flags off".
+                var atV55 = ColumnNames(path, "ledgers");
+                foreach (var col in Schema.V54CreditLimitColumns) Assert.Contains(col, atV55);
+                Assert.Equal(0L, ReadScalar(path, "SELECT COUNT(*) FROM ledgers WHERE credit_limit_paisa IS NOT NULL;"));
+                Assert.Equal(0L, ReadScalar(path,
+                    "SELECT COUNT(*) FROM ledgers WHERE check_credit_days_on_entry <> 0 OR override_credit_limit_post_dated <> 0;"));
+
+                // v55's effect: the Karnataka February over-charge is gone, in structure and in money.
+                var ka = KarnatakaSlab(reopened.Load(companyId)!);
+                Assert.Empty(ka.Bands[^1].MonthOverrides);
+                Assert.Equal(200m, ka.Bands[^1].AmountForMonth(2).Amount);
+                Assert.Equal(2400m, FinancialYearPt(ka, ptWages: 30000m));
+            }
+
+            // … and back DOWN both rungs, one at a time, to a genuine v53 shape again.
+            using (var conn = Open(path))
+            {
+                SchemaDowngrade.V55ToV54(conn);
+                Assert.Equal(54L, ScalarOn(conn, "SELECT version FROM schema_version LIMIT 1;"));
+                SchemaDowngrade.V54ToV53(conn);
+                Assert.Equal(53L, ScalarOn(conn, "SELECT version FROM schema_version LIMIT 1;"));
+                SqliteConnection.ClearPool(conn);
+            }
+            var backAtV53 = ColumnNames(path, "ledgers");
+            foreach (var col in Schema.V54CreditLimitColumns) Assert.DoesNotContain(col, backAtV53);
+        }
+        finally { TempDbFile.Delete(path); }
+    }
+
+    /// <summary>
+    /// The fingerprint the migration gates on is named in <see cref="Schema"/> so the SQL, the downgrade and these
+    /// tests cannot drift apart. This pins that the three copies still agree: the constants this file asserts with,
+    /// the constants <c>Schema</c> publishes, and the literals actually inside the shipped migration SQL. Without
+    /// it, a future edit to the SQL's <c>'29'</c> or <c>'2:30000'</c> would leave every test above green and
+    /// testing the wrong shape.
+    /// </summary>
+    [Fact]
+    public void The_fingerprint_constants_agree_with_the_shipped_migration_sql()
+    {
+        Assert.Equal(Schema.V55KarnatakaStateCode, Karnataka);
+        Assert.Equal(Schema.V55KarnatakaBadFebruaryOverride, BadFebruary);
+        Assert.Contains($"state_code = '{Schema.V55KarnatakaStateCode}'", Schema.MigrateV54ToV55, StringComparison.Ordinal);
+        Assert.Contains($"month_overrides = '{Schema.V55KarnatakaBadFebruaryOverride}'", Schema.MigrateV54ToV55, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -437,7 +539,12 @@ public sealed class KarnatakaPtBackfillSchemaTests
         {
             var company = CompanyFactory.CreateSeeded("No PT Co", FyStart);
             using (var store = new SqliteCompanyStore(path)) store.Save(company);
-            using (var conn = Open(path)) { SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path))
+            {
+                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V54ToV53(conn);
+                SqliteConnection.ClearPool(conn);
+            }
 
             Assert.Equal(0L, ReadScalar(path, "SELECT COUNT(*) FROM pt_slab_bands;"));
 
@@ -469,6 +576,9 @@ public sealed class KarnatakaPtBackfillSchemaTests
                 WHERE state_code = '{Karnataka}' AND band_order = 1;
                 """);
             if (operatorEdit is not null) Exec(conn, operatorEdit);
+            // The FULL chain down. v55 first (it is the top rung), then v54 — skipping either would stamp the
+            // marker past a rung the forward climb then re-runs against a file that was never un-done.
+            SchemaDowngrade.V55ToV54(conn);
             SchemaDowngrade.V54ToV53(conn);
             SqliteConnection.ClearPool(conn);
         }
@@ -504,6 +614,11 @@ public sealed class KarnatakaPtBackfillSchemaTests
     private static string SchemaFingerprint(string path) => string.Join(";\n", ReadRows(path,
         "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;"));
 
+    /// <summary>The column names of <paramref name="table"/>, from <c>PRAGMA table_info</c> — how the ladder test
+    /// tells a v53 <c>ledgers</c> (no credit-limit columns) from a v54/v55 one.</summary>
+    private static List<string> ColumnNames(string path, string table) =>
+        ReadRows(path, $"SELECT name FROM pragma_table_info('{table}');");
+
     /// <summary>The first column of every row, in the query's own ORDER BY.</summary>
     private static List<string> ReadRows(string path, string sql)
     {
@@ -529,6 +644,16 @@ public sealed class KarnatakaPtBackfillSchemaTests
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary><see cref="ReadScalar"/> against an ALREADY-OPEN connection — needed between two downgrade steps,
+    /// where opening a second connection to the same file would read across the first one's transaction state.
+    /// </summary>
+    private static long ScalarOn(SqliteConnection conn, string sql)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        return Convert.ToInt64(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static long ReadScalar(string path, string sql)
