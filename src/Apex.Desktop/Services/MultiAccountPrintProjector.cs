@@ -56,6 +56,27 @@ public enum MultiAccountDocumentKind
 /// </summary>
 public static class MultiAccountPrintProjector
 {
+    /// <summary>
+    /// 🔴 <b>THE ONE PLACE A DATE BECOMES TEXT ON THESE DOCUMENTS — and it must never read the ambient culture.</b>
+    ///
+    /// <para>Every date this projector prints used to be formatted with a bare
+    /// <c>DateOnly.ToString("dd-MM-yyyy")</c>. A bare custom format string reads
+    /// <see cref="System.Globalization.CultureInfo.CurrentCulture"/>, and <b>CurrentCulture carries a
+    /// CALENDAR</b>: measured, the Robert fixture's period printed <c>01-04-2563</c> on a Thai machine
+    /// (<c>th-TH</c>, Buddhist era — the year moves by 543) and <c>08-08-1441</c> on <c>ar-SA</c> (Umm al-Qura —
+    /// the day and month move too), against the <c>01-04-2020</c> the books actually carry. Same figures, wrong
+    /// dates: a confirmation of accounts asking a counterparty to confirm a balance "as at" a date that is not the
+    /// date of the balance.</para>
+    ///
+    /// <para>No CI leg could see it — ubuntu, windows and macos all resolve to an English/invariant ambient
+    /// culture — and the projector had no caller at all until this slice gave it a menu route, so this is the pass
+    /// in which those sites became paper. Every other printed document already formats through the invariant
+    /// culture (<c>VoucherPrintProjector</c>, nine sites); this projector was the sole exception.
+    /// <c>MultiAccountPrintCultureTests</c> pins it by comparing rendered bytes across four locales.</para>
+    /// </summary>
+    private static string Day(DateOnly date) =>
+        date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
     /// <summary>The heading each document kind carries. OURS (ruling 9) — see <see cref="MultiAccountDocumentKind"/>.</summary>
     public static string TitleFor(MultiAccountDocumentKind kind) => kind switch
     {
@@ -176,7 +197,7 @@ public static class MultiAccountPrintProjector
         foreach (var r in book.Rows)
         {
             rows.Add(new PrintRow(
-                r.Date.ToString("dd-MM-yyyy"),
+                Day(r.Date),
                 ReportPrintProjector.Ascii(r.CounterParticulars ?? string.Empty),
                 ReportPrintProjector.Ascii(r.VoucherTypeName)
                     + (string.IsNullOrEmpty(r.FormattedNumber) ? string.Empty : " " + r.FormattedNumber),
@@ -193,7 +214,7 @@ public static class MultiAccountPrintProjector
         {
             Title = TitleFor(MultiAccountDocumentKind.LedgerAccount) + " - " + ReportPrintProjector.Ascii(ledger.Name),
             Subtitle = ReportPrintProjector.Ascii(company.Name)
-                + "  -  " + from.ToString("dd-MM-yyyy") + " to " + asOf.ToString("dd-MM-yyyy"),
+                + "  -  " + Day(from) + " to " + Day(asOf),
             Columns = new[]
             {
                 new PrintColumn("Date", 1.2, CellAlign.Left),
@@ -216,7 +237,7 @@ public static class MultiAccountPrintProjector
         {
             PrintRow.Header("To: " + ReportPrintProjector.Ascii(ledger.Name), string.Empty, string.Empty, string.Empty),
             new PrintRow("Our records show the following amounts still outstanding as at "
-                + asOf.ToString("dd-MM-yyyy") + ".", string.Empty, string.Empty, string.Empty),
+                + Day(asOf) + ".", string.Empty, string.Empty, string.Empty),
             new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty),
             PrintRow.Header("Reference", "Bill Date", "Due Date", "Amount Pending"),
         };
@@ -229,8 +250,8 @@ public static class MultiAccountPrintProjector
             if (b.OverdueDays(asOf) > 0) overdue++;
             rows.Add(new PrintRow(
                 ReportPrintProjector.Ascii(b.Reference),
-                b.Date.ToString("dd-MM-yyyy"),
-                b.DueDate.ToString("dd-MM-yyyy"),
+                Day(b.Date),
+                Day(b.DueDate),
                 IndianFormat.Amount(b.Pending)));
         }
 
@@ -251,7 +272,7 @@ public static class MultiAccountPrintProjector
         return new PrintReport
         {
             Title = TitleFor(MultiAccountDocumentKind.ReminderLetter),
-            Subtitle = ReportPrintProjector.Ascii(company.Name) + "  -  as at " + asOf.ToString("dd-MM-yyyy"),
+            Subtitle = ReportPrintProjector.Ascii(company.Name) + "  -  as at " + Day(asOf),
             Columns = new[]
             {
                 new PrintColumn("Reference", 3.0, CellAlign.Left),
@@ -274,7 +295,7 @@ public static class MultiAccountPrintProjector
         {
             PrintRow.Header("To: " + ReportPrintProjector.Ascii(ledger.Name), string.Empty, string.Empty, string.Empty),
             new PrintRow("Our books show the following balance on your account as at "
-                + asOf.ToString("dd-MM-yyyy") + ".", string.Empty, string.Empty, string.Empty),
+                + Day(asOf) + ".", string.Empty, string.Empty, string.Empty),
             new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty),
             PrintRow.Total("Balance per our books", string.Empty, string.Empty,
                 IndianFormat.SignedAlways(balance.Amount, balance.Side)),
@@ -287,8 +308,8 @@ public static class MultiAccountPrintProjector
             foreach (var b in bills)
                 rows.Add(new PrintRow(
                     ReportPrintProjector.Ascii(b.Reference),
-                    b.Date.ToString("dd-MM-yyyy"),
-                    b.DueDate.ToString("dd-MM-yyyy"),
+                    Day(b.Date),
+                    Day(b.DueDate),
                     IndianFormat.Amount(b.Pending)));
             rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
         }
@@ -306,7 +327,7 @@ public static class MultiAccountPrintProjector
         return new PrintReport
         {
             Title = TitleFor(MultiAccountDocumentKind.ConfirmationOfAccounts),
-            Subtitle = ReportPrintProjector.Ascii(company.Name) + "  -  as at " + asOf.ToString("dd-MM-yyyy"),
+            Subtitle = ReportPrintProjector.Ascii(company.Name) + "  -  as at " + Day(asOf),
             Columns = new[]
             {
                 new PrintColumn("Reference", 3.0, CellAlign.Left),

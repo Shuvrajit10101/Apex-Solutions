@@ -132,8 +132,17 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         set { if (value) DocumentKind = MultiAccountDocumentKind.ConfirmationOfAccounts; }
     }
 
-    /// <summary>The period line the panel shows, so the operator can see what is being printed.</summary>
-    public string PeriodText => _from.ToString("dd-MM-yyyy") + " to " + _asOf.ToString("dd-MM-yyyy");
+    /// <summary>
+    /// The period line the panel shows, so the operator can see what is being printed.
+    ///
+    /// <para>🔴 <b>Invariant culture, deliberately</b> — for the reason spelled out at
+    /// <c>MultiAccountPrintProjector.Day</c>. A bare <c>ToString("dd-MM-yyyy")</c> here read the ambient calendar
+    /// and showed <c>01-04-2563</c> on a Thai machine and <c>08-08-1441</c> on <c>ar-SA</c>, so the panel
+    /// disagreed with the paper it was about to print as well as with the books.</para>
+    /// </summary>
+    public string PeriodText =>
+        _from.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
+        + " to " + _asOf.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>How many accounts are currently in the job.</summary>
     public int SelectedCount

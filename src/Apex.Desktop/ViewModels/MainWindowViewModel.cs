@@ -1586,9 +1586,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         //     Alt+E fires the current-object export; that is the shared menu shell filed as T2-20, upstream of
         //     nine census rows, and it is not this slice's to build alone.
         //   • EXPORT of the job at all — this panel prints, and has no export arm.
-        // So the honest grade this entry supports is 12.6 closed and 12.7 PARTIAL. Naming a row in a comment
-        // records what the code is FOR; it never moves the row. (Seven false closure claims of exactly this shape
-        // were found in the record two passes ago — this was the eighth.)
+        // So the honest grade this entry supports is 12.6 PARTIAL and 12.7 PARTIAL — NEITHER row is closed, and
+        // an earlier draft of this very comment said "12.6 closed" two lines after listing what 12.6 is still
+        // missing, which is how a false closure claim gets written by someone who knows better. Naming a row in
+        // a comment records what the code is FOR; it never moves the row. (Seven false closure claims of exactly
+        // this shape were found in the record two passes ago — this was the eighth, and the "12.6 closed" line
+        // would have been the ninth.)
         col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
