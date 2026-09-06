@@ -38,22 +38,20 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsDocumentKnobs => _preview.SupportsPrintConfig;
 
-    /// <summary>
-    /// True when the W2-31 <b>page RANGE</b> knobs apply — the first/last page and the starting page number.
-    ///
-    /// <para>🔴 <b>This is a SEPARATE predicate from <see cref="SupportsPageKnobs"/>, and the split is the whole
-    /// point.</b> W2-31's finishing pass taught <c>InvoicePdf</c>, <c>VoucherPdf</c>, <c>PayslipPdf</c> and
-    /// <c>PosReceiptPdf</c> the F10 range and starting number — they read <c>PageConfig.IncludesPage</c> and
-    /// <c>StartPageNumber</c> exactly as <c>ReportPdf</c> does, under the same rule (renumber, then select; a
-    /// selection of nothing is one blank sheet, never the whole document). The FORMAT and the PAPER are still
-    /// <c>ReportPdf</c>-only.</para>
-    ///
-    /// <para>Widening the single old predicate would therefore have re-offered two knobs that remain inert —
-    /// re-creating the exact defect the withdrawal fixed. One boolean cannot carry two answers; that is the same
-    /// lesson <c>PrintedDocumentClass</c> learned one layer down.
-    /// <c>PrintConfigKnobsMoveTheBytesTests</c> now holds BOTH pairings by comparing rendered bytes.</para>
-    /// </summary>
-    public bool SupportsPageRange => true;
+    // 🔴 THERE IS DELIBERATELY NO `SupportsPageRange` PREDICATE.
+    //
+    // W2-31's finishing pass taught InvoicePdf, VoucherPdf, PayslipPdf and PosReceiptPdf the F10 range and the
+    // starting number — they read PageConfig.IncludesPage and StartPageNumber exactly as ReportPdf does, under
+    // the same rule (renumber, then select; a selection of nothing is one blank sheet, never the whole document).
+    // So the range applies to EVERY PrintKind, and the range group in MainWindow.axaml is ungated.
+    //
+    // It briefly existed as `public bool SupportsPageRange => true;` bound to an IsVisible, and review was right
+    // to reject it: a predicate that can only ever read one value is the dead-knob shape this file exists to
+    // forbid — it looks like a gate, it is bound like a gate, and it can never refuse anything. A `true` behind
+    // a binding is indistinguishable from a gate that has silently stopped working. If a renderer is ever added
+    // that does NOT honour the range, the honest move is to introduce the predicate THEN, with the kind test in
+    // it, exactly as SupportsPageKnobs below carries a real one. PrintConfigKnobsMoveTheBytesTests holds the
+    // claim that is actually load-bearing: setting a range or a starting number MOVES A DOCUMENT'S BYTES.
 
     /// <summary>
     /// True when the W2-31 <b>page-layout</b> knobs apply — the print format and the paper toggle.
@@ -69,8 +67,8 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// by rendering and comparing bytes, so it cannot be satisfied by relabelling.</para>
     ///
     /// <para><b>Half of that has since been done, and it is why this summary no longer mentions the range.</b>
-    /// The four document renderers now honour <c>IncludesPage</c> and <c>StartPageNumber</c>, so the range moved
-    /// out to <see cref="SupportsPageRange"/> and is offered everywhere. What is still <c>ReportPdf</c>-only is
+    /// The four document renderers now honour <c>IncludesPage</c> and <c>StartPageNumber</c>, so the range left
+    /// this gate altogether and is offered everywhere, ungated. What is still <c>ReportPdf</c>-only is
     /// the FORMAT and the PAPER — <c>Formatted*</c> and <c>Draws*</c> — so those two stay gated here. Teaching the
     /// document renderers a dot-matrix pitch and a pre-printed suppression remains open work, and when it is done
     /// this predicate widens the same way the range did.</para>

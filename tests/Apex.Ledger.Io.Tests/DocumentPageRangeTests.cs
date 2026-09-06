@@ -59,6 +59,21 @@ public sealed class DocumentPageRangeTests
 
     // ---- fixtures: deterministic, and deliberately long enough to paginate ----
 
+    /// <summary>
+    /// A posting-line count at which the voucher's closing block does NOT fit under the last posting line and
+    /// spills to a sheet of its OWN — the shape
+    /// <see cref="A_voucher_range_that_excludes_the_closing_overflow_sheet_does_not_draw_it"/> needs.
+    ///
+    /// <para>🔴 <b>It is NOT most counts, and the near-miss is worth recording.</b> A spill was first looked for
+    /// by checking that the closing block was absent from sheets 1..n-1 — which is true of EVERY count, because
+    /// the closing is always on the last sheet whether or not that sheet is an overflow. The test built on it
+    /// stayed green under the mutation. The real test of a spill is that the last sheet carries the closing and
+    /// <b>no posting line at all</b>; measured that way only 50-53, 104-108 and 159-163 lines spill on this
+    /// fixture. 106 is used because it also gives a genuinely multi-sheet document (3 sheets), so the range below
+    /// is a real subset.</para>
+    /// </summary>
+    private const int ClosingSpillsVoucherLines = 106;
+
     /// <summary>A payment voucher with <paramref name="lines"/> posting lines — enough to span several sheets.</summary>
     private static VoucherPrintData LongVoucher(int lines)
     {
@@ -136,6 +151,94 @@ public sealed class DocumentPageRangeTests
 
         Assert.Contains($"Page 7 of {7 + total - 1}", s, System.StringComparison.Ordinal);
         Assert.Equal(total, PageCount(Encoding.Latin1.GetBytes(s)));
+    }
+
+    /// <summary>
+    /// 🔴 <b>The VoucherPdf counterpart of the invoice's first-page test — the same hole, one file over.</b>
+    ///
+    /// <para><c>VoucherPdf.Render</c> carries the identical <c>bool isFirst = p == 0;</c> and the identical
+    /// comment claiming why it must be the sheet's index in the DOCUMENT, and <b>nothing tested it</b>: the
+    /// reviewer's mutation to <c>isFirst = drawn == 0</c> had no assertion anywhere in the tree to fail.
+    /// <c>DrawHeaderBand</c>'s first-page arm is what draws the company name, the <c>No:</c> / <c>Dated:</c> row,
+    /// the <c>Party:</c> line, the counterparty <c>Reference No</c> row and the <c>PrintConfig.CopyMarking</c>
+    /// label. Derive "first" from the drawn count and an operator reprinting sheet 2 of a 3-sheet voucher gets a
+    /// sheet headed as the document's first page — company name, voucher number, party and an ORIGINAL marking —
+    /// for a page the posted document never contained.</para>
+    ///
+    /// <para>Asserted on the BYTES and negatively, for the invoice test's reason: there is no flag to read, the
+    /// defect is entirely in what ink lands on the sheet. The positive half is the <c>(continued)</c> title
+    /// <c>DrawHeaderBand</c>'s else-arm writes, which proves the sheet was drawn as a continuation rather than
+    /// merely missing its header.</para>
+    /// </summary>
+    [Fact]
+    public void Reprinting_sheet_two_of_a_voucher_never_fabricates_the_first_page_band()
+    {
+        // The same 120-line fixture, plus the three optional first-page rows — a party, a counterparty reference
+        // and a copy marking — so every branch of DrawHeaderBand's isFirstPage arm is on the sheet being checked.
+        var plain = LongVoucher(120);
+        var data = new VoucherPrintData
+        {
+            CompanyName = plain.CompanyName,
+            VoucherTypeName = plain.VoucherTypeName,
+            VoucherNumber = plain.VoucherNumber,
+            DateText = plain.DateText,
+            PartyName = "Global Traders",
+            ReferenceNo = "SUP-0007",
+            Lines = plain.Lines,
+            Narration = plain.Narration,
+        };
+        var config = new PrintConfig { CopyMarking = CopyMarking.Original };
+
+        // Sanity: the REAL first sheet carries every one of them. Without this the negatives below would also
+        // pass on a renderer that had simply stopped drawing the band anywhere.
+        string sheetOne = AsLatin1(VoucherPdf.Render(data, config, new PageConfig { FirstPage = 1, LastPage = 1 }));
+        Assert.Contains("Bright Traders", sheetOne, StringComparison.Ordinal);
+        Assert.Contains("No: 42", sheetOne, StringComparison.Ordinal);
+        Assert.Contains("Party: Global Traders", sheetOne, StringComparison.Ordinal);
+        Assert.Contains("SUP-0007", sheetOne, StringComparison.Ordinal);
+        Assert.Contains("ORIGINAL FOR RECIPIENT", sheetOne, StringComparison.Ordinal);
+        Assert.DoesNotContain("continued", sheetOne, StringComparison.Ordinal);
+
+        // The reprint of sheet 2 alone.
+        string sheetTwo = AsLatin1(VoucherPdf.Render(data, config, new PageConfig { FirstPage = 2, LastPage = 2 }));
+
+        Assert.Equal(1, PageCount(Encoding.Latin1.GetBytes(sheetTwo)));
+        Assert.DoesNotContain("Bright Traders", sheetTwo, StringComparison.Ordinal);
+        Assert.DoesNotContain("No: 42", sheetTwo, StringComparison.Ordinal);
+        Assert.DoesNotContain("Party: Global Traders", sheetTwo, StringComparison.Ordinal);
+        Assert.DoesNotContain("SUP-0007", sheetTwo, StringComparison.Ordinal);
+        Assert.DoesNotContain("ORIGINAL FOR RECIPIENT", sheetTwo, StringComparison.Ordinal);
+        // …and it IS a continuation sheet, not a first page with its band mislaid.
+        Assert.Contains("continued", sheetTwo, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The VoucherPdf counterpart of the invoice's closing-overflow range test — the identical
+    /// <c>if (closingOnNewPage &amp;&amp; page.IncludesPage(total))</c> guard, and it was equally untested.
+    /// <c>Narration:</c> is the marker because it is drawn only by <c>DrawClosingBlock</c>.
+    /// </summary>
+    [Fact]
+    public void A_voucher_range_that_excludes_the_closing_overflow_sheet_does_not_draw_it()
+    {
+        var data = LongVoucher(ClosingSpillsVoucherLines);
+        int total = PageCount(VoucherPdf.Render(data, new PrintConfig(), new PageConfig()));
+        Assert.True(total >= 2, $"the fixture produced {total} sheet(s); it must paginate");
+
+        var ranged = VoucherPdf.Render(data, new PrintConfig(),
+            new PageConfig { FirstPage = 1, LastPage = total - 1 });
+        string s = AsLatin1(ranged);
+
+        Assert.Equal(total - 1, PageCount(ranged));
+        Assert.DoesNotContain("Narration:", s, StringComparison.Ordinal);
+
+        // 🔴 THE NON-VACUITY, and it must be this exact pair. The last sheet carries the closing block and NOT A
+        // SINGLE posting line — that, and only that, is what makes it an OVERFLOW sheet rather than the last item
+        // sheet with the closing tucked under it. Asserting merely that the closing is on the last sheet is true
+        // of every line count and proves nothing.
+        string lastSheet = AsLatin1(VoucherPdf.Render(data, new PrintConfig(),
+            new PageConfig { FirstPage = total, LastPage = total }));
+        Assert.Contains("Narration:", lastSheet, StringComparison.Ordinal);
+        Assert.DoesNotContain("Expense Head", lastSheet, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -380,6 +483,47 @@ public sealed class DocumentPageRangeTests
         Assert.Equal(total, PageCount(Encoding.Latin1.GetBytes(s)));
         // Renumbering selects nothing, so the statutory first page is still the first page.
         Assert.Contains("Supplier:", s, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE CLOSING-OVERFLOW SHEET IS INSIDE THE RANGE, NOT OUTSIDE IT.</b>
+    ///
+    /// <para>When the totals block will not fit under the last item row it spills to a sheet of its own, drawn by
+    /// a second block after the page loop under <c>if (closingOnNewPage &amp;&amp; page.IncludesPage(total))</c>.
+    /// The reviewer deleted <c>&amp;&amp; page.IncludesPage(total)</c> and the WHOLE Io suite stayed green: an
+    /// operator reprinting sheets 1-2 of a 3-sheet invoice would have received a third sheet he did not ask for,
+    /// carrying the Grand Total and the per-rate tax breakup — and it would have been numbered as the last sheet
+    /// of the document, so nothing on the paper would say it was unwanted.</para>
+    ///
+    /// <para><b>The item count is chosen so the closing REALLY spills</b>, and that is not assumed: the
+    /// <c>DoesNotContain</c> below is what proves it. If the closing block still fitted on the last item sheet it
+    /// would appear inside the selected range and this test would fail — so the test cannot silently degrade into
+    /// one that proves nothing if the geometry shifts.</para>
+    /// </summary>
+    [Fact]
+    public void An_invoice_range_that_excludes_the_closing_overflow_sheet_does_not_draw_it()
+    {
+        var data = LongTaxInvoice(40);
+        int total = PageCount(InvoicePdf.Render(data, new PrintConfig(), new PageConfig()));
+        Assert.True(total >= 2, $"the 40-item invoice fixture produced {total} sheet(s); it must paginate");
+
+        // Everything EXCEPT the last sheet.
+        var ranged = InvoicePdf.Render(data, new PrintConfig(),
+            new PageConfig { FirstPage = 1, LastPage = total - 1 });
+        string s = AsLatin1(ranged);
+
+        Assert.Equal(total - 1, PageCount(ranged));
+        // …and the closing block is not on any of them — which is simultaneously the proof that the closing
+        // really did spill to its own sheet in this fixture.
+        Assert.DoesNotContain("Grand Total", s, StringComparison.Ordinal);
+
+        // The positive half, and the non-vacuity: that last sheet, asked for on its own, carries the closing block
+        // and NOT ONE item row. That pair is what makes it an OVERFLOW sheet rather than the last item sheet with
+        // the totals tucked under them — "the closing is on the last sheet" is true of every item count.
+        string lastSheet = AsLatin1(InvoicePdf.Render(data, new PrintConfig(),
+            new PageConfig { FirstPage = total, LastPage = total }));
+        Assert.Contains("Grand Total", lastSheet, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cotton Bale", lastSheet, StringComparison.Ordinal);
     }
 
     [Fact]

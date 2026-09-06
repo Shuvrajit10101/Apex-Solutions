@@ -16218,12 +16218,16 @@
                                 </Grid>
 
                                 <!-- 🔴 The PAGE-LAYOUT knobs are gated on SupportsPageKnobs, which is true only
-                                     where the renderer honours them. ReportPdf reads PageConfig's Formatted* /
-                                     Draws* / IncludesPage / StartPageNumber; InvoicePdf, VoucherPdf, PayslipPdf
-                                     and PosReceiptPdf read NONE of them and only ever apply the copy count. This
-                                     group was previously ungated (SupportsPageKnobs returned a bare `true` and was
-                                     bound to nothing), so a voucher/invoice operator could set a format, a paper,
-                                     a page range and a starting number and get byte-identical output.
+                                     where the renderer honours them: the FORMAT and the PAPER (PageConfig's
+                                     Formatted* / Draws* members) are read by ReportPdf alone. InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf read none of THOSE — but they DO now
+                                     read IncludesPage and StartPageNumber, which is why the page RANGE moved out
+                                     to its own SupportsPageRange group below. (This comment used to say all four
+                                     read NONE of PageConfig; W2-31's finishing pass made that false and the
+                                     correction is the point of this edit.) The group was previously ungated
+                                     (SupportsPageKnobs returned a bare `true` and was bound to nothing), so a
+                                     voucher/invoice operator could set a format, a paper, a page range and a
+                                     starting number and get byte-identical output.
                                      PrintConfigKnobsMoveTheBytesTests renders and compares bytes to hold this. -->
                                 <StackPanel Spacing="14" IsVisible="{Binding SupportsPageKnobs}">
                                   <TextBlock Text="Print format" FontWeight="Bold"
@@ -16249,14 +16253,17 @@
 
                                 </StackPanel>
 
-                                <!-- W2-31: the PAGE RANGE, on its OWN gate. Every renderer now honours
+                                <!-- W2-31: the PAGE RANGE, in its OWN group. Every renderer now honours
                                      PageConfig.IncludesPage and StartPageNumber - ReportPdf, InvoicePdf,
                                      VoucherPdf, PayslipPdf and PosReceiptPdf - so the range is offered on every
                                      document kind. It is a SEPARATE StackPanel from the format/paper group above
                                      because those two remain ReportPdf-only: folding them back under one gate
                                      would re-offer two knobs that do nothing, which is the defect the withdrawal
-                                     fixed. PrintConfigKnobsMoveTheBytesTests holds both pairings by bytes. -->
-                                <StackPanel Spacing="14" IsVisible="{Binding SupportsPageRange}">
+                                     fixed. PrintConfigKnobsMoveTheBytesTests holds both pairings by bytes.
+                                     UNGATED on purpose: there is no SupportsPageRange binding, because every
+                                     PrintKind honours the range and a predicate that can only read `true` is a
+                                     dead knob wearing a gate's clothes. See the note in PrintConfigViewModel. -->
+                                <StackPanel Spacing="14">
                                   <TextBlock Text="Pages" FontWeight="Bold"
                                              Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                   <Grid ColumnDefinitions="150,*">

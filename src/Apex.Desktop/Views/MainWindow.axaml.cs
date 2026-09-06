@@ -1983,8 +1983,16 @@ public partial class MainWindow : Window
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
 
-    // W2-32 (census 12.6) — the Multi-Account Printing panel's three buttons. Print goes through the SAME
-    // Vm.PrintMultiAccountJob() the Ctrl+A arm reaches, so the button and the accelerator can never diverge.
+    // W2-32 (census 12.6) — the Multi-Account Printing panel's three buttons. Print calls the SAME
+    // Vm.PrintMultiAccountJob() the Ctrl+A arm reaches, so the two cannot print DIFFERENT documents.
+    //
+    // 🔴 That is NOT the same as "the button and the accelerator can never diverge", which is what this comment
+    // used to claim, and which is false. They are guarded by different predicates: this handler has no screen
+    // test at all and prints whenever it is invoked, while the Ctrl+A arm in OnKeyDown fires only under
+    // `vm.CurrentScreen == Screen.MultiAccountPrint`. So the two agree on WHAT is printed and not on WHEN — with
+    // the panel's view model still alive after a navigation away, a click here still prints and Ctrl+A does
+    // nothing. What the shared call really guarantees is the thing worth guaranteeing: no second copy of the
+    // print logic can rot behind the button. Say that, and not more.
     private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
         => Vm?.PrintMultiAccountJob();
 

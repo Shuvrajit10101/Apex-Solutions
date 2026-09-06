@@ -157,23 +157,20 @@ public sealed class PrintConfigKnobsMoveTheBytesTests
     /// <b>THE SAME INVARIANT FOR THE PAGE RANGE, WHICH IS NOW A SEPARATE OFFER.</b>
     ///
     /// <para>W2-31's finishing pass taught <c>InvoicePdf</c>, <c>VoucherPdf</c>, <c>PayslipPdf</c> and
-    /// <c>PosReceiptPdf</c> the F10 page range and starting number, so
-    /// <see cref="PrintConfigViewModel.SupportsPageRange"/> is now true over a document. The format and the paper
-    /// are STILL <c>ReportPdf</c>-only, which is exactly why the predicate was split rather than widened: one
-    /// boolean covering three knobs could only re-offer the two that remain inert, which is the defect this whole
-    /// file exists to catch.</para>
+    /// <c>PosReceiptPdf</c> the F10 page range and starting number, so the range group in the panel is offered on
+    /// every document kind and is ungated. The format and the paper are STILL <c>ReportPdf</c>-only and stay
+    /// behind <see cref="PrintConfigViewModel.SupportsPageKnobs"/> — one boolean covering all three could only
+    /// re-offer the two that remain inert, which is the defect this whole file exists to catch.</para>
     ///
-    /// <para>Written as the same conditional shape as the assertion above — offering nothing owes nothing — so it
-    /// keeps guarding the pairing rather than freezing today's answer.</para>
+    /// <para>🔴 <b>UNCONDITIONAL, deliberately.</b> It used to open <c>if (!panel.SupportsPageRange) return;</c>
+    /// against a predicate that read a bare <c>true</c> — a guard that could never fire, guarding an offer that
+    /// is never withdrawn. The predicate is gone and so is the guard: the panel offers the range over a tax
+    /// invoice, so it OWES that the range moves the invoice's bytes, with no escape hatch.</para>
     /// </summary>
     [Fact]
     public void An_offered_page_range_changes_a_document_preview()
     {
         var preview = new PrintPreviewViewModel(OutwardTaxInvoice());
-        var panel = PanelOver(preview);
-
-        if (!panel.SupportsPageRange)
-            return;   // not offered here — nothing is being claimed, so nothing is owed
 
         var start = Render(preview, p => p.StartPageNumber = 7);
         Assert.False(start.Before.SequenceEqual(start.After),

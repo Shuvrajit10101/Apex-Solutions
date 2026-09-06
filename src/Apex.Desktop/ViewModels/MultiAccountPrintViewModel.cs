@@ -18,21 +18,26 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
     public string GroupName { get; }
 
     /// <summary>
-    /// Whether this account is a party (under Sundry Debtors / Sundry Creditors) — see
-    /// <see cref="MultiAccountPrintProjector.IsPartyAccount"/>. Only a party can be sent a reminder letter or
-    /// asked to confirm a balance, so this decides whether the row is OFFERED for those two document kinds.
+    /// 🔴 The account this row stands for, kept so eligibility can be asked of the ONE rule
+    /// (<see cref="MultiAccountPrintProjector.MayProduce"/>) at the moment the kind changes.
+    ///
+    /// <para>It used to be a single cached <c>IsPartyAccount</c> boolean, and that shape could not survive the
+    /// rule growing a second answer: a reminder letter is receivable-side only while a confirmation of accounts
+    /// is either side, so "is this row offered?" has a different answer per kind. One boolean cannot carry two
+    /// answers. Holding the ledger keeps the panel and <see cref="MultiAccountPrintProjector.Project"/>
+    /// asking literally the same predicate, so the two gates cannot drift.</para>
     /// </summary>
-    public bool IsPartyAccount { get; }
+    public DomainLedger Ledger { get; }
 
     /// <summary>Whether this account is in the print job. Space toggles it; the panel drives Select All / None.</summary>
     [ObservableProperty] private bool _isSelected;
 
-    public MultiAccountRowViewModel(Guid ledgerId, string name, string groupName, bool isPartyAccount)
+    public MultiAccountRowViewModel(DomainLedger ledger, string groupName)
     {
-        LedgerId = ledgerId;
-        Name = name ?? string.Empty;
+        Ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
+        LedgerId = ledger.Id;
+        Name = ledger.Name ?? string.Empty;
         GroupName = groupName ?? string.Empty;
-        IsPartyAccount = isPartyAccount;
     }
 }
 
@@ -89,10 +94,12 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
     /// <summary>
     /// The accounts currently OFFERED, in name order, each selectable — the set the panel's list binds to.
     ///
-    /// <para>🔴 <b>It is not always every account, and that is the point.</b> For
+    /// <para>🔴 <b>It is not always every account, and that is the point.</b> The rule is
+    /// <see cref="MultiAccountPrintProjector.MayProduce"/>, asked here and again inside
+    /// <see cref="MultiAccountPrintProjector.Project"/>: for
     /// <see cref="MultiAccountDocumentKind.LedgerAccount"/> it is every account, because a statement is meaningful
-    /// for any of them. For the two counterparty letters it is the PARTY accounts only
-    /// (<see cref="MultiAccountPrintProjector.IsPartyAccount"/>). The panel previously offered all thirteen
+    /// for any of them; for the confirmation of accounts it is the PARTY accounts; and for the reminder letter,
+    /// whose text asks for settlement, it is the RECEIVABLE side only. The panel previously offered all thirteen
     /// accounts of a demo company for every kind and ticked them all on Select All, so two keystrokes produced
     /// "Reminder Letter — To: Cash", "To: Freight Income" and "To: Profit &amp; Loss A/c", each with a Total
     /// outstanding of 0.00, and the confirmation added "Confirmed by ____ Date ____" to a nominal account. That is
@@ -168,8 +175,7 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         ordered.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         foreach (var l in ordered)
         {
-            var row = new MultiAccountRowViewModel(l.Id, l.Name, GroupNameOf(company, l),
-                MultiAccountPrintProjector.IsPartyAccount(company, l));
+            var row = new MultiAccountRowViewModel(l, GroupNameOf(company, l));
             row.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MultiAccountRowViewModel.IsSelected))
@@ -193,12 +199,11 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
     /// </summary>
     private void RebuildOfferedAccounts()
     {
-        bool partiesOnly = MultiAccountPrintProjector.AddressesACounterparty(DocumentKind);
-
         Accounts.Clear();
         foreach (var row in _allAccounts)
         {
-            if (partiesOnly && !row.IsPartyAccount)
+            // The SAME predicate Project applies — never a second copy of the rule.
+            if (!MultiAccountPrintProjector.MayProduce(DocumentKind, _company, row.Ledger))
             {
                 row.IsSelected = false;               // it is leaving the list — it must leave the job with it
                 continue;
@@ -219,11 +224,20 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
     /// Letter and sees eleven of his thirteen accounts disappear is told why, rather than left to guess that the
     /// panel is broken.
     /// </summary>
-    public string OfferedAccountsNote => MultiAccountPrintProjector.AddressesACounterparty(DocumentKind)
-        ? (Accounts.Count > 0
+    public string OfferedAccountsNote => DocumentKind switch
+    {
+        // The reminder letter asks for settlement, so it is offered on the RECEIVABLE side only — see
+        // MultiAccountPrintProjector.IsReceivableAccount. Saying so is the whole point of this line: an operator
+        // who expects his suppliers in the list is told why they are not, rather than left thinking the panel
+        // has lost them.
+        MultiAccountDocumentKind.ReminderLetter => Accounts.Count > 0
+            ? "Receivable accounts only (Sundry Debtors) — this letter asks the recipient to settle what is owed to us."
+            : "No account exists under Sundry Debtors, so there is nobody this letter could ask for payment.",
+        MultiAccountDocumentKind.ConfirmationOfAccounts => Accounts.Count > 0
             ? "Party accounts only (Sundry Debtors / Sundry Creditors) — this document is addressed to a counterparty."
-            : "No party account exists (Sundry Debtors / Sundry Creditors), so there is nobody to address this document to.")
-        : "All accounts.";
+            : "No party account exists (Sundry Debtors / Sundry Creditors), so there is nobody to address this document to.",
+        _ => "All accounts.",
+    };
 
     private static string GroupNameOf(Company company, DomainLedger ledger)
     {

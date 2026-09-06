@@ -22,12 +22,21 @@ namespace Apex.Desktop.Tests;
 /// signature line. Every figure on them was correct. There was simply nobody to send them to, and no balance any
 /// outside party could confirm — a document the books cannot support, issued from an unmodified installation.</para>
 ///
-/// <para><b>The rule now enforced.</b> A <c>LedgerAccount</c> statement is meaningful for any account and is
-/// unrestricted. The two counterparty letters are offered for <b>party accounts only</b> — under Sundry Debtors or
-/// Sundry Creditors, by group ANCESTRY, the same walk <c>LedgerMasterViewModel.IsUnderParty</c> performs when the
-/// ledger master decides whether a ledger is a party. There are two independent gates, and both are tested here:
-/// the panel does not OFFER a non-party row for those kinds, and
-/// <see cref="MultiAccountPrintProjector.Project"/> — which is public — refuses one even if handed it directly.</para>
+/// <para><b>The rule now enforced</b> — one predicate, <see cref="MultiAccountPrintProjector.MayProduce"/>:
+/// <list type="bullet">
+///   <item>A <c>LedgerAccount</c> statement is meaningful for any account and is unrestricted.</item>
+///   <item>A <c>ConfirmationOfAccounts</c> is offered for <b>party accounts</b> — under Sundry Debtors or Sundry
+///     Creditors, by group ANCESTRY, the same walk <c>LedgerMasterViewModel.IsUnderParty</c> performs. It is
+///     direction-neutral, so both sides qualify.</item>
+///   <item>🔴 A <c>ReminderLetter</c> is offered for the <b>RECEIVABLE side only</b> — Sundry Debtors. This was
+///     the SECOND defect on the same surface, found by review after the party filter shipped: the letter's body
+///     is unconditionally receivable-direction ("still outstanding" … "settled at your earliest convenience"),
+///     so offering it for a Sundry Creditor produced a demand for payment addressed to somebody we owe, over the
+///     bills they raised on us. The party filter above cannot catch it, because a creditor IS a party.</item>
+/// </list>
+/// There are two independent gates, and both are tested here: the panel does not OFFER an ineligible row for a
+/// kind, and <see cref="MultiAccountPrintProjector.Project"/> — which is public — refuses one even if handed it
+/// directly.</para>
 ///
 /// <para>The Robert fixture is the right instrument: thirteen ledgers, of which exactly two are parties
 /// (<c>Global Traders</c> under Sundry Debtors, <c>HP Diesel Station</c> under Sundry Creditors). So "the filter
@@ -69,20 +78,45 @@ public sealed class MultiAccountPartyFilterTests
             $"the Robert fixture has thirteen ledgers; the statement kind offered {panel.Accounts.Count}");
     }
 
-    [Theory]
-    [InlineData(MultiAccountDocumentKind.ReminderLetter)]
-    [InlineData(MultiAccountDocumentKind.ConfirmationOfAccounts)]
-    public void A_counterparty_letter_is_offered_for_the_party_accounts_and_nothing_else(
-        MultiAccountDocumentKind kind)
+    /// <summary>
+    /// The confirmation of accounts is DIRECTION-NEUTRAL — "please confirm that this balance agrees with your
+    /// books" says nothing about who owes whom — so both sides are offered it.
+    /// </summary>
+    [Fact]
+    public void A_confirmation_of_accounts_is_offered_for_both_sides_and_nothing_else()
     {
         var vm = Shell(out _);
         var panel = vm.MultiAccountPrint!;
 
-        panel.DocumentKind = kind;
+        panel.DocumentKind = MultiAccountDocumentKind.ConfirmationOfAccounts;
 
         Assert.Equal(
             new[] { Debtor, Creditor }.OrderBy(n => n, StringComparer.Ordinal).ToArray(),
             panel.Accounts.Select(a => a.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE WRONG-DIRECTION DOCUMENT.</b> The reminder letter is NOT direction-neutral: its body reads
+    /// "the following amounts still outstanding" and asks that they "be settled at your earliest convenience".
+    /// The panel used to offer it for every party — both Sundry Debtors and Sundry Creditors — so an operator
+    /// could print, on the default path, a demand for payment addressed to a supplier <b>WE owe</b>, itemising
+    /// the bills <b>THEY</b> raised on us. Every figure on it was right; the whole document pointed the wrong
+    /// way. Only the receivable side is offered it now.
+    /// </summary>
+    [Fact]
+    public void A_reminder_letter_is_offered_for_the_receivable_side_only()
+    {
+        var vm = Shell(out _);
+        var panel = vm.MultiAccountPrint!;
+
+        panel.DocumentKind = MultiAccountDocumentKind.ReminderLetter;
+
+        Assert.Equal(new[] { Debtor }, panel.Accounts.Select(a => a.Name).ToArray());
+
+        // Non-vacuity: the creditor really is a party — it is offered the confirmation on the very next line —
+        // so this is a DIRECTION filter and not the party filter tested above doing the work twice.
+        panel.DocumentKind = MultiAccountDocumentKind.ConfirmationOfAccounts;
+        Assert.Contains(panel.Accounts, a => a.Name == Creditor);
     }
 
     /// <summary>
@@ -128,9 +162,16 @@ public sealed class MultiAccountPartyFilterTests
         Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
         string pdf = AsLatin1(vm.PrintPreview!.PdfBytes);
 
-        // The counterparties the books CAN support.
+        // The counterparty the books CAN support: somebody who owes us.
         Assert.Contains("To: " + Debtor, pdf, StringComparison.Ordinal);
-        Assert.Contains("To: " + Creditor, pdf, StringComparison.Ordinal);
+
+        // 🔴 And NOT the supplier. A reminder demanding settlement, addressed to a party WE owe, over the bills
+        // THEY raised on us, is a document the books cannot support — asserted on the printed bytes because that
+        // is the only place the defect ever appeared.
+        Assert.DoesNotContain("To: " + Creditor, pdf, StringComparison.Ordinal);
+        // Non-vacuity for that negative: a run that produced NO letters at all would satisfy it. The letter's
+        // own heading proves the job was really rendered.
+        Assert.Contains("Reminder Letter", pdf, StringComparison.Ordinal);
 
         // The ones they cannot. Each of these was on the paper before the filter existed.
         Assert.DoesNotContain("To: Cash", pdf, StringComparison.Ordinal);
@@ -176,22 +217,29 @@ public sealed class MultiAccountPartyFilterTests
         var company = DemoData.BuildRobert("Projector Gate Fixture");
         var cash = company.Ledgers.Single(l => l.Name == "Cash");
         var debtor = company.Ledgers.Single(l => l.Name == Debtor);
-        var ids = new[] { cash.Id, debtor.Id };
+        var creditor = company.Ledgers.Single(l => l.Name == Creditor);
+        var ids = new[] { cash.Id, debtor.Id, creditor.Id };
         var from = company.BooksBeginFrom;
         var asOf = new DateOnly(2025, 3, 31);
 
+        // 🔴 The reminder letter is receivable-side only, so BOTH Cash and the supplier are dropped and only the
+        // debtor survives — and the surviving letter is addressed to him, not merely counted.
         var letters = MultiAccountPrintProjector.Project(
             company, ids, MultiAccountDocumentKind.ReminderLetter, from, asOf);
-        Assert.Single(letters);                      // Cash was dropped; the debtor survived
+        Assert.Single(letters);
+        Assert.Contains(letters[0].Rows, r => r.Cells.Count > 0 && r.Cells[0] == "To: " + Debtor);
+        Assert.DoesNotContain(letters[0].Rows, r => r.Cells.Count > 0 && r.Cells[0] == "To: " + Creditor);
 
+        // The confirmation is direction-neutral, so BOTH parties survive it — proving the reminder's extra
+        // refusal above is a direction gate and not the party gate counted twice.
         var confirmations = MultiAccountPrintProjector.Project(
             company, ids, MultiAccountDocumentKind.ConfirmationOfAccounts, from, asOf);
-        Assert.Single(confirmations);
+        Assert.Equal(2, confirmations.Count);
 
-        // …and the SAME two ids both produce a statement, so the gate is per-kind, not per-account.
+        // …and the SAME three ids all produce a statement, so the gate is per-kind, not per-account.
         var statements = MultiAccountPrintProjector.Project(
             company, ids, MultiAccountDocumentKind.LedgerAccount, from, asOf);
-        Assert.Equal(2, statements.Count);
+        Assert.Equal(3, statements.Count);
     }
 
     // ============================================================ the drift lock
