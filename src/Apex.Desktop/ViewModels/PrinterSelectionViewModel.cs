@@ -87,7 +87,18 @@ public sealed partial class PrinterSelectionViewModel : ViewModelBase
         set
         {
             int wanted = value < 1 ? 1 : value;
-            if (_preview.Copies == wanted) return;
+
+            // 🔴 The notification is raised whenever the ACCEPTED value differs from the value that was OFFERED,
+            // not only when the stored value moves. Typing 0 into the box clamps to 1, which on an unchanged
+            // preview is no move at all — and returning silently there leaves the two-way binding showing "0"
+            // while the job will print 1. A copies box that displays a number the paper will not match is the
+            // screen lying about what is being printed, so the clamp must always push itself back to the box.
+            if (_preview.Copies == wanted)
+            {
+                if (wanted != value) OnPropertyChanged();
+                return;
+            }
+
             _preview.Copies = wanted;
             OnPropertyChanged();
         }

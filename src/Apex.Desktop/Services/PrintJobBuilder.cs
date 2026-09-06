@@ -27,8 +27,11 @@ public static class PrintJobBuilder
     /// <summary>
     /// 🔴 <b>The copy count asked of the spooler is ALWAYS one.</b>
     ///
-    /// <para>Copies are collated into the document itself: every renderer in <c>Apex.Ledger.Io</c> ends with
-    /// <c>writer.RepeatAllPages(page.EffectiveCopies)</c>, so a preview set to three copies IS a PDF that
+    /// <para>Copies are collated into the document itself: each of the five renderers a preview can use
+    /// (<c>ReportPdf</c>, <c>VoucherPdf</c>, <c>InvoicePdf</c>, <c>PosReceiptPdf</c>, <c>PayslipPdf</c>) ends with
+    /// <c>writer.RepeatAllPages(page.EffectiveCopies)</c> — the certificate renderers
+    /// (<c>Form16APdf</c>/<c>Form27APdf</c>/<c>Form27DPdf</c>) honour no copy count and are not previewable, so
+    /// they never reach here — so a preview set to three copies IS a PDF that
     /// contains the document three times. Passing that same three to the spooler as well would print nine
     /// document sets — N², on real paper, discovered only after it had been printed. The count therefore has
     /// exactly one home, the preview's own <c>Copies</c> knob, and this constant is the statement of that.

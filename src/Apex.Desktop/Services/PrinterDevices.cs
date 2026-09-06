@@ -68,6 +68,16 @@ public interface IPrinterDevices
     /// The queues this machine offers, in the order the OS reported them. <b>Never throws</b> — a machine with
     /// no printers, no spooler service, or no <c>lpstat</c> at all returns an empty list, because "there is no
     /// printer" is an answer, not a failure. Callers must handle empty.
+    ///
+    /// <para>⚠️ <b>Synchronous and BLOCKING, and the panel calls it on the UI thread.</b> Stated here rather
+    /// than discovered later: the CUPS shim runs <c>lpstat</c> twice (bounded at
+    /// <c>CupsPrinterDevices.TimeoutMs</c> each) and the Windows shim calls <c>EnumPrinters</c>, which is known
+    /// to stall while it contacts unreachable network queues. On a healthy machine both are milliseconds; on a
+    /// machine with a broken spooler or a dead print server, opening the Printer column can visibly hang for a
+    /// few seconds. It is bounded and it cannot throw, so it degrades rather than breaks — but it is NOT free,
+    /// and that is why <c>PrinterSelectionViewModel</c> enumerates exactly once when the column opens instead of
+    /// re-listing as the operator arrows through the list. The submission half, which can block for very much
+    /// longer, is genuinely off-thread — see <c>WindowsRawPrintJobSubmitter.SubmitAsync</c>.</para>
     /// </summary>
     IReadOnlyList<PrinterDevice> List();
 }

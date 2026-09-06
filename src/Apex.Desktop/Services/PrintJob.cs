@@ -15,7 +15,9 @@ namespace Apex.Desktop.Services;
 /// </param>
 /// <param name="SpoolerCopies">
 /// 🔴 <b>Always 1, and that is a decision, not an oversight.</b> The copy count is already collated INTO
-/// <paramref name="Pdf"/>: every renderer ends with <c>writer.RepeatAllPages(page.EffectiveCopies)</c>, so a
+/// <paramref name="Pdf"/>: each of the five renderers a preview can use — <c>ReportPdf</c>, <c>VoucherPdf</c>,
+/// <c>InvoicePdf</c>, <c>PosReceiptPdf</c>, <c>PayslipPdf</c> — ends with
+/// <c>writer.RepeatAllPages(page.EffectiveCopies)</c>, so a
 /// three-copy preview is a PDF that physically contains the document three times. Asking the spooler for three
 /// copies of that file as well would put nine document sets on real paper. The count lives in exactly one
 /// place — the preview's own <c>Copies</c> knob — and <see cref="PrintJobBuilder"/> is where that is enforced.

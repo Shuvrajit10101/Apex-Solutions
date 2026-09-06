@@ -335,6 +335,14 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
     [DllImport("winspool.drv", EntryPoint = "WritePrinter", SetLastError = true)]
     private static extern bool WritePrinter(IntPtr handle, IntPtr bytes, int count, out int written);
 
+    /// <summary>
+    /// The managed thread <see cref="Spool"/> last ran on, or 0 if it has never run. Test-visible ONLY, and it
+    /// exists to hold the property below: <c>PlatformPrintingTests</c> reads it the instant
+    /// <see cref="SubmitAsync"/> returns, and a spool that had happened on the caller's own thread would be
+    /// caught there. Never read by shipped code.
+    /// </summary>
+    internal static int LastSpoolThreadId;
+
     /// <inheritdoc/>
     public Task<PrintJobResult> SubmitAsync(PrintJob job)
     {
@@ -342,11 +350,18 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
         if (!OperatingSystem.IsWindows())
             return Task.FromResult(new PrintJobResult(false, UnavailablePrintJobSubmitter.Reason));
 
-        return Task.FromResult(Spool(job));
+        // 🔴 Task.Run, NOT Task.FromResult(Spool(job)). Every call below is a blocking win32 P/Invoke, and
+        // OpenPrinter alone can sit for tens of seconds on an offline or unreachable network queue. Building the
+        // result eagerly would run the whole spool on the CALLER's thread — which is the UI thread, because the
+        // shell fires this from the Ctrl+A handler — so the shell would freeze for exactly as long as the printer
+        // took, while MainWindow.axaml.cs's own comment claims fire-and-forget prevents that. It only prevents it
+        // if the work is actually off-thread. This is the line that makes that claim true.
+        return Task.Run(() => Spool(job));
     }
 
     private static PrintJobResult Spool(PrintJob job)
     {
+        LastSpoolThreadId = Environment.CurrentManagedThreadId;
         IntPtr printer = IntPtr.Zero;
         IntPtr unmanaged = IntPtr.Zero;
         bool docStarted = false, pageStarted = false;

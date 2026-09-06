@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Apex.Desktop.Services;
@@ -159,6 +160,67 @@ public sealed class PrinterSelectionViewModelTests
         panel.Copies = 0;
         Assert.Equal(1, panel.Copies);
         Assert.Equal(1, preview.Copies);
+    }
+
+    /// <summary>
+    /// 🔴 <b>A clamp that does not announce itself leaves the box showing a number the paper will not match.</b>
+    ///
+    /// <para>The copies box is a two-way binding. Typing 0 clamps to 1, but on a preview that is ALREADY at 1
+    /// that is no change to the stored value — so a setter that only notifies when the stored value moves stays
+    /// silent, Avalonia never pushes the corrected value back, and the panel sits there reading "0 copies" while
+    /// the job it is about to spool will print 1. The screen would be lying about what is being printed.</para>
+    ///
+    /// <para>This asserts the notification itself rather than the resulting value, deliberately: <see
+    /// cref="A_copy_count_below_one_clamps_to_one"/> above already passes on the defective build, because the
+    /// value was never wrong — only the display was.</para>
+    /// </summary>
+    [Fact]
+    public void A_clamped_copy_count_announces_itself_so_the_box_cannot_show_a_number_the_job_will_not_print()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out var preview);
+        Assert.Equal(1, preview.Copies);   // the clamp target and the current value coincide — the silent case
+
+        var announced = new List<string?>();
+        panel.PropertyChanged += (_, e) => announced.Add(e.PropertyName);
+
+        panel.Copies = 0;
+
+        Assert.Contains(nameof(PrinterSelectionViewModel.Copies), announced);
+        Assert.Equal(1, panel.Copies);
+    }
+
+    /// <summary>A rejected NEGATIVE count announces itself for the same reason, and still prints one.</summary>
+    [Fact]
+    public void A_negative_copy_count_announces_itself_and_still_spools_one()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out _);
+
+        var announced = new List<string?>();
+        panel.PropertyChanged += (_, e) => announced.Add(e.PropertyName);
+
+        panel.Copies = -5;
+
+        Assert.Contains(nameof(PrinterSelectionViewModel.Copies), announced);
+        Assert.Equal(1, panel.Copies);
+    }
+
+    /// <summary>
+    /// A count that genuinely moves still announces itself exactly as before — the fix above must not have been
+    /// bought by making the ordinary path noisier or quieter.
+    /// </summary>
+    [Fact]
+    public void A_real_copy_count_change_still_announces_itself()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out var preview);
+
+        var announced = new List<string?>();
+        panel.PropertyChanged += (_, e) => announced.Add(e.PropertyName);
+
+        panel.Copies = 4;
+
+        Assert.Contains(nameof(PrinterSelectionViewModel.Copies), announced);
+        Assert.Equal(4, panel.Copies);
+        Assert.Equal(4, preview.Copies);
     }
 
     /// <summary>A refusal is reported in the platform's own words, not as a generic failure.</summary>
