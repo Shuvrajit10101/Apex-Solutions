@@ -199,9 +199,25 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         WidenPeriod(vm.Reports, date);
 
         var row = vm.Reports.Rows.Single(r => r.Particulars.Contains("Acme Supplies", StringComparison.Ordinal));
-        Assert.Contains("Cheque No. 100123", row.Secondary);
         Assert.Contains("HDFC Bank", row.Secondary);
         Assert.Contains("20,000", row.Amount);
+
+        // 🔴 AND IT SURVIVES THE EGRESS. The cheque number used to sit only in `ReportRow.Secondary`, which
+        // NEITHER projection carries — so the printed, PDF-exported, CSV/XLSX-exported and emailed Cheque
+        // Printing report was a list of cheques with no cheque numbers on it, the one field that says which leaf
+        // is being printed. Asserted on both projectors, because they are two independent egresses.
+        var printed = ReportPrintProjector.Project(vm.Reports);
+        var printedRow = printed.Rows.Single(r => r.Cells[0].Contains("Acme Supplies", StringComparison.Ordinal));
+        Assert.Contains("100123", printedRow.Cells[0]);
+
+        var exported = ReportTabularProjector.Project(vm.Reports);
+        var exportedRow = exported.Rows.Single(
+            r => r.Cells[0].TextValue.Contains("Acme Supplies", StringComparison.Ordinal));
+        Assert.Contains("100123", exportedRow.Cells[0].TextValue);
+
+        // The source of both: the cheque number is on the row's PRIMARY label, which is the cell the projections
+        // carry. (`Secondary` keeps the bank and the instrument date — context, not identity.)
+        Assert.Contains("Cheque No. 100123", row.Particulars);
 
         // The drill is what makes a listed cheque a PRINTABLE cheque rather than a line of text. Asserted as the
         // POSTED VOUCHER'S OWN id: `Assert.NotNull` on a Guid is a value type and can never fail, which is the
@@ -544,9 +560,31 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         Assert.Null(detail.ChequePrintRefusal);      // ...and that is not a refusal
 
         // Once dimensions DO exist, an unprintable cheque refuses again — the guard is dormant, not deleted.
-        bank.ChequeLayout = new ChequeLayout { LeafWidthTmm = 2030, LeafHeightTmm = 920 };
+        bank.ChequeLayout = new ChequeLayout
+        {
+            LeafWidthTmm = 2030,
+            LeafHeightTmm = 920,
+            PayeeTopTmm = 300,
+            PayeeLeftTmm = 250,
+            WordsLine1TopTmm = 400,
+            WordsLine1LeftTmm = 250,
+            WordsLine2TopTmm = 470,
+            WordsLine2LeftTmm = 250,
+            WordsWidthTmm = 1400,
+            FiguresTopTmm = 400,
+            FiguresLeftTmm = 1600,
+        };
         var configured = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
-        Assert.Null(configured.ChequePrintRefusal);  // this one is printable
+        Assert.Null(configured.ChequePrintRefusal);  // this one is printable: it actually places its elements
+
+        // 🔴 THIS CASE WAS CORRECTED, AND THE CORRECTION IS THE POINT. The "printable" layout above used to be a
+        // LEAF SIZE AND NOTHING ELSE. Every element in the renderer is guarded by its own offsets, so such a
+        // layout produced a correctly-sized page with no payee, no amount, no date and no signatory on it — and
+        // printing it pulls a real, pre-numbered leaf out of the cheque book, which the operator then has to
+        // void. A blank leaf is not a printable cheque; it refuses, and it names the calibration sheet.
+        bank.ChequeLayout = new ChequeLayout { LeafWidthTmm = 2030, LeafHeightTmm = 920 };
+        var nothingPlaced = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
+        Assert.Contains("place nothing on this leaf", nothingPlaced.ChequePrintRefusal);
 
         bank.ChequeLayout = new ChequeLayout();      // dimensions captured but the leaf size never set
         var unusable = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);

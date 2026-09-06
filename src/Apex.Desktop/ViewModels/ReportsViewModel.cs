@@ -3100,6 +3100,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Printing Report": the cheques pending for printing, showing the favouring name with the instrument number
     /// and date. Enter on a row drills to the paying voucher, where Ctrl+P inks the leaf.
     ///
+    /// <para>🔴 <b>THE CHEQUE NUMBER RIDES IN <c>Particulars</c>, AND THAT IS THE WHOLE POINT.</b> It used to sit only in <c>ReportRow.Secondary</c>, which NEITHER egress carries — <c>ReportPrintProjector</c> emits Particulars + Amount, <c>ReportTabularProjector</c> emits label + money — so the printed, PDF-exported, CSV/XLSX-exported and emailed Cheque Printing report was a list of cheques <b>with no cheque numbers on it</b>, the one field that identifies the leaf being printed. This is the Day Book's "(Cancelled)" fix applied again: put the load-bearing fact in the cell the projections can see, rather than growing a Secondary column on every accounting report. <c>Secondary</c> keeps the bank and the instrument date, which are context, not identity.</para>
     /// <para>The report lists cheques on banks whose <c>Enable Cheque Printing</c> is on — the two v5 columns that
     /// had seventeen references in the engine and not one in the UI until this slice.</para>
     /// </summary>
@@ -3118,8 +3119,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var r in rows)
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Vch No. {r.FormattedNumber}  ·  {r.FavouringName}",
-                Secondary = $"{r.BankName}  ·  Cheque No. {r.InstrumentNumber}" +
+                Particulars = $"{FormatDate(r.Date)}  Cheque No. {r.InstrumentNumber}  ·  {r.FavouringName}  ·  Vch No. {r.FormattedNumber}",
+                Secondary = $"{r.BankName}" +
                             (r.InstrumentDate is { } d ? $"  ·  dated {FormatDate(d)}" : string.Empty),
                 Amount = IndianFormat.Amount(r.Amount),
                 // The drill is what makes the row PRINTABLE: Enter opens the voucher, and Ctrl+P there yields the

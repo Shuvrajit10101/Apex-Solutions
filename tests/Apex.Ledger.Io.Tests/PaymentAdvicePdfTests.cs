@@ -245,6 +245,121 @@ public sealed class PaymentAdvicePdfTests
             Assert.Contains(party, s, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 🔴 <b>ONE letter can be longer than one sheet, and the money at the bottom of it was being drawn off the
+    /// paper.</b>
+    ///
+    /// <para>The flowing-mode guard above only ever fired BETWEEN letters. Inside a letter the cursor decremented
+    /// monotonically from the letterhead to the signature, so an advice carrying eighty bills — an ordinary month
+    /// for a supplier paid on account — put its bill table, its <b>Gross</b>, its <b>Less: TDS</b>, its <b>Net
+    /// Amount Paid</b> and the signatory at negative coordinates. The sheet that reached the supplier stopped
+    /// mid-table with no total on it. Nothing failed: the PDF was valid, the page count was 1, and every
+    /// substring these tests look for was present in the content stream, because a string drawn at y = −400 is
+    /// still in the stream.</para>
+    ///
+    /// <para>So this reads the actual <c>Td</c> placements — the only place the truth is — and additionally
+    /// requires that the continuation sheet be usable: it names the letter it belongs to and repeats the
+    /// bill-table caption band, because a column of bare figures under no headings is not a bill table.</para>
+    /// </summary>
+    [Fact]
+    public void A_letter_longer_than_one_sheet_breaks_the_page_instead_of_running_off_the_bottom()
+    {
+        var page = new PageConfig();
+        var many = Enumerable.Range(1, 80)
+            .Select(i => new SupplierPaymentAdviceBill(
+                $"INV-{i:000}", BillRefType.AgstRef, Money.FromRupees(100m + i), new DateOnly(2026, 6, 19)))
+            .ToArray();
+
+        var pdf = PaymentAdvicePdf.Render(
+            new[] { Advice(gross: 30000m, tds: 3000m, bills: many) },
+            "Apex Solutions", "12 MG Road\nKolkata", page, freshPageEach: true);
+        var s = AsLatin1(pdf);
+
+        var ys = Regex.Matches(s, @"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) Td")
+            .Select(m => double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture))
+            .ToList();
+        Assert.NotEmpty(ys);
+        Assert.True(ys.Min() >= 0, $"text was placed at y={ys.Min()}, off the bottom of the sheet");
+        Assert.True(ys.Max() <= page.PageHeight, $"text was placed at y={ys.Max()}, above the top of the sheet");
+
+        // It really did take more than one sheet — a "fix" that merely squeezed the type would not.
+        Assert.True(PageCountOf(pdf) > 1, "an eighty-bill advice must occupy more than one sheet");
+
+        // And the tail of the letter — the part that was being lost — is on the paper.
+        Assert.Contains("INV-080", s);
+        Assert.Contains("Net Amount Paid", s);
+        Assert.Contains("Less: Tax Deducted at Source", s);
+        Assert.Contains("Authorised Signatory", s);
+
+        // The continuation sheet is identifiable and its table is captioned.
+        Assert.Contains("continued", s);
+        Assert.True(Regex.Matches(s, "Bill / Reference").Count > 1,
+            "the bill-table caption band must be repeated on the continuation sheet");
+    }
+
+    /// <summary>
+    /// Every sheet of a multi-sheet run is footed with its OWN page number. The footer replacements were
+    /// hard-coded to <c>1</c> and <c>1</c>, so a three-letter run printed "Page 1 of 1" three times — the reader
+    /// cannot tell a complete run from a lost sheet. Same contract <c>ReportPdf</c> and <c>VoucherPdf</c> keep.
+    /// </summary>
+    [Fact]
+    public void Every_sheet_of_a_multi_sheet_run_is_footed_with_its_own_page_number()
+    {
+        var page = new PageConfig { FooterText = "Page {page} of {pages}" };
+        var s = AsLatin1(PaymentAdvicePdf.Render(
+            new[] { Advice("A Ltd"), Advice("B Ltd"), Advice("C Ltd") },
+            "Apex Solutions", "12 MG Road\nKolkata", page, freshPageEach: true));
+
+        Assert.Contains("Page 1 of 3", s);
+        Assert.Contains("Page 2 of 3", s);
+        Assert.Contains("Page 3 of 3", s);
+        Assert.DoesNotContain("Page 1 of 1", s);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE DE-BRANDING GUARD MUST NOT REWRITE THE SUPPLIER'S OWN LEGAL NAME.</b>
+    ///
+    /// <para><c>Debrand.Text</c> strips a case-insensitive vendor token, which is right for text this product
+    /// owns and catastrophic for a counterparty's identity: it was applied to the addressee, the address block,
+    /// the bank and the bill references, so a letter to <b>Metally Traders Pvt Ltd</b> went out addressed to
+    /// "Me Traders Pvt Ltd", quoting bill "/2026/001" against a bank called "gunge Co-operative Bank". Every one
+    /// of those is a wrong figure of a different kind on a document sent to somebody else — the supplier cannot
+    /// find the bill in its own ledger, and the letter is not even addressed to it.</para>
+    ///
+    /// <para>The guard still runs on what is OURS, which the letterhead assertion pins: the company name is
+    /// de-branded on the same page on which the supplier's is not.</para>
+    /// </summary>
+    [Fact]
+    public void The_suppliers_own_legal_name_address_bank_and_bill_refs_are_never_debranded()
+    {
+        var counterparty = Advice() with
+        {
+            AddresseeName = "Metally Traders Pvt Ltd",
+            AddressLines = new[] { "7 Tallygunge Circular Road", "Kolkata" },
+            BankName = "Tallygunge Co-operative Bank",
+            Bills = new[]
+            {
+                new SupplierPaymentAdviceBill(
+                    "TALLY/2026/001", BillRefType.AgstRef, Money.FromRupees(30000m), null),
+            },
+        };
+
+        var s = AsLatin1(PaymentAdvicePdf.Render(
+            new[] { counterparty }, "Apex Tally Solutions", "12 MG Road", new PageConfig()));
+
+        Assert.Contains("Metally Traders Pvt Ltd", s);
+        Assert.Contains("7 Tallygunge Circular Road", s);
+        Assert.Contains("Tallygunge Co-operative Bank", s);
+        Assert.Contains("TALLY/2026/001", s);
+
+        // ...while OUR OWN letterhead is still de-branded (ER-11): the company prints as "Apex Solutions".
+        Assert.DoesNotContain("Apex Tally Solutions", s);
+        Assert.Contains("Apex Solutions", s);
+    }
+
+    private static int PageCountOf(byte[] pdf) =>
+        Regex.Matches(Encoding.Latin1.GetString(pdf), @"/Type\s*/Page[^s]").Count;
+
     /// <summary>An empty run must READ as "no payments", never as a blank sheet.</summary>
     [Fact]
     public void An_empty_run_says_there_were_no_payments_instead_of_printing_a_blank_sheet()

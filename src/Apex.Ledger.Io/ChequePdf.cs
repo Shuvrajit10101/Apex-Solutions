@@ -81,8 +81,60 @@ public static class ChequePdf
             return "This payment carries no cheque number. Enter the instrument number before printing.";
         if (string.IsNullOrWhiteSpace(data.PayeeName))
             return "This payment names no payee. A cheque cannot be printed without a favouring name.";
+
+        // 🔴 A LEAF SIZE IS NOT A LAYOUT. `HasLeafSize` alone let through a layout that places NOTHING: every
+        // element in Render is guarded by `ChequeElementIsSet(top, left)`, so with all the offsets still at zero
+        // the renderer produced a correctly-sized page with no payee, no amount, no date and no signatory on it —
+        // a blank pass through the printer that consumes a real, pre-numbered leaf out of the cheque book, and
+        // the operator has to void it. This does NOT touch the deliberate rule one element down: an individual
+        // element the operator never placed is still SKIPPED, because a payee name inked at the corner of a
+        // negotiable instrument is worse than no payee name. What is refused is a layout that inks nothing at all.
+        bool placesSomething =
+            ChequeLayout.ChequeElementIsSet(layout.DateTopTmm, layout.DateLeftTmm)
+            || ChequeLayout.ChequeElementIsSet(layout.PayeeTopTmm, layout.PayeeLeftTmm)
+            || ChequeLayout.ChequeElementIsSet(layout.WordsLine1TopTmm, layout.WordsLine1LeftTmm)
+            || ChequeLayout.ChequeElementIsSet(layout.FiguresTopTmm, layout.FiguresLeftTmm)
+            || ChequeLayout.ChequeElementIsSet(layout.SignTopTmm, layout.SignLeftTmm);
+        if (!placesSomething)
+            return "Cheque dimensions place nothing on this leaf. Print the calibration sheet, measure a leaf and "
+                   + "set the offsets before printing.";
+
+        // 🔴 A TRUNCATED AMOUNT IN WORDS IS A DIFFERENT CHEQUE. The vendor's field is TWO independently-placed
+        // lines. A long amount wraps to more, and everything past line 2 was being silently dropped — or
+        // ellipsised by FitToWidth — leaving an instrument whose words and figures disagree: the bank returns it
+        // and the leaf is already spent. The words are not something to fit as best we can; they ARE the amount.
+        // So the fit is a GUARD, and it names the dimension to widen.
+        if (ChequeLayout.ChequeElementIsSet(layout.WordsLine1TopTmm, layout.WordsLine1LeftTmm))
+        {
+            var wordLines = VoucherPdf.WrapText(AmountWords(data, layout), WordsWidth(layout), BodyFontSize);
+            if (wordLines.Count > 1
+                && !ChequeLayout.ChequeElementIsSet(layout.WordsLine2TopTmm, layout.WordsLine2LeftTmm))
+                return "The amount in words needs a second line and this leaf places none. Set the second "
+                       + "amount-in-words offsets, or widen the amount-in-words area.";
+            if (wordLines.Count > 2)
+                return "The amount in words does not fit the two lines this leaf places. Widen the "
+                       + "amount-in-words area before printing.";
+        }
+
         return null;
     }
+
+    /// <summary>The amount in words exactly as <see cref="Render"/> will ink it, de-branding included — ONE
+    /// statement of it, so the <see cref="Validate"/> fit guard and the rendering cannot disagree by a character
+    /// about what is being measured. (The de-brand reaches only the CURRENCY NAMES, which are this product's own
+    /// master data; the figure itself is converted from a decimal.)</summary>
+    private static string AmountWords(ChequePrintData data, ChequeLayout layout) =>
+        Debrand.Text(layout.PrintCurrencyFormalName
+            ? IndianAmountInWords.Convert(
+                data.Amount.Amount,
+                Blank(data.CurrencyFormalName, "Rupees"),
+                Blank(data.CurrencyMinorName, "Paise"))
+            : IndianAmountInWords.Convert(data.Amount.Amount));
+
+    /// <summary>The measured width of the amount-in-words area, falling back to the whole leaf when the layout
+    /// states none.</summary>
+    private static double WordsWidth(ChequeLayout layout) =>
+        layout.WordsWidthTmm > 0 ? Pt(layout.WordsWidthTmm) : Pt(layout.LeafWidthTmm);
 
     /// <summary>
     /// Renders the cheque to PDF bytes, on a page the exact size of the leaf. Throws
@@ -114,24 +166,23 @@ public static class ChequePdf
         }
 
         // ---- Party's Payee Name, fitted to its attested width area ----
+        // 🔴 VERBATIM — NOT DE-BRANDED. The favouring name is the payee's own legal name on a NEGOTIABLE
+        // INSTRUMENT: the bank pays whoever this line names. Debrand.Text strips a case-insensitive vendor token
+        // out of text THIS PRODUCT OWNS (ER-11), and pointed at a counterparty's name it silently rewrites it —
+        // a cheque favouring "Metally Traders" would be inked "Me Traders" and would be dishonoured, or worse,
+        // paid to somebody else. The brand guard belongs on our letterhead, not on the payee line.
         if (ChequeLayout.ChequeElementIsSet(layout.PayeeTopTmm, layout.PayeeLeftTmm))
         {
-            var payee = PdfWriter.FitToWidth(Debrand.Text(data.PayeeName), Pt(layout.PayeeWidthTmm), BodyFontSize);
+            var payee = PdfWriter.FitToWidth(data.PayeeName, Pt(layout.PayeeWidthTmm), BodyFontSize);
             writer.Text(X(layout.PayeeLeftTmm), Y(layout.PayeeTopTmm), payee, BodyFontSize);
         }
 
         // ---- Amount in Words: a two-line field, wrapped by MEASURED width (never a character count) ----
         if (ChequeLayout.ChequeElementIsSet(layout.WordsLine1TopTmm, layout.WordsLine1LeftTmm))
         {
-            string words = layout.PrintCurrencyFormalName
-                ? IndianAmountInWords.Convert(
-                    data.Amount.Amount,
-                    Blank(data.CurrencyFormalName, "Rupees"),
-                    Blank(data.CurrencyMinorName, "Paise"))
-                : IndianAmountInWords.Convert(data.Amount.Amount);
-
-            double wordsWidth = layout.WordsWidthTmm > 0 ? Pt(layout.WordsWidthTmm) : Pt(layout.LeafWidthTmm);
-            var lines = VoucherPdf.WrapText(Debrand.Text(words), wordsWidth, BodyFontSize);
+            string words = AmountWords(data, layout);
+            double wordsWidth = WordsWidth(layout);
+            var lines = VoucherPdf.WrapText(words, wordsWidth, BodyFontSize);
 
             if (lines.Count > 0)
                 writer.Text(X(layout.WordsLine1LeftTmm), Y(layout.WordsLine1TopTmm), lines[0], BodyFontSize);

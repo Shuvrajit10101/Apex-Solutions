@@ -385,18 +385,121 @@ public sealed class ChequePdfTests
     /// The two amount-in-words lines wrap by measured width, and the second line is placed at ITS OWN offsets —
     /// the vendor models it as an independently-placed line, not as a fixed leading below the first. The derived
     /// "height (gap) between lines" is exactly the difference, so the two can never contradict.
+    ///
+    /// <para><b>🔴 This fixture was corrected, and the correction is the point.</b> It used to squeeze
+    /// ₹98,76,543.21 into a <c>WordsWidthTmm</c> of 400 (11 mm short of two inches), which does not wrap to two
+    /// lines — it wraps to <i>five</i>. Lines 3 to 5 were joined and shoved onto line 2, where <c>FitToWidth</c>
+    /// ellipsised them: the test was certifying a cheque whose amount in words is <b>truncated</b>, which is a
+    /// different amount from the figures beside it and is returned by the bank. The width is now one that really
+    /// does give two lines, so the test asserts what it always claimed to — line 2 placed independently — and
+    /// <see cref="An_amount_in_words_that_will_not_fit_is_refused_rather_than_truncated"/> pins the refusal that
+    /// now stands where the truncation was.</para>
     /// </summary>
     [Fact]
     public void A_long_amount_in_words_continues_on_the_second_line_at_its_own_offsets()
     {
         var layout = RoundLayout();
-        layout.WordsWidthTmm = 400;                                  // narrow: forces a second line
+        layout.WordsWidthTmm = 1000;                                 // narrow enough to need a second line, no more
         layout.WordsLine2LeftTmm = 300;                              // deliberately different from line 1
 
+        Assert.Null(ChequePdf.Validate(Cheque(9876543.21m), layout)); // it FITS: two lines, both placed
         var s = AsLatin1(ChequePdf.Render(Cheque(9876543.21m), layout));
 
         Assert.Contains(TdAt(250, ChequePdf.TopY(920, 400)), s);     // line 1 at its own point
         Assert.Contains(TdAt(300, ChequePdf.TopY(920, 470)), s);     // line 2 at ITS own point
         Assert.Equal(70, layout.WordsLineGapTmm);                    // 47 mm − 40 mm, derived not stored
+    }
+
+    // ================================================================ 🔴 the counterparty's own name
+
+    /// <summary>
+    /// 🔴 <b>THE FAVOURING NAME IS NOT OURS TO REWRITE.</b> <c>Debrand.Text</c> strips a case-insensitive vendor
+    /// token out of text this product owns (ER-11) — and it was being applied to the payee line of a
+    /// <b>negotiable instrument</b>. A cheque favouring "Metally Traders Pvt Ltd" was inked "Me Traders Pvt Ltd":
+    /// a name that is not the payee's, on the one line the bank uses to decide who gets the money. The guard
+    /// belongs on our letterhead, and this pins that it has been taken off the payee.
+    /// </summary>
+    [Fact]
+    public void The_payees_own_legal_name_is_inked_verbatim_and_is_never_debranded()
+    {
+        var layout = RoundLayout();
+        var cheque = new ChequePrintData
+        {
+            PayeeName = "Metally Traders Pvt Ltd",
+            Amount = Money.FromRupees(12500.75m),
+            ChequeDate = new DateOnly(2024, 7, 9),
+            InstrumentNumber = "100123",
+            BankName = "HDFC Bank",
+            CompanyName = "Apex Solutions",
+        };
+
+        var s = AsLatin1(ChequePdf.Render(cheque, layout));
+
+        Assert.Contains("Metally Traders Pvt Ltd", s);
+        // ...while OUR signatory line is still de-branded, so the guard has been narrowed, not deleted.
+        Assert.Contains("(For Apex Solutions) Tj", s);
+    }
+
+    // ================================================================ 🔴 refusals that save a leaf
+
+    /// <summary>
+    /// 🔴 <b>A LEAF SIZE IS NOT A LAYOUT.</b> <c>HasLeafSize</c> alone let through dimensions that place nothing:
+    /// every element in <c>Render</c> is guarded by <c>ChequeElementIsSet</c>, so a layout carrying only a leaf
+    /// size produced a correctly-sized page with no ink on it — and printing it pulls a real, pre-numbered leaf
+    /// out of the book, which the operator then has to void. The refusal points at the calibration sheet, which
+    /// is this product's own answer to "what are this bank's millimetres?".
+    ///
+    /// <para>It does <b>not</b> disturb the rule one element down: a single unplaced element is still skipped
+    /// (<see cref="An_element_with_no_offsets_is_skipped_rather_than_printed_at_the_origin"/>), because a payee
+    /// inked at the corner is worse than no payee. Only a leaf that would come out blank is refused.</para>
+    /// </summary>
+    [Fact]
+    public void A_layout_that_places_nothing_at_all_is_refused_rather_than_printed_blank()
+    {
+        var blank = new ChequeLayout { LeafWidthTmm = 2000, LeafHeightTmm = 920 };
+
+        var refusal = ChequePdf.Validate(Cheque(), blank);
+        Assert.NotNull(refusal);
+        Assert.Contains("place nothing on this leaf", refusal);
+        Assert.Contains("calibration sheet", refusal);
+        Assert.Throws<InvalidOperationException>(() => ChequePdf.Render(Cheque(), blank));
+
+        // One element placed is enough to make it a cheque again — the guard is "nothing at all", not "not everything".
+        blank.PayeeTopTmm = 300;
+        blank.PayeeLeftTmm = 250;
+        Assert.Null(ChequePdf.Validate(Cheque(), blank));
+    }
+
+    /// <summary>
+    /// 🔴 <b>A TRUNCATED AMOUNT IN WORDS IS A DIFFERENT CHEQUE.</b> The words field is two independently-placed
+    /// lines; anything past line 2 was joined onto line 2 and ellipsised by <c>FitToWidth</c>, so the instrument
+    /// went to the bank with words that do not state the figures beside them. That cheque is returned and the
+    /// leaf is already spent, so this is a refusal and not a rendering decision — and it names the dimension to
+    /// widen instead of leaving the operator to guess.
+    /// </summary>
+    [Fact]
+    public void An_amount_in_words_that_will_not_fit_is_refused_rather_than_truncated()
+    {
+        // (a) It needs a second line and the leaf places none.
+        var oneLineOnly = RoundLayout();
+        oneLineOnly.WordsWidthTmm = 1000;
+        oneLineOnly.WordsLine2TopTmm = 0;
+        oneLineOnly.WordsLine2LeftTmm = 0;
+        var refusalA = ChequePdf.Validate(Cheque(9876543.21m), oneLineOnly);
+        Assert.NotNull(refusalA);
+        Assert.Contains("needs a second line", refusalA);
+        Assert.Throws<InvalidOperationException>(() => ChequePdf.Render(Cheque(9876543.21m), oneLineOnly));
+
+        // (b) It does not fit the two lines the leaf DOES place — the shape that used to truncate silently.
+        var tooNarrow = RoundLayout();
+        tooNarrow.WordsWidthTmm = 400;
+        var refusalB = ChequePdf.Validate(Cheque(9876543.21m), tooNarrow);
+        Assert.NotNull(refusalB);
+        Assert.Contains("does not fit the two lines", refusalB);
+        Assert.Contains("Widen", refusalB);
+        Assert.Throws<InvalidOperationException>(() => ChequePdf.Render(Cheque(9876543.21m), tooNarrow));
+
+        // (c) A short amount on the same leaf still prints — the guard measures, it does not just say no.
+        Assert.Null(ChequePdf.Validate(Cheque(1250m), tooNarrow));
     }
 }

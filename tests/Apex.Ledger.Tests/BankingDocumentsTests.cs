@@ -335,6 +335,107 @@ public class BankingDocumentsTests
             new BillAllocation(BillRefType.Advance, "ADV-1", Money.FromRupees(100m))));
     }
 
+    // ================================================================ 🔴 what actually LEFT THE BANK
+
+    /// <summary>
+    /// 🔴 <b>THE FIGURE ON THE LETTER IS THE FIGURE THE SUPPLIER RECONCILES AGAINST.</b> "Net Amount Paid" was
+    /// <c>gross − TDS</c>, which is not what left the bank the moment the voucher carries any other credit.
+    ///
+    /// <para>Measured on the shape below: ₹10,000 of bills settled by paying ₹9,950 and crediting ₹50 to
+    /// Discount Received. The books are right and the advice said ₹10,000 — a supplier reconciling that letter
+    /// against its own bank statement finds nothing that matches, and the difference reads to it as a short
+    /// payment or a missing credit note. The net is now the party debit less every OTHER credit attributable to
+    /// this supplier, which for a single-supplier payment is exactly the bank outflow.</para>
+    /// </summary>
+    [Fact]
+    public void The_net_paid_is_what_left_the_bank_not_gross_minus_tds()
+    {
+        var c = Seed(out var hdfc, out _, out _, out var acme, out _, out var payment, out _);
+        var discount = new Domain.Ledger(Guid.NewGuid(), "Discount Received",
+            c.FindGroupByName("Indirect Incomes")!.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(discount);
+
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 5, 6), new[]
+        {
+            new EntryLine(acme.Id, Money.FromRupees(10000m), DrCr.Debit, billAllocations: new[]
+            {
+                new BillAllocation(BillRefType.AgstRef, "INV-77", Money.FromRupees(10000m)),
+            }),
+            new EntryLine(hdfc.Id, Money.FromRupees(9950m), DrCr.Credit,
+                bankAllocation: new BankAllocation(
+                    BankTransactionType.NEFT, "UTR9950", new DateOnly(2024, 5, 6))),
+            new EntryLine(discount.Id, Money.FromRupees(50m), DrCr.Credit),
+        }, partyId: acme.Id));
+
+        var advice = Assert.Single(SupplierPaymentAdvice.Build(c, Year));
+
+        // The bills still add up to the gross — the letter states what was settled...
+        Assert.Equal(Money.FromRupees(10000m), advice.GrossAmount);
+        // ...and the net is the ₹9,950 the bank actually released, NOT the ₹10,000 the old gross − TDS gave.
+        Assert.Equal(Money.FromRupees(9950m), advice.NetPaid);
+        Assert.NotEqual(advice.GrossAmount, advice.NetPaid);
+    }
+
+    /// <summary>
+    /// The mirror of the same rule: a bank charge is the bank's fee, NOT a deduction from the supplier. A naive
+    /// "net = sum of the bank credits" would tell Acme it was paid ₹10,100 — a figure nobody was ever paid. The
+    /// net is derived from the party's own debit, so the charge cannot leak into it.
+    /// </summary>
+    [Fact]
+    public void A_bank_charge_on_the_same_voucher_is_not_added_to_what_the_supplier_was_paid()
+    {
+        var c = Seed(out var hdfc, out _, out var rent, out var acme, out _, out var payment, out _);
+
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 5, 7), new[]
+        {
+            new EntryLine(acme.Id, Money.FromRupees(10000m), DrCr.Debit),
+            new EntryLine(rent.Id, Money.FromRupees(100m), DrCr.Debit),
+            new EntryLine(hdfc.Id, Money.FromRupees(10100m), DrCr.Credit,
+                bankAllocation: new BankAllocation(
+                    BankTransactionType.RTGS, "UTR10100", new DateOnly(2024, 5, 7))),
+        }, partyId: acme.Id));
+
+        var advice = Assert.Single(SupplierPaymentAdvice.Build(c, Year));
+        Assert.Equal(Money.FromRupees(10000m), advice.GrossAmount);
+        Assert.Equal(Money.FromRupees(10000m), advice.NetPaid);
+    }
+
+    /// <summary>
+    /// 🔴 The case that CANNOT be attributed, pinned so nobody "improves" it into an invented apportionment. One
+    /// voucher settles two suppliers and carries a ₹100 discount naming neither of them. Nothing in the posting
+    /// says whose discount it was, so it is left out of BOTH letters and each supplier is told the gross it was
+    /// credited with. Splitting it 50/50 would put on a letter a figure the books never recorded.
+    /// </summary>
+    [Fact]
+    public void An_unattributable_deduction_on_a_two_supplier_payment_is_left_out_of_both_advices()
+    {
+        var c = Seed(out var hdfc, out _, out _, out var acme, out _, out var payment, out _);
+        var beta = new Domain.Ledger(Guid.NewGuid(), "Beta Traders",
+            c.FindGroupByName("Sundry Creditors")!.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(beta);
+        var discount = new Domain.Ledger(Guid.NewGuid(), "Discount Received",
+            c.FindGroupByName("Indirect Incomes")!.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(discount);
+
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 5, 8), new[]
+        {
+            new EntryLine(acme.Id, Money.FromRupees(4000m), DrCr.Debit),
+            new EntryLine(beta.Id, Money.FromRupees(6000m), DrCr.Debit),
+            new EntryLine(discount.Id, Money.FromRupees(100m), DrCr.Credit),
+            new EntryLine(hdfc.Id, Money.FromRupees(9900m), DrCr.Credit,
+                bankAllocation: new BankAllocation(
+                    BankTransactionType.NEFT, "UTR9900", new DateOnly(2024, 5, 8))),
+        }));
+
+        var advices = SupplierPaymentAdvice.Build(c, Year);
+        Assert.Equal(2, advices.Count);
+        foreach (var a in advices)
+            Assert.Equal(a.GrossAmount, a.NetPaid);
+        Assert.Equal(
+            new[] { Money.FromRupees(4000m), Money.FromRupees(6000m) },
+            advices.OrderBy(a => a.PartyName, StringComparer.Ordinal).Select(a => a.NetPaid));
+    }
+
     // ================================================================ the shared group predicate
 
     /// <summary>

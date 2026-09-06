@@ -204,22 +204,24 @@ public sealed class BankingFilterRouteVisibilityTests
             Assert.Equal(new[] { "All Banks", "HDFC Bank", "State Bank" }, offered);
             Assert.Same(ChequeBankOption.AllBanks, picker.SelectedItem);
 
-            // (3) Unfiltered, both cheques are listed.
-            Assert.Contains(vm.Reports!.Rows, r => r.Secondary.Contains("100200", StringComparison.Ordinal));
-            Assert.Contains(vm.Reports!.Rows, r => r.Secondary.Contains("770880", StringComparison.Ordinal));
+            // (3) Unfiltered, both cheques are listed. (The cheque number is read off `Particulars`: it was moved
+            // there because neither the print nor the export projection carries `Secondary`, so the printed and
+            // exported Cheque Printing report had no cheque numbers on it at all.)
+            Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("100200", StringComparison.Ordinal));
+            Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("770880", StringComparison.Ordinal));
 
             // (4) 🔴 Picking a bank on the PICKER narrows the report — the parameter that had no route in.
             picker.SelectedItem = picker.ItemsSource!.Cast<ChequeBankOption>().Single(o => o.LedgerId == sbi.Id);
             Pump(window);
-            Assert.DoesNotContain(vm.Reports!.Rows, r => r.Secondary.Contains("100200", StringComparison.Ordinal));
-            Assert.Contains(vm.Reports!.Rows, r => r.Secondary.Contains("770880", StringComparison.Ordinal));
+            Assert.DoesNotContain(vm.Reports!.Rows, r => r.Particulars.Contains("100200", StringComparison.Ordinal));
+            Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("770880", StringComparison.Ordinal));
             Assert.Contains("State Bank", vm.Reports!.Subtitle);
 
             // (5) And back to everything, so the filter is not a one-way door.
             picker.SelectedItem = ChequeBankOption.AllBanks;
             Pump(window);
-            Assert.Contains(vm.Reports!.Rows, r => r.Secondary.Contains("100200", StringComparison.Ordinal));
-            Assert.Contains(vm.Reports!.Rows, r => r.Secondary.Contains("770880", StringComparison.Ordinal));
+            Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("100200", StringComparison.Ordinal));
+            Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("770880", StringComparison.Ordinal));
         }
         finally { Cleanup(window, dir); }
     }

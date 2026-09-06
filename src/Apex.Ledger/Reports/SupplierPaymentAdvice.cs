@@ -30,7 +30,11 @@ public sealed record SupplierPaymentAdviceBill(
 /// <param name="AddressLines">The supplier's mailing address lines; empty when none is captured.</param>
 /// <param name="GrossAmount">What the bills add up to before deductions — the party debit as posted.</param>
 /// <param name="TdsDeducted">The §194x withholding on the same voucher, or zero.</param>
-/// <param name="NetPaid">What actually left the bank/cash for this supplier on this voucher.</param>
+/// <param name="NetPaid">What actually left the bank/cash for this supplier on this voucher — the party debit
+/// less every OTHER credit on the voucher attributable to this supplier (the withholding, a settlement discount,
+/// a round-off). See <see cref="SupplierPaymentAdvice.NetPaidFor"/> for the one case that cannot be attributed.
+/// <b>It is not <c>Gross − TDS</c>:</b> a payment that settles ₹10,000 of bills by paying ₹9,950 and crediting
+/// ₹50 to Discount Received puts ₹9,950 in the supplier's bank, and that is the figure the letter must state.</param>
 /// <param name="PaymentMode">Cheque/DD · NEFT · RTGS · Cash · Other, read from the bank line's allocation.
 /// <c>null</c> when the payment carries no bank allocation at all (a cash payment out of a cash ledger).</param>
 /// <param name="InstrumentNumber">The cheque / UTR number, or empty.</param>
@@ -80,9 +84,9 @@ public sealed record SupplierPaymentAdviceRow(
 /// with separate report kinds.</para>
 ///
 /// <para><b>Every figure is read off the POSTED legs.</b> The gross is the party debit as posted, the deduction is
-/// the <see cref="TdsLineTax"/> that voucher actually carries, and the net is the bank/cash credit. Nothing is
-/// re-derived from a live master at advice time, so an advice sent to a supplier states the debt the general
-/// ledger recorded — the same rule the invoice projector keeps.</para>
+/// the <see cref="TdsLineTax"/> that voucher actually carries, and the net is what left the bank or the cash box
+/// (<see cref="NetPaidFor"/>). Nothing is re-derived from a live master at advice time, so an advice sent to a
+/// supplier states the debt the general ledger recorded — the same rule the invoice projector keeps.</para>
 ///
 /// <para>Pure: no UI, no DB, no clock, no RNG.</para>
 /// </summary>
@@ -119,7 +123,8 @@ public static class SupplierPaymentAdvice
 
             // One advice per (party, voucher): the supplier legs of this payment, grouped by their ledger. A
             // payment settling two suppliers at once is two advices, because each supplier is sent its own letter.
-            foreach (var group in SupplierLegs(company, v))
+            var supplierGroups = SupplierLegs(company, v);
+            foreach (var group in supplierGroups)
             {
                 if (partyLedgerId is { } wantedParty && group.Key != wantedParty) continue;
                 if (company.FindLedger(group.Key) is not { } party) continue;
@@ -162,7 +167,7 @@ public static class SupplierPaymentAdvice
                     AddressLines(party),
                     gross,
                     tds,
-                    gross - tds,
+                    NetPaidFor(company, v, party.Id, gross, soleSupplier: supplierGroups.Count == 1),
                     alloc?.TransactionType,
                     alloc?.InstrumentNumber ?? string.Empty,
                     alloc?.InstrumentDate,
@@ -181,6 +186,55 @@ public static class SupplierPaymentAdvice
             return byNumber != 0 ? byNumber : string.CompareOrdinal(a.PartyName, b.PartyName);
         });
         return rows;
+    }
+
+    /// <summary>
+    /// 🔴 <b>What ACTUALLY LEFT THE BANK for this supplier</b> — the figure the letter prints as "Net Amount Paid"
+    /// and the only figure the supplier can reconcile against its own bank credit.
+    ///
+    /// <para><b>It is not <c>gross − TDS</c>, and the difference is a wrong figure on a document sent to a
+    /// counterparty.</b> Measured: <c>Dr Acme 10,000 / Cr Bank 9,950 (NEFT) / Cr Discount Received 50</c> — the
+    /// books are right, ₹9,950 left the bank, and the advice stated ₹10,000. A supplier reconciling the letter
+    /// against its statement finds nothing that matches. So the net is the party debit less every OTHER credit on
+    /// the voucher attributable to this supplier — withholding, settlement discount, round-off — which for a
+    /// single-supplier payment is, by double entry, exactly the cash/bank outflow attributable to it. Deriving it
+    /// this way rather than summing the bank legs is what keeps a voucher that also debits an expense
+    /// (<c>Dr Acme 10,000 / Dr Bank Charges 100 / Cr Bank 10,100</c>) from telling Acme it was paid ₹10,100.</para>
+    ///
+    /// <para><b>🔴 THE ONE CASE THAT CANNOT BE ATTRIBUTED, STATED RATHER THAN GUESSED.</b> When ONE voucher
+    /// settles TWO suppliers and carries a non-tax deduction naming neither of them, nothing in the posting says
+    /// whose discount it was. Apportioning it would put on a letter a figure the books never recorded, so such a
+    /// credit is left out of BOTH advices and each supplier is told its gross less only the withholding posted in
+    /// its own name. A TDS line always attributes, because it names its deductee
+    /// (<see cref="TdsLineTax.DeducteeLedgerId"/>).</para>
+    /// </summary>
+    /// <param name="soleSupplier">True when this voucher settles exactly one supplier, so an unattributed
+    /// non-bank credit on it can only belong to that supplier.</param>
+    private static Money NetPaidFor(
+        Company company, Voucher voucher, Guid partyId, Money gross, bool soleSupplier)
+    {
+        var deductions = Money.Zero;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Side != DrCr.Credit) continue;
+            if (company.FindLedger(line.LedgerId) is not { } led) continue;
+            // The money going out is not a deduction FROM the money going out.
+            if (ClassificationRules.IsCashOrBankLedger(led, company)) continue;
+
+            // A withholding leg NAMES its deductee, so it attributes even on a voucher settling several
+            // suppliers. The `line.LedgerId != partyId` half matters: below the threshold the TDS detail rides
+            // the PARTY'S OWN leg carrying a zero withholding, and that leg's amount is the party's money, not a
+            // deduction from it — it belongs on the ordinary path below.
+            if (line.Tds is { } t && line.LedgerId != partyId)
+            {
+                // A withholding in ANOTHER party's name reduces nothing this supplier was paid.
+                if (t.DeducteeLedgerId == partyId) deductions += line.Amount;
+                continue;
+            }
+
+            if (soleSupplier) deductions += line.Amount;
+        }
+        return gross - deductions;
     }
 
     /// <summary>True when this ledger is a supplier — under Sundry Creditors through the FULL ancestry, not just

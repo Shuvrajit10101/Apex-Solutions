@@ -44,12 +44,12 @@ internal static class CertificatePdfSupport
         w.Text(x, y, text, size, bold);
     }
 
-    /// <summary>Draws a "Label: value" pair (bold label, regular value) at (x, y), returning the next baseline.</summary>
-    internal static double KeyVal(PdfWriter w, double x, double y, string label, string? value, PageConfig page)
+    /// <summary>Draws a "Label: value" pair (bold label, regular value) at (x, y), returning the next baseline. The value is de-branded by default (ER-11, for values this product owns); pass <paramref name="debrandValue"/> false for a value that is a COUNTERPARTY'S OWN NAME — a supplier, a bank — where stripping a case-insensitive token would rewrite somebody else's legal identity on a document addressed to them.</summary>
+    internal static double KeyVal(PdfWriter w, double x, double y, string label, string? value, PageConfig page, bool debrandValue = true)
     {
         w.Text(x, y, label, page.FooterFontSize, bold: true);
         double lw = PdfWriter.MeasureHelvetica(label + " ", page.FooterFontSize);
-        w.Text(x + lw, y, Debrand.Text(value ?? "-"), page.BodyFontSize, bold: false);
+        w.Text(x + lw, y, debrandValue ? Debrand.Text(value ?? "-") : value ?? "-", page.BodyFontSize, bold: false);
         return y - (page.BodyFontSize + 3);
     }
 
