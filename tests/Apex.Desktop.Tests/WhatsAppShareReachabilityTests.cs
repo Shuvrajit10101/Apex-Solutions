@@ -430,7 +430,7 @@ public sealed class WhatsAppShareReachabilityTests
     public void Punctuation_is_stripped_but_a_letter_rejects_the_number_outright()
     {
         var vm = new WhatsAppShareViewModel("Doc", Array.Empty<byte>(), (_, _) => { })
-        { PhoneNumber = "+91 (98765)-43.210" , CountryCode = "" };
+        { PhoneNumber = "(98765)-43.210" , CountryCode = "" };
         Assert.Equal(string.Empty, vm.NormalisedNumber);    // no country code at all -> no link
 
         vm.CountryCode = "91";
@@ -455,5 +455,65 @@ public sealed class WhatsAppShareReachabilityTests
         Assert.False(vm.Share());
         Assert.Empty(launcher.Opened);
         Assert.Contains("mobile number", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 🔴 <b>A PASTED "+91 …" MUST NOT HAVE THE COUNTRY CODE ADDED TWICE.</b>
+    ///
+    /// <para>Pasting <c>+91 98765 43210</c> out of a contact card is the natural gesture — it is how the number
+    /// is written wherever it appears. <c>StripFormatting</c> discarded the "+" as ordinary punctuation and the
+    /// country-code box was then concatenated anyway, giving <c>wa.me/91919876543210</c>: a DIFFERENT,
+    /// valid-looking number, which is precisely the hazard this class refuses to accept for a stray letter
+    /// ("the operator would have no way to see they were about to message a stranger"). A leading "+" is the one
+    /// unambiguous signal in international dialling, so it — and only it — now suppresses the country code.</para>
+    /// </summary>
+    [Fact]
+    public void A_pasted_international_number_does_not_double_its_country_code()
+    {
+        var vm = new WhatsAppShareViewModel("Doc", Array.Empty<byte>(), (_, _) => { })
+        { CountryCode = "91", PhoneNumber = "+91 98765 43210" };
+
+        Assert.Equal("919876543210", vm.NormalisedNumber);          // NOT "91919876543210"
+        Assert.StartsWith("https://wa.me/919876543210", vm.WaMeUri, StringComparison.Ordinal);
+        Assert.Contains("ignored", vm.NumberNotice, StringComparison.OrdinalIgnoreCase);
+
+        // Leading whitespace before the "+" is still the same gesture.
+        vm.PhoneNumber = "  +44 20 7946 0958";
+        Assert.Equal("442079460958", vm.NormalisedNumber);
+
+        // 🔴 WITHOUT the "+" nothing is guessed. A bare "919876543210" is still joined to the country code,
+        // because a subscriber number that happens to begin with the dialling code's digits is indistinguishable
+        // from a duplicated one — and guessing is the failure being fixed, not the fix.
+        vm.PhoneNumber = "919876543210";
+        Assert.Equal("91919876543210", vm.NormalisedNumber);
+        Assert.DoesNotContain("ignored", vm.NumberNotice, StringComparison.OrdinalIgnoreCase);
+
+        // A "+" does not license a letter: the reject-outright rule still governs.
+        vm.PhoneNumber = "+91 98765o3210";
+        Assert.Equal(string.Empty, vm.NormalisedNumber);
+        Assert.Equal(string.Empty, vm.NumberNotice);
+    }
+
+    /// <summary>
+    /// The saved-bytes figure in the status line is INVARIANT-grouped. <c>{_document.Length:#,0}</c> used
+    /// CurrentCulture, so a 1,234-byte file read "1.234 bytes" on a de-DE desktop or runner — the one string in
+    /// a file that argues the culture point twice over (typed <c>LinePoints</c>, invariant month labels) that
+    /// slipped past it. Asserted under a decimal-comma culture, because under en-IN the bug is invisible.
+    /// </summary>
+    [Fact]
+    public void The_saved_byte_count_is_grouped_invariantly_on_a_decimal_comma_culture()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture =
+                System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+
+            var vm = new WhatsAppShareViewModel("Doc", new byte[1234], (_, _) => { });
+            Assert.True(vm.SaveDocument("C:/tmp/doc.pdf"));
+            Assert.Contains("1,234 bytes", vm.Status, StringComparison.Ordinal);
+            Assert.DoesNotContain("1.234 bytes", vm.Status, StringComparison.Ordinal);
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = original; }
     }
 }

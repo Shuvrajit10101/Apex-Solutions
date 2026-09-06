@@ -23,7 +23,14 @@ public enum DashboardKind
     Purchase,
 }
 
-/// <summary>The two mark types this application draws. There is deliberately no third.</summary>
+/// <summary>
+/// The two mark types this application draws. There is deliberately no third.
+///
+/// <para>🔴 <b>This is a real branch, not a label.</b> <see cref="DashboardTileViewModel"/>'s constructor builds
+/// EITHER bars OR line vertices from it and leaves the other list empty, so a tile renders exactly one of the
+/// two. It once built both regardless and the enum was dead; if a change ever makes both lists non-empty on one
+/// tile, <c>A_Bar_tile_draws_no_line_and_a_Line_tile_draws_no_bars</c> reddens.</para>
+/// </summary>
 public enum ChartMark
 {
     Bar,
@@ -53,6 +60,14 @@ public sealed partial class DashboardTileViewModel : ViewModelBase
     /// <summary>The unit the tile's values are in, shown beside the title so a count is never read as money.</summary>
     public string ValueCaption { get; }
 
+    /// <summary>
+    /// True for the ONE tile Alt+C would configure. Maintained by <see cref="DashboardViewModel"/> whenever
+    /// <c>SelectedTileIndex</c> moves, and bound to the tile's title-row highlight through the same
+    /// <c>SelectedToBrushConverter</c> every menu row in the shell uses — so the operator can SEE which tile
+    /// the verb is aimed at. It could not before: the index existed, nothing moved it and nothing painted it.
+    /// </summary>
+    [ObservableProperty] private bool _isSelected;
+
     public DashboardTileViewModel(string title, ChartMark mark, ChartSeries series, string valueCaption)
     {
         Title = title;
@@ -60,14 +75,57 @@ public sealed partial class DashboardTileViewModel : ViewModelBase
         Series = series;
         ValueCaption = valueCaption;
 
-        Bars = new ReadOnlyCollection<BarMark>(
-            ChartGeometry.BuildBars(series, PlotWidth, PlotHeight).ToList());
-        Vertices = new ReadOnlyCollection<LineVertex>(
-            ChartGeometry.BuildLine(series, PlotWidth, PlotHeight).ToList());
+        // 🔴 THE MARK TYPE BRANCHES HERE, AND IT MUST KEEP BRANCHING. A BAR TILE BUILDS BARS AND NO VERTICES;
+        // A LINE TILE BUILDS VERTICES AND NO BARS. Both lists were previously built UNCONDITIONALLY and the view
+        // bound both, so every tile rendered twelve rectangles AND a polyline through their tops: there was ONE
+        // composite mark, not two, `Mark` was a dead knob (flipping a tile Line→Bar changed nothing on screen and
+        // reddened no test), and `MarkCaption` told the operator "Bar chart" about a picture that was visibly
+        // also a line. The vendor surface being cloned is LINE AND BAR — two marks — so a tile that is both is
+        // not a faithful clone of either. The view needs no visibility branch: an empty mark list realises no
+        // control at all, which is stronger than a collapsed one and is what the render tests assert on.
+        Bars = mark == ChartMark.Bar
+            ? new ReadOnlyCollection<BarMark>(
+                ChartGeometry.BuildBars(series, PlotWidth, PlotHeight).ToList())
+            : Array.Empty<BarMark>();
+        Vertices = mark == ChartMark.Line
+            ? new ReadOnlyCollection<LineVertex>(
+                ChartGeometry.BuildLine(series, PlotWidth, PlotHeight).ToList())
+            : Array.Empty<LineVertex>();
         Ticks = new ReadOnlyCollection<AxisTick>(
             ChartGeometry.BuildAxisTicks(series, PlotHeight).ToList());
         BaselineY = ChartGeometry.BaselineY(series, PlotHeight);
-        LinePoints = new Avalonia.Points(Vertices.Select(v => new Avalonia.Point(v.X, v.Y)));
+        LinePoints = BuildLinePoints(Vertices, series.Points.Count);
+    }
+
+    /// <summary>
+    /// The polyline's points, with the ONE degenerate case handled: a series of exactly one point.
+    ///
+    /// <para>🔴 <b>A one-vertex Polyline strokes no pixels.</b> That was invisible while every tile also drew
+    /// bars — the bar carried the figure — but once <see cref="ChartMark"/> became a real branch a single-point
+    /// LINE tile would have rendered an axis, gridlines and nothing else: "there is no data" shown for a month
+    /// that has one, which is the same wrong-figures shape as drawing a zero line for an empty series. It is
+    /// unreachable on today's route (<c>OpenDashboard</c> always spans a full financial year, so every series
+    /// has twelve points) and becomes reachable the moment the dashboard honours a one-month period.</para>
+    ///
+    /// <para>The single point is drawn as a short flat segment centred on its own slot, at its own value's Y —
+    /// the level a reader would read off the axis, occupying the same width a single BAR would (the 0.62 slot
+    /// fill <see cref="ChartGeometry.BuildBars"/> uses), so the two mark types stay visually comparable.
+    /// <b>This is ours, not measured from the vendor</b>; the alternative was a third mark type (a point
+    /// marker), and this feature's whole scope claim is that there are two.</para>
+    /// </summary>
+    private static Avalonia.Points BuildLinePoints(IReadOnlyList<LineVertex> vertices, int pointCount)
+    {
+        if (vertices.Count == 1 && pointCount > 0)
+        {
+            var v = vertices[0];
+            var halfWidth = (PlotWidth / pointCount) * 0.62 / 2.0;
+            return new Avalonia.Points(new[]
+            {
+                new Avalonia.Point(v.X - halfWidth, v.Y),
+                new Avalonia.Point(v.X + halfWidth, v.Y),
+            });
+        }
+        return new Avalonia.Points(vertices.Select(v => new Avalonia.Point(v.X, v.Y)));
     }
 
     /// <summary>🔴 True when there is NOTHING to plot — not when everything plots to zero.</summary>
@@ -79,9 +137,18 @@ public sealed partial class DashboardTileViewModel : ViewModelBase
     /// <summary>The worded empty state. It says the company has no such vouchers — it does NOT say "zero".</summary>
     public string EmptyMessage => $"No {Title.ToLowerInvariant()} to chart for this period.";
 
+    /// <summary>The bar rectangles — populated only on a <see cref="ChartMark.Bar"/> tile, EMPTY on a
+    /// <see cref="ChartMark.Line"/> one. See the constructor.</summary>
     public IReadOnlyList<BarMark> Bars { get; }
+
+    /// <summary>The line vertices — populated only on a <see cref="ChartMark.Line"/> tile, EMPTY on a
+    /// <see cref="ChartMark.Bar"/> one. See the constructor.</summary>
     public IReadOnlyList<LineVertex> Vertices { get; }
+
+    /// <summary>The value-axis gridlines. Built for BOTH mark types — a chart of either kind is read against
+    /// the same axis, and the axis is not a mark.</summary>
     public IReadOnlyList<AxisTick> Ticks { get; }
+
     public double BaselineY { get; }
 
     /// <summary>
@@ -111,7 +178,9 @@ public sealed partial class DashboardTileViewModel : ViewModelBase
     /// parses as four coordinates instead of two. Handing over typed points removes both failure modes rather
     /// than papering over the second with an invariant-culture format string.</para>
     ///
-    /// <para>Empty (never null) for an empty series, so an empty tile renders no line rather than throwing.</para>
+    /// <para>Empty (never null) for an empty series AND on every <see cref="ChartMark.Bar"/> tile, so neither
+    /// renders a line rather than throwing. The single-point case is spread into two points — see
+    /// <see cref="BuildLinePoints"/>, which is where that whole argument lives.</para>
     /// </summary>
     public Avalonia.Points LinePoints { get; }
 
@@ -159,8 +228,23 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
     public ObservableCollection<DashboardTileViewModel> Tiles { get; } = new();
 
-    /// <summary>The tile Alt+C configures. Kept as an index so the column is keyboard-navigable.</summary>
+    /// <summary>
+    /// The tile Alt+C configures. Kept as an index so the column is keyboard-navigable — and it now genuinely
+    /// IS: the shell's Up/Down arrows reach <see cref="MoveTileUp"/>/<see cref="MoveTileDown"/> through
+    /// <c>StepActive</c>, exactly the way the arrows move the highlight on Outstandings and the other
+    /// row-selecting pages, and the highlighted tile paints its title row. Until that landed this index was a
+    /// dead knob with a doc comment that claimed otherwise: nothing moved it, nothing showed it, and Alt+C
+    /// could only ever configure tile zero.
+    /// </summary>
     [ObservableProperty] private int _selectedTileIndex;
+
+    /// <summary>Keeps exactly one tile's <see cref="DashboardTileViewModel.IsSelected"/> true.</summary>
+    partial void OnSelectedTileIndexChanged(int value) => SyncTileSelection();
+
+    private void SyncTileSelection()
+    {
+        for (var i = 0; i < Tiles.Count; i++) Tiles[i].IsSelected = i == SelectedTileIndex;
+    }
 
     /// <summary>Non-null only while the Alt+C tile-configuration column is open over this dashboard.</summary>
     [ObservableProperty] private DashboardTileConfigViewModel? _tileConfig;
@@ -216,6 +300,10 @@ public sealed partial class DashboardViewModel : ViewModelBase
         }
 
         SelectedTileIndex = Tiles.Count == 0 ? 0 : Math.Clamp(keep, 0, Tiles.Count - 1);
+        // Called unconditionally: the setter above raises OnSelectedTileIndexChanged only when the VALUE
+        // changes, and on the first build (and on any rebuild that lands on the same index) it does not — which
+        // would leave a freshly-built tile list with no tile marked at all.
+        SyncTileSelection();
     }
 
     /// <summary>
@@ -274,11 +362,16 @@ public sealed partial class DashboardViewModel : ViewModelBase
     /// <summary>Escape from the config panel.</summary>
     public void CloseTileConfig() => TileConfig = null;
 
+    /// <summary>Down-arrow on an open dashboard — moves the Alt+C target to the next tile. Reached from the
+    /// shell's <c>StepActive</c>, the one door every arrow key in this application goes through. Does NOT wrap:
+    /// a menu column wraps because it is a ring of choices; a tile list is a short read-down column, and the
+    /// vendor's own dashboard does not cycle.</summary>
     public void MoveTileDown()
     {
         if (SelectedTileIndex < Tiles.Count - 1) SelectedTileIndex++;
     }
 
+    /// <summary>Up-arrow on an open dashboard — see <see cref="MoveTileDown"/>.</summary>
     public void MoveTileUp()
     {
         if (SelectedTileIndex > 0) SelectedTileIndex--;

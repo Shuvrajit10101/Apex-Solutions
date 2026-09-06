@@ -1170,9 +1170,14 @@ public partial class MainWindow : Window
         //
         // 🔴 THIS CHORD IS INVENTED, NOT CLONED, AND IS RECORDED AS SUCH IN docs/invented-vs-cloned.md (IV-64).
         // The reference product does not put WhatsApp on its own key at all: it nests WhatsApp UNDER the same
-        // Alt+M "Share" access point as E-Mail, sharing one configuration layer. Our M / Ctrl+M is already spent on
-        // the e-mail compose column, so the vendor's chord could not be reused without displacing a shipped one.
-        // W was measured free across the whole key tunnel before it was taken. Do not present it as fidelity.
+        // Alt+M "Share" access point as E-Mail, sharing one configuration layer.
+        // 🔴 CORRECTED 2026-09-07 — THIS COMMENT USED TO CLAIM "our M / Ctrl+M is already spent on the e-mail
+        // compose column, so the vendor's chord could not be reused without displacing a shipped one". THAT WAS
+        // FALSE. The vendor's chord is Alt+M, and Alt+M IS FREE here: the only Key.M arm in this tunnel is the
+        // e-mail one above, and it reads `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)` — it excludes Alt by
+        // construction. W was measured free before it was taken, and that part stands; but W was NOT forced, it
+        // was chosen, and IV-64's recommended route (a channel picker on the vendor's own Alt+M) costs nothing.
+        // Do not present W as fidelity, and do not repeat the collision claim.
         if (e.Key == Key.W && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.OpenWhatsAppShare();

@@ -179,7 +179,15 @@ public static class ChartGeometry
         for (var v = first; v <= max; v += step)
         {
             if (v < min) continue;
-            ticks.Add(new AxisTick(v, IndianFormat.Amount(v), ValueToY(v, min, max, plotHeight)));
+            // 🔴 AmountAlways, NOT Amount. `IndianFormat.Amount` renders exactly zero as the EMPTY STRING —
+            // that is the report-GRID blank-at-zero convention, and it is wrong on an axis. The axis is
+            // documented above to always include zero, and `first` is always a multiple of `step`, so the zero
+            // tick is ALWAYS emitted; with Amount it was ALWAYS captioned with nothing. On the one Default-
+            // dashboard series that genuinely goes negative ("Sales less purchases by month") the single
+            // unlabelled gridline was therefore the one dividing profit from loss — the reader could not locate
+            // zero from the captions. AmountAlways exists for exactly this case ("a zero is a meaningful
+            // balance rather than a blank cell") and every_axis_tick_is_captioned_including_zero locks it.
+            ticks.Add(new AxisTick(v, IndianFormat.AmountAlways(v), ValueToY(v, min, max, plotHeight)));
             if (ticks.Count > 32) break;      // a hard stop; no data shape may spin this loop
         }
         return ticks;
@@ -187,8 +195,12 @@ public static class ChartGeometry
 
     /// <summary>
     /// Rounds a raw step up to the next 1 / 2 / 5 × 10ⁿ — the standard "nice number" ladder, so an axis reads
-    /// 0 / 50,000 / 1,00,000 rather than 0 / 23,847 / 47,694. Note the ladder has no 2.5 rung, so a raw step of
-    /// 23,847 rounds to 50,000, not to 25,000.
+    /// 0.00 / 50,000.00 / 1,00,000.00 rather than 0.00 / 23,847.00 / 47,694.00. Note the ladder has no 2.5 rung,
+    /// so a raw step of 23,847 rounds to 50,000, not to 25,000.
+    ///
+    /// <para>(The captions carry paisa because <see cref="IndianFormat.AmountAlways"/> is the application's one
+    /// always-render money format; this comment previously showed them without, and a comment that states a
+    /// caption the code does not produce is how a false claim gets believed.)</para>
     /// </summary>
     public static decimal NiceStep(decimal raw)
     {

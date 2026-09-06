@@ -268,9 +268,16 @@ public sealed class DashboardReachabilityTests
             Assert.NotEmpty(bars);
             Assert.Contains(bars, r => r.Height > 0 && r.Width > 0);
 
-            var line = Named<Polyline>(window, "LineMark");
-            Assert.NotNull(line);
-            Assert.NotEmpty(line!.Points);
+            // 🔴 `Named<Polyline>` (the FIRST one in the tree) is deliberately not used here. Every tile realises
+            // a LineMark element; only a ChartMark.Line tile gives it points, and on the Default dashboard the
+            // first two tiles are bars. This test used to assert on the first LineMark and passed only because
+            // EVERY tile drew a line as well as its bars — the composite-mark defect. It now asserts what it
+            // always meant: somewhere on this dashboard a polyline is genuinely stroked.
+            var strokedLines = AllNamed<Polyline>(window, "LineMark")
+                               .Where(p => (p.Points?.Count ?? 0) >= 2).ToList();
+            Assert.NotEmpty(strokedLines);
+            Assert.All(strokedLines, p => Assert.All(p.Points,
+                pt => Assert.False(double.IsNaN(pt.X) || double.IsNaN(pt.Y))));
         }
         finally { Close(window, dir); }
     }
@@ -409,8 +416,9 @@ public sealed class DashboardReachabilityTests
 
     /// <summary>
     /// Escape from the configuration column returns to the dashboard beneath it — and the panel must actually
-    /// GO. It is bound through <c>Dashboard.TileConfig</c>, so leaving that non-null after the pop would keep it
-    /// rendered over a screen the operator has already left.
+    /// GO. Clearing <c>Dashboard.TileConfig</c> on the pop is what lets Alt+C be pressed a SECOND time:
+    /// <c>OpenDashboardTileConfig</c> refuses while it is non-null, so a stale value would make the verb inert
+    /// for the rest of that dashboard's life.
     /// </summary>
     [AvaloniaFact]
     public void Escape_from_the_tile_config_returns_to_the_dashboard_and_the_panel_goes_away()
@@ -519,5 +527,384 @@ public sealed class DashboardReachabilityTests
         var empty = new DashboardTileViewModel("Test", ChartMark.Line, ChartSeries.Empty("S"), "Amount");
         Assert.NotNull(empty.LinePoints);
         Assert.Empty(empty.LinePoints);
+    }
+
+    // ============================================================ the four defects the first cut shipped green
+    //
+    // 🔴 EVERY TEST BELOW WAS ADDED BECAUSE THE SUITE ABOVE PASSED WHILE THE DEFECT WAS ON SCREEN. Each names
+    // what the old assertion could not see. Read that line before weakening one.
+
+    /// <summary>The nearest <see cref="GatewayColumn"/> a realised control sits inside — i.e. WHICH Miller column
+    /// actually painted it. Walking up for this is the whole point: a window-wide <c>Named&lt;T&gt;</c> search
+    /// finds a control no matter which column drew it, which is exactly how the overlay defect below passed.</summary>
+    private static GatewayColumn? OwningColumn(Visual v)
+    {
+        for (Visual? cur = v; cur is not null; cur = cur.GetVisualParent())
+            if (cur is Control { DataContext: GatewayColumn gc }) return gc;
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>DEFECT 1 — Alt+C PAINTED ITS PANEL OVER THE CHART AND PUSHED A BLANK COLUMN.</b>
+    ///
+    /// <para>The page templates live inside the <c>GatewayColumn</c> DataTemplate, so each is evaluated ONCE PER
+    /// COLUMN. The panel was bound to <c>Dashboard.TileConfig</c> — <c>(Page as DashboardViewModel).TileConfig</c>
+    /// — which is non-null on the DASHBOARD column, so the panel drew itself on top of the chart the operator
+    /// was reading while the column Alt+C actually pushed rendered nothing but its header strip. Every sibling
+    /// page here binds its own <c>Page as X</c> projection; this one now binds <c>DashboardTileConfig</c>, the
+    /// property the same diff had added and left with zero consumers.</para>
+    ///
+    /// <para><b>Why the old test could not see it:</b> it asserted <c>Named&lt;TextBlock&gt;(window,
+    /// "TileConfigTitle")</c> is non-null — a WINDOW-WIDE search that is satisfied by the panel appearing
+    /// anywhere at all, including on top of the wrong column. This one asserts the OWNING COLUMN.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_C_renders_the_config_panel_INSIDE_the_column_it_pushed()
+    {
+        var (window, vm, dir) = NewCompany();
+        try
+        {
+            PostSomeTrading(vm);
+            ReachDashboardThroughTheCascade(window, vm, "Default Dashboard");
+            window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.Alt);
+            Pump(window);
+
+            var title = Named<TextBlock>(window, "TileConfigTitle");
+            Assert.NotNull(title);
+
+            var owner = OwningColumn(title!);
+            Assert.NotNull(owner);
+            Assert.IsType<DashboardTileConfigViewModel>(owner!.Page);
+            Assert.Same(vm.Columns[^1], owner);      // and it is the column Alt+C pushed, the rightmost one
+
+            // 🔴 THE OVERLAY HALF, stated as the two facts that were both false. NO realised copy of the config
+            // panel may sit in a dashboard column, and no realised copy of the tiles may sit in the config
+            // column. Before the fix the panel was drawn in BOTH — over the chart, and (blank) in its own.
+            Assert.All(AllNamed<TextBlock>(window, "TileConfigTitle"),
+                       t => Assert.IsType<DashboardTileConfigViewModel>(OwningColumn(t)?.Page));
+            Assert.All(AllNamed<ItemsControl>(window, "DashboardTiles"),
+                       c => Assert.IsType<DashboardViewModel>(OwningColumn(c)?.Page));
+
+            // The dashboard beneath survives (Miller columns persist) and is a DIFFERENT column.
+            var tiles = Named<ItemsControl>(window, "DashboardTiles");
+            Assert.NotNull(tiles);
+            var tilesOwner = OwningColumn(tiles!);
+            Assert.NotNull(tilesOwner);
+            Assert.NotSame(owner, tilesOwner);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>DEFECT 2 — `ChartMark` WAS A DEAD KNOB: EVERY TILE DREW BARS *AND* A POLYLINE.</b>
+    ///
+    /// <para>The tile built <c>Bars</c>, <c>Vertices</c> and <c>LinePoints</c> unconditionally and the view bound
+    /// all three, so a "Bar chart" tile carried a navy line through the tops of its bars and a "Line chart" tile
+    /// was a full bar chart with a line over it. There was ONE composite mark, not the two the vendor ships, and
+    /// the Alt+C panel's <c>MarkCaption</c> mis-described what the operator was looking at. Nothing guarded it:
+    /// flipping a tile from Line to Bar left the whole file green.</para>
+    ///
+    /// <para>Asserted at BOTH levels — the view model's lists, and the marks actually realised on screen.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Bar_tile_draws_no_line_and_a_Line_tile_draws_no_bars()
+    {
+        var (window, vm, dir) = NewCompany();
+        try
+        {
+            PostSomeTrading(vm);
+            ReachDashboardThroughTheCascade(window, vm, "Default Dashboard");
+
+            var tiles = vm.Dashboard!.Tiles;
+            Assert.Contains(tiles, t => t.Mark == ChartMark.Bar);
+            Assert.Contains(tiles, t => t.Mark == ChartMark.Line);
+
+            foreach (var t in tiles)
+            {
+                Assert.False(t.IsEmpty, "the fixture trades, so every Default tile has data");
+                if (t.Mark == ChartMark.Bar)
+                {
+                    Assert.NotEmpty(t.Bars);
+                    Assert.Empty(t.Vertices);
+                    Assert.Empty(t.LinePoints);          // a bar tile strokes NO line
+                }
+                else
+                {
+                    Assert.NotEmpty(t.Vertices);
+                    Assert.NotEmpty(t.LinePoints);
+                    Assert.Empty(t.Bars);                // a line tile fills NO rectangle
+                    Assert.Empty(t.PositiveBars);
+                    Assert.Empty(t.NegativeBars);
+                }
+            }
+
+            // On screen: the realised rectangle count is the BAR tiles' bars and nothing else, and exactly the
+            // LINE tiles stroke a polyline (a Polyline with fewer than two points draws no pixels).
+            var host = Named<ItemsControl>(window, "DashboardTiles");
+            Assert.NotNull(host);
+
+            var realisedBars = AllNamed<ItemsControl>(window, "PositiveBarMarks")
+                               .Concat(AllNamed<ItemsControl>(window, "NegativeBarMarks"))
+                               .SelectMany(h => Descendants(h).OfType<Rectangle>())
+                               .Count();
+            Assert.Equal(tiles.Where(t => t.Mark == ChartMark.Bar).Sum(t => t.Bars.Count), realisedBars);
+
+            var strokedLines = AllNamed<Polyline>(window, "LineMark").Count(p => (p.Points?.Count ?? 0) >= 2);
+            Assert.Equal(tiles.Count(t => t.Mark == ChartMark.Line), strokedLines);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>DEFECT 3 — THE ZERO GRIDLINE WAS CAPTIONED WITH AN EMPTY STRING ON EVERY CHART.</b>
+    ///
+    /// <para><c>IndianFormat.Amount</c> renders exactly zero as <c>string.Empty</c> — the report-GRID
+    /// blank-at-zero convention, wrongly applied to an axis caption. The axis always includes zero and the first
+    /// tick is always a multiple of the step, so the zero tick was ALWAYS emitted and ALWAYS blank. On the one
+    /// Default-dashboard series that goes negative, the only unlabelled gridline was the one dividing profit
+    /// from loss. The old <c>ChartGeometryTests</c> asserted one caption at 10,00,000 and never looked at zero.</para>
+    /// </summary>
+    [Fact]
+    public void Every_axis_tick_is_captioned_including_zero_on_a_mixed_sign_series()
+    {
+        var mixed = new ChartSeries("Sales less purchases", new[]
+        {
+            new ChartPoint("Apr-25", -2000m), new ChartPoint("May-25", 4000m), new ChartPoint("Jun-25", 0m),
+        });
+
+        var ticks = ChartGeometry.BuildAxisTicks(mixed, DashboardTileViewModel.PlotHeight);
+        Assert.NotEmpty(ticks);
+        Assert.All(ticks, t => Assert.False(string.IsNullOrWhiteSpace(t.Caption),
+                                            $"the gridline at {t.Value} is drawn with no caption"));
+
+        var zero = Assert.Single(ticks, t => t.Value == 0m);   // the axis always spans zero
+        Assert.Equal("0.00", zero.Caption);
+
+        // The positive-only case too: it also always emits a zero tick, and it was blank as well.
+        var positive = new ChartSeries("Sales", new[] { new ChartPoint("Apr-25", 5000m) });
+        Assert.All(ChartGeometry.BuildAxisTicks(positive, DashboardTileViewModel.PlotHeight),
+                   t => Assert.False(string.IsNullOrWhiteSpace(t.Caption)));
+    }
+
+    /// <summary>
+    /// 🔴 <b>DEFECT 4 — THE BADGE AND THE KEY DISAGREED ABOUT WHAT Alt+C DOES.</b>
+    ///
+    /// <para>The key tunnel routes Alt+C on a dashboard to the tile configuration; <c>BuildButtonBar</c> had no
+    /// Dashboard arm, so the bar advertised an ENABLED "Alt+C  Create Ledger". Pressing the chord opened the tile
+    /// config, clicking the badge opened the Ledger master — two doors for one advertised chord doing different
+    /// things. The old test checked the KEY (<c>Assert.Null(vm.LedgerMaster)</c>) and never read the badge.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_Alt_C_badge_on_a_dashboard_says_what_the_Alt_C_key_does()
+    {
+        var (window, vm, dir) = NewCompany();
+        try
+        {
+            PostSomeTrading(vm);
+            ReachDashboardThroughTheCascade(window, vm, "Default Dashboard");
+
+            // Exactly ONE Alt+C row — the shell's key lookup takes the first match, so a second would shadow it.
+            var badge = Assert.Single(vm.ButtonBar, b => b.Key == "Alt+C");
+            Assert.Equal("Configure Tile", badge.Caption);
+            Assert.True(badge.Enabled, "an enabled chord whose badge is dim is as bad as the reverse");
+
+            // The BUTTON runs the same door the KEY runs.
+            badge.Action();
+            Pump(window);
+            Assert.Equal(Screen.DashboardTileConfig, vm.CurrentScreen);
+            Assert.Null(vm.LedgerMaster);
+
+            // And off a dashboard the badge goes back to being the Ledger-creation master.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            vm.ShowGateway();
+            Pump(window);
+            var gateway = Assert.Single(vm.ButtonBar, b => b.Key == "Alt+C");
+            Assert.NotEqual("Configure Tile", gateway.Caption);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>DEFECT 5 — Alt+C COULD ONLY EVER CONFIGURE TILE ZERO.</b>
+    ///
+    /// <para><c>SelectedTileIndex</c> existed and its doc comment said it was "kept as an index so the column is
+    /// keyboard-navigable". Nothing moved it: <c>MoveTileUp</c>/<c>MoveTileDown</c> had zero callers in
+    /// <c>src/</c>, no key arm touched it, and no control painted a selection — so the operator could not have
+    /// seen which tile was targeted even if it had moved. The arrows now reach it through <c>StepActive</c>, the
+    /// one arrow door every row-selecting page in this shell uses, and the tile's title row is highlighted.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Arrows_move_the_tile_highlight_and_Alt_C_configures_the_HIGHLIGHTED_tile()
+    {
+        var (window, vm, dir) = NewCompany();
+        try
+        {
+            PostSomeTrading(vm);
+            ReachDashboardThroughTheCascade(window, vm, "Default Dashboard");
+
+            var tiles = vm.Dashboard!.Tiles;
+            Assert.True(tiles.Count >= 3, "the Default dashboard carries three tiles");
+            Assert.Equal(0, vm.Dashboard.SelectedTileIndex);
+            Assert.True(tiles[0].IsSelected);
+
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(1, vm.Dashboard.SelectedTileIndex);
+            Assert.Single(tiles, t => t.IsSelected);            // exactly one, and it moved
+            Assert.True(tiles[1].IsSelected);
+
+            // It is PAINTED — an invisible highlight is not a highlight. Exactly one tile header carries a
+            // non-transparent selection brush.
+            var highlighted = AllNamed<Grid>(window, "DashboardTileHeader")
+                              .Count(g => g.Background is SolidColorBrush { Color.A: > 0 });
+            Assert.Equal(1, highlighted);
+
+            window.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(0, vm.Dashboard.SelectedTileIndex);
+
+            // …and Alt+C configures whichever tile is highlighted, not always tile zero.
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, vm.Dashboard.SelectedTileIndex);
+
+            window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.DashboardTileConfig, vm.CurrentScreen);
+            Assert.Equal(tiles[2].Title, vm.Dashboard.TileConfig!.TileTitle);
+            Assert.NotEqual(tiles[0].Title, vm.Dashboard.TileConfig!.TileTitle);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// A one-point LINE series must still stroke something. A single-vertex <c>Polyline</c> draws no pixels, and
+    /// once <see cref="ChartMark"/> became a real branch a one-month line tile would have shown an axis and
+    /// nothing else — "there is no data" for a month that has some, the same wrong-figures shape as drawing a
+    /// zero line for an empty series. Unreachable on today's full-financial-year route; live the moment the
+    /// dashboard honours a shorter period, which is an open R12 question.
+    /// </summary>
+    [Fact]
+    public void A_single_point_line_series_still_strokes_a_visible_segment()
+    {
+        var one = new ChartSeries("S", new[] { new ChartPoint("Apr-25", 4000m) });
+        var tile = new DashboardTileViewModel("One month", ChartMark.Line, one, "Amount");
+
+        Assert.Single(tile.Vertices);                       // the geometry stays one-vertex-per-point
+        Assert.Equal(2, tile.LinePoints.Count);             // the VIEW gets a strokeable segment
+        Assert.Equal(tile.LinePoints[0].Y, tile.LinePoints[1].Y, 6);      // flat, at the point's own level
+        Assert.Equal(tile.Vertices[0].Y, tile.LinePoints[0].Y, 6);
+        Assert.True(tile.LinePoints[1].X > tile.LinePoints[0].X, "a zero-width segment strokes nothing either");
+        Assert.All(tile.LinePoints, p => Assert.InRange(p.X, 0d, DashboardTileViewModel.PlotWidth));
+
+        // An EMPTY series is still empty — the fix must not manufacture a segment out of nothing.
+        var empty = new DashboardTileViewModel("None", ChartMark.Line, ChartSeries.Empty("S"), "Amount");
+        Assert.Empty(empty.LinePoints);
+    }
+
+    /// <summary>
+    /// 🔴 <b>WHICH ACCELERATOR EACH ROOT GATEWAY ROW PAINTS — pinned, because adding "Dashboard" MOVED TWO
+    /// LETTERS THE OPERATOR HAD ALREADY LEARNED.</b>
+    ///
+    /// <para>Adding a row to the root column runs <c>GatewayColumn</c>'s rehousing pass over the WHOLE column,
+    /// and the pass re-houses whatever incumbents it must to serve everybody. <c>GatewayHotKeyRehousingTests</c>
+    /// proves the algorithm correct and its assignments unique — but nothing pinned WHICH letter each row ends
+    /// up with, and the root column is the one users have memorised. Measured on the real window, 2026-09-07,
+    /// the Dashboard row cost two: <b>Day Book moved D → a</b> (D went to Dashboard) and <b>Alter Company moved
+    /// A → l</b> (A went to Day Book). That is a genuine, if small, cost of the feature, and it should be a
+    /// visible decision rather than a silent side effect — so it is written down here.</para>
+    ///
+    /// <para>This test is a CHANGE DETECTOR, not a claim that this particular map is right. If a later slice
+    /// adds a root row and this reddens, that is the test working: read which letters moved, decide whether the
+    /// move is acceptable, and update the map deliberately.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_root_Gateway_column_paints_exactly_these_accelerators()
+    {
+        var (window, vm, dir) = NewCompany();
+        try
+        {
+            var actual = string.Join(" | ", vm.Columns[0].Items
+                .Where(i => i.IsSelectable)
+                .Select(i => $"{i.Label}={(i.HasHotKey ? i.HotKey.ToString() : "-")}"));
+
+            const string expected =
+                "Create=C | Alter Company=l | Chart of Accounts=h | GST & Taxation=G | Vouchers=V | Banking=n | "
+                + "Day Book=a | Balance Sheet=B | Profit & Loss A/c=P | Trial Balance=T | Account Books=u | "
+                + "Statements=S | Statements of Accounts=e | Inventory Reports=I | GST Reports=R | "
+                + "Exception Reports=x | Dashboard=D | Backup / Restore=k | Quit — Change Company=Q";
+
+            Assert.Equal(expected, actual);
+
+            // No row is starved, and no letter is handed out twice — the two properties the rehousing pass
+            // exists to guarantee, asserted here on the REAL column rather than a synthetic one.
+            var keys = vm.Columns[0].Items.Where(i => i.IsSelectable && i.HasHotKey)
+                                          .Select(i => char.ToUpperInvariant(i.HotKey!.Value)).ToList();
+            Assert.Equal(keys.Count, keys.Distinct().Count());
+            Assert.DoesNotContain(vm.Columns[0].Items.Where(i => i.IsSelectable), i => !i.HasHotKey);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>A DASHBOARD MUST NOT SCROLL SIDEWAYS — the chart has to fit the width of its own column.</b>
+    ///
+    /// <para>The plot is a fixed 460×150 plus an 86px axis-caption gutter and 12px tile padding, and the Miller
+    /// column it sits in is a FIXED width, so whether it fits does not depend on the window: it either always
+    /// fits or never does. This project carries a large open UI-truncation catalogue and 125/150% DPI is
+    /// untested, so a new rendering surface gets this pinned before it can drift.</para>
+    ///
+    /// <para><b>MEASURED, 2026-09-07, and reported honestly.</b> A review finding said the tile extent was 650
+    /// against a 626 viewport at both standard viewports, i.e. a horizontal scrollbar on every fresh dashboard.
+    /// <b>That does not reproduce on this tree.</b> Measured through the realised ScrollViewer in all four
+    /// states (1440×900 and 1280×720, with and without the Alt+C column open) the extent width is
+    /// <c>626</c> against a <c>626</c> viewport every time — the content fits, with 546px of chart inside
+    /// ~600px of usable tile. The finding is recorded as not-reproduced rather than silently dropped, and this
+    /// test is what makes that claim checkable and keeps it true.</para>
+    ///
+    /// <para><b>The VERTICAL scroll is real and is deliberate, so it is not asserted against.</b> At 1280×720 the
+    /// extent is 675 against a 531 viewport: three stacked charts do not fit 531px, and they should not be
+    /// squeezed to ~100px each to pretend otherwise — a vertically scrolling list of tiles is what the
+    /// ScrollViewer is for, and a fourth tile would overflow any fixed height anyway. What is NOT claimed
+    /// anywhere is that this chart is RESPONSIVE. It is not: the plot is a fixed size and does not follow the
+    /// available width. Making it follow is real work and stays open.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_dashboard_fits_its_column_horizontally_at_the_standard_viewports()
+    {
+        foreach (var (w, h) in new[] { (1440d, 900d), (1280d, 720d) })
+        foreach (var withConfig in new[] { false, true })
+        {
+            var (window, vm, dir) = NewCompany();
+            try
+            {
+                window.Width = w;
+                window.Height = h;
+                PostSomeTrading(vm);
+                ReachDashboardThroughTheCascade(window, vm, "Default Dashboard");
+                if (withConfig)
+                {
+                    window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.Alt);
+                    Pump(window);
+                }
+
+                var tiles = Named<ItemsControl>(window, "DashboardTiles");
+                Assert.NotNull(tiles);
+                var scroller = tiles!.FindAncestorOfType<ScrollViewer>();
+                Assert.NotNull(scroller);
+
+                // Not vacuous: the viewport must be a real measured width, not the 0 an unlaid-out tree reports.
+                Assert.True(scroller!.Viewport.Width > 100,
+                            $"the ScrollViewer was never laid out ({scroller.Viewport}) — this test would "
+                            + "otherwise pass on nothing at all");
+
+                Assert.True(scroller.Extent.Width <= scroller.Viewport.Width + 0.5,
+                            $"at {w}x{h} (config column open: {withConfig}) the dashboard overflows its column "
+                            + $"horizontally: extent {scroller.Extent.Width} > viewport {scroller.Viewport.Width}");
+            }
+            finally { Close(window, dir); }
+        }
     }
 }

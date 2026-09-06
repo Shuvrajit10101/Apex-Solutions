@@ -14,9 +14,22 @@ namespace Apex.Desktop.ViewModels;
 ///
 /// <para>🔴 <b>READ THIS BEFORE CHANGING ANYTHING HERE: THE VENDOR'S FEATURE IS NOT THE FEATURE THIS SHIPS,
 /// AND THAT IS DELIBERATE.</b> The reference product's WhatsApp integration is a <b>WhatsApp Business API
-/// (WABA)</b> integration mediated by a named commercial Business Solution Provider. Its own help pages state
-/// that a WABA is mandatory, that a personal WhatsApp number <i>cannot</i> be used (the number must be
-/// deregistered from any personal or business WhatsApp account first), and that without the BSP account
+/// (WABA)</b> integration mediated by a named commercial Business Solution Provider (Interakt, one of Meta's
+/// BSPs).</para>
+///
+/// <para><b>SOURCE — <c>help.tallysolutions.com/share-documents-using-whatsapp-for-business-faq/</c></b>, read
+/// 2026-09-07. It states that to use WhatsApp in the reference product you must connect a mobile number with
+/// Interakt that can receive an OTP and "complete WhatsApp Business API registration first"; and that "Using a
+/// number that is already in use for an existing WhatsApp Business Account (Business App) for WhatsApp Business
+/// API on-boarding is not allowed by Meta. A user will have to de-register himself from the WhatsApp Business
+/// Account to start using the WhatsApp Business API features." The share access point itself is documented at
+/// <c>help.tallysolutions.com/configure-for-print-export-share/</c> (Alt+M → Share → WHATSAPP).
+/// 🔴 This citation was MISSING until 2026-09-07 — the claim below was asserted as "its own help pages state"
+/// with no URL, on the one fact this whole scope decision rests on. Under R7 that is not acceptable even when
+/// the claim is true, and it was true.</para>
+///
+/// <para>So: a WABA is mandatory, a personal WhatsApp number <i>cannot</i> be used (the number must be
+/// deregistered from any personal or business WhatsApp account first), and without the BSP account
 /// sharing is impossible — there is no offline or account-free path at all. We have no WABA, no BSP contract
 /// and no user-supplied credentials, and sending would break this application's <b>offline-by-construction</b>
 /// posture, which is a settled architectural property rather than an accident (see
@@ -129,16 +142,50 @@ public sealed partial class WhatsAppShareViewModel : ViewModelBase
     /// number, not part of it. <b>Any other non-digit rejects the whole number</b> rather than being silently
     /// dropped: quietly deleting a letter out of the middle of a number produces a DIFFERENT, valid-looking
     /// number, and the operator would have no way to see they were about to message a stranger.
+    ///
+    /// <para>🔴 <b>A LEADING "+" IN THE MOBILE BOX MEANS "THIS IS ALREADY A FULL INTERNATIONAL NUMBER", AND THE
+    /// COUNTRY-CODE BOX IS THEN IGNORED.</b> Pasting <c>+91 98765 43210</c> out of a contact card is the natural
+    /// gesture and it is how the number is written everywhere it appears. This class used to strip the "+" as
+    /// mere punctuation and then concatenate the country code anyway, producing
+    /// <c>wa.me/91919876543210</c> — a DIFFERENT, valid-looking number, which is exactly the hazard the
+    /// paragraph above refuses to accept for a stray letter. The "+" prefix is the one unambiguous signal in
+    /// international dialling, so it is the only thing acted on: a bare <c>919876543210</c> with no "+" is still
+    /// concatenated, because there is no way to tell a duplicated code from a subscriber number that happens to
+    /// begin with the same digits, and guessing is the failure being fixed. <see cref="NumberNotice"/> says on
+    /// the panel's face which of the two rules applied.</para>
     /// </summary>
     public string NormalisedNumber
     {
         get
         {
-            var cc = StripFormatting(CountryCode);
             var num = StripFormatting(PhoneNumber);
-            if (cc is null || num is null) return string.Empty;
-            if (cc.Length == 0 || num.Length == 0) return string.Empty;
+            if (num is null || num.Length == 0) return string.Empty;
+
+            if (IsExplicitInternational) return num;     // the operator already gave the dialling code
+
+            var cc = StripFormatting(CountryCode);
+            if (cc is null || cc.Length == 0) return string.Empty;
             return cc + num;
+        }
+    }
+
+    /// <summary>True when the mobile box carries an explicit leading "+" — see <see cref="NormalisedNumber"/>.</summary>
+    private bool IsExplicitInternational => (PhoneNumber ?? string.Empty).TrimStart().StartsWith('+');
+
+    /// <summary>
+    /// The one-line explanation of how the two number boxes were combined, shown beside the link so the
+    /// operator can see WHY the digits are what they are rather than having to reverse-engineer them from the
+    /// URL. Empty until there is a number to explain.
+    /// </summary>
+    public string NumberNotice
+    {
+        get
+        {
+            if (NormalisedNumber.Length == 0) return string.Empty;
+            return IsExplicitInternational
+                ? "The mobile number starts with \"+\", so it is used as a full international number and the "
+                  + "country code box is ignored."
+                : "The country code and the mobile number are joined in that order.";
         }
     }
 
@@ -201,6 +248,7 @@ public sealed partial class WhatsAppShareViewModel : ViewModelBase
     private void NotifyLink()
     {
         OnPropertyChanged(nameof(NormalisedNumber));
+        OnPropertyChanged(nameof(NumberNotice));
         OnPropertyChanged(nameof(WaMeUri));
         OnPropertyChanged(nameof(CanShare));
     }
@@ -226,7 +274,11 @@ public sealed partial class WhatsAppShareViewModel : ViewModelBase
             else File.WriteAllBytes(path, _document);
 
             SavedFilePath = path;
-            Status = $"Saved the document ({_document.Length:#,0} bytes) to {path}. "
+            // INVARIANT culture on the grouping. `{_document.Length:#,0}` used CurrentCulture, so a 1234-byte
+            // file read "1.234 bytes" on a de-DE desktop or runner — the same culture trap this file's own
+            // LinePoints/MonthLabel notes are written about, on the one string that slipped past it.
+            var bytes = _document.Length.ToString("#,0", System.Globalization.CultureInfo.InvariantCulture);
+            Status = $"Saved the document ({bytes} bytes) to {path}. "
                    + "Nothing was sent — open the link and attach this file in WhatsApp.";
             return true;
         }

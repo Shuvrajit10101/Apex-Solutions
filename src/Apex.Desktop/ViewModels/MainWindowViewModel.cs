@@ -2053,7 +2053,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return col;
     }
 
-    /// <summary>Opens the "Reports → Dashboard" submenu column directly (the public entry a hotkey/test uses).</summary>
+    /// <summary>
+    /// Opens the "Reports → Dashboard" submenu column directly.
+    ///
+    /// <para><b>No caller in <c>src/</c>, and that is stated rather than hedged.</b> The operator's real route is
+    /// the generic group dispatch in <c>ActivateSelected</c> — Gateway → Reports → Dashboard → one of the three —
+    /// which is the route the reachability tests walk. This method exists as the named public door the tests use
+    /// to reach the submenu without replaying the whole cascade, and it is the door a future Alt-chord or Go-To
+    /// entry for "Dashboard" would bind to. It is honest-but-unused, NOT a dead capability: it opens the same
+    /// column the dispatch opens, and nothing in the shell advertises a verb it does not perform.</para>
+    /// </summary>
     public void ShowDashboardMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
@@ -2090,6 +2099,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Alt+C over an open dashboard — opens the tile-configuration column for the highlighted tile, as a further
     /// cascading column, never a stacked overlay.
+    ///
+    /// <para>🔴 <b>THAT SECOND CLAUSE IS ONLY TRUE BECAUSE OF THE BINDING IN THE VIEW, AND IT WAS FALSE WHEN
+    /// FIRST WRITTEN.</b> Pushing the column here is not sufficient: the page templates are evaluated once per
+    /// GatewayColumn, so a template bound to <c>Dashboard.TileConfig</c> matched on the DASHBOARD column and
+    /// painted the panel over the chart while the pushed column came up blank. It is bound to the pushed
+    /// column's own <c>DashboardTileConfig</c> projection instead, and
+    /// <c>Alt_C_renders_the_config_panel_INSIDE_the_column_it_pushed</c> is what keeps this sentence honest —
+    /// it asserts the panel's nearest GatewayColumn ancestor, not merely that the panel exists somewhere in
+    /// the window (which is what the original test asserted, and why the defect shipped green).</para>
+    ///
+    /// <para>The tile it configures is <c>SelectedTileIndex</c>, which the Up/Down arrows move (see
+    /// <c>StepActive</c>) and the tile's own title row paints.</para>
     /// </summary>
     public void OpenDashboardTileConfig()
     {
@@ -8023,6 +8044,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On an open graphical dashboard (census 14.3) the arrows move the TILE highlight — the tile Alt+C
+        // configures. This arm is what makes DashboardViewModel.SelectedTileIndex a real knob: it had no mover
+        // and no painted indicator, so Alt+C could only ever configure tile zero while its own doc comment
+        // claimed the column was keyboard-navigable. Routed through StepActive rather than a new arm in the key
+        // tunnel for the same reason every other row-selecting page above is: one door, so Up and Down cannot
+        // come to mean different things on different pages.
+        if (CurrentScreen == Screen.Dashboard && Dashboard is { } dashboard)
+        {
+            if (direction < 0) dashboard.MoveTileUp(); else dashboard.MoveTileDown();
+            return;
+        }
+
         // On the GSTR-2B Reconciliation report the arrows move the bucket-row highlight (keeps a live selection).
         if (IsGstr2bReconScreen)
         {
@@ -9075,9 +9108,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 VoucherDetail = vd;
                 return Screen.VoucherDetail;
             // A dashboard column survives beneath a just-popped Alt+C tile-configuration column (census 14.3).
-            // 🔴 CloseTileConfig() is load-bearing, not tidying: the configuration panel is bound through
-            // `Dashboard.TileConfig`, so leaving it non-null after its own column has been popped would keep the
-            // panel rendered over a dashboard the operator has already escaped out of.
+            // 🔴 CloseTileConfig() is load-bearing, not tidying: OpenDashboardTileConfig REFUSES while
+            // `dash.TileConfig` is non-null ("already open — don't stack a second one"), so leaving it set after
+            // its own column has been popped would make Alt+C permanently inert for the rest of that dashboard's
+            // life — the operator escapes out of the panel once and can never open it again.
+            // (It used to be load-bearing for a second reason as well: the panel was bound through
+            // `Dashboard.TileConfig` and rendered as a stacked overlay ON the dashboard column. That defect is
+            // fixed — MainWindow.axaml now binds `DashboardTileConfig`, the pushed column's own projection — so
+            // the reopen guard is the only thing this call now protects. It still must be called.)
             case DashboardViewModel d:
                 Dashboard = d;
                 d.CloseTileConfig();
@@ -9479,8 +9517,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // still through the non-destructive route, so clicking it mid-voucher no longer discards the entry.
         // DEFECT 3: it is DISABLED while a create column is already open, where Alt+C is inert by design — an
         // enabled button captioned "Create Ledger" that does nothing is worse than an honestly dimmed one.
-        ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
-            hasCompany && !IsCreateOnTheFlyOpen));
+        // 🔴 ON A DASHBOARD Alt+C IS "CONFIGURE TILE", AND THE BADGE MUST SAY SO. The key tunnel routes Alt+C on
+        // Screen.Dashboard to OpenDashboardTileConfig (MainWindow.axaml.cs), and this row had no Dashboard arm —
+        // so the operator read an ENABLED badge saying "Alt+C  Create Ledger", pressed Alt+C and got the tile
+        // configuration, then CLICKED the same badge and got the Ledger-creation master. Two doors for one
+        // advertised chord doing two different things is register row IV-1's exact shape, and this file already
+        // records the identical defect being fixed once before ("key and button advertised one shortcut and did
+        // two different things", the WI-1 note below). The click now runs the SAME method the key runs, and the
+        // enable predicate is the SAME condition that method enforces, so the two cannot drift.
+        // ONE Alt+C row only — the shell's Fire()/hint lookup takes the first key match, so this is an if/else
+        // and never two Adds. Locked by The_Alt_C_badge_on_a_dashboard_says_what_the_Alt_C_key_does.
+        if (CurrentScreen == Screen.Dashboard)
+            ButtonBar.Add(new ButtonBarItem("Alt+C", "Configure Tile", OpenDashboardTileConfig,
+                Dashboard is { Tiles.Count: > 0, TileConfig: null }));   // the EXACT pair OpenDashboardTileConfig returns on
+        else
+            ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
+                hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
 
         // W2-13a (census 14.5) — Ctrl+B BASIS OF VALUES. This is the row the Alt+A note below says was
@@ -9515,8 +9567,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
         // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, with the
         // same printable-page gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
-        // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point, and
-        // our M is already spent) — recorded in docs/invented-vs-cloned.md as IV-64.
+        // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point) —
+        // recorded in docs/invented-vs-cloned.md as IV-64. This note used to add "and our M is already spent";
+        // that was false — the vendor's chord is Alt+M and Alt+M is unclaimed here (the M arm in the key tunnel
+        // excludes Alt), so W was chosen, not forced. See the corrected IV-64 row.
         ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));

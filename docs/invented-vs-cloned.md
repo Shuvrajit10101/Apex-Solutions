@@ -1692,6 +1692,16 @@ vendor's behaviour being **unbuildable here on stated grounds**, declared on the
 `WhatsAppShareReachabilityTests.The_realised_notice_says_nothing_is_sent_and_the_file_is_not_attached`. See §6
 if that reasoning is later disputed; it belongs with the open questions, not with the inventions.
 
+**🔴 THE SOURCE FOR "UNBUILDABLE HERE", ADDED 2026-09-07 — it was asserted uncited, which is an R7 breach on the
+single fact this row's whole scope decision rests on.** `help.tallysolutions.com/share-documents-using-whatsapp-for-business-faq/`
+(read 2026-09-07) states: *"To be able to use WhatsApp on TallyPrime, you need to connect a valid mobile number
+with Interakt that can receive an OTP and complete WhatsApp Business API registration first"*; that Interakt is
+one of Meta's Business Solution Providers; and that *"Using a number that is already in use for an existing
+WhatsApp Business Account (Business App) for WhatsApp Business API on-boarding is not allowed by Meta. A user
+will have to de-register himself from the WhatsApp Business Account to start using the WhatsApp Business API
+features."* A WABA through a commercial BSP is therefore **mandatory** and there is no account-free path — which
+is the premise, and it checks out.
+
 ### IV-64 · `W` / the "WhatsApp" badge is OUR chord — the vendor puts WhatsApp *under* its Share access point, not on its own key
 
 | | |
@@ -1699,8 +1709,8 @@ if that reasoning is later disputed; it belongs with the open questions, not wit
 | **Severity** | **LOW** — a discoverability divergence, not a figures one. Nothing is mis-stated; a TallyPrime operator simply will not find this where their muscle memory expects it. |
 | **What TallyPrime does** | WhatsApp is **not a sibling of E-Mail on its own accelerator**. Per `help.tallysolutions.com/configure-for-print-export-share/` (read 2026-09-06), WhatsApp is one **channel under the same Share access point** as Print / Export / E-mail, sharing one configuration layer (file format; company details; party details; document elements). |
 | **What we ship** | A dedicated **`W` / Ctrl+W** chord on any printable page (report or drilled voucher/tax-invoice), opening `Screen.WhatsAppShare` as its own cascading Miller column beside the page — `MainWindow.axaml.cs` (the `Key.W` arm, immediately after the `Key.M` e-mail arm), `MainWindowViewModel.BuildButtonBar()` badge `W` / caption `WhatsApp`. |
-| **How it got in** | The vendor's own chord could not be reused: our **`M` / Ctrl+M is already spent** on the shipped e-mail compose column, so nesting WhatsApp under it would have displaced a shipped behaviour rather than added one. `W` was measured free across the entire key tunnel (`grep -n "Key.W\b" MainWindow.axaml.cs` → **zero hits**) before it was taken. |
-| **Fix** | 🔴 **A USER DECISION (R12), and the more faithful option is the one we did NOT take.** Route **(1)**, recommended: turn the existing Ctrl+M column into a **channel picker** (E-mail / WhatsApp) so one Share access point carries both channels, matching the vendor's shape exactly, and retire `W`. Route **(2)**: keep `W` as a documented divergence. The panel and its view model are already channel-shaped and would move under a picker without change; only the key arm and the button-bar entry would be retired. |
+| **How it got in** | 🔴 **CORRECTED 2026-09-07 — THE ORIGINAL REASON GIVEN HERE WAS FACTUALLY WRONG, AND IS STRUCK RATHER THAN DELETED so the correction is visible.** ~~"The vendor's own chord could not be reused: our `M` / Ctrl+M is already spent on the shipped e-mail compose column, so nesting WhatsApp under it would have displaced a shipped behaviour rather than added one."~~ **The vendor's chord is `Alt+M`, not `M`, and `Alt+M` IS FREE in this application.** Measured 2026-09-07: `grep -n "Key\.M\b" src/Apex.Desktop/Views/MainWindow.axaml.cs` returns **exactly one** arm, line 1160, and it reads `e.Key == Key.M && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e)` — it **explicitly excludes Alt**. A repo-wide `grep -rn "Alt+M" src/` returns only the two comments that asserted the collision. So `Alt+M` was available and displaces nothing; `W` was taken to avoid a conflict **that does not exist**. What remains true: `W` itself was measured free (`grep -n "Key.W\b"` → zero hits) before it was taken. |
+| **Fix** | 🔴 **A USER DECISION (R12), and the more faithful option is the one we did NOT take — at NO cost, which the original framing above concealed.** Route **(1)**, recommended: put the Share access point on the vendor's own **`Alt+M`** as a **channel picker** (E-mail / WhatsApp), matching the vendor's shape *and its keystroke* exactly, and retire `W`. This costs nothing — `Alt+M` is unclaimed, `M`/Ctrl+M keeps the e-mail compose column it has today, and no shipped behaviour moves. Route **(2)**: keep `W` as a documented divergence. The panel and its view model are already channel-shaped and would move under a picker without change; only the key arm and the button-bar entry would be retired. **The user should be told route (1) is free, not merely "more faithful".** |
 
 ---
 
