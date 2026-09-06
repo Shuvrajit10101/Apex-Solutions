@@ -1451,15 +1451,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the "Banking" submenu column (Transactions → Banking): the Bank Reconciliation and Import
-    /// Bank Statement pages, each a page item under this Banking group (professional hierarchy).
+    /// Builds the "Banking" submenu column (Transactions → Banking), nested under named section headers rather
+    /// than dumped flat: <b>Reconciliation</b> (Bank Reconciliation, Import Bank Statement), <b>Cheque
+    /// Management</b> (Cheque Printing) and <b>Advices</b> (Payment Advice).
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/banking/</c>, "Banking Utilities in TallyPrime",
+    /// puts cheque printing and the payment advice in this same Banking menu;
+    /// <c>help.tallysolutions.com/print-cheques/</c> names the Cheque Printing report and
+    /// <c>help.tallysolutions.com/payment-advice/</c> the supplier advice. The column carried exactly two rows
+    /// before this wave, which is the shortfall census row 8.9 records.</para>
+    ///
+    /// <para><b>🔴 The third header is "Advices", NOT "Slips &amp; Advices".</b> The Deposit Slip (census row
+    /// 8.6) is not built: its four header fields — account number, branch, account-holder name, bank name — have
+    /// no source on <c>ledgers</c>, and the migration that would add them could not be taken on this branch (see
+    /// the note in <c>Ledger.cs</c>). A section captioned for a document the menu does not carry is exactly how a
+    /// census cell gets graded present when it is absent, so the caption names only what is there. When the
+    /// Deposit Slip lands, rename this to "Slips &amp; Advices" and update
+    /// <c>BankingDocumentsReachabilityTests</c> in the same commit.</para>
     /// </summary>
     private GatewayColumn BuildBankingColumn()
     {
         var col = new GatewayColumn("Banking");
-        col.Add(MenuItemViewModel.Header("Banking"));
+        col.Add(MenuItemViewModel.Header("Reconciliation"));
         col.Add(new MenuItemViewModel("Bank Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(MenuItemViewModel.Header("Cheque Management"));
+        col.Add(new MenuItemViewModel("Cheque Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(MenuItemViewModel.Header("Advices"));
+        col.Add(new MenuItemViewModel("Payment Advice (Suppliers)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2894,6 +2913,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Reports is { IsReorderStatus: true } r) r.ToggleReorderOnly();
     }
 
+    /// <summary>True while the open report is the supplier <b>Payment Advice</b> (census 8.7) — the guard the
+    /// window's report-scoped F8 arm tests, exactly as <see cref="IsReorderStatusReport"/> does for its own.</summary>
+    public bool IsSupplierPaymentAdviceReport => IsReportContext && Reports is { IsSupplierPaymentAdvice: true };
+
+    /// <summary>F8 on the supplier Payment Advice — narrows it to the payments the bank statement has matched
+    /// (<c>help.tallysolutions.com/payment-advice/</c>). A no-op on every other report.</summary>
+    public void ReportToggleAdviceReconciledOnly()
+    {
+        if (Reports is { IsSupplierPaymentAdvice: true } r) r.ToggleAdviceReconciledOnly();
+    }
+
     /// <summary>
     /// Ctrl+F9 on the Reorder Status report — raises a <b>Purchase Order</b> pre-filled from the selected row (the
     /// item, the company's main location, and the "Order to be Placed" quantity; RQ-53/Book p.161). Falls back to a
@@ -3374,13 +3404,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // item-invoice (RQ-11), else the plain Dr/Cr voucher (RQ-10). Otherwise it prints the open report (RQ-9).
         PrintPreviewViewModel preview;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+        {
+            // Census 8.4: once a bank HAS cheque dimensions, a cheque this product cannot ink must SAY so —
+            // falling through would print the Dr/Cr voucher onto the cheque leaf loaded in the printer. A bank
+            // with NO dimensions raises nothing at all: that is an unconfigured feature, not a failure, and its
+            // payments print the ordinary voucher (see VoucherDetailViewModel.ChequePrintRefusal for why that
+            // distinction is load-bearing rather than pedantic).
+            if (vd.ChequePrintRefusal is { } refusal)
+            {
+                RaiseLifecycleNotice(refusal);
+                return;
+            }
             preview = vd.BuildPrintPreview();
+        }
         // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
         // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
         else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
             preview = new PrintPreviewViewModel(slip, Reports.Title);
         else if (Reports is { IsPayslipReport: true })
             return;                               // payslip with no employee/structure — nothing to print
+        // The supplier Payment Advice prints the LETTERS (help.tallysolutions.com/payment-advice/), not the grid
+        // that lists them: the document the supplier receives is a letter, and printing the list instead would
+        // hand the operator a report they cannot post.
+        else if (Reports is { IsSupplierPaymentAdvice: true } advice)
+            preview = new PrintPreviewViewModel(
+                advice.CurrentSupplierAdvices, Company?.Name ?? string.Empty, Company?.Address, advice.Title);
         else if (Reports is not null)
             preview = new PrintPreviewViewModel(Reports);
         else
@@ -9252,6 +9300,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payment Advice": OpenReport(ReportKind.PaymentAdvice); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
+            // Wave 7 D1 — Transactions → Banking (census 8.4 / 8.7). Both are ReportKinds, so they inherit
+            // Ctrl+P, export, F2 period, F12 config and Alt+K saved views; a bespoke page Screen would have
+            // switched all of those off at once.
+            case "Cheque Printing": OpenReport(ReportKind.ChequePrinting); break;
+            case "Payment Advice (Suppliers)": OpenReport(ReportKind.SupplierPaymentAdvice); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;

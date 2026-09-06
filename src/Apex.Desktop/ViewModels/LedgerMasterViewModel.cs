@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -447,6 +448,36 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         set => PartyState = value;
     }
 
+    // --------------------------------------------------------------- cheque printing (catalog §8; census 8.4)
+
+    /// <summary>
+    /// True iff the <b>Cheque Printing</b> block should render: the chosen group resolves — through the full
+    /// ancestry — to Bank Accounts or Bank OD A/c. Asked of the GROUP, not of a saved ledger, so the block is
+    /// offered while the bank ledger is still being created.
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/cheque-payments-set-up/</c>, section "Specify
+    /// Cheque Range and Format in Bank Ledger" — the cheque-printing settings are captured on the BANK LEDGER
+    /// master, which is the screen this block belongs to.</para>
+    ///
+    /// <para><b>🔴 Why this exists.</b> <c>Ledger.EnableChequePrinting</c> and
+    /// <c>Ledger.ChequePrintingBankName</c> are schema-v5 columns that persisted, exported and imported for
+    /// nine phases with <b>no way for any operator to set either of them</b> — seventeen references across
+    /// Domain / Io / Sqlite and not one in <c>src/Apex.Desktop</c>. Until this block existed, the Cheque
+    /// Printing report was structurally empty for every real company.</para>
+    /// </summary>
+    public bool ShowChequePrinting => ClassificationRules.IsBankGroup(SelectedGroup?.Id, _company);
+
+    /// <summary>
+    /// "Enable Cheque Printing" (<c>help.tallysolutions.com/cheque-payments-set-up/</c>). A payment drawn on this
+    /// bank by Cheque/DD appears on the Cheque Printing report only while this is on — off is the state of every
+    /// ledger that existed before this block, so an untouched company persists byte-identically.
+    /// </summary>
+    [ObservableProperty] private bool _enableChequePrinting;
+
+    /// <summary>"Name of Bank" as it should read on cheque stationery — free text, blank ⇒ the ledger's own name
+    /// is used. Captured only when <see cref="EnableChequePrinting"/> is on.</summary>
+    [ObservableProperty] private string _chequePrintingBankName = string.Empty;
+
     /// <summary>True once the operator has edited the Mailing Name by hand; after that it stops tracking Name.</summary>
     private bool _mailingNameTouched;
 
@@ -573,6 +604,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         OnPropertyChanged(nameof(ShowPartyTdsTcs));
         // WI-4: the Mailing Details block appears/disappears with the party-group test (ancestry-walking).
         OnPropertyChanged(nameof(ShowMailingDetails));
+        // Census 8.4: the Cheque Printing block appears/disappears with the bank-group test (ancestry-walking),
+        // so picking "Bank Accounts" reveals it without leaving and re-entering the screen.
+        OnPropertyChanged(nameof(ShowChequePrinting));
     }
 
     /// <summary>WI-4: the Mailing Name tracks the ledger Name until the operator edits it by hand ("auto,
@@ -816,6 +850,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             ?? CollecteeTypeChoices[0];
         PartyPan = ledger.PartyPan ?? string.Empty;
         DeductTdsInSameVoucher = ledger.DeductTdsInSameVoucher;
+
+        // Cheque printing (census 8.4). Loaded for EVERY ledger, not just a bank one: a ledger moved out of the
+        // bank groups keeps its stored flag, and pre-filling it means re-opening the master shows the truth.
+        EnableChequePrinting = ledger.EnableChequePrinting;
+        ChequePrintingBankName = ledger.ChequePrintingBankName ?? string.Empty;
     }
 
     /// <summary>
@@ -1108,6 +1147,19 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         if (ShowPartyTdsTcs)
             target.PartyPan = partyPanOrNull;
 
+        // Cheque printing (census 8.4) — hidden-sub-form rule: the block renders only for a bank group, so a
+        // non-bank ledger captured nothing and must keep whatever it already had. The bank NAME is written only
+        // while the toggle is on, because the vendor's screen only asks for it then; switching the toggle off
+        // therefore parks the name rather than discarding it, and switching it back on restores the stationery
+        // the operator already set up.
+        if (ShowChequePrinting)
+        {
+            target.EnableChequePrinting = EnableChequePrinting;
+            if (EnableChequePrinting)
+                target.ChequePrintingBankName =
+                    string.IsNullOrWhiteSpace(ChequePrintingBankName) ? null : ChequePrintingBankName.Trim();
+        }
+
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they
         // were: Alias, IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed
         // tags). OpeningBalance / OpeningIsDebit USED to be on this list — the screen could not capture them, so
@@ -1150,6 +1202,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         MailingPincode = string.Empty;
         _mailingNameTouched = false;
         MailingName = string.Empty;
+        // Census 8.4: the cheque-printing block must NOT carry into the next ledger — leaving it on would give
+        // the following bank the previous one's cheque stationery without the operator ever saying so.
+        EnableChequePrinting = false;
+        ChequePrintingBankName = string.Empty;
     }
 
     /// <summary>A short human summary of a ledger's interest block ("18% p.a. Simple"), or blank.</summary>

@@ -112,6 +112,21 @@ public enum ReportKind
     // Reports → Statements of Accounts → Statistics (11.8).
     Statistics,
 
+    // ---- Wave 7 D1: Banking documents (census rows 8.4 / 8.7) ----
+    // Transactions → Banking. Both are ReportKinds rather than bespoke page Screens ON PURPOSE: a page Screen
+    // leaves the report context null, and that single fact switches off Ctrl+P, export, F2 period, F12 config,
+    // Alt+F12 sort/filter and Alt+K saved views at once — the defect that hollowed out rows 8.1, 11.9, 11.10
+    // and 11.11 (docs/full-clone-census.md:612). A banking document that cannot be PRINTED is not a document.
+
+    /// <summary>help.tallysolutions.com/print-cheques/, "Cheque Printing Report" — the cheques pending for
+    /// printing on a bank, drilling to the paying voucher where Ctrl+P inks the leaf.</summary>
+    ChequePrinting,
+
+    /// <summary>help.tallysolutions.com/payment-advice/ — the advices for payments made to SUPPLIERS. Distinct
+    /// from <see cref="PaymentAdvice"/>, which is the payroll bank advice for EMPLOYEES; the two are different
+    /// documents for different counterparties and must not be conflated.</summary>
+    SupplierPaymentAdvice,
+
     // ---- W7-D2: the PF statutory forms beyond the ECR (census row 7.20) ----
     // Reports → Statutory Reports → Payroll → Provident Fund. Pure re-presentations of the SAME PfEcr projection
     // the ECR and the challan come from (Apex.Ledger/Reports/PfStatutoryForms.cs) — no new PF arithmetic. Forms 3A
@@ -647,6 +662,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         _selectedScenario = Scenarios[0];
 
         InitPayrollPickers();
+        InitChequeBankPicker();
 
         Show(kind);
     }
@@ -683,6 +699,34 @@ public sealed partial class ReportsViewModel : ViewModelBase
             PayrollEmployees.Add(new PayrollEmployeeOption { EmployeeId = e.Id, Display = label });
         }
         SelectedPayrollEmployee = PayrollEmployees.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Populates the Cheque Printing report's <b>bank</b> picker — "All Banks" followed by every ledger whose
+    /// <c>Enable Cheque Printing</c> is on, by name.
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/print-cheques/</c>, section "Cheque Printing
+    /// Report", scopes that report by a <b>List of Banks</b>. This is that scope.</para>
+    ///
+    /// <para><b>🔴 Why this exists at all.</b> <c>ChequePrinting.Build</c> has carried a <c>bankLedgerId</c>
+    /// parameter, and a test proving it narrows the list, since the engine was written — with <b>no caller in
+    /// <c>src/Apex.Desktop</c> that could ever pass a value</b>. A filter no operator can reach is the
+    /// "capability that exists as a service method no user can reach" this project has already filed twice
+    /// (<c>CostReports.BuildLedgerBreakup</c>, <c>MultiAccountPrintViewModel</c>). The picker is the route in.</para>
+    ///
+    /// <para>The default assignment cannot trigger a premature rebuild: <see cref="Kind"/> still holds the enum's
+    /// zero value here (<see cref="ReportKind.TrialBalance"/>) because <see cref="Show"/> has not run, and
+    /// <see cref="OnSelectedChequeBankChanged"/> guards on <see cref="ReportKind.ChequePrinting"/> — the same
+    /// argument <see cref="InitPayrollPickers"/> makes for its two pickers.</para>
+    /// </summary>
+    private void InitChequeBankPicker()
+    {
+        ChequeBanks.Add(ChequeBankOption.AllBanks);
+        foreach (var l in _company.Ledgers
+            .Where(l => l.EnableChequePrinting)
+            .OrderBy(l => l.Name, StringComparer.Ordinal))
+            ChequeBanks.Add(new ChequeBankOption { LedgerId = l.Id, Display = l.Name });
+        SelectedChequeBank = ChequeBanks[0];
     }
 
     // =============================================================== RQ-1 / RQ-2 / RQ-6 report parameters
@@ -868,6 +912,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsGodownSummary));
         OnPropertyChanged(nameof(IsStockMovement));
         OnPropertyChanged(nameof(IsReorderStatus));
+        OnPropertyChanged(nameof(IsSupplierPaymentAdvice));
+        // Without this the picker stays hidden when the operator arrives on the Cheque Printing report from
+        // another report in the same viewer — the bug the whole block above exists to prevent.
+        OnPropertyChanged(nameof(ShowChequeBankPicker));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
@@ -987,6 +1035,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PayrollRegister: BuildPayrollRegister(); break;
             case ReportKind.AttendanceRegister: BuildAttendanceRegister(); break;
             case ReportKind.PaymentAdvice: BuildPaymentAdvice(); break;
+
+            // ---- Wave 7 D1: Banking documents (census 8.4 / 8.7) ----
+            case ReportKind.ChequePrinting: BuildChequePrinting(); break;
+            case ReportKind.SupplierPaymentAdvice: BuildSupplierPaymentAdvice(); break;
 
             // W7-D2 — the PF statutory forms beyond the ECR (census 7.20). Every one of these reaches an engine
             // that THROWS on an incompletely set-up payroll (see RunStatutoryForm), and Show() has no handler.
@@ -1240,6 +1292,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.GroupVouchers] = "GroupVouchers",
         [ReportKind.LedgerMonthlySummary] = "LedgerMonthlySummary",
         [ReportKind.Statistics] = "Statistics",
+        [ReportKind.ChequePrinting] = "ChequePrinting",
+        [ReportKind.SupplierPaymentAdvice] = "SupplierPaymentAdvice",
         // W7-D2 payroll statutory forms (census 7.20 / 7.21). Every ReportKind MUST appear here: TokenFor indexes
         // this dictionary directly, so a kind with no token throws KeyNotFoundException the moment an operator
         // presses Alt+K to save the view — which is what these eight did before this line existed.
@@ -1429,6 +1483,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 break;
 
             case ReportKind.GroupVouchers:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // ---- Wave 7 D1 (census 8.4 / 8.7): both banking lists drill to the voucher that made the payment.
+            // For 8.4 that drill IS the print route — Ctrl+P on the opened voucher inks the cheque leaf. ----
+            case ReportKind.ChequePrinting:
+            case ReportKind.SupplierPaymentAdvice:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
@@ -3138,6 +3200,153 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
     }
 
+    // =============================================================== Wave 7 D1 — Banking documents (8.4 / 8.7)
+
+    /// <summary>Show the Cheque Printing report's bank picker — the vendor's "List of Banks" scope
+    /// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report"). False on every other report.</summary>
+    public bool ShowChequeBankPicker => Kind == ReportKind.ChequePrinting;
+
+    /// <summary>"All Banks", then every ledger with cheque printing enabled. Built once in the ctor.</summary>
+    public ObservableCollection<ChequeBankOption> ChequeBanks { get; } = new();
+
+    /// <summary>The bank the Cheque Printing report is scoped to; changing it re-projects the report.</summary>
+    [ObservableProperty] private ChequeBankOption? _selectedChequeBank;
+
+    partial void OnSelectedChequeBankChanged(ChequeBankOption? value)
+    {
+        if (Kind == ReportKind.ChequePrinting) Show(Kind);
+    }
+
+    /// <summary>
+    /// <b>Cheque Printing</b> (census row 8.4) — <c>help.tallysolutions.com/print-cheques/</c>, section "Cheque
+    /// Printing Report": the cheques pending for printing, showing the favouring name with the instrument number
+    /// and date. Enter on a row drills to the paying voucher, where Ctrl+P inks the leaf.
+    ///
+    /// <para>🔴 <b>THE CHEQUE NUMBER RIDES IN <c>Particulars</c>, AND THAT IS THE WHOLE POINT.</b> It used to sit only in <c>ReportRow.Secondary</c>, which NEITHER egress carries — <c>ReportPrintProjector</c> emits Particulars + Amount, <c>ReportTabularProjector</c> emits label + money — so the printed, PDF-exported, CSV/XLSX-exported and emailed Cheque Printing report was a list of cheques <b>with no cheque numbers on it</b>, the one field that identifies the leaf being printed. This is the Day Book's "(Cancelled)" fix applied again: put the load-bearing fact in the cell the projections can see, rather than growing a Secondary column on every accounting report. <c>Secondary</c> keeps the bank and the instrument date, which are context, not identity.</para>
+    /// <para>The report lists cheques on banks whose <c>Enable Cheque Printing</c> is on — the two v5 columns that
+    /// had seventeen references in the engine and not one in the UI until this slice.</para>
+    /// </summary>
+    private void BuildChequePrinting()
+    {
+        var period = StatementPeriod;
+        // The picker's "All Banks" entry carries Guid.Empty, which the engine reads as "no bank filter" — the
+        // same shape its default argument has, so an unpicked report projects exactly what it always did.
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        var rows = ChequePrinting.Build(_company, period, bankId);
+        Title = "Cheque Printing";
+        Subtitle = $"{CompanyName}  —  cheques drawn {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (bankId is null ? string.Empty : $"  —  {SelectedChequeBank!.Display}");
+        IsTwoColumn = false;
+
+        foreach (var r in rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  Cheque No. {r.InstrumentNumber}  ·  {r.FavouringName}  ·  Vch No. {r.FormattedNumber}",
+                Secondary = $"{r.BankName}" +
+                            (r.InstrumentDate is { } d ? $"  ·  dated {FormatDate(d)}" : string.Empty),
+                Amount = IndianFormat.Amount(r.Amount),
+                // The drill is what makes the row PRINTABLE: Enter opens the voucher, and Ctrl+P there yields the
+                // cheque. A list with no drill would be a list of cheques nobody can print.
+                DrillVoucherId = r.VoucherId,
+            });
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                // When a FILTER is what emptied the list, the empty state has to say so, or the operator cannot
+                // tell "nothing drawn anywhere" from "nothing drawn on the bank I picked" — the same rule the
+                // supplier advice's empty state keeps below.
+                Particulars = bankId is not null
+                    ? $"No cheques pending for printing on {SelectedChequeBank!.Display}. Choose \"All Banks\" "
+                      + "above to see the cheques drawn on the other banks."
+                    : "No cheques pending for printing. A cheque appears here once a Payment voucher pays "
+                      + "a bank ledger with Enable Cheque Printing on, by Cheque/DD, carrying a cheque number.",
+                IsHeader = true,
+            });
+        else
+            Rows.Add(ReportRow.Total("Total", rows.Aggregate(Money.Zero, (acc, r) => acc + r.Amount)));
+    }
+
+    /// <summary>The supplier advices the current report holds, so Ctrl+P can render the LETTER rather than the
+    /// grid. Empty off this report.</summary>
+    public IReadOnlyList<SupplierPaymentAdviceRow> CurrentSupplierAdvices { get; private set; }
+        = Array.Empty<SupplierPaymentAdviceRow>();
+
+    /// <summary>True for the supplier Payment Advice (census 8.7) — drives the Ctrl+P letter branch. Deliberately
+    /// distinct from <see cref="ReportKind.PaymentAdvice"/>, the PAYROLL bank advice.</summary>
+    public bool IsSupplierPaymentAdvice => Kind == ReportKind.SupplierPaymentAdvice;
+
+    /// <summary>
+    /// The vendor's <b>reconciled-only</b> filter on the Payment Advice
+    /// (<c>help.tallysolutions.com/payment-advice/</c> — the report shows each payment as "matched (reconciled) or
+    /// not" and can be narrowed to the reconciled ones). Off by default, so the report opens on everything.
+    ///
+    /// <para>It is on <b>F8</b>, the key this product already scopes to a report through the same door the
+    /// Reorder-Status "reorder only" filter uses. Note the engine has carried this parameter since it was
+    /// written; without this toggle it had no caller that could ever set it, which is the "capability no user can
+    /// reach" shape this project has already filed twice.</para>
+    /// </summary>
+    [ObservableProperty] private bool _adviceReconciledOnly;
+
+    /// <summary>F8 on the supplier Payment Advice: toggles the reconciled-only filter and re-projects.</summary>
+    public void ToggleAdviceReconciledOnly()
+    {
+        if (Kind != ReportKind.SupplierPaymentAdvice) return;
+        AdviceReconciledOnly = !AdviceReconciledOnly;
+        Rows.Clear();
+        BuildSupplierPaymentAdvice();
+    }
+
+    /// <summary>
+    /// <b>Payment Advice</b> for suppliers (census row 8.7) — <c>help.tallysolutions.com/payment-advice/</c>: the
+    /// payments made to suppliers, each showing whether the bank statement has matched (reconciled) it. Ctrl+P
+    /// renders the letters through <c>PaymentAdvicePdf</c>.
+    /// </summary>
+    private void BuildSupplierPaymentAdvice()
+    {
+        var period = StatementPeriod;
+        var advices = SupplierPaymentAdvice.Build(_company, period, reconciledOnly: AdviceReconciledOnly);
+        CurrentSupplierAdvices = advices;
+        Title = "Payment Advice";
+        Subtitle = $"{CompanyName}  —  payments to suppliers {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (AdviceReconciledOnly ? "  —  reconciled only (F8)" : string.Empty);
+        IsTwoColumn = false;
+
+        foreach (var a in advices)
+        {
+            var mode = SupplierPaymentAdvice.PaymentModeText(a.PaymentMode);
+            var parts = new List<string>();
+            if (mode.Length > 0) parts.Add(mode);
+            if (!string.IsNullOrWhiteSpace(a.InstrumentNumber)) parts.Add("No. " + a.InstrumentNumber);
+            if (!string.IsNullOrWhiteSpace(a.BankName)) parts.Add(a.BankName);
+            // The vendor's headline fact about each row is whether it is matched; say it in words, not a symbol.
+            parts.Add(a.IsReconciled ? "reconciled" : "not reconciled");
+
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(a.Date)}  Vch No. {a.FormattedNumber}  ·  {a.PartyName}",
+                Secondary = string.Join("  ·  ", parts),
+                Amount = IndianFormat.Amount(a.NetPaid),
+                DrillVoucherId = a.VoucherId,
+            });
+        }
+
+        if (advices.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                // An empty report must read as an answer, not as a breakage — and when a FILTER is what emptied
+                // it, the empty state has to say so or the operator cannot tell "nothing paid" from "nothing
+                // cleared yet".
+                Particulars = AdviceReconciledOnly
+                    ? "No reconciled payments to suppliers in this period. Press F8 to include the payments the "
+                      + "bank statement has not cleared yet."
+                    : "No payments to suppliers in this period.",
+                IsHeader = true,
+            });
+        else
+            Rows.Add(ReportRow.Total("Total Paid", advices.Aggregate(Money.Zero, (acc, a) => acc + a.NetPaid)));
+    }
+
     // =============================================================== Payroll presentation reports (Phase 8 slice 8)
 
     // The four wide payroll reports share the dynamic PayrollColumns/PayrollRows matrix; the Payslip is a bespoke
@@ -4450,6 +4659,22 @@ public sealed class PayrollEmployeeOption
     public Guid EmployeeId { get; init; }
     public string Display { get; init; } = string.Empty;
     public override string ToString() => Display;
+}
+
+/// <summary>
+/// One entry of the Cheque Printing report's bank scope — the vendor's "List of Banks"
+/// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report").
+/// <see cref="LedgerId"/> is <see cref="Guid.Empty"/> on the <see cref="AllBanks"/> entry, which means no filter.
+/// </summary>
+public sealed class ChequeBankOption
+{
+    public Guid LedgerId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+
+    /// <summary>The unfiltered head of the list. A NEW instance per call would break <c>SelectedItem</c>
+    /// identity in the ComboBox, so it is a single shared instance.</summary>
+    public static readonly ChequeBankOption AllBanks = new() { Display = "All Banks" };
 }
 
 /// <summary>One column of the shared payroll matrix (Pay Sheet / Payroll Register / Attendance / Payment Advice):
