@@ -105,7 +105,23 @@ public sealed class CupsPrinterDevices : IPrinterDevices
         return colon < 0 ? string.Empty : text[(colon + 1)..].Trim();
     }
 
-    /// <summary>Runs a tool and returns its stdout, or an empty string for ANY failure at all.</summary>
+    /// <summary>
+    /// Runs a tool and returns its stdout, or an empty string for ANY failure at all.
+    ///
+    /// <para>🔴 <b>BOTH pipes are drained CONCURRENTLY, and that is the whole point of this shape.</b> The
+    /// previous version redirected stderr and then did a blocking <c>StandardOutput.ReadToEnd()</c> BEFORE
+    /// <c>WaitForExit</c>. A child that fills the stderr pipe buffer (4 KB on Windows, 64 KB on Linux) blocks
+    /// writing to it, so it never exits and never closes stdout, so <c>ReadToEnd</c> never returns — and the
+    /// timeout on the next line is never reached, because control never gets there. <c>IPrinterDevices.List()</c>
+    /// promises a bounded enumeration and the panel calls it ON THE UI THREAD, so that shape could freeze the
+    /// whole shell forever on a chatty or broken <c>lpstat</c>. A frozen shell on a printer enumeration is worse
+    /// than no printer list.</para>
+    ///
+    /// <para>The async readers keep both buffers empty so the child can always make progress; the timed
+    /// <c>WaitForExit(int)</c> overload deliberately does NOT wait on those readers, so it is a real bound.
+    /// <c>PlatformPrintingTests.Enumeration_survives_a_tool_that_floods_stderr</c> runs a child that does
+    /// exactly this and fails rather than hanging.</para>
+    /// </summary>
     internal static string RunTool(string fileName, params string[] arguments)
     {
         try
@@ -122,13 +138,26 @@ public sealed class CupsPrinterDevices : IPrinterDevices
             using var process = Process.Start(psi);
             if (process is null) return string.Empty;
 
-            string output = process.StandardOutput.ReadToEnd();
+            // Start draining BEFORE waiting. stderr is read solely to keep its buffer empty — nothing reads the
+            // text — but it must be read, or it is the pipe that deadlocks us.
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderr = process.StandardError.ReadToEndAsync();
+            Observe(stdout);
+            Observe(stderr);
+
             if (!process.WaitForExit(CupsPrinterDevices.TimeoutMs))
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
                 return string.Empty;
             }
-            return process.ExitCode == 0 ? output : string.Empty;
+
+            // The child has exited, so both pipes are at EOF and these complete at once. The bound is kept
+            // anyway: a grandchild that inherited the write handle can hold a pipe open after its parent dies,
+            // and that is the same unbounded wait wearing a different hat.
+            if (!Task.WaitAll(new Task[] { stdout, stderr }, CupsPrinterDevices.TimeoutMs))
+                return string.Empty;
+
+            return process.ExitCode == 0 ? stdout.Result : string.Empty;
         }
         catch
         {
@@ -136,6 +165,18 @@ public sealed class CupsPrinterDevices : IPrinterDevices
             return string.Empty;
         }
     }
+
+    /// <summary>
+    /// Marks a drain task's exception as observed. The drains outlive us on every abandonment path (a killed
+    /// child, a blown timeout), and an unobserved faulted <see cref="Task"/> is a finalizer-thread surprise we
+    /// do not need in a panel that is merely listing printers.
+    /// </summary>
+    private static void Observe(Task task) =>
+        task.ContinueWith(
+            static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 }
 
 /// <summary>Hands a PDF to <c>lp</c> on standard input. CUPS takes PDF as its native print format.</summary>
@@ -169,27 +210,39 @@ public sealed class CupsPrintJobSubmitter : IPrintJobSubmitter
             using var process = Process.Start(psi);
             if (process is null) return new PrintJobResult(false, "Could not start lp — is CUPS installed?");
 
-            await using (var stdin = process.StandardInput.BaseStream)
-                await stdin.WriteAsync(job.Pdf).ConfigureAwait(false);
+            // 🔴 Bounded, not open-ended — and the bound covers the READS as well as the wait. An `lp` that
+            // cannot reach a scheduler can sit there, and an unbounded wait inside a UI action — or inside the
+            // CI contract test, on a runner with no CUPS at all — would hang rather than fail.
+            using var timeout = new CancellationTokenSource(SubmitTimeoutMs);
 
-            string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+            // 🔴 BOTH pipes are drained, and the drain STARTS BEFORE the document is written to stdin. This is
+            // the same defect the enumerator's RunTool carried, with the roles swapped: stdout was redirected
+            // and NEVER read while stderr was read to end. `lp` writes "request id is …" to stdout, and on a
+            // multi-megabyte PDF it can say it while we are still feeding stdin — a full, unread stdout pipe
+            // blocks the child, our WriteAsync blocks behind it, and neither side ever moves. Reading stderr to
+            // end BEFORE WaitForExit had the identical hole: nothing could close stderr until the child exited,
+            // and the child could not exit while it was blocked on stdout.
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync(timeout.Token);
 
-            // 🔴 Bounded, not open-ended. An `lp` that cannot reach a scheduler can sit there, and an unbounded
-            // wait inside a UI action — or inside the CI contract test, on a runner with no CUPS at all — would
-            // hang rather than fail. A submission that has not been accepted within this window has not been
-            // accepted; say so instead of waiting forever.
-            using (var timeout = new CancellationTokenSource(SubmitTimeoutMs))
+            try
             {
-                try
-                {
-                    await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
-                    return new PrintJobResult(false, $"{job.PrinterName} did not accept the job in time.");
-                }
+                await using (var stdin = process.StandardInput.BaseStream)
+                    await stdin.WriteAsync(job.Pdf, timeout.Token).ConfigureAwait(false);
+
+                await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                return new PrintJobResult(false, $"{job.PrinterName} did not accept the job in time.");
+            }
+
+            // The child has exited, so both readers are at EOF. A reader that faulted tells us nothing the exit
+            // code does not, so it costs us only the wording of a refusal we are reporting anyway.
+            string error = string.Empty;
+            try { error = await stderrTask.ConfigureAwait(false); } catch { /* exit code decides */ }
+            try { _ = await stdoutTask.ConfigureAwait(false); } catch { /* drained, not read */ }
 
             return process.ExitCode == 0
                 ? new PrintJobResult(true,
@@ -320,6 +373,13 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
     [DllImport("winspool.drv", EntryPoint = "ClosePrinter", SetLastError = true)]
     private static extern bool ClosePrinter(IntPtr handle);
 
+    /// <summary>
+    /// Deletes the spool file of the job currently open on this handle. This is the ONLY way to walk away from a
+    /// half-written job without leaving it in the queue — see <see cref="Spool"/>'s unwind.
+    /// </summary>
+    [DllImport("winspool.drv", EntryPoint = "AbortPrinter", SetLastError = true)]
+    private static extern bool AbortPrinter(IntPtr handle);
+
     [DllImport("winspool.drv", EntryPoint = "StartDocPrinterW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int StartDocPrinter(IntPtr handle, int level, DocInfo1 docInfo);
 
@@ -365,6 +425,12 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
         IntPtr printer = IntPtr.Zero;
         IntPtr unmanaged = IntPtr.Zero;
         bool docStarted = false, pageStarted = false;
+
+        // 🔴 THE INVARIANT: once a document is open on the handle, the unwind COMMITS it only if we reach the
+        // one success return below. It is armed the instant StartDocPrinter succeeds and disarmed on exactly one
+        // line, so a new early return added here later cannot silently start committing half a document — which
+        // is how the short-write path came to do it in the first place.
+        bool abandon = false;
         try
         {
             if (!OpenPrinter(job.PrinterName, out printer, IntPtr.Zero) || printer == IntPtr.Zero)
@@ -376,6 +442,7 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
                 return new PrintJobResult(false,
                     $"{job.PrinterName} refused the job (error {Marshal.GetLastWin32Error()}).");
             docStarted = true;
+            abandon = true;      // armed — see the invariant above; disarmed only on the success return
 
             if (!StartPagePrinter(printer))
                 return new PrintJobResult(false,
@@ -385,14 +452,28 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
             unmanaged = Marshal.AllocHGlobal(job.Pdf.Length);
             Marshal.Copy(job.Pdf, 0, unmanaged, job.Pdf.Length);
             if (!WritePrinter(printer, unmanaged, job.Pdf.Length, out int written) || written != job.Pdf.Length)
+            {
+                // 🔴 A SHORT WRITE MUST NOT BECOME A PRINTED DOCUMENT. Returning here used to fall straight into
+                // an unwind that called EndPagePrinter + EndDocPrinter — which is precisely the sequence that
+                // COMMITS the job to the queue. The operator was told "only 4,096 of 812,340 bytes reached
+                // Accounts Laser" while the printer went ahead and produced a truncated document from those
+                // 4,096 bytes: the paper disagreeing with both the message on screen and the PDF that was
+                // previewed and posted. Half a tax invoice is worse than no tax invoice.
                 return new PrintJobResult(false,
-                    $"Only {written:#,0} of {job.Pdf.Length:#,0} bytes reached {job.PrinterName}.");
+                    $"Only {written:#,0} of {job.Pdf.Length:#,0} bytes reached {job.PrinterName}. "
+                  + "Nothing was printed — the job was cancelled at the queue.");
+            }
 
+            // 🔴 THE ONLY LINE THAT AUTHORISES A COMMIT. Every byte of the document reached the spooler, so the
+            // unwind may now close the page and the document rather than delete them.
+            abandon = false;
             return new PrintJobResult(true,
                 $"Sent \"{job.JobName}\" ({job.Pdf.Length:#,0} bytes) to {job.PrinterName}.");
         }
         catch (Exception ex)
         {
+            // `abandon` is left exactly as the invariant set it: true if the document was open, false if the
+            // throw happened before StartDocPrinter. An incomplete document is not a job and must not become one.
             return new PrintJobResult(false, "Could not print: " + ex.Message);
         }
         finally
@@ -400,8 +481,24 @@ public sealed class WindowsRawPrintJobSubmitter : IPrintJobSubmitter
             // Unwound in the reverse order it was built, and each step guarded: a half-started job must still be
             // closed or the queue keeps the handle.
             if (unmanaged != IntPtr.Zero) { try { Marshal.FreeHGlobal(unmanaged); } catch { } }
-            if (pageStarted) { try { EndPagePrinter(printer); } catch { } }
-            if (docStarted) { try { EndDocPrinter(printer); } catch { } }
+
+            if (docStarted && abandon)
+            {
+                // AbortPrinter deletes the spool file of the job open on this handle. EndPagePrinter and
+                // EndDocPrinter are deliberately NOT called on this path: they are the commit, and there is
+                // nothing here worth committing. The handle is still closed below, so the queue is not leaked.
+                //
+                // This arm also covers the StartPagePrinter refusal, which the previous unwind committed as a
+                // document with NO page in it — an empty job left sitting in a queue the operator had just been
+                // told refused the work.
+                try { AbortPrinter(printer); } catch { }
+            }
+            else
+            {
+                if (pageStarted) { try { EndPagePrinter(printer); } catch { } }
+                if (docStarted) { try { EndDocPrinter(printer); } catch { } }
+            }
+
             if (printer != IntPtr.Zero) { try { ClosePrinter(printer); } catch { } }
         }
     }

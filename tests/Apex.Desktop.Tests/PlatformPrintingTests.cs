@@ -166,4 +166,91 @@ public sealed class PlatformPrintingTests
             Assert.IsType<UnavailablePrintJobSubmitter>(submitter);
         }
     }
+
+    /// <summary>
+    /// 🔴 <b>Enumeration is TIME-BOUNDED even when the tool floods the pipe nobody was reading — and the panel
+    /// calls this ON THE UI THREAD.</b>
+    ///
+    /// <para><c>IPrinterDevices.List()</c> promises a bounded enumeration in its own contract. The shipped
+    /// <c>RunTool</c> did not keep that promise: it redirected stderr and then blocked in
+    /// <c>StandardOutput.ReadToEnd()</c> BEFORE <c>WaitForExit</c>. A child that fills the stderr pipe buffer
+    /// (4 KB on Windows, 64 KB on Linux) blocks writing to it, so it never exits and never closes stdout, so
+    /// <c>ReadToEnd</c> never returns — and the <c>TimeoutMs</c> on the following line is never reached, because
+    /// control never gets to it. Opening the Printer column would freeze the entire shell, permanently, with no
+    /// error and no way out. A frozen UI on a printer enumeration is worse than no printer list.</para>
+    ///
+    /// <para><b>Why this fails rather than hangs.</b> The call is made on a worker and given a generous wall
+    /// clock. On the defective build the wait expires and the assertion fires with a message; on the fixed build
+    /// it returns in well under a second. A test that simply called <c>RunTool</c> inline would hang the whole
+    /// gate instead of failing it, which is not a test — it is a way to lose an afternoon.</para>
+    ///
+    /// <para><b>Why these particular children.</b> The child has to write ~200 KB to stderr and a known marker to
+    /// stdout, on all three runners the gate uses: <c>powershell.exe</c> on windows-latest, <c>/bin/sh</c> on
+    /// ubuntu-latest and macos-latest. Each is invoked DIRECTLY, one script per <c>ArgumentList</c> entry — an
+    /// earlier draft wrapped the Windows arm in <c>cmd.exe /c</c> and the nested quoting collapsed, so cmd
+    /// ECHOED the script text and exited 0. That version passed: the echoed text contained the marker the
+    /// assertion looks for, while nothing had ever been written to stderr at all. Exactly the vacuous pass this
+    /// file's own header warns about, caught only by running the command by hand and counting the bytes.</para>
+    /// </summary>
+    [Fact]
+    public async Task Enumeration_survives_a_tool_that_floods_stderr()
+    {
+        const string marker = "apex-stdout-marker";
+
+        // ~200 KB to stderr — far past any platform's pipe buffer — and then the marker on stdout, so the test
+        // also proves the concurrent drain did not cost us the output we actually came for.
+        (string exe, string[] args) = OperatingSystem.IsWindows()
+            ? ("powershell.exe", new[]
+               {
+                   "-NoProfile", "-NonInteractive", "-Command",
+                   "[Console]::Error.Write('x' * 200000); [Console]::Out.Write('" + marker + "')",
+               })
+            : ("/bin/sh", new[]
+               {
+                   "-c",
+                   "printf '%0200000d' 0 >&2; printf '" + marker + "'",
+               });
+
+        var token = TestContext.Current.CancellationToken;
+        var call = Task.Run(() => CupsPrinterDevices.RunTool(exe, args), token);
+
+        // Task.WhenAny, not Task.Wait: awaited rather than blocked, but still BOUNDED. Awaiting `call` directly
+        // would hang the gate forever on the defective build instead of failing it.
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(60), token));
+
+        Assert.Same(call, finished);
+        Assert.True(call.IsCompletedSuccessfully,
+            "RunTool never returned. A child that floods the stderr pipe deadlocks any implementation that "
+          + "reads stdout to end before waiting: the child blocks on a full stderr buffer, never closes stdout, "
+          + "and the timeout on the next line is never reached. The panel calls this on the UI thread.");
+
+        Assert.Contains(marker, await call, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The bound is real on the other side too: a tool that never exits is abandoned, not waited on forever.
+    /// This is the arm <c>TimeoutMs</c> exists for, and it is the one an unreachable network print server takes.
+    /// </summary>
+    [Fact]
+    public async Task Enumeration_gives_up_on_a_tool_that_never_exits()
+    {
+        // Direct executables, no shell: `ping -n 600` is the portable Windows sleeper (`timeout` refuses to run
+        // without a console input handle) and `sleep` is the POSIX one. Neither needs a quoted script, which is
+        // what broke the first draft of the test above.
+        (string exe, string[] args) = OperatingSystem.IsWindows()
+            ? ("ping", new[] { "-n", "600", "127.0.0.1" })
+            : ("sleep", new[] { "600" });
+
+        var token = TestContext.Current.CancellationToken;
+        var call = Task.Run(() => CupsPrinterDevices.RunTool(exe, args), token);
+
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(60), token));
+
+        Assert.Same(call, finished);
+        Assert.True(call.IsCompletedSuccessfully,
+            $"RunTool did not honour its own {CupsPrinterDevices.TimeoutMs} ms timeout on a tool that never exits.");
+
+        // "No queues" is the documented answer for every failure, including this one.
+        Assert.Equal(string.Empty, await call);
+    }
 }

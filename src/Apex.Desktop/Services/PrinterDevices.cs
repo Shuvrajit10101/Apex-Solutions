@@ -38,7 +38,13 @@ public sealed record PrinterDevice(string Name, bool IsDefault, PdfSubmissionMod
     /// <summary>
     /// The one-line constraint statement shown beside the selected printer. It is the operator's only warning
     /// that a RAW submission can reach a device that cannot read it, so it must never be dropped to tidy the
-    /// panel — <c>PrinterSelectionViewModelTests</c> pins both wordings.
+    /// panel — <c>PrinterSelectionViewModelTests.Both_submission_notices_are_pinned_word_for_word</c> holds both
+    /// wordings verbatim, and specifically the clause of each that carries the warning.
+    ///
+    /// <para>🔴 That sentence used to name no test and claim only that "PrinterSelectionViewModelTests pins both
+    /// wordings". Nothing pinned them: the one test that read this property merely asserted the two notices were
+    /// DIFFERENT from each other, which stays green if both are replaced with "OK" and "Fine". A comment that
+    /// names a guard nobody wrote is worse than an unguarded property, because the next reader stops looking.</para>
     /// </summary>
     public string SubmissionNotice => Submission switch
     {
@@ -70,11 +76,17 @@ public interface IPrinterDevices
     /// printer" is an answer, not a failure. Callers must handle empty.
     ///
     /// <para>⚠️ <b>Synchronous and BLOCKING, and the panel calls it on the UI thread.</b> Stated here rather
-    /// than discovered later: the CUPS shim runs <c>lpstat</c> twice (bounded at
-    /// <c>CupsPrinterDevices.TimeoutMs</c> each) and the Windows shim calls <c>EnumPrinters</c>, which is known
-    /// to stall while it contacts unreachable network queues. On a healthy machine both are milliseconds; on a
-    /// machine with a broken spooler or a dead print server, opening the Printer column can visibly hang for a
-    /// few seconds. It is bounded and it cannot throw, so it degrades rather than breaks — but it is NOT free,
+    /// than discovered later: the CUPS shim runs <c>lpstat</c> twice and the Windows shim calls
+    /// <c>EnumPrinters</c>, which is known to stall while it contacts unreachable network queues.</para>
+    ///
+    /// <para><b>The CUPS worst case, spelled out because "bounded" was previously asserted and not true.</b> Each
+    /// <c>lpstat</c> costs up to <c>CupsPrinterDevices.TimeoutMs</c> waiting for the process to exit plus a
+    /// second such window draining its pipes, and <c>List()</c> runs two of them — so four windows, ~16 s at the
+    /// current 4 s setting, is the ceiling. It really is a ceiling now: the earlier shape read stdout to end
+    /// BEFORE waiting, which a child that filled the stderr buffer could block forever, and the timeout was
+    /// never reached at all. On a healthy machine this is milliseconds; on a machine with a broken spooler or a
+    /// dead print server, opening the Printer column can visibly hang for those seconds. It is bounded and it
+    /// cannot throw, so it degrades rather than breaks — but it is NOT free,
     /// and that is why <c>PrinterSelectionViewModel</c> enumerates exactly once when the column opens instead of
     /// re-listing as the operator arrows through the list. The submission half, which can block for very much
     /// longer, is genuinely off-thread — see <c>WindowsRawPrintJobSubmitter.SubmitAsync</c>.</para>

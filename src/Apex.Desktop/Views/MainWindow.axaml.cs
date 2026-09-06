@@ -392,6 +392,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 CENSUS 12.5 — Ctrl+A INSIDE THE PRINTER COLUMN'S "Number of copies" BOX IS SELECT ALL, NOT SPOOL.
+        //
+        // The Ctrl+A block below carries no `IsTyping` guard at all, and on every screen it already shipped for
+        // that is deliberate (Ctrl+A accepts a voucher from inside its own fields — that is the accept chord's
+        // whole point). The Printer column is the one arm where it is wrong: Ctrl+A is the universal Select All
+        // of the text box the caret is in, the copies box is the only field on the column, and the action the
+        // unguarded arm fires puts INK ON PAPER. There is no undo for a spooled job.
+        //
+        // Scoped to `Screen.Printer` on purpose, and returning WITHOUT setting `e.Handled`, so the TextBox
+        // receives the keystroke and does its ordinary Select All. Widening the guard to the whole block would
+        // silently change the accept chord on ~157 screens that have relied on it since Phase 1.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.Printer && IsTyping(e))
+        {
+            return;
+        }
+
         // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
         // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))

@@ -77,16 +77,37 @@ public sealed partial class PrinterSelectionViewModel : ViewModelBase
     public string SubmissionNotice => Selected?.SubmissionNotice ?? NoPrinterNotice;
 
     /// <summary>
+    /// 🔴 <b>The largest copy count this box will accept, and it is a SAFETY bound rather than a vendor one.</b>
+    ///
+    /// <para>Stated plainly because the difference matters: this number is not quoted from
+    /// help.tallysolutions.com and is not claimed to be the reference product's limit. It is ours, and it exists
+    /// because of what the setter below physically does. Writing <see cref="Copies"/> writes
+    /// <c>PrintPreviewViewModel.Copies</c>, whose <c>OnCopiesChanged</c> calls <c>Render()</c> — a full,
+    /// SYNCHRONOUS re-render of the whole PDF on the UI thread, ending in
+    /// <c>writer.RepeatAllPages(EffectiveCopies)</c>, which physically repeats every page that many times. The
+    /// count came from a free-text box with no upper bound at all, so a mistyped or pasted "100000" on a
+    /// forty-page report asked the shell to build a four-million-page document, in one blocking call, from a
+    /// keystroke. The failure is a frozen window and then an <c>OutOfMemoryException</c> — not a wrong number.</para>
+    ///
+    /// <para>99 is the largest count that keeps the collated document a plausible thing to hand a printer
+    /// (forty pages at 99 copies is already 3,960 sheets) and it fits the two-digit box. Anything above it is
+    /// clamped down and pushed straight back to the screen by the same notification the lower clamp uses, so the
+    /// box can never sit showing a number the paper will not match.</para>
+    /// </summary>
+    public const int MaxCopies = 99;
+
+    /// <summary>
     /// The number of collated copies. Reads and writes the preview's own knob — see the class remarks. Values
     /// below one are clamped to one, matching <c>PageConfig.EffectiveCopies</c>, so the box can never describe
-    /// a job that prints nothing.
+    /// a job that prints nothing; values above <see cref="MaxCopies"/> are clamped down, because this setter
+    /// re-renders the entire document synchronously on the UI thread.
     /// </summary>
     public int Copies
     {
         get => _preview.Copies;
         set
         {
-            int wanted = value < 1 ? 1 : value;
+            int wanted = value < 1 ? 1 : value > MaxCopies ? MaxCopies : value;
 
             // 🔴 The notification is raised whenever the ACCEPTED value differs from the value that was OFFERED,
             // not only when the stored value moves. Typing 0 into the box clamps to 1, which on an unchanged

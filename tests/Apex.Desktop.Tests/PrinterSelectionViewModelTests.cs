@@ -272,6 +272,109 @@ public sealed class PrinterSelectionViewModelTests
         Assert.Equal(1, devices.ListCallCount);
     }
 
+    /// <summary>
+    /// 🔴 <b>The copies box is BOUNDED above, because writing it re-renders the whole PDF synchronously on the
+    /// UI thread.</b>
+    ///
+    /// <para><c>Copies</c> writes <c>PrintPreviewViewModel.Copies</c>, whose <c>OnCopiesChanged</c> calls
+    /// <c>Render()</c>, which ends in <c>writer.RepeatAllPages(EffectiveCopies)</c> — the document is physically
+    /// repeated that many times. The count arrived from a free-text box with no upper bound at all, so a
+    /// mistyped or pasted five-figure number asked the shell to build a document of that many document-sets, in
+    /// one blocking call, from a keystroke: a frozen window and then an <c>OutOfMemoryException</c>.</para>
+    ///
+    /// <para>5,000 is chosen deliberately over something like 100,000: it is unambiguously past the bound, so it
+    /// proves the clamp, while staying a size the DEFECTIVE build can actually finish rendering. A mutation
+    /// check on this line must fail the test, not exhaust the runner's memory and take the gate with it.</para>
+    /// </summary>
+    [Fact]
+    public void A_copy_count_above_the_bound_is_clamped_instead_of_rendered()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out var preview);
+
+        panel.Copies = 5000;
+
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, panel.Copies);
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, preview.Copies);
+    }
+
+    /// <summary>
+    /// The upper clamp announces itself for exactly the reason the lower one does. On a preview ALREADY at the
+    /// bound, clamping 5,000 down to it moves no stored value — so a setter that notified only on movement would
+    /// leave the two-way binding sitting there reading "5000" while the job prints 99.
+    /// </summary>
+    [Fact]
+    public void A_clamped_high_copy_count_announces_itself()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out var preview);
+        panel.Copies = PrinterSelectionViewModel.MaxCopies;
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, preview.Copies);   // the silent case is now set up
+
+        var announced = new List<string?>();
+        panel.PropertyChanged += (_, e) => announced.Add(e.PropertyName);
+
+        panel.Copies = 5000;
+
+        Assert.Contains(nameof(PrinterSelectionViewModel.Copies), announced);
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, panel.Copies);
+    }
+
+    /// <summary>
+    /// The bound is an upper bound and nothing more: a count comfortably inside it is still honoured exactly,
+    /// and still reaches the paper by re-rendering the document. A clamp that quietly capped everything would
+    /// pass the two tests above.
+    /// </summary>
+    [Fact]
+    public void A_count_inside_the_bound_is_untouched_and_still_re_renders()
+    {
+        var panel = Panel(FakePrinterDevices.TwoWithDefaultSecond(), new RecordingPrintJobSubmitter(), out var preview);
+        byte[] singleCopy = preview.PdfBytes;
+
+        panel.Copies = PrinterSelectionViewModel.MaxCopies;
+
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, panel.Copies);
+        Assert.Equal(PrinterSelectionViewModel.MaxCopies, preview.Copies);
+        Assert.True(preview.PdfBytes.Length > singleCopy.Length,
+            "the bound was applied but the document never re-rendered, so the copies are not in the bytes.");
+    }
+
+    /// <summary>
+    /// 🔴 <b>Both submission notices, pinned word for word — the pin <c>PrinterDevice.SubmissionNotice</c>'s own
+    /// comment claimed existed and did not.</b>
+    ///
+    /// <para>The comment said "<c>PrinterSelectionViewModelTests</c> pins both wordings". Nothing did: the only
+    /// test that read the property asserted the two notices were DIFFERENT from each other, which stays green if
+    /// both are replaced with "OK" and "Fine". These are not decoration. The Windows one is the operator's ONLY
+    /// warning that the spooler can accept a RAW job that the device then prints as nothing, and the sentence
+    /// that tells them what to do instead is the second half of it; the CUPS one is the counter-statement that
+    /// makes the first meaningful rather than a blanket disclaimer on every printer.</para>
+    /// </summary>
+    [Fact]
+    public void Both_submission_notices_are_pinned_word_for_word()
+    {
+        var cups = new PrinterDevice("Cups One", IsDefault: true, PdfSubmissionMode.CupsNative);
+        var raw = new PrinterDevice("Raw Two", IsDefault: false, PdfSubmissionMode.WindowsRaw);
+
+        Assert.Equal(
+            "This printer is driven by CUPS, which accepts PDF directly — the job prints as previewed.",
+            cups.SubmissionNotice);
+
+        Assert.Equal(
+            "The PDF is spooled to this printer unchanged. Printers that read PDF or PostScript print it as "
+          + "previewed; others will not. If nothing comes out, use Save PDF and print from your PDF reader.",
+            raw.SubmissionNotice);
+
+        // The clauses that carry the warning, asserted separately so a reworded-but-still-honest notice fails
+        // loudly on the sentence above while these say WHY the wording mattered.
+        Assert.Contains("others will not", raw.SubmissionNotice, StringComparison.Ordinal);
+        Assert.Contains("Save PDF", raw.SubmissionNotice, StringComparison.Ordinal);
+
+        // And the panel shows the SELECTED queue's notice, not a constant.
+        var panel = Panel(new FakePrinterDevices(cups, raw), new RecordingPrintJobSubmitter(), out _);
+        Assert.Equal(cups.SubmissionNotice, panel.SubmissionNotice);
+        panel.Selected = panel.Printers[1];
+        Assert.Equal(raw.SubmissionNotice, panel.SubmissionNotice);
+    }
+
     /// <summary>Changing the selection changes the notice — the RAW warning follows the queue, not the panel.</summary>
     [Fact]
     public void The_submission_notice_follows_the_selected_queue()

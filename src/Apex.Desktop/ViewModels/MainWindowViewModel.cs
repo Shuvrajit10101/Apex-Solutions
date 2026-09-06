@@ -8958,6 +8958,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
                 return Screen.PrintPreview;
+            // 🔴 CENSUS 12.5 — THE PRINTER COLUMN SURVIVES BENEATH A COLUMN OPENED OVER IT, AND WITHOUT THIS ARM
+            // THE SURVIVOR SILENTLY PRINTS NOTHING.
+            //
+            // The route is real and needs no exotic sequence: `IsReportContext` is deliberately TRUE while the
+            // Printer column is open (the report is still bound two columns down), so the button bar's E-Mail
+            // badge is live and `OpenEmailCompose` APPENDS its column on top. Pop that with Esc and
+            // `BackFromPage`'s `ClearSubScreens()` has just nulled `PrinterPanel` — but the printer's own
+            // `GatewayColumn` is still in `Columns`, still holding the same `PrinterSelectionViewModel` as its
+            // Page, and the markup binds `GatewayColumn.PrinterPanel`, not the shell property. So the column
+            // keeps rendering, its "Print (Ctrl+A)" button keeps rendering ENABLED (`IsEnabled` binds the
+            // panel's own `HasPrinters`, which is still true) — and clicking it reaches
+            // `PrintCurrentJobAsync`, which is `PrinterPanel?.PrintAsync() ?? Task.CompletedTask` against a
+            // null panel. Nothing is spooled, nothing is said, and the operator has no way to tell.
+            //
+            // Re-binding is what makes the button on screen mean what its caption says. It also restores
+            // `Screen.Printer`, without which the Ctrl+A key arm falls through to `ActivateSelected()`.
+            case PrinterSelectionViewModel ps:
+                PrinterPanel = ps;
+                return Screen.Printer;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.
