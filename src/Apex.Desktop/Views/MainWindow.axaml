@@ -17214,8 +17214,12 @@
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <!-- Named so the code-behind can drag this list to the highlighted row: the rows
+                                   are not focusable (the keyboard cursor is a bound flag, not focus), so nothing
+                                   scrolls on their behalf. Go To's list carries the identical Name for the
+                                   identical reason. -->
                               <ScrollViewer>
-                                <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl Name="SwitchToResults" ItemsSource="{Binding Rows}">
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:SwitchToRowViewModel">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">

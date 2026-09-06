@@ -880,12 +880,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== screen: company select
 
-    /// <summary>Shows the company-selection menu: existing companies + Create + Load Demo.</summary>
+    /// <summary>
+    /// Shows the company-selection menu: existing companies + Create + Load Demo.
+    ///
+    /// <para>🔴 <b>It dismisses the Go To overlay.</b> <c>ClearSubScreens</c> does not null
+    /// <see cref="GoTo"/> (the overlay is not a column), so before this line a shut — or any other route to this
+    /// screen — left the jump list floating over Company Select with an index built from a company that is no
+    /// longer open. <see cref="CanOpenGoTo"/> already refuses to OPEN it here for exactly that reason; leaving one
+    /// already up was the same state arrived at from the other side.</para>
+    /// </summary>
     public void ShowCompanySelect()
     {
         CurrentScreen = Screen.CompanySelect;
         ScreenTitle = "Company Info — Select Company";
         Message = null;
+        CloseGoTo();
         ClearSubScreens();
         LeaveCascade();
         Menu.Clear();
@@ -2978,11 +2987,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
 
-    // =============================================================== the navigation shell (census 14.2 / 14.4 / 14.9)
+    // =============================================================== the navigation shell (census 14.2 / 14.9)
     //
-    // Three top-level chords that are not "a report" and not "a master": Ctrl+G Switch To, Alt+K Company, and
-    // Ctrl+I More Details. All three are arbitrated by ShellChordTable, and all three open through the SAME
-    // overlay shape OpenSavedViews established — push a column, focus it, set the screen id — so none of them
+    // Two top-level chords that are not "a report" and not "a master": Ctrl+G Switch To and Alt+K Company.
+    // 🔴 CENSUS 14.4 (More Details, Ctrl+I) IS NOT DELIVERED BY THIS SECTION AND IS NOT CLAIMED ANYWHERE. It
+    // waits on the open chord ruling U-6; the whole argument, including the measured reason the obvious
+    // context-partition compromise does not work, is recorded beside the table in ShellChordTable. Census row
+    // 14.4 stays ABSENT. This header once read "14.2 / 14.4 / 14.9", which read as a delivery claim for a row
+    // that has no code — corrected here rather than left to be believed.
+    //
+    // Both chords are arbitrated by ShellChordTable, and both open through the SAME
+    // overlay shape OpenSavedViews established — push a column, focus it, set the screen id — so neither of them
     // touches a Gateway column BUILDER. That last point is load-bearing rather than tidy:
     // GatewayHierarchyTests pins the Gateway root column at exactly
     // Masters / Statutory / Transactions / Reports / Data, and a "Company" SECTION on that column was built and
@@ -2995,6 +3010,57 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // shipped Go To index (see ShellDestinations) — so the helpers went with it rather than remaining as
     // public methods no caller reaches, which is the dead-capability class this project keeps filing.
 
+    /// <summary>
+    /// 🔴 <b>THE SHELL IS LIVE: a company is open AND the cascade that holds its screens is on screen.</b>
+    ///
+    /// <para><b>The defect this closes, measured.</b> <see cref="ShowCompanySelect"/> (bare F3, the button bar's
+    /// "Company" action, and now Alt+F3) calls <see cref="LeaveCascade"/> — <c>Columns.Clear()</c> and
+    /// <c>IsGatewayCascade = false</c> — but deliberately does NOT release <see cref="Company"/>: the operator is
+    /// choosing another book, and the loaded one stays loaded until they pick. So <c>Company is not null</c> is
+    /// TRUE on a screen where the cascade region is HIDDEN. A chord predicated on the company alone therefore
+    /// fired there and pushed its column into a region nothing draws: two keystrokes (Alt+F3 then Ctrl+G, or
+    /// Alt+F3 then Alt+K) produced a BLANK WINDOW THAT OWNED THE KEYBOARD, because
+    /// <c>CurrentScreen</c> had moved to the panel's screen id while <see cref="IsMenuScreen"/> had gone false
+    /// with it.</para>
+    ///
+    /// <para><b>Why exactly these two screens.</b> <see cref="LeaveCascade"/> has exactly two callers —
+    /// <see cref="ShowCompanySelect"/> and <c>ShowCreateCompany</c> — so
+    /// <see cref="Screen.CompanySelect"/> and <see cref="Screen.CreateCompany"/> ARE the set of states in which a
+    /// company can be loaded with no cascade to put a column in. The predicate is written as the state it means,
+    /// not as <c>IsGatewayCascade</c>, because a page column (a report, a master) legitimately leaves the cascade
+    /// flag true and must keep its chords.</para>
+    ///
+    /// <para><b>One predicate, not two.</b> <see cref="CanOpenGoTo"/> had already derived exactly this test for
+    /// exactly this reason (its index IS the open company's menu) and now reads this property rather than
+    /// repeating it, so the shell can never come to disagree with itself about whether it is live.</para>
+    /// </summary>
+    public bool HasLiveCompanyShell =>
+        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+
+    /// <summary>
+    /// 🔴 <b>The operator is standing on a screen that holds keying which tearing the shell down would SILENTLY
+    /// DESTROY.</b> Read by the two verbs that tear it down — <see cref="ShutCompany"/> and
+    /// <see cref="OpenCompanyMenu"/> — never as a chord predicate; see those two for why.
+    ///
+    /// <para><b>The class, and the precedent it is copied from.</b> This is <see cref="OpenVoucherFromTypeKey"/>'s
+    /// defect exactly: a single keystroke reaching <c>ClearSubScreens</c>, which nulls <see cref="VoucherEntry"/>
+    /// and every master view model unconditionally — no prompt, no <see cref="Notice"/>, no <c>Message</c>, the
+    /// keying gone. That guard is written on <see cref="VoucherEntryViewModel.HasUnsavedWork"/> and NOT on
+    /// <c>IsAltering</c>, for the reason recorded there; this one inherits that decision rather than re-deriving
+    /// it, so a blank fresh voucher screen is not "work" and does not block anything.</para>
+    ///
+    /// <para><b>Why the master arm is the SCREEN and not a dirtiness flag.</b> No master view model exposes one —
+    /// <c>HasUnsavedWork</c> exists on <see cref="VoucherEntryViewModel"/> alone — so screen presence is the only
+    /// honest proxy available today, and it is deliberately the conservative direction: it refuses on a blank
+    /// master form too. The cost of that is one extra Esc; the cost of the other direction is a destroyed master.
+    /// Adding <c>HasUnsavedWork</c> to the master view models would narrow this and is REPORTED, not smuggled in
+    /// here. <see cref="Screen.PosBilling"/> is knowingly NOT covered, for the same reason
+    /// <see cref="OpenVoucherFromTypeKey"/> does not cover it.</para>
+    /// </summary>
+    public bool HasUnsavedEntryWork =>
+        (CurrentScreen == Screen.VoucherEntry && VoucherEntry is { HasUnsavedWork: true })
+        || IsMasterAcceptScreen;
+
     // ------------------------------------------------------------- 14.2 Switch To (Ctrl+G)
 
     /// <summary>
@@ -3002,14 +3068,30 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/): <i>"To switch to a different report,
     /// and create masters and vouchers in the flow of work."</i>
     ///
-    /// <para>Opens the destination list as an overlay column. A no-op with no company (the Gateway, and so
-    /// every destination, does not exist without one) and a no-op if the list is already up — re-pressing must
+    /// <para>Opens the destination list as an overlay column. A no-op unless the shell is live
+    /// (<see cref="HasLiveCompanyShell"/>) and a no-op if the list is already up — re-pressing must
     /// not stack a second, the same re-entrancy guard <see cref="OpenSavedViews"/> carries.</para>
+    ///
+    /// <para>🔴 <b>The guard is <see cref="HasLiveCompanyShell"/> and NOT <c>Company is not null</c>, and that
+    /// difference is a measured defect rather than a tidy-up.</b> On Company Select the company is still loaded
+    /// while the cascade region is hidden and empty, so the weaker test let Ctrl+G push this panel into a region
+    /// nothing draws — a blank window that owned the keyboard, two keystrokes from the Gateway. See the property
+    /// for the full measurement.</para>
+    ///
+    /// <para>🔴 <b>It CLOSES Go To rather than opening underneath it.</b> Go To is a floating overlay drawn over
+    /// the whole shell, and the window's Go To arm owns only Up/Down/Enter/Escape while it is up — every other
+    /// key falls through. So Ctrl+G with Go To open used to leave TWO jump lists on screen at once, with the
+    /// visible one (Go To) on top and the invisible one (this panel) taking the typing, because the Switch To
+    /// key arm sits below Go To's in the chain and claims printable characters. Replacing one jump list with the
+    /// other is the behaviour a second jump chord should have; the alternative — declining the chord — would
+    /// leave Ctrl+G a dead key with no arm anywhere below to take it.</para>
     /// </summary>
     public void OpenSwitchTo()
     {
-        if (Company is null) return;
+        if (!HasLiveCompanyShell) return;
         if (SwitchTo is not null) return;
+
+        CloseGoTo();
 
         var panel = new SwitchToViewModel(ShellDestinations.Build(this), d => NavigateTo(d));
         SwitchTo = panel;
@@ -3101,15 +3183,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// row is reachable by keyboard the moment it exists, with no new view code that could quietly fail to
     /// render — the failure mode behind <c>MultiAccountPrintViewModel</c>. See <see cref="CompanyMenu"/> for
     /// the verbs and for what is deliberately withheld.</para>
+    ///
+    /// <para>🔴 <b>IT REFUSES OVER UNSAVED KEYING, and that guard is what makes <see cref="ShutCompany"/>'s own
+    /// refusal real rather than decorative.</b> This method calls <c>ClearSubScreens</c> on the way in, which
+    /// nulls <see cref="VoucherEntry"/> and every master view model unconditionally. Without this arm, Alt+K on a
+    /// half-keyed voucher destroyed it BEFORE the Shut row was ever reached — so the guard on the Shut verb would
+    /// have seen a screen that was already empty and passed. The refusal names both exits, exactly as
+    /// <see cref="OpenVoucherFromTypeKey"/> does; see <see cref="HasUnsavedEntryWork"/> for the scope and for
+    /// what it knowingly does not cover.</para>
+    ///
+    /// <para><b>Guarded on <see cref="HasLiveCompanyShell"/>, not on <c>Company is not null</c></b> — the same
+    /// blank-window defect Ctrl+G had, reached by Alt+F3 then Alt+K.</para>
     /// </summary>
     public void OpenCompanyMenu()
     {
-        if (Company is null) return;
+        if (!HasLiveCompanyShell || Company is not { } company) return;
         if (CurrentScreen == Screen.CompanyMenu) return;  // re-press must not stack a second
 
+        if (HasUnsavedEntryWork)
+        {
+            RaiseLifecycleNotice(
+                "Opening the company menu would discard what you are keying on this screen. Press Esc to abandon "
+                + "it, or Ctrl+A to accept it, and then press Alt+K again.");
+            return;
+        }
+
+        CloseGoTo();
         ClearSubScreens();
         var column = CompanyMenu.BuildColumn(
-            Company.Name,
+            company.Name,
             create: ShowCreateCompany,
             alter: ShowAlterCompany,
             select: ShowCompanySelect,
@@ -3136,10 +3238,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para><b>The vendor's plural is not reachable here and the menu says so.</b> This application holds
     /// exactly one company open (<see cref="Company"/> is a single nullable field, and
     /// <see cref="OpenCompany"/> replaces it), so Shut is the degenerate singular.</para>
+    ///
+    /// <para>🔴 <b>IT REFUSES OVER UNSAVED KEYING — a review finding, and the exact work-loss class this
+    /// codebase spent a campaign closing.</b> Shut runs <see cref="ReleaseOpenCompany"/> →
+    /// <see cref="ShowCompanySelect"/> → <c>ClearSubScreens</c>, which nulls <see cref="VoucherEntry"/> and every
+    /// master view model unconditionally. As first written, Ctrl+F3 was predicated on <c>Company is not null</c>
+    /// alone — no screen guard of any kind — so ONE keystroke on a half-keyed voucher destroyed it with no
+    /// prompt, no <see cref="Notice"/> and no <c>Message</c>. See <see cref="HasUnsavedEntryWork"/> for the scope,
+    /// and <see cref="OpenVoucherFromTypeKey"/> for the precedent this copies verbatim, including why the answer
+    /// is a REFUSAL that names both exits and not a Y/N discard prompt (that channel,
+    /// <see cref="IsAcceptPromptOpen"/>, is scoped to master screens and cannot be answered on a voucher).</para>
+    ///
+    /// <para>🔴 <b>WHY THE GUARD IS HERE AND NOT IN THE CHORD'S <c>CanFire</c>.</b> A false <c>CanFire</c> means
+    /// the table does not CLAIM the keystroke, and an unclaimed Ctrl+F3 falls through to <c>case Key.F3:</c> in
+    /// the window's trailing switch — an arm with no modifier guard, which fires the button bar's Company action,
+    /// which is <see cref="ShowCompanySelect"/>, which calls the very <c>ClearSubScreens</c> this guard exists to
+    /// prevent. Declining the chord would therefore have DESTROYED THE SAME VOUCHER by a longer route. The chord
+    /// stays claimed and the verb refuses; the keystroke is consumed and the operator gets a sentence.</para>
     /// </summary>
     public void ShutCompany()
     {
         if (Company is null) return;
+
+        if (HasUnsavedEntryWork)
+        {
+            RaiseLifecycleNotice(
+                "Shutting the company would discard what you are keying on this screen. Press Esc to abandon it, "
+                + "or Ctrl+A to accept it, and then shut the company again.");
+            return;
+        }
+
         ReleaseOpenCompany();
         Message = "Company shut. Select or create a company to continue.";
     }
@@ -8620,8 +8748,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// advertise an enabled "Alt+G · Go To" that fires nothing (register defect IV-31), and can never dim a
     /// chord that would in fact have worked.</para>
     /// </summary>
-    public bool CanOpenGoTo =>
-        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+    /// <para>🔴 It now READS <see cref="HasLiveCompanyShell"/> rather than repeating its two clauses. The shell's
+    /// navigation chords (Ctrl+G, Alt+K) were found firing in the one state this predicate had always excluded —
+    /// a loaded company with the cascade region hidden — so the test became shared rather than duplicated, and
+    /// the two can no longer drift into disagreeing about whether the shell is live.</para>
+    public bool CanOpenGoTo => HasLiveCompanyShell;
 
     /// <summary>
     /// The single door Alt+G and the button bar's "Go To" badge both run, so key and button cannot drift into

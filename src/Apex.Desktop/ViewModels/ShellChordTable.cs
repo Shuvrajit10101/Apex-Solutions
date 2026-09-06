@@ -74,8 +74,14 @@ public static class ShellChordTable
         // sibling of Go To, and its ONE documented difference from Go To is that it does not leave a return
         // path. Key.G returned zero hits in the whole of src/Apex.Desktop before this entry, so nothing is
         // narrowed by taking it.
+        //
+        // 🔴 THE PREDICATE IS `HasLiveCompanyShell`, NOT `Company is not null`, AND THE DIFFERENCE WAS A BLANK
+        // WINDOW. On Company Select (bare F3, the button bar's Company action, or the Alt+F3 entry below) the
+        // company stays LOADED while ShowCompanySelect's LeaveCascade() empties and hides the cascade region.
+        // `Company is not null` is true there, so Ctrl+G pushed this panel into a region nothing draws and set
+        // CurrentScreen to it: two keystrokes from the Gateway to a blank window that owned the keyboard.
         new("Ctrl+G", Key.G, KeyModifiers.Control,
-            vm => vm.Company is not null,
+            vm => vm.HasLiveCompanyShell,
             vm => vm.OpenSwitchTo()),
 
         // ── Alt+K — Company menu ──────────────────────────────────────────────────────────────────────────
@@ -86,8 +92,10 @@ public static class ShellChordTable
         // shipped feature rather than move it. Outside report context the chord is unbound on main and the
         // vendor takes it. Handing it over entirely, once Saved Views has a menu row, is deleting
         // "&& !vm.IsReportContext" from this line.
+        // 🔴 And the same `HasLiveCompanyShell` narrowing as Ctrl+G above, for the same measured reason: Alt+F3
+        // then Alt+K put this MENU COLUMN into the hidden cascade region and left the shell blank.
         new("Alt+K", Key.K, KeyModifiers.Alt,
-            vm => vm.Company is not null && !vm.IsReportContext,
+            vm => vm.HasLiveCompanyShell && !vm.IsReportContext,
             vm => vm.OpenCompanyMenu()),
 
         // ── Alt+F3 — Select Company ───────────────────────────────────────────────────────────────────────
@@ -107,6 +115,15 @@ public static class ShellChordTable
         // vendor's text is not reachable here: this application holds exactly one company open
         // (MainWindowViewModel.Company is a single nullable field), so Shut is the degenerate singular and
         // the company menu's own row says so.
+        //
+        // 🔴 THIS ENTRY IS DELIBERATELY THE ONE THAT KEEPS THE WEAK `Company is not null` PREDICATE, and the
+        // reason is the opposite of laziness. Shut is DESTRUCTIVE — it reaches ClearSubScreens — and a review
+        // found it firing on a half-keyed voucher with no guard at all. The guard for that lives in the VERB
+        // (MainWindowViewModel.ShutCompany, which refuses over MainWindowViewModel.HasUnsavedEntryWork and says
+        // why), NOT here, because a false CanFire does not make the keystroke safe: it makes the table not CLAIM
+        // it, and an unclaimed Ctrl+F3 falls through to `case Key.F3:` in the window's trailing switch — no
+        // modifier guard — which runs ShowCompanySelect and destroys the same voucher by a longer route. Claimed
+        // + refused is the only shape that consumes the keystroke AND keeps the work.
         new("Ctrl+F3", Key.F3, KeyModifiers.Control,
             vm => vm.Company is not null,
             vm => vm.ShutCompany()),

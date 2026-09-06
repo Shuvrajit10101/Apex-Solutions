@@ -94,6 +94,13 @@ public sealed partial class SwitchToViewModel : ViewModelBase
 
     private int _highlight = -1;
 
+    /// <summary>
+    /// The index of the highlighted row, or -1 when the filter matched nothing. Published so the window can drag
+    /// the panel to it — these rows are never focused (the cursor is a bound flag), so nothing brings them into
+    /// view for free. Go To publishes the same index for the same reason.
+    /// </summary>
+    public int SelectedIndex => _highlight;
+
     /// <summary>The highlighted row, or null when the filter matched nothing.</summary>
     public SwitchToRowViewModel? Highlighted =>
         _highlight >= 0 && _highlight < Rows.Count ? Rows[_highlight] : null;
@@ -140,6 +147,7 @@ public sealed partial class SwitchToViewModel : ViewModelBase
         for (var i = 0; i < Rows.Count; i++) Rows[i].IsHighlighted = i == index;
         _highlight = index;
         OnPropertyChanged(nameof(Highlighted));
+        OnPropertyChanged(nameof(SelectedIndex));
     }
 
     private void Rebuild()

@@ -118,6 +118,27 @@ public sealed class ShellNavigationRowsTests : IDisposable
             .Where(s => s.Length > 0)
             .ToList();
 
+    /// <summary>The realised Switch To list, or null when the panel is not on screen.</summary>
+    private static ItemsControl? SwitchToList(MainWindow window) =>
+        Descendants(window).OfType<ItemsControl>().FirstOrDefault(c => c.Name == "SwitchToResults");
+
+    /// <summary>
+    /// The Switch To list's OWN <see cref="ScrollViewer"/> — the nearest one ABOVE it, found by walking up.
+    ///
+    /// <para>🔴 <b>Not "the first ScrollViewer in the window that contains the list".</b> That reading was tried
+    /// first and it silently answers the wrong question: a descendant walk returns the OUTERMOST match, which is
+    /// the page-level scroller, whose extent equals its viewport because the page fits. The test then asserted
+    /// against a scroller that never had anything to scroll — measured, and it read as "the list does not
+    /// overflow" while the list was 2673px tall inside a 624px column.</para>
+    /// </summary>
+    private static ScrollViewer? SwitchToScroller(MainWindow window)
+    {
+        if (SwitchToList(window) is not { } list) return null;
+        for (var p = list.GetVisualParent(); p is not null; p = p.GetVisualParent())
+            if (p is ScrollViewer s) return s;
+        return null;
+    }
+
     // ================================================================ 14.2 — SWITCH TO (Ctrl+G)
 
     /// <summary>
@@ -690,4 +711,290 @@ public sealed class ShellNavigationRowsTests : IDisposable
         Assert.True(ShellChordTable.Match(vm, Key.K, KeyModifiers.Alt) is null);
     }
 
+    /// <summary>
+    /// 🔴 <b>Re-pressing Alt+K must not stack a second company menu</b> — the Alt+K counterpart of
+    /// <see cref="Ctrl_G_twice_does_not_stack_a_second_panel"/>, and it is here because a review found the
+    /// re-entrancy line in <c>OpenCompanyMenu</c> had NO test at all: deleting it left the whole suite green.
+    /// A guard nothing exercises is a comment.
+    ///
+    /// <para>The column count alone would not have caught the interesting half — <c>OpenCompanyMenu</c> calls
+    /// <c>ClearSubScreens</c> before pushing, so a second open would also tear down whatever the first was
+    /// stacked over — so the number of COMPANY columns is asserted too.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_K_twice_does_not_stack_a_second_company_menu()
+    {
+        var (window, vm) = OpenWindow("Company Menu Restack Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+            var columns = vm.Columns.Count;
+            Assert.Equal(Screen.CompanyMenu, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+
+            Assert.Equal(columns, vm.Columns.Count);
+            Assert.Equal(1, vm.Columns.Count(c => c.Title == "Company"));
+        }
+        finally { window.Close(); }
+    }
+
+    // ================================================================ the shell state machine
+    //
+    // 🔴 THE BLANK WINDOW THAT OWNED THE KEYBOARD, reachable in TWO KEYSTROKES from the Gateway, and both of
+    // these tests are RED on this branch before the fix.
+    //
+    // ShowCompanySelect (bare F3, the button bar's Company action, and the new Alt+F3) runs LeaveCascade() —
+    // Columns.Clear() and IsGatewayCascade = false — but deliberately does NOT release the company: the operator
+    // is choosing another book and the loaded one stays loaded until they pick. Both new chords were predicated
+    // on `Company is not null`, which is TRUE in that state, so each pushed its column into a region nothing
+    // draws AND moved CurrentScreen to its own screen id — which took IsMenuScreen false as well, so the
+    // centred company list vanished too and the window went blank with the panel still eating every keystroke.
+
+    /// <summary>Alt+F3 then Ctrl+G: the panel must not be raised into a cascade that is hidden and empty.</summary>
+    [AvaloniaFact]
+    public void Ctrl_G_after_alt_F3_does_not_raise_a_panel_into_the_hidden_cascade()
+    {
+        var (window, vm) = OpenWindow("Switch To Blank Window Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.Alt);
+            Pump(window);
+
+            // The state the defect needed: book open, cascade hidden and empty.
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.NotNull(vm.Company);
+            Assert.False(vm.IsGatewayCascade);
+            Assert.Empty(vm.Columns);
+
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+
+            Assert.Null(vm.SwitchTo);
+            Assert.Empty(vm.Columns);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.True(vm.IsMenuScreen, "the centred company list is gone — this is the blank window.");
+            Assert.True(ShellChordTable.Match(vm, Key.G, KeyModifiers.Control) is null,
+                "the table still CLAIMS Ctrl+G in a state that cannot show its panel.");
+
+            // ...and the operator can still read the company list they are standing on.
+            Assert.Contains(VisibleText(window), t => t.Contains("Create Company", StringComparison.Ordinal));
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Alt+F3 then Alt+K: the same hole, reached through the company menu instead.</summary>
+    [AvaloniaFact]
+    public void Alt_K_after_alt_F3_does_not_raise_the_company_menu_into_the_hidden_cascade()
+    {
+        var (window, vm) = OpenWindow("Company Menu Blank Window Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.NotNull(vm.Company);
+
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+
+            Assert.Empty(vm.Columns);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.True(vm.IsMenuScreen);
+            Assert.True(ShellChordTable.Match(vm, Key.K, KeyModifiers.Alt) is null);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>Alt+K is the OTHER door to the destructive verb, and it destroyed the work on the way IN.</b>
+    /// <c>OpenCompanyMenu</c> calls <c>ClearSubScreens</c> before it builds the menu, which nulls
+    /// <c>VoucherEntry</c> unconditionally — so guarding only <c>ShutCompany</c> would have been decorative: by
+    /// the time the Shut row ran, the voucher it was meant to protect was already gone.
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_K_refuses_over_a_half_keyed_voucher_and_says_why()
+    {
+        var (window, vm) = OpenWindow("Company Menu Dirty Co");
+        try
+        {
+            vm.OpenVoucher(VoucherBaseType.Payment);
+            Pump(window);
+            vm.VoucherEntry!.Narration = "half keyed — must survive Alt+K";
+            Assert.True(vm.VoucherEntry.HasUnsavedWork);
+            var entry = vm.VoucherEntry;
+
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+
+            Assert.Same(entry, vm.VoucherEntry);
+            Assert.Equal("half keyed — must survive Alt+K", vm.VoucherEntry!.Narration);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.DoesNotContain(vm.Columns, c => c.Title == "Company");
+            Assert.Contains("discard", vm.Notice, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    // ================================================================ the two jump lists
+
+    /// <summary>
+    /// 🔴 <b>TWO JUMP LISTS AT ONCE, and the one the operator could NOT see took the typing.</b> Go To is a
+    /// floating overlay; the window's Go To arm owns only Up/Down/Enter/Escape while it is up, so Ctrl+G fell
+    /// straight through to the chord table and opened Switch To underneath it. Every printable character then
+    /// reached the Switch To arm — which sits below Go To's in the chain — and was filtered into the hidden list
+    /// while the visible search box stayed empty.
+    ///
+    /// <para><b>Ctrl+G REPLACES Go To rather than declining.</b> Declining would leave Ctrl+G a dead key: there
+    /// is no other arm anywhere below that takes it, so the operator would press the vendor's Switch To chord
+    /// and get nothing at all.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_G_replaces_an_open_go_to_rather_than_stacking_a_second_jump_list()
+    {
+        var (window, vm) = OpenWindow("Two Jump Lists Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.True(vm.IsGoToOpen);
+
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+
+            Assert.False(vm.IsGoToOpen, "both jump lists are up at once.");
+            Assert.NotNull(vm.SwitchTo);
+            Assert.Equal(Screen.SwitchTo, vm.CurrentScreen);
+
+            // And the typing now reaches the list that is on screen.
+            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal("b", vm.SwitchTo!.Prefix);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The mirror image, and it is the half that actually loses the keystrokes: Go To raised OVER an open Switch
+    /// To column. The overlay is what the operator is looking at and its search box is focused, so the Switch To
+    /// arm must stand down — otherwise it eats the characters and filters a list nobody can see.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_go_to_raised_over_switch_to_does_not_lose_the_typing_to_the_hidden_list()
+    {
+        var (window, vm) = OpenWindow("Jump List Typing Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+            Assert.NotNull(vm.SwitchTo);
+
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.True(vm.IsGoToOpen);
+
+            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(string.Empty, vm.SwitchTo!.Prefix);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The jump list must not outlive the company it indexes.</b> <c>ClearSubScreens</c> does not null
+    /// <c>GoTo</c> — the overlay is not a column — so a shut left Go To floating over Company Select, listing
+    /// screens of a book that is no longer open, with Enter still armed. <c>CanOpenGoTo</c> already refuses to
+    /// OPEN it on that screen; one already up was the same state arrived at from the other side.
+    /// </summary>
+    [AvaloniaFact]
+    public void Shutting_the_company_dismisses_the_go_to_overlay()
+    {
+        var (window, vm) = OpenWindow("Go To Outlives Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.True(vm.IsGoToOpen);
+
+            window.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.Control);
+            Pump(window);
+
+            Assert.Null(vm.Company);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.False(vm.IsGoToOpen, "the jump list is still up, indexing a company that is shut.");
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>AUTO-SCROLL ON SELECTION — ~4/5 of this list was unreachable by keyboard.</b> The Switch To cursor
+    /// is a bound flag on the row, never focus (focus has to stay put so a bare letter types into the prefix
+    /// filter), so nothing drags the viewport after it the way a focusable grid does. The list opens unfiltered
+    /// over ~99 destinations at 26px each, several times the column's height. The identical defect and the
+    /// identical fix are recorded on Go To in <c>GoToChordReachabilityTests</c>.
+    /// </summary>
+    [AvaloniaFact]
+    public void Arrowing_past_the_fold_scrolls_the_switch_to_highlight_into_view()
+    {
+        var (window, vm) = OpenWindow("Switch To Scroll Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+
+            var list = SwitchToList(window);
+            Assert.NotNull(list);
+            var scroller = SwitchToScroller(window);
+            Assert.NotNull(scroller);
+            Assert.True(scroller!.Extent.Height > scroller.Viewport.Height,
+                "the unfiltered list must overflow the column for this test to mean anything.");
+            Assert.Equal(0d, scroller.Offset.Y);
+
+            for (var i = 0; i < 40; i++) window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(40, vm.SwitchTo!.SelectedIndex);
+
+            Assert.True(scroller.Offset.Y > 0d,
+                "the highlight moved 40 rows down and the panel never scrolled — the operator cannot see it.");
+
+            var row = (Visual?)list!.ContainerFromIndex(40);
+            Assert.NotNull(row);
+            var top = row!.TranslatePoint(default, scroller)!.Value.Y;
+            Assert.InRange(top, -1d, scroller.Viewport.Height);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// Typing REBUILDS the list and drops the highlight back to row one, so the column has to come back up with
+    /// it — otherwise the operator filters from a scrolled-down position and reads an empty stretch of list while
+    /// row one is selected far above them. Backspace is the same rebuild in reverse.
+    /// </summary>
+    [AvaloniaFact]
+    public void Filtering_brings_the_switch_to_list_back_to_the_first_row()
+    {
+        var (window, vm) = OpenWindow("Switch To Refilter Co");
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+
+            var scroller = SwitchToScroller(window);
+            Assert.NotNull(scroller);
+
+            for (var i = 0; i < 40; i++) window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Pump(window);
+            Assert.True(scroller!.Offset.Y > 0d);
+
+            window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(0, vm.SwitchTo!.SelectedIndex);
+            Assert.Equal(0d, scroller.Offset.Y);
+        }
+        finally { window.Close(); }
+    }
 }

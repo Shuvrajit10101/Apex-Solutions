@@ -347,6 +347,75 @@ public sealed class ShellChordTableTests : IDisposable
         finally { window.Close(); }
     }
 
+    /// <summary>
+    /// 🔴 <b>THE WORK-LOSS GUARD ON THE DESTRUCTIVE CHORD — a review finding, and RED ON THIS BRANCH BEFORE THE
+    /// FIX.</b> <c>Ctrl+F3</c> shipped predicated on <c>Company is not null</c> alone — no screen guard, no
+    /// typing guard — and Shut reaches <c>ClearSubScreens</c>, which nulls <c>VoucherEntry</c> unconditionally.
+    /// One keystroke therefore destroyed a half-keyed voucher with no prompt, no notice and no message: the exact
+    /// class this codebase spent a campaign closing, re-introduced by the chord that was meant to be a
+    /// formalisation.
+    ///
+    /// <para><b>The three assertions are one claim each, and the first is the one that is easy to get wrong.</b>
+    /// The keystroke must still be CONSUMED — a chord that declines instead of refusing falls through to
+    /// <c>case Key.F3:</c> in the trailing switch, which has no modifier guard and runs the very
+    /// <c>ShowCompanySelect</c> teardown the guard exists to prevent, so "not handled" would be the same data
+    /// loss by a longer route. Then the voucher must be the SAME instance with its text intact, and the operator
+    /// must be told why nothing happened.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_F3_refuses_over_a_half_keyed_voucher_and_says_why()
+    {
+        var (window, vm) = OpenWindow("Ctrl F3 Dirty Co");
+        try
+        {
+            vm.OpenVoucher(VoucherBaseType.Payment);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+
+            vm.VoucherEntry!.Narration = "half keyed — must survive the chord";
+            Assert.True(vm.VoucherEntry.HasUnsavedWork);
+            var entry = vm.VoucherEntry;
+
+            Assert.True(KeyWasHandled(window, Key.F3, KeyModifiers.Control),
+                "Ctrl+F3 was NOT consumed — it falls through to the unguarded bare-F3 arm, which tears the "
+                + "screen down anyway.");
+
+            Assert.Same(entry, vm.VoucherEntry);
+            Assert.Equal("half keyed — must survive the chord", vm.VoucherEntry!.Narration);
+            Assert.NotNull(vm.Company);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Contains("discard", vm.Notice, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The complement of the guard above, and it is what keeps that guard from quietly becoming a way to DISABLE
+    /// the chord. On a report page there is nothing keyed to lose, so <c>Ctrl+F3</c> must still shut.
+    ///
+    /// <para><b>Measured while writing this, and worth recording rather than assuming:</b> a freshly opened
+    /// Payment voucher already reports <c>HasUnsavedWork</c> true — its first line is not blank on arrival
+    /// (measured: <c>lines=1</c>, narration empty, not altering). So the guard refuses on ANY open voucher-entry
+    /// screen in practice, not only a typed-into one. That is inherited behaviour, not a decision taken here:
+    /// <c>OpenVoucherFromTypeKey</c>'s shipped guard reads the identical property and therefore already refuses
+    /// on exactly the same screens. Narrowing it belongs with that property, not with this chord.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_F3_still_shuts_from_a_report_page()
+    {
+        var (window, vm) = OpenWindow("Ctrl F3 Report Co");
+        try
+        {
+            vm.OpenReport(ReportKind.BalanceSheet);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.Control);
+
+            Assert.Null(vm.Company);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
     /// <summary>With no company open, <c>Ctrl+F3</c> has nothing to shut and must not be claimed.</summary>
     [Fact]
     public void Ctrl_F3_is_not_claimed_with_no_company_open()

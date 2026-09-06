@@ -555,14 +555,24 @@ public partial class MainWindow : Window
         // PREFIX FILTER instead of activating a menu hotkey or jumping a type-ahead cursor. Placed immediately
         // after the table and before every bare-letter arm below, because those arms would otherwise eat the
         // very characters the operator is filtering with.
-        if (vm.CurrentScreen == Screen.SwitchTo && vm.SwitchTo is not null)
+        //
+        // 🔴 `!vm.IsGoToOpen` IS NOT BELT-AND-BRACES. Go To is a floating overlay drawn OVER this column, and its
+        // own arm at the top of this chain owns only Up/Down/Enter/Escape — every printable character falls
+        // through to here. Without this clause, a Go To raised over an open Switch To column swallowed the
+        // operator's typing into the list they could not see, leaving the search box they were looking at empty.
+        // The other direction (Ctrl+G with Go To up) is closed in the view model, which dismisses Go To rather
+        // than opening underneath it — see MainWindowViewModel.OpenSwitchTo.
+        if (vm.CurrentScreen == Screen.SwitchTo && vm.SwitchTo is not null && !vm.IsGoToOpen)
         {
             switch (e.Key)
             {
-                case Key.Down: vm.SwitchToMoveDown(); e.Handled = true; return;
-                case Key.Up: vm.SwitchToMoveUp(); e.Handled = true; return;
+                // The scroll calls are the keyboard-first contract, not decoration: ~99 destinations at 26px
+                // overflow the column many times over and these rows are never focused, so the viewport does not
+                // follow the cursor by itself. Go To's arm carries the identical call for the identical reason.
+                case Key.Down: vm.SwitchToMoveDown(); ScrollSwitchToSelectionIntoView(); e.Handled = true; return;
+                case Key.Up: vm.SwitchToMoveUp(); ScrollSwitchToSelectionIntoView(); e.Handled = true; return;
                 case Key.Enter: vm.TakeSwitchToDestination(); e.Handled = true; return;
-                case Key.Back: vm.SwitchToBackspace(); e.Handled = true; return;
+                case Key.Back: vm.SwitchToBackspace(); PostScrollSwitchToSelectionIntoView(); e.Handled = true; return;
             }
 
             // Escape is deliberately NOT handled here: it falls through to `case Key.Escape` → vm.Back(), which
@@ -576,6 +586,7 @@ public partial class MainWindow : Window
                 && e.KeySymbol is { Length: 1 } symbol && !char.IsControl(symbol[0]))
             {
                 vm.SwitchToType(symbol[0]);
+                PostScrollSwitchToSelectionIntoView();
                 e.Handled = true;
                 return;
             }
@@ -1747,6 +1758,40 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnGoToSearchTextChanged(object? sender, TextChangedEventArgs e)
         => Dispatcher.UIThread.Post(ScrollGoToSelectionIntoView, DispatcherPriority.Background);
+
+    /// <summary>
+    /// 14.2 — drags the Switch To column to the highlighted row. <b>The same defect, the same fix, as
+    /// <see cref="ScrollGoToSelectionIntoView"/></b>, and written as its twin on purpose rather than shared: the
+    /// two lists live in different containers (an overlay vs a cascade column) and the only thing they have in
+    /// common is the ItemsControl name lookup.
+    ///
+    /// <para>🔴 <b>Why it is needed at all.</b> The Switch To cursor is a BOUND FLAG on the row
+    /// (<c>IsHighlighted</c>), never keyboard focus — focus stays where it was, which is what lets a bare letter
+    /// type into the prefix filter. Nothing therefore brings a row into view on its own. The list opens
+    /// UNFILTERED over every destination the Gateway can reach — measured at 99 rows of 26px, several times the
+    /// column's height — so without this the highlight is off the bottom after a dozen presses of Down and the
+    /// operator is pressing Enter on a destination whose name they were never shown. Roughly four fifths of the
+    /// list was unreachable by keyboard.</para>
+    /// </summary>
+    private void ScrollSwitchToSelectionIntoView()
+    {
+        var index = Vm?.SwitchTo?.SelectedIndex ?? -1;
+        if (index < 0) return;
+
+        // The panel lives inside a DataTemplate, so it is not a named field on this window.
+        var list = this.GetVisualDescendants().OfType<ItemsControl>()
+            .FirstOrDefault(c => c.Name == "SwitchToResults");
+        if (list?.ContainerFromIndex(index) is Control row) row.BringIntoView();
+    }
+
+    /// <summary>
+    /// The same scroll, POSTED — for the two keys that REBUILD the list (a typed prefix character and Backspace).
+    /// Rebuilding drops the highlight back to row one, and the new rows have no containers until the layout pass
+    /// after this keystroke, so asking for row one's container inline returns nothing. Go To posts for exactly
+    /// this reason on its own TextChanged.
+    /// </summary>
+    private void PostScrollSwitchToSelectionIntoView()
+        => Dispatcher.UIThread.Post(ScrollSwitchToSelectionIntoView, DispatcherPriority.Background);
 
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
