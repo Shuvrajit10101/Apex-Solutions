@@ -839,6 +839,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+B on the Kerala Flood Cess return (census row 6.26) SAVES the return CSV and RETURNS to the menu — the
+        // same shape as the PF ECR / ESI / PT Alt+B above. Scoped to that screen so it never collides with the
+        // inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.KeralaFloodCessReturn && !IsTyping(e))
+        {
+            vm.SaveReturnKeralaFloodCess();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B on a TDS/TCS certificate / control-chart page (Phase 7 slice 7) SAVES the PDF and RETURNS to the
         // menu — the mirror of the Form 26Q / 27EQ Alt+B above. Scoped to each certificate screen so it never
         // collides with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
@@ -1828,6 +1840,13 @@ public partial class MainWindow : Window
 
     private void OnSaveReturnProfessionalTaxClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnProfessionalTax();
+
+    // Kerala Flood Cess (census row 6.26) — the return's CSV export / save-return actions.
+    private void OnExportKeralaFloodCessClick(object? sender, RoutedEventArgs e)
+        => Vm?.ExportKeralaFloodCessReturn();
+
+    private void OnSaveReturnKeralaFloodCessClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnKeralaFloodCess();
 
     // Gratuity + statutory Bonus (Phase 8 slice 9) — F11 Enable Gratuity / Enable Bonus + the Gratuity provision post.
     private void OnApplyGratuityClick(object? sender, RoutedEventArgs e)
