@@ -38,9 +38,23 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsDocumentKnobs => _preview.SupportsPrintConfig;
 
+    // 🔴 THERE IS DELIBERATELY NO `SupportsPageRange` PREDICATE.
+    //
+    // W2-31's finishing pass taught InvoicePdf, VoucherPdf, PayslipPdf and PosReceiptPdf the F10 range and the
+    // starting number — they read PageConfig.IncludesPage and StartPageNumber exactly as ReportPdf does, under
+    // the same rule (renumber, then select; a selection of nothing is one blank sheet, never the whole document).
+    // So the range applies to EVERY PrintKind, and the range group in MainWindow.axaml is ungated.
+    //
+    // It briefly existed as `public bool SupportsPageRange => true;` bound to an IsVisible, and review was right
+    // to reject it: a predicate that can only ever read one value is the dead-knob shape this file exists to
+    // forbid — it looks like a gate, it is bound like a gate, and it can never refuse anything. A `true` behind
+    // a binding is indistinguishable from a gate that has silently stopped working. If a renderer is ever added
+    // that does NOT honour the range, the honest move is to introduce the predicate THEN, with the kind test in
+    // it, exactly as SupportsPageKnobs below carries a real one. PrintConfigKnobsMoveTheBytesTests holds the
+    // claim that is actually load-bearing: setting a range or a starting number MOVES A DOCUMENT'S BYTES.
+
     /// <summary>
-    /// True when the W2-31 <b>page-layout</b> knobs apply — the print format, the paper toggle, and the page
-    /// range / starting number.
+    /// True when the W2-31 <b>page-layout</b> knobs apply — the print format and the paper toggle.
     ///
     /// <para>🔴 <b>This returned a bare <c>true</c>, and that was wrong.</b> Measured against the renderers,
     /// only <see cref="ReportPdf"/> reads <c>PageConfig</c>'s <c>Formatted*</c>, <c>Draws*</c>,
@@ -52,11 +66,23 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// renderer that will actually be asked to honour it. <c>PrintConfigKnobsMoveTheBytesTests</c> holds this
     /// by rendering and comparing bytes, so it cannot be satisfied by relabelling.</para>
     ///
-    /// <para>Withdrawing the knobs is the honest half of the fix, not the whole of it: teaching the four document
-    /// renderers to honour a page range remains open work, and when they do, this predicate widens and the lock
-    /// keeps guarding the pairing rather than forbidding it.</para>
+    /// <para><b>Half of that has since been done, and it is why this summary no longer mentions the range.</b>
+    /// The four document renderers now honour <c>IncludesPage</c> and <c>StartPageNumber</c>, so the range left
+    /// this gate altogether and is offered everywhere, ungated. What is still <c>ReportPdf</c>-only is
+    /// the FORMAT and the PAPER — <c>Formatted*</c> and <c>Draws*</c> — so those two stay gated here. Teaching the
+    /// document renderers a dot-matrix pitch and a pre-printed suppression remains open work, and when it is done
+    /// this predicate widens the same way the range did.</para>
     /// </summary>
-    public bool SupportsPageKnobs => _preview.Kind == PrintPreviewViewModel.PrintKind.Report;
+    /// <remarks>
+    /// W2-32 widened this from <c>== Report</c> to include <c>ReportSet</c>. That is not a relabelling: a set
+    /// renders through <see cref="ReportPdf"/>'s multi-document overload, which reads the same
+    /// <c>Formatted*</c> / <c>Draws*</c> / <c>IncludesPage</c> / <c>StartPageNumber</c> members — and the F10
+    /// range is at its most useful over a job, where "reprint sheets 4-6" is the whole point.
+    /// <c>PrintConfigKnobsMoveTheBytesTests</c> holds the pairing by comparing rendered bytes, so this widening
+    /// is only legal because the renderer really does honour them.
+    /// </remarks>
+    public bool SupportsPageKnobs =>
+        _preview.Kind is PrintPreviewViewModel.PrintKind.Report or PrintPreviewViewModel.PrintKind.ReportSet;
 
     /// <summary>
     /// True whenever the copy count applies — which is <b>always</b>: every one of the five renderers ends with

@@ -69,10 +69,23 @@ public static class VoucherPdf
         bool closingOnNewPage = y - closingHeight < bottom;
         int total = pages.Count + (closingOnNewPage ? 1 : 0);
 
+        // W2-31 (census 12.4) F10 — the SAME rule ReportPdf applies, so a range means one thing whatever is being
+        // printed. StartPageNumber RENUMBERS sheet one (a continuation voucher reads "Page 7 of 9"); the range
+        // SELECTS which sheets are drawn and never renumbers them, because the operator is holding sheet 3 of a
+        // 4-sheet voucher. Defaults reproduce the shipped bytes exactly (ER-13).
+        int firstNumber = page.StartPageNumber < 1 ? 1 : page.StartPageNumber;
+        int lastNumber = firstNumber + total - 1;
+
         var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
+        int drawn = 0;
         for (int p = 0; p < pages.Count; p++)
         {
+            if (!page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
             writer.BeginPage(page.PageWidth, page.PageHeight);
+            // A selected sheet keeps the band it would have carried in the full document: sheet 1 is still the
+            // first page even when the range starts at 2 and sheet 1 is not drawn. Deriving "is first" from the
+            // DRAWN count instead would put the full header band on whatever sheet happened to be selected first,
+            // so reprinting sheet 3 would produce a page that never existed in the document being reprinted.
             bool isFirst = p == 0;
             double yy = DrawHeaderBand(writer, data, config, page, title, left, right, isFirst);
             yy = DrawPostingHeader(writer, page, left, right, yy);
@@ -82,18 +95,26 @@ public static class VoucherPdf
             if (p == pages.Count - 1 && !closingOnNewPage)
                 DrawClosingBlock(writer, data, page, left, right, wordLines, narrationLines, yy);
 
-            DrawFooter(writer, page, left, right, p + 1, total);
+            DrawFooter(writer, page, left, right, firstNumber + p, lastNumber);
+            drawn++;
         }
 
-        if (closingOnNewPage)
+        if (closingOnNewPage && page.IncludesPage(total))
         {
             writer.BeginPage(page.PageWidth, page.PageHeight);
             double yy = DrawHeaderBand(writer, data, config, page, title, left, right, isFirstPage: false);
             // A continuation of the table: repeat the column header, then draw the closing (totals) block.
             yy = DrawPostingHeader(writer, page, left, right, yy);
             DrawClosingBlock(writer, data, page, left, right, wordLines, narrationLines, yy);
-            DrawFooter(writer, page, left, right, total, total);
+            DrawFooter(writer, page, left, right, lastNumber, lastNumber);
+            drawn++;
         }
+
+        // A PDF must carry at least one page. An out-of-bounds range therefore yields ONE BLANK SHEET rather than
+        // the whole voucher — silently falling back to "print everything" is the failure this guards against, and
+        // it is exactly what this renderer did before: a range of 900-901 over a 3-sheet voucher printed all three.
+        if (drawn == 0)
+            writer.BeginPage(page.PageWidth, page.PageHeight);
 
         // W2-31 (census 12.4) F5: collated copies of the whole voucher. One copy repeats nothing, so the shipped
         // byte stream is untouched (ER-13).

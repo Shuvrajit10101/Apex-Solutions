@@ -438,8 +438,14 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         vm.ShowStatementsOfAccountsMenu();
 
         var items = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
+        // W2-32 (census 12.6) appended "Multi-Account Printing" to this hub. The assertion stays an exact
+        // ORDERED list — it is not weakened to a Contains — so it still fails if a leaf is dropped or reordered.
         Assert.Equal(
-            new[] { "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss", "Statistics" },
+            new[]
+            {
+                "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss",
+                "Statistics", "Multi-Account Printing",
+            },
             items);
 
         while (vm.Menu[vm.SelectedIndex].Label != "Statistics") vm.MoveDown();
