@@ -145,7 +145,7 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
     [ObservableProperty] private string _availableCessText = "0.00";
     [ObservableProperty] private string _availableInterestText = "0.00";
 
-    /// <summary>The four causes the picker offers, verbatim.</summary>
+    /// <summary>The portal's <b>twelve</b> causes the picker offers, verbatim and in the portal's own order.</summary>
     public ObservableCollection<Drc03CauseOption> Causes { get; } = new(Drc03CauseOption.All);
 
     /// <summary>The payment methods the engine funds a DRC-03 from.</summary>

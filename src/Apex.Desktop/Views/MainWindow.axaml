@@ -11508,11 +11508,22 @@
                                          VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                             </Grid>
 
-                            <!-- The schema honesty note: these key names are ours, not the portal ones -->
-                            <Border Grid.Row="3" Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
-                                    BorderThickness="1" Padding="8" Margin="0,0,0,8">
-                              <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
-                            </Border>
+                            <StackPanel Grid.Row="3">
+                              <!-- Census row 6.13. The applicability statement for a form whose figures must NOT be
+                                   read as a filing artefact (today: GSTR-9A only). Empty — and therefore collapsed —
+                                   for every other form, so it can never mis-describe the one on screen. -->
+                              <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}"
+                                      BorderThickness="1" Padding="8" Margin="0,0,0,6"
+                                      IsVisible="{Binding ApplicabilityNoteText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding ApplicabilityNoteText}" FontSize="11"
+                                           Foreground="#8A2B20" TextWrapping="Wrap"/>
+                              </Border>
+                              <!-- The schema honesty note: these key names are ours, not the portal ones -->
+                              <Border Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
+                                      BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
+                              </Border>
+                            </StackPanel>
 
                             <!-- The selected return figure summary -->
                             <ScrollViewer Grid.Row="4">
