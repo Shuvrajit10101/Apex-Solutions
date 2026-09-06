@@ -198,6 +198,10 @@ public enum Screen
     Form24Q,
     Form16,
 
+    // Kerala Flood Cess return (census row 6.26) — under Reports → Statutory Reports, surfaced only for a Kerala
+    // GST registrant whose books could contain a supply inside the levy's own closed window (01-08-2019 → 31-07-2021).
+    KeralaFloodCessReturn,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -587,6 +591,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The statutory-Bonus register (Phase 8 slice 9; RQ-15), non-null only while that page column is open.</summary>
     [ObservableProperty] private BonusRegisterViewModel? _bonusRegister;
+
+    /// <summary>
+    /// The Kerala Flood Cess return page (census row 6.26), non-null only while that page column is open.
+    /// <para>Named <c>…Page</c>, not <c>…Return</c>, deliberately: <see cref="Apex.Ledger.Reports.KeralaFloodCessReturn"/>
+    /// is the engine's projection record and this file imports <c>Apex.Ledger.Reports</c>, so a property called
+    /// <c>KeralaFloodCessReturn</c> would shadow that type inside every expression in this 9,000-line file.</para>
+    /// </summary>
+    [ObservableProperty] private KeralaFloodCessReturnViewModel? _keralaFloodCessPage;
 
     /// <summary>The per-employee Income-Tax Declaration (Form 12BB) master (Phase 8 slice 7; RQ-12), non-null only
     /// while that page column is open.</summary>
@@ -2153,12 +2165,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // their own sibling group, so the read-only projections above stay visibly separate from the mutators.
             col.Add(new MenuItemViewModel("GST Actions", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         }
+        // Kerala Flood Cess (census row 6.26) — a KERALA STATE levy, so it sits at the Statutory-Reports level beside
+        // the Central GST groups rather than inside them, and it is surfaced only for a company that could actually
+        // have a return to file (see IsKeralaFloodCessRelevant). A company outside Kerala, a Composition dealer, or a
+        // company whose books begin after the levy lapsed never sees it — a menu item that always opens an
+        // always-empty report is a dead capability, not a feature.
+        if (IsKeralaFloodCessRelevant)
+            col.Add(new MenuItemViewModel("Kerala Flood Cess", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
         if (Company is { TdsEnabled: true } or { TcsEnabled: true })
             col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
+
+    /// <summary>
+    /// 🔴 True iff the <b>Kerala Flood Cess</b> return could possibly have anything on it for the open company
+    /// (census row 6.26) — the gate on both the menu item and the open path (ER-13).
+    ///
+    /// <para>Three conjuncts, each from the Kerala GST Department's own FAQ as cited in
+    /// <see cref="Apex.Ledger.Services.KeralaFloodCess"/>:</para>
+    /// <list type="number">
+    ///   <item>The company holds a <b>Kerala</b> GST registration (FAQ Q11/Q21) — a levy under a Kerala Act is
+    ///     collected by Kerala registrants, so no other company has a return to file.</item>
+    ///   <item>It is <b>not</b> a Composition dealer (FAQ Q14 — "Composition tax payers are exempted from the levy").</item>
+    ///   <item>🔴 Its <b>books begin on or before 31-Jul-2021</b>, the day the levy lapsed. A company whose books
+    ///     start after that date cannot hold a single leviable supply, so the report would open empty <em>forever</em>.
+    ///     Surfacing it there would be exactly the dead-capability shape this project keeps filing.</item>
+    /// </list>
+    /// </summary>
+    private bool IsKeralaFloodCessRelevant =>
+        Company is { } c
+        && KeralaFloodCessReturnBuilder.IsKeralaRegisteredSupplier(c)
+        && c.Gst?.RegistrationType != GstRegistrationType.Composition
+        && c.BooksBeginFrom <= Apex.Ledger.Services.KeralaFloodCess.Cessation;
 
     /// <summary>Builds the "Payroll" submenu column (Reports → Statutory Reports → Payroll; Phase 8 slice 4/5/6;
     /// RQ-9/RQ-10/RQ-11): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals),
@@ -5343,6 +5383,47 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "PT Deduction Register", () => ProfessionalTaxRegister = page);
     }
 
+    /// <summary>
+    /// Opens the <b>Kerala Flood Cess</b> return page (Reports → Statutory Reports → Kerala Flood Cess; census row
+    /// 6.26) as a page column: the outward turnover leviable to the cess for one of the levy's own return periods,
+    /// grouped by GST rate, with the cess payable, the remittance due date and the two figures the projection
+    /// excluded. <b>Ctrl+A</b> exports the return as CSV; <b>Alt+B</b> saves it and returns to the menu.
+    ///
+    /// <para>A no-op unless <see cref="IsKeralaFloodCessRelevant"/> — the same gate the menu item carries, so the
+    /// page cannot be reached by any route (menu, hotkey or test) for a company that could never have a return to
+    /// file (ER-13).</para>
+    /// </summary>
+    public void OpenKeralaFloodCessReturn()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (!IsKeralaFloodCessRelevant) return;
+
+        var page = new KeralaFloodCessReturnViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Kerala Flood Cess", page), Screen.KeralaFloodCessReturn,
+            "Kerala Flood Cess Return", () => KeralaFloodCessPage = page);
+    }
+
+    /// <summary>True while the Kerala Flood Cess return page is the active screen (drives its keyboard actions).</summary>
+    public bool IsKeralaFloodCessScreen =>
+        CurrentScreen == Screen.KeralaFloodCessReturn && KeralaFloodCessPage is not null;
+
+    /// <summary>Ctrl+A on the Kerala Flood Cess screen — writes the period's return CSV to the export folder. A no-op
+    /// off that screen.</summary>
+    public void ExportKeralaFloodCessReturn()
+    {
+        if (!IsKeralaFloodCessScreen || KeralaFloodCessPage is null) return;
+        KeralaFloodCessPage.ExportReturn();
+    }
+
+    /// <summary>Alt+B on the Kerala Flood Cess screen — <b>save &amp; return</b>: writes the return CSV then pops back
+    /// to the menu. A no-op off that screen.</summary>
+    public void SaveReturnKeralaFloodCess()
+    {
+        if (!IsKeralaFloodCessScreen || KeralaFloodCessPage is null) return;
+        KeralaFloodCessPage.ExportReturn();
+        BackFromPage();
+    }
+
     /// <summary>True while the PT Deduction Register report page is the active screen (drives its keyboard actions).</summary>
     public bool IsProfessionalTaxRegisterScreen => CurrentScreen == Screen.ProfessionalTaxRegister && ProfessionalTaxRegister is not null;
 
@@ -5971,6 +6052,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ProfessionalTaxRegister = null;
         GratuityProvisionRegister = null;
         BonusRegister = null;
+        KeralaFloodCessPage = null;
         TaxDeclarationMaster = null;
         Form24Q = null;
         Form16 = null;
@@ -8755,6 +8837,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.BonusRegister:
                 return; // read-only register — Ctrl+A/Enter is a safe no-op
+            case Screen.KeralaFloodCessReturn:
+                KeralaFloodCessPage?.ExportReturn(); // Ctrl+A exports the Kerala Flood Cess return CSV (census 6.26)
+                return;
 
             case Screen.TaxDeclarationMaster:
                 TaxDeclarationMaster?.Save(); // Ctrl+A saves the per-employee Form-12BB declaration
@@ -9271,6 +9356,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "TCS Interest u/s 206C(7)": OpenReport(ReportKind.TcsInterest); break;
             case "TCS Nature of Goods Summary": OpenReport(ReportKind.TcsNatureSummary); break;
             case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;
+            // Kerala Flood Cess return (census row 6.26) — under Reports → Statutory Reports, Kerala registrants only.
+            case "Kerala Flood Cess": OpenKeralaFloodCessReturn(); break;
             // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
