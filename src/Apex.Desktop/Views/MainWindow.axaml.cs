@@ -392,6 +392,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 CENSUS 12.5 — Ctrl+A INSIDE THE PRINTER COLUMN'S "Number of copies" BOX IS SELECT ALL, NOT SPOOL.
+        //
+        // The Ctrl+A block below carries no `IsTyping` guard at all, and on every screen it already shipped for
+        // that is deliberate (Ctrl+A accepts a voucher from inside its own fields — that is the accept chord's
+        // whole point). The Printer column is the one arm where it is wrong: Ctrl+A is the universal Select All
+        // of the text box the caret is in, the copies box is the only field on the column, and the action the
+        // unguarded arm fires puts INK ON PAPER. There is no undo for a spooled job.
+        //
+        // Scoped to `Screen.Printer` on purpose, and returning WITHOUT setting `e.Handled`, so the TextBox
+        // receives the keystroke and does its ordinary Select All. Widening the guard to the whole block would
+        // silently change the accept chord on ~157 screens that have relied on it since Phase 1.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.Printer && IsTyping(e))
+        {
+            return;
+        }
+
         // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
         // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -434,6 +451,10 @@ public partial class MainWindow : Window
                 vm.ApplyBackup();
             else if (vm.CurrentScreen == Screen.RestoreCompany)
                 vm.ApplyRestore();
+            // Census 12.5 — on the Printer column Ctrl+A SPOOLS the job. Fire-and-forget: the panel reports the
+            // outcome on its own status line, and blocking the UI thread on a spooler would freeze the shell.
+            else if (vm.CurrentScreen == Screen.Printer)
+                _ = vm.PrintCurrentJobAsync();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             // W2-32 (census 12.6): Ctrl+A on the Multi-Account Printing panel PRINTS the selected accounts —
@@ -1163,6 +1184,23 @@ public partial class MainWindow : Window
         if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
         {
             vm.OpenSavedViews();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+P on an OPEN Print Preview (census 12.5) opens the Printer column — the machine's physical print
+        // queues, the copy count, and Ctrl+A to spool. The vendor's own print chord is Ctrl+P
+        // (help.tallysolutions.com, "How to Print Invoices/Reports in TallyPrime").
+        //
+        // 🔴 This MUST sit before the P/Ctrl+P preview arm below, which is guarded on `IsPrintablePage` — and
+        // that predicate is deliberately TRUE while a preview column is open, because the report stays bound
+        // beneath it. So Ctrl+P was already being swallowed there by an OpenPrintPreview() that immediately
+        // returned ("preview already open"): the chord was consumed and did nothing. Nothing about the bare P
+        // changes; only the Ctrl-modified chord, and only once a preview exists.
+        if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PrintPreview && !IsTyping(e))
+        {
+            vm.OpenPrinter();
             e.Handled = true;
             return;
         }
@@ -2170,6 +2208,20 @@ public partial class MainWindow : Window
 
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
+
+    /// <summary>Census 12.5 — the preview's "Printer… (Ctrl+P)" button: opens the physical-printer column.</summary>
+    private void OnOpenPrinterClick(object? sender, RoutedEventArgs e)
+        => Vm?.OpenPrinter();
+
+    /// <summary>
+    /// Census 12.5 — the Printer panel's "Print (Ctrl+A)" button. Fire-and-forget for the same reason the Ctrl+A
+    /// arm is: the panel reports the spooler's answer on its own status line, and awaiting a spooler on the UI
+    /// thread would freeze the shell on a slow or offline queue.
+    /// </summary>
+    private void OnPrintToPrinterClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) _ = vm.PrintCurrentJobAsync();
+    }
 
     // W2-32 (census 12.6) — the Multi-Account Printing panel's three buttons. Print calls the SAME
     // Vm.PrintMultiAccountJob() the Ctrl+A arm reaches, so the two cannot print DIFFERENT documents.

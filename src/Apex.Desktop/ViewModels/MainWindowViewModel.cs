@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
@@ -62,6 +63,14 @@ public enum Screen
 
     PrintPreview,
     PrintConfig,
+
+    /// <summary>
+    /// Census row 12.5 — the Ctrl+P "Printer" panel over an open Print Preview: choose a physical print queue
+    /// and a copy count, then Ctrl+A to hand the job to the platform spooler. Its own screen id (rather than a
+    /// mode on <see cref="PrintConfig"/>) because it sits over the preview like the config panel does and must
+    /// pop back to it, and because Ctrl+A means "print" here and "apply the knobs" there.
+    /// </summary>
+    Printer,
 
     /// <summary>W2-32 (census 12.6): Reports → Statements of Accounts → Multi-Account Printing — the panel that
     /// selects a SET of accounts and prints them as one collated job.</summary>
@@ -660,6 +669,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
     [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
 
+    /// <summary>The Ctrl+P "Printer" panel (census 12.5) over a preview, non-null only while that column is open.</summary>
+    [ObservableProperty] private PrinterSelectionViewModel? _printerPanel;
+
+    /// <summary>
+    /// The physical print queues this shell offers (census 12.5). Defaults to the platform shim; the headless
+    /// tests substitute a fake, because <b>no CI runner has a printer</b> and a capability no test can reach is
+    /// a capability no one can prove is reachable — the same reason <c>MainWindow.FilePathPicker</c> is settable.
+    /// </summary>
+    internal IPrinterDevices PrinterDevices { get; set; } = PlatformPrinting.Devices();
+
+    /// <summary>
+    /// The spooler hand-off (census 12.5). Defaults to the platform shim; substituted by a recording fake in
+    /// tests. This is the single call in the whole track that no runner can execute, which is exactly why it is
+    /// the only thing behind this property.
+    /// </summary>
+    internal IPrintJobSubmitter PrintJobSubmitter { get; set; } = PlatformPrinting.Submitter();
+
     /// <summary>The W2-32 "Multi-Account Printing" panel (census 12.6), non-null only while that page column is
     /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
     [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
@@ -734,6 +760,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && SwitchTo is null
         && PrintPreview is null && PrintConfigPanel is null
+        && PrinterPanel is null
         && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
@@ -835,6 +862,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSwitchToChanged(SwitchToViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPrinterPanelChanged(PrinterSelectionViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -3590,6 +3618,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
     public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
 
+    /// <summary>
+    /// <b>Ctrl+P on an open Print Preview (census row 12.5) — the Printer panel.</b> Opens the physical-printer
+    /// column to the RIGHT of the preview: the machine's print queues, a copy count, a plain statement of what
+    /// this platform will do with the bytes, and Ctrl+A to spool. The preview stays live beneath it, so Esc pops
+    /// back to the document the operator is about to print.
+    ///
+    /// <para><b>Why Ctrl+P and not P.</b> The vendor's own print chord is Ctrl+P
+    /// (help.tallysolutions.com, "How to Print Invoices/Reports in TallyPrime"). In this app the bare P already
+    /// opens the <i>preview</i> from a report and Ctrl+P was falling into that same handler, where it did
+    /// nothing at all because a preview was already open. So P keeps its meaning everywhere it has one, and
+    /// Ctrl+P — only once a preview is open — means print. No existing binding changes.</para>
+    ///
+    /// <para>A no-op unless a preview is open; re-pressing while the panel is open is a no-op (there is already
+    /// a printer column). Enumeration happens once, in the panel's constructor.</para>
+    /// </summary>
+    public void OpenPrinter()
+    {
+        if (PrintPreview is not { } preview) return;              // nothing being previewed
+        if (PrinterPanel is not null) return;                     // panel already open — don't stack
+
+        var panel = new PrinterSelectionViewModel(preview, PrinterDevices, PrintJobSubmitter);
+        PrinterPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Printer;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
     // =============================================================== screen: Multi-Account Printing (W2-32)
 
     /// <summary>
@@ -3660,6 +3718,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SyncActiveColumn();
         BuildButtonBar();
     }
+
+    /// <summary>
+    /// Ctrl+A / the Print button on the printer panel: build the job from the previewed bytes and hand it to the
+    /// spooler. Returns the task so a test can await the outcome deterministically; the shell fires and forgets,
+    /// because the panel reports the result on its own status line.
+    /// </summary>
+    public Task PrintCurrentJobAsync() => PrinterPanel?.PrintAsync() ?? Task.CompletedTask;
 
     // =============================================================== screen: export
 
@@ -6171,6 +6236,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SwitchTo = null;
         PrintPreview = null;
         PrintConfigPanel = null;
+        PrinterPanel = null;
         MultiAccountPrint = null;
         ExportPanel = null;
         ExportDataPanel = null;
@@ -9656,6 +9722,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
                 return Screen.PrintPreview;
+            // 🔴 CENSUS 12.5 — THE PRINTER COLUMN SURVIVES BENEATH A COLUMN OPENED OVER IT, AND WITHOUT THIS ARM
+            // THE SURVIVOR SILENTLY PRINTS NOTHING.
+            //
+            // The route is real and needs no exotic sequence: `IsReportContext` is deliberately TRUE while the
+            // Printer column is open (the report is still bound two columns down), so the button bar's E-Mail
+            // badge is live and `OpenEmailCompose` APPENDS its column on top. Pop that with Esc and
+            // `BackFromPage`'s `ClearSubScreens()` has just nulled `PrinterPanel` — but the printer's own
+            // `GatewayColumn` is still in `Columns`, still holding the same `PrinterSelectionViewModel` as its
+            // Page, and the markup binds `GatewayColumn.PrinterPanel`, not the shell property. So the column
+            // keeps rendering, its "Print (Ctrl+A)" button keeps rendering ENABLED (`IsEnabled` binds the
+            // panel's own `HasPrinters`, which is still true) — and clicking it reaches
+            // `PrintCurrentJobAsync`, which is `PrinterPanel?.PrintAsync() ?? Task.CompletedTask` against a
+            // null panel. Nothing is spooled, nothing is said, and the operator has no way to tell.
+            //
+            // Re-binding is what makes the button on screen mean what its caption says. It also restores
+            // `Screen.Printer`, without which the Ctrl+A key arm falls through to `ActivateSelected()`.
+            case PrinterSelectionViewModel ps:
+                PrinterPanel = ps;
+                return Screen.Printer;
             // W2-32 — the Multi-Account Printing panel survives beneath a just-popped print-preview column, and
             // it MUST be re-bound: Escape out of the preview and the operator is back on their selection, so
             // pressing Print again reprints the same job rather than finding a null panel and doing nothing.
