@@ -235,7 +235,7 @@ public sealed class ShellNavigationRowsTests : IDisposable
             Assert.True(vm.SwitchTo.Rows.Count < all, "Typing a prefix did not shrink the list.");
             Assert.All(vm.SwitchTo.Rows, r => Assert.True(
                 r.Label.StartsWith("tr", StringComparison.OrdinalIgnoreCase)
-                || r.Section.Split('›').Any(s => s.Trim().StartsWith("tr", StringComparison.OrdinalIgnoreCase)),
+                || r.Section.Split('→').Any(s => s.Trim().StartsWith("tr", StringComparison.OrdinalIgnoreCase)),
                 $"'{r.Display}' matched a prefix filter it does not start with."));
 
             // 🔴 the typed text is VISIBLE — read off the realised tree, not off the view model.
@@ -294,7 +294,7 @@ public sealed class ShellNavigationRowsTests : IDisposable
         {
             Assert.False(string.IsNullOrWhiteSpace(d.Section), $"'{d.Label}' has no parent section.");
             Assert.False(string.IsNullOrWhiteSpace(d.Label));
-            Assert.Contains("›", d.Display, StringComparison.Ordinal);
+            Assert.Contains("→", d.Display, StringComparison.Ordinal);
         });
     }
 
@@ -326,6 +326,60 @@ public sealed class ShellNavigationRowsTests : IDisposable
         Assert.True(dead.Count == 0,
             "Destinations advertised by Switch To that no keystroke sequence reaches:\n  "
             + string.Join("\n  ", dead));
+    }
+
+    /// <summary>
+    /// 🔴 <b>ONE REGISTRY, NOT TWO — the anti-drift lock.</b> Switch To (14.2) and Go To (14.1) are the same
+    /// jump list with one documented difference (the return path), so they must offer the SAME destinations.
+    /// A second, independently-maintained walk of the Gateway tree is how a navigation index goes stale in
+    /// both directions, and this branch shipped exactly that before it was measured: its own walk indexed Page
+    /// rows only and therefore could not reach a single menu HUB.
+    ///
+    /// <para><b>FAILS on this branch's earlier draft</b>, where the two sets differed by every group in the
+    /// tree. Compared as multisets of (Section, Label, Path, OpensSubmenu) so a divergence in the breadcrumb
+    /// spelling or in the replay path is caught too, not just a missing row.</para>
+    /// </summary>
+    [Fact]
+    public void Switch_to_and_go_to_offer_exactly_the_same_destinations()
+    {
+        var vm = NewCompany("One Registry Co");
+
+        static string Key(string section, string label, IReadOnlyList<string> path, bool submenu) =>
+            $"{section}|{label}|{string.Join("/", path)}|{submenu}";
+
+        var switchTo = ShellDestinations.Build(vm)
+            .Select(d => Key(d.Section, d.Label, d.Path, d.OpensSubmenu)).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var goTo = vm.BuildGoToIndex()
+            .Select(d => Key(d.Section, d.Label, d.Path, d.OpensSubmenu)).OrderBy(s => s, StringComparer.Ordinal).ToList();
+
+        Assert.NotEmpty(switchTo);
+        Assert.Equal(goTo, switchTo);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HOLE THE DUPLICATE WALK LEFT, locked shut.</b> Several report families are menu GROUPS rather
+    /// than pages — the Account-Books pickers among them — so an index of Page rows alone cannot reach the
+    /// Cash Book at all, which is precisely the kind of screen a jump list exists to find. Switch To must
+    /// therefore both ADVERTISE a hub and actually OPEN it.
+    ///
+    /// <para><b>FAILS on this branch's earlier draft</b>, whose walk added a destination only for
+    /// <c>MenuItemKind.Page</c> and recursed silently past every group.</para>
+    /// </summary>
+    [Fact]
+    public void Switch_to_reaches_a_menu_hub_and_not_only_leaf_pages()
+    {
+        var vm = NewCompany("Hub Destination Co");
+        var destinations = ShellDestinations.Build(vm);
+
+        var hubs = destinations.Where(d => d.OpensSubmenu).ToList();
+        Assert.True(hubs.Count > 0, "Switch To advertises no menu hub, so whole report families are unreachable.");
+
+        var cashBook = destinations.FirstOrDefault(d => d.Label == "Cash Book");
+        Assert.True(cashBook is not null,
+            "Switch To cannot reach the Cash Book. It is a menu GROUP, so a page-only index misses it entirely.");
+
+        Assert.True(vm.NavigateTo(cashBook!), "Switch To advertises the Cash Book but the replay does not reach it.");
+        Assert.True(vm.Columns.Count > 1, "Jumping to the Cash Book opened nothing.");
     }
 
     /// <summary>A picker over company data is not a menu of screens, so its rows are not destinations.</summary>
@@ -617,6 +671,16 @@ public sealed class ShellNavigationRowsTests : IDisposable
         }
         finally { window.Close(); }
     }
+
+    // 🔴 CARRY-FORWARD, NOT SHIPPED. The company menu's Create / Alter / Select rows are asserted by LABEL
+    // above but never PRESSED — only Shut is driven through DrillIn. A label is an advertisement, and this
+    // project has twice filed a capability that was implemented, tested and had no working door. A per-row
+    // activation test was written for exactly this and is NOT included: on this machine it made xUnit test
+    // DISCOVERY hang (>7 min, then "Catastrophic failure … exit code 143" with the assembly's tests never
+    // enumerated) both as an [AvaloniaTheory] and as three [AvaloniaFact]s, while the rest of this class
+    // continued to run in ~14s. The hang was NOT diagnosed and may be a contended-machine artefact
+    // (eleven worktrees were compiling) rather than a product defect — but it was not proven either way, so
+    // shipping the test would have been shipping an unexplained hang. Re-attempt on a quiet machine.
 
     /// <summary>Alt+K is a no-op with no company — there is nothing to manage.</summary>
     [Fact]

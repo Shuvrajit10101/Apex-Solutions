@@ -132,6 +132,25 @@ public static class ShellChordTable
         // same cell says "Chord ruling required — see U-6. OPEN.", and the wave-7 design lists it as decision
         // D-1, OWED TO THE USER. An open ruling is not a build agent's to take, least of all by deleting the
         // shipped test that guards the incumbent. 14.4 waits for the ruling.
+        //
+        // 🔴 AND THE OBVIOUS ESCAPE HATCH IS CLOSED — MEASURED, so the next agent does not spend a session
+        // re-deriving it. The tempting compromise is to CONTEXT-PARTITION Ctrl+I: leave it with the toggle on
+        // an invoiceable Purchase/Sales voucher (where ToggleItemInvoice is meaningful) and give it to More
+        // Details everywhere else, where the incumbent arm is a dead swallow anyway. That does not work here,
+        // because More Details would have NOTHING TO SHOW on the surface it would be given:
+        //   • This application has exactly TWO screen-option knobs that gate an optional field group —
+        //     VoucherEntryViewModel.UseDefaultBillWiseAllocation (:304) and .UseBatchWiseDetails (:640).
+        //     Every other bool on that screen is computed panel state, not an operator knob.
+        //   • BOTH are reachable only in invoice mode on a Purchase/Sales: the bill-wise row needs
+        //     InvoiceBillWiseApplies, which requires ShowInvoiceOverlay; the batch row needs
+        //     CanUseBatchWiseDetails, which is `CanBeItemInvoice && company.MaintainBatchwiseDetails`.
+        //   • So the ONLY surface where More Details has a row to offer is EXACTLY the surface the incumbent
+        //     occupies. A partitioned Ctrl+I would open an always-empty panel — a dead feature dressed as a
+        //     live one, which is worse than not shipping the row.
+        // The vendor's own attested example (the Contra register) has no F12-gated field group in this build
+        // at all: our Single/Double-entry switch is Ctrl+H, deliberately NOT an F12 flag (see the remarks at
+        // VoucherEntryViewModel:113-133). There is therefore no honest half-measure — 14.4 needs the ruling,
+        // and it must ship WITH a keyboard door for whatever the item-invoice toggle becomes.
     };
 
     /// <summary>

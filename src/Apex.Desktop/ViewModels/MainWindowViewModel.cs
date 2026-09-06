@@ -2990,20 +2990,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // standing fault is having grown a section per phase. An overlay is invisible to that test, which is
     // exactly why it is the right shape and not merely a convenient one.
 
-    /// <summary>
-    /// The Gateway ROOT column, freshly built, for <see cref="ShellDestinations"/>'s walk. Public because the
-    /// walk lives in its own file; it returns a NEW column each call and never touches the live cascade, so
-    /// calling it while the operator is standing anywhere is safe.
-    /// </summary>
-    public GatewayColumn BuildRootColumnForWalk() => BuildRootColumn();
-
-    /// <summary>
-    /// The submenu column a Group row named <paramref name="label"/> opens under <paramref name="parentMenu"/>,
-    /// freshly built, for <see cref="ShellDestinations"/>'s walk. Same contract as
-    /// <see cref="BuildRootColumnForWalk"/>: a new column, no cascade mutation.
-    /// </summary>
-    public (GatewayColumn Column, GatewayMenu Menu, string Title) BuildGroupColumnForWalk(
-        string label, GatewayMenu parentMenu) => BuildGroupColumn(label, parentMenu);
+    // NOTE: two public BuildRootColumnForWalk / BuildGroupColumnForWalk helpers stood here to feed a SECOND
+    // walk of the Gateway tree inside ShellDestinations. That walk is gone — Switch To now projects the
+    // shipped Go To index (see ShellDestinations) — so the helpers went with it rather than remaining as
+    // public methods no caller reaches, which is the dead-capability class this project keeps filing.
 
     // ------------------------------------------------------------- 14.2 Switch To (Ctrl+G)
 
@@ -3072,7 +3062,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             if (!HighlightAndDrill(groupLabel, MenuItemKind.Group)) return false;
         }
 
-        return HighlightAndDrill(destination.Label, MenuItemKind.Page);
+        return HighlightAndDrill(destination.Label, destination.OpensSubmenu ? MenuItemKind.Group : MenuItemKind.Page);
     }
 
     /// <summary>
@@ -8601,19 +8591,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         };
     }
 
-    /// <summary>
-    /// The non-nullable face of <see cref="SubmenuFor"/>: the submenu column a Group row named
-    /// <paramref name="label"/> opens, with the historical Create-column fallback already applied.
-    ///
-    /// <para>Exists so <see cref="ShellDestinations"/> can walk the cascade without repeating the
-    /// fallback, while the GROUP TREE itself is still stated exactly ONCE - in <see cref="SubmenuFor"/>.
-    /// A second, hand-maintained copy of that tree is precisely how a navigation registry goes stale and
-    /// starts advertising screens the menus no longer have.</para>
-    /// </summary>
-    private (GatewayColumn Column, GatewayMenu Menu, string Title) BuildGroupColumn(
-        string label, GatewayMenu parentMenu) =>
-        SubmenuFor(label, parentMenu)
-            ?? (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions");
+    // NOTE: a non-nullable BuildGroupColumn wrapper over SubmenuFor stood here, added only so a second walk of
+    // the Gateway tree could resolve submenus without repeating the Create-column fallback. That walk is gone
+    // (Switch To projects the Go To index instead), and the wrapper went with it, so SubmenuFor is once again
+    // the single statement of the group tree with exactly one caller applying the fallback.
 
     // =============================================================== W2-14: Go To (Alt+G)
 
@@ -8710,7 +8691,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// what stops Go To drifting: a row added to any menu builder appears here automatically, and a row removed
     /// disappears with it.
     /// </summary>
-    private IReadOnlyList<GoToDestination> BuildGoToIndex()
+    internal IReadOnlyList<GoToDestination> BuildGoToIndex()
     {
         var into = new List<GoToDestination>();
         if (Company is null) return into;

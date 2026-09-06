@@ -19,7 +19,7 @@ public sealed partial class SwitchToRowViewModel : ViewModelBase
     /// <summary>The page row's own label.</summary>
     public string Label => Destination.Label;
 
-    /// <summary>How the row reads as one string — "Reports › Balance Sheet".</summary>
+    /// <summary>How the row reads as one string — "Reports → Balance Sheet".</summary>
     public string Display => Destination.Display;
 
     /// <summary>True while the keyboard cursor is standing on this row. The row template DRAWS this.</summary>
@@ -169,7 +169,7 @@ public sealed partial class SwitchToViewModel : ViewModelBase
     {
         if (Prefix.Length == 0) return true;
         if (d.Label.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return true;
-        foreach (var segment in d.Section.Split('›', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var segment in d.Section.Split('→', StringSplitOptions.RemoveEmptyEntries))
             if (segment.Trim().StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
     }
