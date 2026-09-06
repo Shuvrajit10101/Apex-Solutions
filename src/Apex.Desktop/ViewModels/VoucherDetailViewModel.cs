@@ -136,15 +136,27 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// <para><b>🔴 A REFUSAL IS SURFACED, NEVER SWALLOWED INTO A WRONG DOCUMENT.</b> Printing the plain Dr/Cr
     /// voucher onto a cheque leaf the operator has loaded into the printer would ink a negotiable instrument with
     /// the wrong document. The shell shows this text instead of opening a preview.</para>
+    ///
+    /// <para><b>🔴 AND A BANK WITH NO DIMENSIONS CAPTURED IS NOT A REFUSAL — IT IS AN UNCONFIGURED FEATURE.</b>
+    /// The first cut of this property returned "Cheque dimensions are not set for this bank" whenever
+    /// <see cref="ChequeLayoutOfBank"/> was <c>null</c>, and the shell turned that into an early return from
+    /// <c>OpenPrintPreview</c>. Because the dimensions do not persist yet (there is no <c>cheque_layouts</c>
+    /// table — see the block in <c>Ledger.cs</c>) that state is the ONLY state a loaded company can be in, so
+    /// switching "Enable cheque printing" on — which is the only way to make the Cheque Printing report show
+    /// anything at all — permanently switched Ctrl+P OFF for every payment drawn on that bank, with nothing the
+    /// operator could do to clear it. Enabling one feature must never disable another. So: no dimensions ⇒ no
+    /// cheque printing configured on this bank ⇒ the ordinary Dr/Cr voucher prints, exactly as it always has.
+    /// The guard below is dormant, not deleted: it speaks again the moment dimensions exist and the cheque
+    /// itself is unprintable, which is the state the leaf renderer lands into when its migration is taken.
+    /// Pinned by <c>BankingDocumentsReachabilityTests
+    /// .A_cheque_payment_on_a_cheque_printing_bank_still_prints_its_voucher</c>.</para>
     /// </summary>
     public string? ChequePrintRefusal
     {
         get
         {
             if (ChequePrintProjector.Project(_company, _voucher) is not { } data) return null;
-            var layout = ChequeLayoutOfBank;
-            if (layout is null)
-                return "Cheque dimensions are not set for this bank. Set them on the bank ledger before printing.";
+            if (ChequeLayoutOfBank is not { } layout) return null;
             return ChequePdf.Validate(data, layout);
         }
     }

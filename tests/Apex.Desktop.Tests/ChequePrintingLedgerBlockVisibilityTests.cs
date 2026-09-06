@@ -64,10 +64,12 @@ public sealed class ChequePrintingLedgerBlockVisibilityTests
         HasLiveControl<CheckBox>(window, cb =>
             cb.Content as string == "Enable cheque printing");
 
+    // The TextBox half used to read `tb.GetValue(TextBox.TextProperty) is not null || tb.PlaceholderText == …`,
+    // whose first disjunct matches essentially EVERY text box on the screen — so only the label half was doing
+    // any work, and a block that drew its caption with no input box under it would have passed. Both halves now
+    // name their own control.
     private static bool HasBankNameBox(MainWindow window) =>
-        HasLiveControl<TextBox>(window, tb =>
-            tb.GetValue(TextBox.TextProperty) is not null
-            || tb.PlaceholderText == "defaults to the ledger name")
+        HasLiveControl<TextBox>(window, tb => tb.PlaceholderText == "defaults to the ledger name")
         && HasLiveControl<TextBlock>(window, tb => tb.Text == "Name of bank (on cheque)");
 
     private static (MainWindow Window, MainWindowViewModel Vm, string Dir) OpenLedgerMaster()

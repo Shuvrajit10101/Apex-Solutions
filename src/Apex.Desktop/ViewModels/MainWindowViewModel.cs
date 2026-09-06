@@ -2820,6 +2820,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Reports is { IsReorderStatus: true } r) r.ToggleReorderOnly();
     }
 
+    /// <summary>True while the open report is the supplier <b>Payment Advice</b> (census 8.7) — the guard the
+    /// window's report-scoped F8 arm tests, exactly as <see cref="IsReorderStatusReport"/> does for its own.</summary>
+    public bool IsSupplierPaymentAdviceReport => IsReportContext && Reports is { IsSupplierPaymentAdvice: true };
+
+    /// <summary>F8 on the supplier Payment Advice — narrows it to the payments the bank statement has matched
+    /// (<c>help.tallysolutions.com/payment-advice/</c>). A no-op on every other report.</summary>
+    public void ReportToggleAdviceReconciledOnly()
+    {
+        if (Reports is { IsSupplierPaymentAdvice: true } r) r.ToggleAdviceReconciledOnly();
+    }
+
     /// <summary>
     /// Ctrl+F9 on the Reorder Status report — raises a <b>Purchase Order</b> pre-filled from the selected row (the
     /// item, the company's main location, and the "Order to be Placed" quantity; RQ-53/Book p.161). Falls back to a
@@ -3016,8 +3027,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintPreviewViewModel preview;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
         {
-            // Census 8.4: a cheque payment whose bank has no usable dimensions must SAY so. Falling through to the
-            // Dr/Cr voucher preview would ink the wrong document onto the cheque leaf in the printer.
+            // Census 8.4: once a bank HAS cheque dimensions, a cheque this product cannot ink must SAY so —
+            // falling through would print the Dr/Cr voucher onto the cheque leaf loaded in the printer. A bank
+            // with NO dimensions raises nothing at all: that is an unconfigured feature, not a failure, and its
+            // payments print the ordinary voucher (see VoucherDetailViewModel.ChequePrintRefusal for why that
+            // distinction is load-bearing rather than pedantic).
             if (vd.ChequePrintRefusal is { } refusal)
             {
                 RaiseLifecycleNotice(refusal);

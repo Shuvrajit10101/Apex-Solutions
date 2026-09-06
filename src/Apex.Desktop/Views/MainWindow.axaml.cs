@@ -1198,6 +1198,13 @@ public partial class MainWindow : Window
                 // F8 on the Reorder Status report toggles the "reorder only" filter (RQ-53). Checked before the
                 // bare-F8 global button-bar action so it never falls through on that report.
                 case Key.F8 when vm.IsReorderStatusReport: vm.ReportToggleReorderOnly(); e.Handled = true; return;
+                // F8 on the supplier Payment Advice narrows it to the reconciled payments (census 8.7;
+                // help.tallysolutions.com/payment-advice/). Same door, same reason: checked before the bare-F8
+                // global button-bar action so it never falls through on this report.
+                case Key.F8 when vm.IsSupplierPaymentAdviceReport:
+                    vm.ReportToggleAdviceReconciledOnly();
+                    e.Handled = true;
+                    return;
             }
         }
 

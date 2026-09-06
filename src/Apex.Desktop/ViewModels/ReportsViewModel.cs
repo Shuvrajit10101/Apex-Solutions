@@ -797,6 +797,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsGodownSummary));
         OnPropertyChanged(nameof(IsStockMovement));
         OnPropertyChanged(nameof(IsReorderStatus));
+        OnPropertyChanged(nameof(IsSupplierPaymentAdvice));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
@@ -3096,6 +3097,27 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool IsSupplierPaymentAdvice => Kind == ReportKind.SupplierPaymentAdvice;
 
     /// <summary>
+    /// The vendor's <b>reconciled-only</b> filter on the Payment Advice
+    /// (<c>help.tallysolutions.com/payment-advice/</c> — the report shows each payment as "matched (reconciled) or
+    /// not" and can be narrowed to the reconciled ones). Off by default, so the report opens on everything.
+    ///
+    /// <para>It is on <b>F8</b>, the key this product already scopes to a report through the same door the
+    /// Reorder-Status "reorder only" filter uses. Note the engine has carried this parameter since it was
+    /// written; without this toggle it had no caller that could ever set it, which is the "capability no user can
+    /// reach" shape this project has already filed twice.</para>
+    /// </summary>
+    [ObservableProperty] private bool _adviceReconciledOnly;
+
+    /// <summary>F8 on the supplier Payment Advice: toggles the reconciled-only filter and re-projects.</summary>
+    public void ToggleAdviceReconciledOnly()
+    {
+        if (Kind != ReportKind.SupplierPaymentAdvice) return;
+        AdviceReconciledOnly = !AdviceReconciledOnly;
+        Rows.Clear();
+        BuildSupplierPaymentAdvice();
+    }
+
+    /// <summary>
     /// <b>Payment Advice</b> for suppliers (census row 8.7) — <c>help.tallysolutions.com/payment-advice/</c>: the
     /// payments made to suppliers, each showing whether the bank statement has matched (reconciled) it. Ctrl+P
     /// renders the letters through <c>PaymentAdvicePdf</c>.
@@ -3103,10 +3125,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void BuildSupplierPaymentAdvice()
     {
         var period = StatementPeriod;
-        var advices = SupplierPaymentAdvice.Build(_company, period);
+        var advices = SupplierPaymentAdvice.Build(_company, period, reconciledOnly: AdviceReconciledOnly);
         CurrentSupplierAdvices = advices;
         Title = "Payment Advice";
-        Subtitle = $"{CompanyName}  —  payments to suppliers {FormatDate(period.From)} to {FormatDate(period.To)}";
+        Subtitle = $"{CompanyName}  —  payments to suppliers {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (AdviceReconciledOnly ? "  —  reconciled only (F8)" : string.Empty);
         IsTwoColumn = false;
 
         foreach (var a in advices)
@@ -3131,7 +3154,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (advices.Count == 0)
             Rows.Add(new ReportRow
             {
-                Particulars = "No payments to suppliers in this period.",
+                // An empty report must read as an answer, not as a breakage — and when a FILTER is what emptied
+                // it, the empty state has to say so or the operator cannot tell "nothing paid" from "nothing
+                // cleared yet".
+                Particulars = AdviceReconciledOnly
+                    ? "No reconciled payments to suppliers in this period. Press F8 to include the payments the "
+                      + "bank statement has not cleared yet."
+                    : "No payments to suppliers in this period.",
                 IsHeader = true,
             });
         else

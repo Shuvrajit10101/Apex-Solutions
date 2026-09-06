@@ -66,6 +66,11 @@ public static class PaymentAdvicePdf
             return writer.Build();
         }
 
+        double top = page.PageHeight - page.MarginTop;
+        // The lowest y a letter may end at. Below this the next line is drawn off the sheet, which is not a
+        // layout blemish — the supplier simply never receives that advice.
+        double floor = page.MarginBottom + page.FooterFontSize + 4;
+
         for (int i = 0; i < advices.Count; i++)
         {
             if (i > 0)
@@ -74,13 +79,27 @@ public static class PaymentAdvicePdf
                 {
                     DrawFooter(writer, page, left, right);
                     writer.BeginPage(page.PageWidth, page.PageHeight);
-                    y = page.PageHeight - page.MarginTop;
+                    y = top;
                 }
                 else
                 {
-                    y -= 6;
-                    writer.Line(left, y, right, y, 0.8);
-                    y -= page.BodyFontSize + 6;
+                    // 🔴 FLOWING MODE MUST STILL BREAK THE PAGE. Before this check `y` decremented monotonically
+                    // for the whole run, so with the vendor's "print each transaction on a fresh page" switched
+                    // OFF the second and third letters were laid down BELOW the sheet — measured at y = -820 on
+                    // A4, most of a page past the bottom edge. The PDF stayed structurally valid and the page
+                    // count stayed a tidy 1, so a page-count or substring test could not see it at all.
+                    if (y - Measure(advices[i], companyName, companyAddress, page, left, right) < floor)
+                    {
+                        DrawFooter(writer, page, left, right);
+                        writer.BeginPage(page.PageWidth, page.PageHeight);
+                        y = top;
+                    }
+                    else
+                    {
+                        y -= 6;
+                        writer.Line(left, y, right, y, 0.8);
+                        y -= page.BodyFontSize + 6;
+                    }
                 }
             }
 
@@ -90,6 +109,31 @@ public static class PaymentAdvicePdf
         DrawFooter(writer, page, left, right);
         writer.RepeatAllPages(page.EffectiveCopies);
         return writer.Build();
+    }
+
+    /// <summary>
+    /// How tall one letter is, in points — measured by drawing it onto a THROWAWAY writer and reading how far
+    /// <see cref="DrawOne"/> moved the cursor.
+    ///
+    /// <para><b>Why a probe rather than an arithmetic estimate.</b> A letter's height depends on its address
+    /// lines, on which of the six optional header captions apply, on its bill count, on whether a deduction
+    /// prints, and on how many lines the amount-in-words wraps to. Re-deriving that sum here would be a second
+    /// statement of the layout obliged to agree with the first, and the two would drift the first time anyone
+    /// added a caption — the same reason <c>ChequeLayout</c> derives its line gap instead of storing it. Running
+    /// the real renderer and discarding the bytes cannot drift, because it IS the renderer.</para>
+    /// </summary>
+    private static double Measure(
+        SupplierPaymentAdviceRow advice,
+        string companyName,
+        string? companyAddress,
+        PageConfig page,
+        double left,
+        double right)
+    {
+        var probe = new PdfWriter();
+        probe.BeginPage(page.PageWidth, page.PageHeight);
+        double top = page.PageHeight - page.MarginTop;
+        return top - DrawOne(probe, advice, companyName, companyAddress, page, left, right, top);
     }
 
     private static double DrawOne(

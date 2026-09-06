@@ -157,18 +157,92 @@ public sealed class PaymentAdvicePdfTests
     }
 
     /// <summary>
-    /// The vendor's "Print each transaction on a fresh page". On ⇒ one letter per page; off ⇒ they flow together.
+    /// The vendor's "Print each transaction on a fresh page". On ⇒ one letter per page; off ⇒ they share a page
+    /// whenever the next one FITS on it.
+    ///
+    /// <para><b>🔴 This assertion was corrected, and the correction is the point.</b> It used to read
+    /// <c>Assert.Equal(1, PageCount(Render(three, freshPageEach: false)))</c> — three full A4 letters certified
+    /// onto a single sheet, which is not a layout the paper can hold. It was asserting the overflow defect that
+    /// <c>Flowing_advices_break_the_page_instead_of_running_off_the_bottom_of_it</c> measures at y = -820: a
+    /// page count cannot distinguish "packed tightly" from "drawn off the bottom edge". So the flowing arm is
+    /// now driven with COMPACT advices that genuinely fit two to a sheet, and it asserts what the operator
+    /// actually gets — fewer sheets than one-per-letter, and never more.</para>
     /// </summary>
     [Fact]
     public void Print_each_transaction_on_a_fresh_page_controls_the_page_count()
     {
         var three = new[] { Advice("A Ltd"), Advice("B Ltd"), Advice("C Ltd") };
-
         Assert.Equal(3, PageCount(Render(three, freshPageEach: true)));
-        Assert.Equal(1, PageCount(Render(three, freshPageEach: false)));
+
+        // A short letter — no address block, no instrument or bank captions, one bill line — so that flowing
+        // really can put more than one on a sheet. Three of these are two sheets; one per letter would be three.
+        var compact = new[] { Compact("A Ltd"), Compact("B Ltd"), Compact("C Ltd") };
+        Assert.Equal(3, PageCount(Render(compact, freshPageEach: true)));
+        Assert.Equal(2, PageCount(Render(compact, freshPageEach: false)));
 
         static int PageCount(byte[] pdf) =>
             Regex.Matches(Encoding.Latin1.GetString(pdf), @"/Type\s*/Page[^s]").Count;
+    }
+
+    /// <summary>A deliberately short advice: no address lines, no payment mode, no instrument, no bank, no
+    /// bill-wise detail — the smallest letter this renderer produces.</summary>
+    private static SupplierPaymentAdviceRow Compact(string party) =>
+        new(
+            VoucherId: Guid.NewGuid(),
+            VoucherNumber: 7,
+            FormattedNumber: "7",
+            Date: new DateOnly(2026, 5, 20),
+            PartyLedgerId: Guid.NewGuid(),
+            PartyName: party,
+            AddresseeName: party,
+            AddressLines: Array.Empty<string>(),
+            GrossAmount: Money.FromRupees(100m),
+            TdsDeducted: Money.Zero,
+            NetPaid: Money.FromRupees(100m),
+            PaymentMode: null,
+            InstrumentNumber: string.Empty,
+            InstrumentDate: null,
+            BankLedgerId: Guid.Empty,
+            BankName: string.Empty,
+            BankDate: null,
+            Bills: Array.Empty<SupplierPaymentAdviceBill>());
+
+    /// <summary>
+    /// 🔴 <b>A LETTER FLOWED OFF THE BOTTOM OF THE PAGE IS NOT PRINTED — IT IS LOST.</b>
+    ///
+    /// <para>With "print each transaction on a fresh page" OFF the advices flow one after another, and the first
+    /// cut of this renderer never broke the page: <c>y</c> decremented monotonically for the whole run, so the
+    /// second and third letters were laid down at coordinates BELOW the sheet. The PDF was structurally valid,
+    /// the page count was a tidy 1, every string the other tests look for was present in the content stream —
+    /// and the operator's printer produced one letter and two blank-ish sheets' worth of nothing. The supplier
+    /// never receives an advice that was drawn at y = -300.</para>
+    ///
+    /// <para>So this asserts the property that actually matters: <b>no text is placed outside the sheet</b>. It
+    /// reads the <c>Td</c> placements straight out of the (uncompressed) content stream, which is the only place
+    /// the truth is — a page count or a substring search cannot see this defect at all, and the page-count test
+    /// above was in fact asserting the broken shape.</para>
+    /// </summary>
+    [Fact]
+    public void Flowing_advices_break_the_page_instead_of_running_off_the_bottom_of_it()
+    {
+        var page = new PageConfig();
+        var many = new[] { Advice("A Ltd"), Advice("B Ltd"), Advice("C Ltd"), Advice("D Ltd") };
+        var pdf = PaymentAdvicePdf.Render(many, "Apex Solutions", "12 MG Road\nKolkata", page, freshPageEach: false);
+        var s = AsLatin1(pdf);
+
+        var ys = Regex.Matches(s, @"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) Td")
+            .Select(m => double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture))
+            .ToList();
+        Assert.NotEmpty(ys);
+
+        // Nothing below the sheet, and nothing above it either.
+        Assert.True(ys.Min() >= 0, $"text was placed at y={ys.Min()}, off the bottom of the sheet");
+        Assert.True(ys.Max() <= page.PageHeight,
+            $"text was placed at y={ys.Max()}, above the top of the sheet ({page.PageHeight})");
+
+        // And every letter really is in the document — breaking the page must not drop one.
+        foreach (var party in new[] { "A Ltd", "B Ltd", "C Ltd", "D Ltd" })
+            Assert.Contains(party, s, StringComparison.Ordinal);
     }
 
     /// <summary>An empty run must READ as "no payments", never as a blank sheet.</summary>

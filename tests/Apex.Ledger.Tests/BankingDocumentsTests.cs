@@ -126,6 +126,36 @@ public class BankingDocumentsTests
         Assert.False(only.Printed);
     }
 
+    /// <summary>
+    /// 🔴 <b>A cheque you have not actually issued must never queue for printing.</b> A <b>Memorandum</b> is a
+    /// non-affecting suspense entry and an <b>Optional</b> voucher is not in the books either — neither is a
+    /// payment that has happened, so neither has a leaf waiting in the printer. The first cut of the projection
+    /// called <c>CountsAsOf(v, asOf)</c> without the base type, which excludes Cancelled and Optional but lets
+    /// Memorandum and Reversing Journal straight through.
+    /// </summary>
+    [Fact]
+    public void A_memorandum_or_optional_voucher_never_queues_a_cheque_for_printing()
+    {
+        var c = Seed(out var hdfc, out _, out var rent, out _, out _, out var payment, out _);
+
+        PostChequePayment(c, payment, rent, hdfc, 20000m, "100123", new DateOnly(2024, 4, 10));   // ✔ listed
+
+        // A memorandum drawing the very next leaf: recorded, but not a payment.
+        var memo = c.FindVoucherTypeByName("Memorandum")!;
+        PostChequePayment(c, memo, rent, hdfc, 30000m, "100124", new DateOnly(2024, 4, 11));
+
+        // An OPTIONAL payment (Ctrl+L) drawing the leaf after that: keyed, but not posted to the books.
+        var provisional = PostChequePayment(c, payment, rent, hdfc, 40000m, "100125", new DateOnly(2024, 4, 12));
+        provisional.Optional = true;
+
+        var rows = ChequePrinting.Build(c, Year);
+
+        var only = Assert.Single(rows);
+        Assert.Equal("100123", only.InstrumentNumber);
+        Assert.DoesNotContain(rows, r => r.InstrumentNumber == "100124");
+        Assert.DoesNotContain(rows, r => r.InstrumentNumber == "100125");
+    }
+
     /// <summary>F8 "Include Printed" (<c>help.tallysolutions.com/print-cheques/</c>): the default list is the
     /// cheques PENDING for printing; F8 widens it to the ones already printed.</summary>
     [Fact]

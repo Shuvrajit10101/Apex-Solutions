@@ -73,7 +73,11 @@ public static class ChequePrinting
         foreach (var v in company.Vouchers)
         {
             if (v.Date < period.From || v.Date > period.To) continue;
-            if (!LedgerBalances.CountsAsOf(v, period.To)) continue;
+            // The BASE TYPE is passed, not omitted: without it this counted Memorandum and Reversing-Journal
+            // vouchers, which never reach the actual books — a memo recording a cheque you have not issued would
+            // have queued that cheque for printing. Cancelled, Optional and not-yet-due post-dated vouchers are
+            // excluded by the same call. Same rule the supplier advice keeps, stated the same way.
+            if (!LedgerBalances.CountsAsOf(v, period.To, company.FindVoucherType(v.TypeId)?.BaseType)) continue;
 
             foreach (var line in v.Lines)
             {

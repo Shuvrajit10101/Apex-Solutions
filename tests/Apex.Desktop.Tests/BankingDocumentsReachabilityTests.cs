@@ -188,7 +188,7 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         var bank = AddBank(vm, "HDFC Bank", chequePrinting: true);
         var acme = AddSupplier(vm, "Acme Supplies");
         var date = new DateOnly(2026, 5, 12);
-        PostChequePayment(vm.Company!, acme, bank, 20000m, "100123", date);
+        var posted = PostChequePayment(vm.Company!, acme, bank, 20000m, "100123", date);
 
         ArrowToBankingMenu(vm);
         ArrowToAndDrill(vm, "Cheque Printing");
@@ -203,8 +203,12 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         Assert.Contains("HDFC Bank", row.Secondary);
         Assert.Contains("20,000", row.Amount);
 
-        // The drill is what makes a listed cheque a PRINTABLE cheque rather than a line of text.
-        Assert.NotNull(row.DrillVoucherId);
+        // The drill is what makes a listed cheque a PRINTABLE cheque rather than a line of text. Asserted as the
+        // POSTED VOUCHER'S OWN id: `Assert.NotNull` on a Guid is a value type and can never fail, which is the
+        // shape of assertion that lets a broken drill ship green (xUnit2002 flagged it as exactly that).
+        Assert.NotEqual(Guid.Empty, row.DrillVoucherId);
+        Assert.Equal(posted.Id, row.DrillVoucherId);
+        Assert.True(row.IsDrillable);
 
         // It is a ReportKind, so it inherits Ctrl+P instead of being a bespoke page Screen that silently
         // switches print, export, period and saved views off at once (the defect that hollowed out 8.1/11.9-11).
@@ -290,6 +294,49 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         vm.OpenReport(ReportKind.PaymentAdvice);
         Assert.Equal(ReportKind.PaymentAdvice, vm.Reports!.Kind);
         Assert.False(vm.Reports.IsSupplierPaymentAdvice);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F8 = reconciled only</b> (<c>help.tallysolutions.com/payment-advice/</c> — the report shows whether
+    /// each payment is "matched (reconciled) or not" and narrows to the matched ones).
+    ///
+    /// <para>The engine has carried a <c>reconciledOnly</c> parameter since it was written and <b>nothing could
+    /// set it</b>: the report always called <c>Build(company, period)</c>. A parameter with no reachable caller is
+    /// the same defect as a report with no menu row, one layer down — so this test drives the key's own handler
+    /// path (<c>MainWindowViewModel.ReportToggleAdviceReconciledOnly</c>, guarded by
+    /// <c>IsSupplierPaymentAdviceReport</c>, which is exactly the <c>when</c> clause the window's F8 arm tests)
+    /// and asserts the ROWS change, not a flag.</para>
+    /// </summary>
+    [Fact]
+    public void F8_narrows_the_payment_advice_to_the_reconciled_payments_and_back()
+    {
+        var vm = NewSeededCompany("Advice Filter Co");
+        var bank = AddBank(vm, "HDFC Bank", chequePrinting: true);
+        var cleared = AddSupplier(vm, "Cleared Supplies");
+        var pending = AddSupplier(vm, "Pending Supplies");
+        var date = new DateOnly(2026, 5, 20);
+        PostChequePayment(vm.Company!, cleared, bank, 15000m, "100500", date, bankDate: date.AddDays(3));
+        PostChequePayment(vm.Company!, pending, bank, 25000m, "100501", date, bankDate: null);
+
+        ArrowToBankingMenu(vm);
+        ArrowToAndDrill(vm, "Payment Advice (Suppliers)");
+        WidenPeriod(vm.Reports!, date);
+
+        // The guard the window's F8 arm tests must actually be true on this report, or the key never fires.
+        Assert.True(vm.IsSupplierPaymentAdviceReport);
+        Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("Cleared Supplies", StringComparison.Ordinal));
+        Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("Pending Supplies", StringComparison.Ordinal));
+
+        vm.ReportToggleAdviceReconciledOnly();     // F8
+
+        Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("Cleared Supplies", StringComparison.Ordinal));
+        Assert.DoesNotContain(vm.Reports!.Rows, r => r.Particulars.Contains("Pending Supplies", StringComparison.Ordinal));
+        Assert.Contains("reconciled only (F8)", vm.Reports!.Subtitle);
+
+        vm.ReportToggleAdviceReconciledOnly();     // F8 again → back
+
+        Assert.Contains(vm.Reports!.Rows, r => r.Particulars.Contains("Pending Supplies", StringComparison.Ordinal));
+        Assert.DoesNotContain("reconciled only (F8)", vm.Reports!.Subtitle);
     }
 
     // ================================================================ the ledger master (the route IN to 8.4)
@@ -426,5 +473,85 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
 
         Assert.False(master.EnableChequePrinting);
         Assert.Equal(string.Empty, master.ChequePrintingBankName);
+    }
+
+    // ================================================================ the drilled voucher (Ctrl+P must survive)
+
+    /// <summary>
+    /// 🔴 <b>THE REGRESSION THIS SLICE ALMOST SHIPPED.</b> Switching "Enable cheque printing" on is the ONLY way
+    /// to make the Cheque Printing report show anything, so every operator who uses row 8.4 will switch it on.
+    /// The first cut of the shell then refused to print any drilled cheque payment on that bank at all —
+    /// <c>OpenPrintPreview</c> returned early with "Cheque dimensions are not set for this bank" — and because
+    /// the cheque DIMENSIONS do not persist yet (no <c>cheque_layouts</c> table; see the block in
+    /// <c>Ledger.cs</c>), that refusal could never be cleared by anything the operator could do. Enabling one
+    /// feature would have permanently switched off Ctrl+P on another.
+    ///
+    /// <para>So the rule is: a bank with no dimensions captured has simply not configured cheque printing, and a
+    /// payment drawn on it prints the ordinary Dr/Cr voucher exactly as it always has. A refusal is raised only
+    /// once dimensions EXIST and the cheque itself is unprintable — a state no operator can reach today, and the
+    /// state the leaf renderer lands into when its migration is taken.</para>
+    ///
+    /// <para>This walks the operator's route: post the payment, drill the voucher from the Day Book, press
+    /// Ctrl+P, and assert a preview carrying that voucher's own figures actually opens.</para>
+    /// </summary>
+    [Fact]
+    public void A_cheque_payment_on_a_cheque_printing_bank_still_prints_its_voucher()
+    {
+        var vm = NewSeededCompany("Cheque Voucher Print Co");
+        var bank = AddBank(vm, "HDFC Bank", chequePrinting: true);
+        var acme = AddSupplier(vm, "Acme Supplies");
+        var date = new DateOnly(2026, 5, 20);
+        var voucher = PostChequePayment(vm.Company!, acme, bank, 41250m, "100300", date);
+
+        // The operator's own route in: Banking → Cheque Printing → Enter on the cheque → Ctrl+P.
+        ArrowToBankingMenu(vm);
+        ArrowToAndDrill(vm, "Cheque Printing");
+        WidenPeriod(vm.Reports!, date);
+        var row = vm.Reports!.Rows.Single(r => r.DrillVoucherId == voucher.Id);
+        vm.DrillReport(row);
+        Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+
+        vm.OpenPrintPreview();
+
+        // The preview OPENED. Before the fix the shell returned early and the screen never changed.
+        Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+        Assert.NotNull(vm.PrintPreview);
+        Assert.Empty(vm.Notice);                     // and no refusal was raised in its place
+
+        // And it is that voucher's own document, not an empty shell.
+        var cells = vm.PrintPreview!.Pages.SelectMany(p => p.Lines).SelectMany(l => l.Cells).ToList();
+        Assert.Contains(cells, c => c.Contains("Acme Supplies", StringComparison.Ordinal));
+        Assert.Contains(cells, c => c.Contains("41,250.00", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The companion half of the rule above, asserted at the source: with no dimensions captured there is NO
+    /// refusal, because "not configured" is not a failure. The property must not report a problem the operator
+    /// has no screen to fix.
+    /// </summary>
+    [Fact]
+    public void A_bank_with_no_cheque_dimensions_reports_no_refusal_at_all()
+    {
+        var vm = NewSeededCompany("No Refusal Co");
+        var bank = AddBank(vm, "HDFC Bank", chequePrinting: true);
+        var acme = AddSupplier(vm, "Acme Supplies");
+        var date = new DateOnly(2026, 5, 20);
+        var voucher = PostChequePayment(vm.Company!, acme, bank, 4100m, "100400", date);
+
+        var detail = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
+        Assert.Null(bank.ChequeLayout);              // nothing persists it, so it is always null on a loaded book
+        Assert.NotNull(detail.ChequePrintData);      // the voucher IS a cheque payment
+        Assert.Null(detail.ChequePrintRefusal);      // ...and that is not a refusal
+
+        // Once dimensions DO exist, an unprintable cheque refuses again — the guard is dormant, not deleted.
+        bank.ChequeLayout = new ChequeLayout { LeafWidthTmm = 2030, LeafHeightTmm = 920 };
+        var configured = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
+        Assert.Null(configured.ChequePrintRefusal);  // this one is printable
+
+        bank.ChequeLayout = new ChequeLayout();      // dimensions captured but the leaf size never set
+        var unusable = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
+        Assert.Equal(
+            "Cheque dimensions are not set for this bank. Set them on the bank ledger before printing.",
+            unusable.ChequePrintRefusal);
     }
 }
