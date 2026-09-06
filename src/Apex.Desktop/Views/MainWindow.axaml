@@ -14228,7 +14228,7 @@
                                      computed this period and nothing was leviable" look identical otherwise, and
                                      telling them apart is the whole point of a return. -->
                                 <TextBlock Grid.Row="1" Text="No rate slabs — nothing in this period fell in the 1% or 0.25% cess schedules."
-                                           IsVisible="False"
+                                           IsVisible="{Binding IsEmpty}"
                                            FontSize="11.5" FontStyle="Italic" Foreground="#777777"
                                            Margin="6,8,6,8" TextWrapping="Wrap"/>
 

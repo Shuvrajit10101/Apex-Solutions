@@ -1,0 +1,18 @@
+  Determining projects to restore...
+  Restored C:\Users\dkpho\apexf4\tests\Apex.Desktop.Tests\Apex.Desktop.Tests.csproj (in 2.19 sec).
+  Restored C:\Users\dkpho\apexf4\src\Apex.Desktop\Apex.Desktop.csproj (in 2.18 sec).
+  6 of 8 projects are up-to-date for restore.
+  Apex.Ledger -> C:\Users\dkpho\apexf4\src\Apex.Ledger\bin\Debug\net10.0\Apex.Ledger.dll
+  Apex.Ledger.Io -> C:\Users\dkpho\apexf4\src\Apex.Ledger.Io\bin\Debug\net10.0\Apex.Ledger.Io.dll
+  Apex.Persistence.Sqlite -> C:\Users\dkpho\apexf4\src\Apex.Persistence.Sqlite\bin\Debug\net10.0\Apex.Persistence.Sqlite.dll
+  Apex.Ledger.Io.Tests -> C:\Users\dkpho\apexf4\tests\Apex.Ledger.Io.Tests\bin\Debug\net10.0\Apex.Ledger.Io.Tests.dll
+  Apex.Ledger.Tests -> C:\Users\dkpho\apexf4\tests\Apex.Ledger.Tests\bin\Debug\net10.0\Apex.Ledger.Tests.dll
+  Apex.Persistence.Sqlite.Tests -> C:\Users\dkpho\apexf4\tests\Apex.Persistence.Sqlite.Tests\bin\Debug\net10.0\Apex.Persistence.Sqlite.Tests.dll
+  Apex.Desktop -> C:\Users\dkpho\apexf4\src\Apex.Desktop\bin\Debug\net10.0\Apex.Desktop.dll
+  Apex.Desktop.Tests -> C:\Users\dkpho\apexf4\tests\Apex.Desktop.Tests\bin\Debug\net10.0\Apex.Desktop.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:03:15.06
