@@ -11508,22 +11508,38 @@
                                          VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                             </Grid>
 
-                            <StackPanel Grid.Row="3">
-                              <!-- Census row 6.13. The applicability statement for a form whose figures must NOT be
-                                   read as a filing artefact (today: GSTR-9A only). Empty — and therefore collapsed —
-                                   for every other form, so it can never mis-describe the one on screen. -->
-                              <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}"
-                                      BorderThickness="1" Padding="8" Margin="0,0,0,6"
-                                      IsVisible="{Binding ApplicabilityNoteText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                <TextBlock Text="{Binding ApplicabilityNoteText}" FontSize="11"
-                                           Foreground="#8A2B20" TextWrapping="Wrap"/>
-                              </Border>
-                              <!-- The schema honesty note: these key names are ours, not the portal ones -->
-                              <Border Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
-                                      BorderThickness="1" Padding="8" Margin="0,0,0,8">
-                                <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
-                              </Border>
-                            </StackPanel>
+                            <!-- 🔴 THE PROSE-ABOVE-THE-FIGURES TRAP, CONSTRAINED AND MEASURED. These two notes sit in
+                                 an Auto row DIRECTLY above the figure grid's * row, so every line they wrap to comes
+                                 straight out of the figures — and both are long, multi-sentence statutory prose that
+                                 grows as it is corrected (the applicability note gained two sentences when its waiver
+                                 clause was corrected against Circular 124/43/2019-GST). Unbounded, that is the exact
+                                 shape this project's UI defect catalogue is full of: at a small viewport the note
+                                 eats the page and the figures collapse to a sliver, and nothing fails.
+                                 The cap + scroll fixes both halves at once — the note stays FULLY readable (it
+                                 scrolls rather than clipping, so no statutory sentence is ever silently cut) and the
+                                 figure row can never be starved below its share. Measured at four viewports by
+                                 Gstr9aApplicabilityTests.The_applicability_note_never_starves_the_figure_grid_or_
+                                 clips_itself, which also records what the row costs UNCAPPED: 266px at 1280x720
+                                 and 278px at 1024x700. Do not remove the MaxHeight without re-running it. -->
+                            <ScrollViewer Grid.Row="3" MaxHeight="150" Name="GstReturnNotesScroller"
+                                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                              <StackPanel>
+                                <!-- Census row 6.13. The applicability statement for a form whose figures must NOT be
+                                     read as a filing artefact (today: GSTR-9A only). Empty — and therefore collapsed —
+                                     for every other form, so it can never mis-describe the one on screen. -->
+                                <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="8" Margin="0,0,0,6"
+                                        IsVisible="{Binding ApplicabilityNoteText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                  <TextBlock Text="{Binding ApplicabilityNoteText}" FontSize="11"
+                                             Foreground="#8A2B20" TextWrapping="Wrap"/>
+                                </Border>
+                                <!-- The schema honesty note: these key names are ours, not the portal ones -->
+                                <Border Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                                  <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
+                                </Border>
+                              </StackPanel>
+                            </ScrollViewer>
 
                             <!-- The selected return figure summary -->
                             <ScrollViewer Grid.Row="4">
@@ -12393,6 +12409,7 @@
                                  meaningful for a cash payment, so it hides itself for bank / credit. -->
                             <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10" Margin="0,0,0,6" IsVisible="{Binding ShowsCashAvailability}">
+                              <StackPanel Spacing="6">
                               <Grid ColumnDefinitions="*,*,*,*,*">
                                 <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="Cash CGST ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableCgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
                                 <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableSgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
@@ -12400,6 +12417,16 @@
                                 <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableCessText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
                                 <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Interest cell ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableInterestText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
                               </Grid>
+                              <!-- A failed read is NOT a nil balance. When any of the five cells above could not be
+                                   read the cell shows "not read" and this states what failed — on a screen that is
+                                   about to take a payment, an unmeasured figure presented as a measured one is the
+                                   defect, not the missing number. Collapsed entirely when every cell read cleanly. -->
+                              <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="6,4" IsVisible="{Binding CashReadFailed}">
+                                <TextBlock Text="{Binding CashReadErrorText}" FontSize="10.5" Foreground="#8A2B20"
+                                           TextWrapping="Wrap"/>
+                              </Border>
+                              </StackPanel>
                             </Border>
                             <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
                                        Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>

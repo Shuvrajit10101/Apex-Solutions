@@ -11,15 +11,21 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>One selectable employee on the Form 12BA screen — the same set the Form 16 screen offers (the Annexure-II
-/// set), because 12BA is that certificate's annexure and is issued to the same person for the same year.</summary>
-public sealed partial class Form12BaEmployeeOptionVm : ViewModelBase
+/// set), because 12BA is that certificate's annexure and is issued to the same person for the same year.
+///
+/// <para><b>Deliberately carries no <c>IsHighlighted</c> flag.</b> The employee picker is a <c>ListBox</c> whose
+/// <c>SelectedIndex</c> is two-way bound to <see cref="Form12BaViewModel.HighlightedIndex"/>, so the keyboard
+/// highlight is painted by the ListBox's own selection visual. A per-row flag was carried here for a while and
+/// <b>nothing in the view ever bound it</b> — it was a second, invisible copy of the selection that only the
+/// view model could see, and it went stale on every <see cref="Form12BaViewModel.Rebuild"/> without anyone
+/// noticing, because there was nothing to notice. (The manual-highlight pattern with its own Border is for the
+/// <c>ItemsControl</c> reports, which have no selection of their own.)</para></summary>
+public sealed class Form12BaEmployeeOptionVm : ViewModelBase
 {
     public Guid EmployeeId { get; init; }
     public string Pan { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string GrossSalary { get; init; } = string.Empty;
-
-    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -175,10 +181,20 @@ public sealed partial class Form12BaViewModel : ViewModelBase
     /// <summary>The Form 16 the statement annexes (rebuilt on selection change). Null until an employee is picked.</summary>
     public Form16? Certificate { get; private set; }
 
+    /// <summary>The financial year everything on this screen is built for. <b>One definition, used by both
+    /// <see cref="Rebuild"/> and <see cref="Project"/>.</b> The two used to carry the same
+    /// <c>SelectedYear?.StartYear ?? company.FinancialYearStart.Year</c> fallback written out twice — which is one
+    /// fallback too many, because the day the two expressions drift the employee list and the certificate would be
+    /// built for different years and the screen would still look right.
+    /// <see cref="FinancialYears"/> is seeded with three options in the constructor and the picker can only choose
+    /// from them, so the <c>??</c> arm is unreachable through the UI; it survives as a single defensive default for
+    /// a caller that assigns <see cref="SelectedYear"/> null directly, and it now cannot disagree with itself.</summary>
+    private int FyStart => SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
+
     /// <summary>(Re)builds the employee list for the selected FY and re-projects the first employee's statement.</summary>
     public void Rebuild()
     {
-        var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
+        var fyStart = FyStart;
 
         // The form number is FY-gated exactly as Form 16 and Form 24Q are: the department publishes the document as
         // "Form No. 123 (Earlier Form No. 12BA)", and the Miller cascade keeps the parent menu row visible beside
@@ -201,6 +217,12 @@ public sealed partial class Form12BaViewModel : ViewModelBase
                 GrossSalary = IndianFormat.AmountAlways(r.GrossSalary),
             });
 
+        // The highlight index alone is not enough to re-point the screen: assigning 0 when it is ALREADY 0 raises no
+        // change notification, so after the list above was replaced the selection would still be pointing at an
+        // object that is no longer in the collection. Assigning SelectedEmployee explicitly is what actually re-runs
+        // the projection, and it is unconditional for exactly that reason. (Drc03PaymentViewModel.Rebuild has the
+        // same shape and the same reason; neither needs to re-raise a per-row highlight flag, because neither has
+        // one — the ListBox's own selection is the highlight. See Form12BaEmployeeOptionVm.)
         HighlightedIndex = Employees.Count > 0 ? 0 : -1;
         SelectedEmployee = Employees.FirstOrDefault();
         Project();
@@ -214,10 +236,12 @@ public sealed partial class Form12BaViewModel : ViewModelBase
         HighlightedIndex = (i + direction + Employees.Count) % Employees.Count;
     }
 
+    /// <summary>Keeps the picked employee in step with the keyboard highlight. This is the ONLY thing the highlight
+    /// index drives in the view model — the visible highlight itself is the ListBox's own selection, bound to this
+    /// same index — so <see cref="Rebuild"/> does not need to re-raise it: it assigns
+    /// <see cref="SelectedEmployee"/> explicitly, which is the whole of the effect.</summary>
     partial void OnHighlightedIndexChanged(int value)
     {
-        for (var i = 0; i < Employees.Count; i++)
-            Employees[i].IsHighlighted = i == value;
         if (value >= 0 && value < Employees.Count) SelectedEmployee = Employees[value];
     }
 
@@ -237,8 +261,7 @@ public sealed partial class Form12BaViewModel : ViewModelBase
             return;
         }
 
-        var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
-        var cert = Form16.Build(_company, sel.EmployeeId, fyStart);
+        var cert = Form16.Build(_company, sel.EmployeeId, FyStart);
         Certificate = cert;
 
         EmployerTan = string.IsNullOrEmpty(cert.Deductor.Tan) ? "—" : cert.Deductor.Tan;
@@ -249,7 +272,30 @@ public sealed partial class Form12BaViewModel : ViewModelBase
         var emp = _company.FindEmployee(sel.EmployeeId);
         EmployeeDesignation = string.IsNullOrWhiteSpace(emp?.Designation) ? "—" : emp!.Designation!;
 
-        var gross = cert.PartB?.GrossSalary ?? Money.Zero;
+        // 🔴 NO SILENT ZERO ON A STATUTORY VERDICT. cert.PartB is this employee's Form 24Q Annexure-II row, and the
+        // Employees list above was built from exactly that projection for exactly this year, so by construction it is
+        // present for every employee the picker can offer. The old code wrote `cert.PartB?.GrossSalary ?? Money.Zero`
+        // — a fallback that cannot fire through the UI, and that if it ever DID fire would be far worse than a crash:
+        // an unmeasured salary would enter the rule 26A(2)(b) test as ₹0.00, fail it, and the screen would print
+        // "this statement is not required for this employee" as though something had computed it. A nil figure and an
+        // unmeasured figure are not interchangeable on a statutory form — that is the same principle the empty
+        // perquisite table on this very screen exists to honour. So the unmeasured case is now stated, and gives no
+        // verdict at all.
+        if (cert.PartB is null)
+        {
+            GrossSalaryText = "—";
+            IsFormDue = false;
+            ThresholdText =
+                "Gross salary could not be measured for this employee in this year — the book holds no Form " +
+                $"{StatuteVocabulary.FormLabel("24Q", FyStart)} Annexure-II row for them — so whether rule " +
+                "26A(2)(b) requires this statement cannot be decided here. Read this as UNKNOWN, not as a finding " +
+                "that the statement is not required.";
+            IsEmpty = true;
+            StatusText = ThresholdText + "  Perquisite values are not maintained in this book — see the note below.";
+            return;
+        }
+
+        var gross = cert.PartB.GrossSalary;
         GrossSalaryText = IndianFormat.AmountAlways(gross);
 
         // Rule 26A(2)(b): the statement is required where salary paid or payable EXCEEDS ₹1,50,000. Strictly

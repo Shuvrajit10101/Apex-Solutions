@@ -50,8 +50,16 @@ public sealed record Drc03CauseOption(int Ordinal, string Text)
     };
 }
 
-/// <summary>One already-filed DRC-03 row (its cause / period / heads) for the screen's history list.</summary>
-public sealed partial class Drc03RowVm : ViewModelBase
+/// <summary>One already-filed DRC-03 row (its cause / period / heads) for the screen's history list.
+///
+/// <para><b>Deliberately carries no <c>IsHighlighted</c> flag.</b> The filed list is a <c>ListBox</c> whose
+/// <c>SelectedIndex</c> is two-way bound to <see cref="Drc03PaymentViewModel.HighlightedIndex"/>, so the keyboard
+/// highlight is painted by the ListBox's own selection visual. A per-row flag was carried here for a while and
+/// <b>nothing in the view ever bound it</b>: a second, invisible copy of the selection that only the view model
+/// could see. Removing it also removes its keeper — <c>Rebuild</c> used to re-raise the change handler by hand
+/// purely to refresh those flags. (The manual-highlight pattern, a Border bound to a per-row flag, belongs to the
+/// <c>ItemsControl</c> reports, which have no selection of their own.)</para></summary>
+public sealed class Drc03RowVm : ViewModelBase
 {
     public Guid RecordId { get; init; }
     public string Cause { get; init; } = string.Empty;
@@ -60,8 +68,6 @@ public sealed partial class Drc03RowVm : ViewModelBase
     public string Interest { get; init; } = string.Empty;
     public string Total { get; init; } = string.Empty;
     public string DemandRef { get; init; } = string.Empty;
-
-    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -101,10 +107,19 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
     /// <summary>The portal's own sentence on which ledger may discharge interest and penalty — quoted verbatim.</summary>
     public const string CashOnlyRule = "Interest and penalty amount shall be paid out of cash ledger only.";
 
+    /// <summary>What a cash cell shows when the balance could <b>not be read</b>. Deliberately not a number, and
+    /// deliberately not "0.00": see <see cref="Cash"/>.</summary>
+    public const string CashUnreadable = "not read";
+
     private readonly Company _company;
+
+    /// <summary>The first cash-cell read failure of the current <see cref="Rebuild"/>, or null when all five read
+    /// cleanly. Reset at the top of every rebuild so a fixed book clears the warning.</summary>
+    private string? _cashReadError;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
     private readonly GstDepositService _deposit;
+    private readonly Func<GstTaxHead, GstMinorHead, Money> _availableCash;
 
     [ObservableProperty] private string _title = "DRC-03 — Voluntary / Self-Ascertained Payment";
     [ObservableProperty] private string _subtitle = string.Empty;
@@ -145,6 +160,14 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
     [ObservableProperty] private string _availableCessText = "0.00";
     [ObservableProperty] private string _availableInterestText = "0.00";
 
+    /// <summary>True when any of the five cash cells above could not be read. The view shows
+    /// <see cref="CashReadErrorText"/> on this, so a screen that is about to take a payment never presents an
+    /// unmeasured balance as a measured one.</summary>
+    [ObservableProperty] private bool _cashReadFailed;
+
+    /// <summary>What failed, in the operator's own words, and what a blank cell does and does not mean.</summary>
+    [ObservableProperty] private string _cashReadErrorText = string.Empty;
+
     /// <summary>The portal's <b>twelve</b> causes the picker offers, verbatim and in the portal's own order.</summary>
     public ObservableCollection<Drc03CauseOption> Causes { get; } = new(Drc03CauseOption.All);
 
@@ -158,12 +181,21 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
     /// <summary>Every DRC-03 already filed on this book (newest period first).</summary>
     public ObservableCollection<Drc03RowVm> Filed { get; } = new();
 
-    public Drc03PaymentViewModel(Company company, CompanyStorage storage, Action? onChanged = null)
+    /// <param name="availableCash">The per-cell cash projection. Null ⇒ the engine's own
+    /// <see cref="GstDepositService.AvailableCash"/>, which is what production always uses. It is injectable for
+    /// one reason: <see cref="Cash"/> has to decide what to show when the read FAILS, and that decision is on a
+    /// screen that is about to take a payment — so it must be testable. The engine's own projection is a pure loop
+    /// over challans and vouchers and cannot be made to throw from a Company, which is exactly how a wrong answer
+    /// in that branch would otherwise ship unexercised. Same shape as
+    /// <c>GstOfflineReturnsViewModel.ExportJson(writeBytes)</c>, and for the same reason.</param>
+    public Drc03PaymentViewModel(Company company, CompanyStorage storage, Action? onChanged = null,
+                                 Func<GstTaxHead, GstMinorHead, Money>? availableCash = null)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? (() => { });
         _deposit = new GstDepositService(company);
+        _availableCash = availableCash ?? ((major, minor) => _deposit.AvailableCash(major, minor));
 
         var fy = company.FinancialYearStart;
         _period = $"{fy.Year}-{(fy.Year + 1) % 100:00}";
@@ -223,12 +255,6 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
         if (!CanEnterInterest) InterestText = string.Empty;
     }
 
-    partial void OnHighlightedIndexChanged(int value)
-    {
-        for (var i = 0; i < Filed.Count; i++)
-            Filed[i].IsHighlighted = i == value;
-    }
-
     /// <summary>Moves the filed-DRC-03 highlight (Up/Down within the page); wraps.</summary>
     public void MoveHighlight(int direction)
     {
@@ -245,12 +271,20 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
         var keep = HighlightedIndex;
         Filed.Clear();
 
+        _cashReadError = null;
         AvailableCgstText = Cash(GstTaxHead.Central, GstMinorHead.Tax);
         AvailableSgstText = Cash(GstTaxHead.State, GstMinorHead.Tax);
         AvailableIgstText = Cash(GstTaxHead.Integrated, GstMinorHead.Tax);
         AvailableCessText = Cash(GstTaxHead.Cess, GstMinorHead.Tax);
         // The engine draws §50 interest from the (IGST, Interest) cell — mirror exactly that cell, not a guess.
         AvailableInterestText = Cash(GstTaxHead.Integrated, GstMinorHead.Interest);
+        CashReadFailed = _cashReadError is not null;
+        CashReadErrorText = _cashReadError is null
+            ? string.Empty
+            : "The electronic cash ledger could not be read, so the balances above are shown as \"" +
+              CashUnreadable + "\" rather than as figures: " + _cashReadError +
+              "  Do not read a blank cell as a nil balance — this screen does not know what is in the cell, and " +
+              "the engine will still refuse a cash draw it cannot fund.";
 
         foreach (var d in _company.GstDrc03s.OrderByDescending(d => d.Period, StringComparer.Ordinal))
             Filed.Add(new Drc03RowVm
@@ -264,21 +298,37 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
                 DemandRef = d.Drc03aDemandRef ?? string.Empty,
             });
 
+        // The index alone is the whole of the highlight — the ListBox's SelectedIndex is bound to it. There is no
+        // per-row flag left to re-raise by hand (see Drc03RowVm), so the hand-call that used to sit here is gone.
         HighlightedIndex = Filed.Count == 0 ? -1 : Math.Clamp(keep < 0 ? 0 : keep, 0, Filed.Count - 1);
-        OnHighlightedIndexChanged(HighlightedIndex);
 
         Subtitle = $"{_company.Name}  —  Rule 142(2) / 142(3) voluntary payment";
         StatusText = $"{Filed.Count} DRC-03 already filed on this book. " +
                      "Opening this screen posts nothing — Ctrl+A files the form.";
     }
 
+    /// <summary>
+    /// 🔴 <b>A FAILED READ IS NOT A ZERO BALANCE, AND THIS SCREEN IS ABOUT TO TAKE A PAYMENT.</b> This used to
+    /// swallow both exception types into <c>"0.00"</c>, which put a figure the app had not measured in front of an
+    /// operator as though it had: a cell that really holds ₹4,00,000 would read ₹0.00, the operator would conclude
+    /// the cash ledger was empty and fund the DRC-03 from the bank — paying twice — or, the other way about, read a
+    /// genuine zero as trustworthy and be refused by the engine with no idea why. The refusal itself was never in
+    /// doubt (<see cref="GstDepositService.PostDrc03"/> re-checks the cell and throws), so nothing here was ever
+    /// load-bearing for correctness of the POSTING; what was wrong was the FIGURE.
+    ///
+    /// <para>The screen still must not tear on a read-out, so the throw is still caught — but the cell now renders
+    /// <see cref="CashUnreadable"/> and <see cref="CashReadErrorText"/> says on the face of the page what failed
+    /// and that a blank is not a nil. The exception message is kept rather than flattened, because "which cell and
+    /// why" is the whole content of the warning.</para>
+    /// </summary>
     private string Cash(GstTaxHead major, GstMinorHead minor)
     {
-        // Defensive: AvailableCash is a projection over challans and posted draws, but a book with no GST ledgers
-        // at all can still make it throw. A read-out is never worth a torn screen.
-        try { return IndianFormat.AmountAlways(_deposit.AvailableCash(major, minor)); }
-        catch (InvalidOperationException) { return "0.00"; }
-        catch (ArgumentException) { return "0.00"; }
+        try { return IndianFormat.AmountAlways(_availableCash(major, minor)); }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _cashReadError ??= $"{major}/{minor}: {ex.Message}";
+            return CashUnreadable;
+        }
     }
 
     // ---------------------------------------------------------------- the one mutator

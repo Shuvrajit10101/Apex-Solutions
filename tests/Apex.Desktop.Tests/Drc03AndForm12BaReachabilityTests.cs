@@ -369,10 +369,145 @@ public sealed class Drc03AndForm12BaReachabilityTests
         Assert.Equal(Enumerable.Range(1, 12).ToArray(), Drc03CauseOption.All.Select(c => c.Ordinal).ToArray());
     }
 
+    /// <summary>
+    /// 🔴 <b>THE "OTHERS / PLEASE SPECIFY" SUB-FLOW, WHICH HAD ZERO COVERAGE AND SILENTLY DISCARDS THE OPERATOR'S
+    /// STATED CAUSE WHEN IT IS ONE CHARACTER WRONG.</b> <c>NeedsOthersSpecify =&gt; SelectedCause.Ordinal == 11</c>
+    /// is the hinge of the whole sub-flow: it shows the free-text box, it gates the "specify the cause" refusal, and
+    /// it decides whether <c>ComposeCause</c> appends the typed text to the stored cause. Point that ordinal at any
+    /// other cause and the failure is <b>silent and lossy in the worst direction</b> — the operator selects
+    /// "Others", is never asked what it was, and a DRC-03 is filed on the portal's generic word with their actual
+    /// stated cause thrown away. Nothing throws, nothing turns red, and the record is wrong forever, because
+    /// <see cref="GstDrc03.Cause"/> is what every later reconciliation matches on.
+    ///
+    /// <para>Driven end-to-end through the real engine, so it covers the flag, the refusal, the composition and the
+    /// stored record in one pass. Every neighbouring cause is checked too: 10 and 12 sit either side of 11 in the
+    /// portal's own numbering, which is precisely where an off-by-one lands.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_others_cause_asks_for_the_specify_text_and_files_it_with_the_record()
+    {
+        var (w, vm, dir) = NewWindow("Drc03Others");
+        try
+        {
+            SeedRegularGst(vm, "DRC-03 Others Co");
+            Pump(w);
+
+            vm.OpenDrc03Payment();
+            Pump(w);
+            var page = vm.Drc03Payment!;
+
+            // 1. Only the portal's cause 11 asks for free text — checked across ALL twelve, not just the default.
+            foreach (var cause in Drc03CauseOption.All)
+            {
+                page.SelectedCause = cause;
+                Assert.True(page.NeedsOthersSpecify == (cause.Ordinal == 11),
+                    $"Cause {cause.Ordinal} (\"{cause.Text}\") reports NeedsOthersSpecify = " +
+                    $"{page.NeedsOthersSpecify}. Only the portal's cause 11 (\"Others\") has a Please-specify " +
+                    "field; anything else either hides the box under Others (discarding the stated cause) or " +
+                    "demands free text under a cause the portal never asks it for.");
+            }
+
+            // 2. Under "Others", a blank specify box is REFUSED — and nothing is filed.
+            page.SelectedCause = Drc03CauseOption.All.Single(c => c.Ordinal == 11);
+            Assert.True(page.NeedsOthersSpecify);
+            page.OthersSpecifyText = "   ";
+            page.Period = "2024-25";
+            page.IgstText = "5000";
+            page.Method = GstDepositService.PaymentMethod.Bank;
+
+            Assert.False(page.Post());
+            Assert.False(page.LastActionSucceeded);
+            Assert.Contains("Others", page.Message!);
+            Assert.Empty(vm.Company!.GstDrc03s);
+
+            // 3. 🔴 The stated cause is CARRIED INTO THE RECORD, not dropped. This is the assertion a wrong ordinal
+            //    fails: with the box hidden, ComposeCause returns the bare portal string and the reason is lost.
+            page.OthersSpecifyText = "ITC reversed on a supplier who never filed GSTR-1";
+            Assert.True(page.Post(), "The DRC-03 was refused: " + page.Message);
+            Assert.True(page.LastActionSucceeded);
+
+            var filed = Assert.Single(vm.Company!.GstDrc03s);
+            Assert.StartsWith("Others", filed.Cause, StringComparison.Ordinal);
+            Assert.Contains("ITC reversed on a supplier who never filed GSTR-1", filed.Cause, StringComparison.Ordinal);
+
+            // 4. Leaving cause 11 clears the free text, so it can never be appended to a different cause.
+            page.SelectedCause = Drc03CauseOption.All.Single(c => c.Ordinal == 12);
+            Assert.False(page.NeedsOthersSpecify);
+            Assert.Equal(string.Empty, page.OthersSpecifyText);
+
+            page.Period = "2024-25";
+            page.IgstText = "2500";
+            Assert.True(page.Post(), "The DRC-03 was refused: " + page.Message);
+            var second = vm.Company!.GstDrc03s.Single(d => d.Cause != filed.Cause);
+            Assert.Equal("Order", second.Cause);
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>A CASH BALANCE THAT COULD NOT BE READ MUST NOT BE SHOWN AS ₹0.00 ON A SCREEN THAT IS ABOUT TO TAKE A
+    /// PAYMENT.</b> The read-out used to swallow both exception types into <c>"0.00"</c>. That is not a harmless
+    /// default: a cell genuinely holding cash would read empty, the operator would conclude the electronic cash
+    /// ledger was exhausted and fund the DRC-03 from the bank — paying twice for one liability — and nothing on the
+    /// screen would ever have said the app did not know.
+    ///
+    /// <para>The engine's own projection is a pure loop over challans and vouchers and cannot be made to throw from
+    /// a <c>Company</c>, so the branch is exercised through the constructor's cash-reader seam — the same shape as
+    /// the export page's <c>writeBytes</c> seam. Untestable error handling is exactly how a wrong figure survives a
+    /// green suite.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_cash_cell_that_cannot_be_read_says_so_instead_of_showing_zero()
+    {
+        var (w, vm, dir) = NewWindow("Drc03CashRead");
+        try
+        {
+            SeedRegularGst(vm, "DRC-03 Cash Read Co");
+            Pump(w);
+
+            var page = new Drc03PaymentViewModel(
+                vm.Company!, new CompanyStorage(dir),
+                availableCash: (major, _) => major == GstTaxHead.Central
+                    ? throw new InvalidOperationException("the electronic cash ledger is unreadable")
+                    : Money.Zero);
+
+            // 🔴 The unreadable cell is NOT a number, and above all is not "0.00".
+            Assert.Equal(Drc03PaymentViewModel.CashUnreadable, page.AvailableCgstText);
+            Assert.NotEqual("0.00", page.AvailableCgstText);
+
+            // The cells that DID read are still figures — a single bad cell does not blank the whole read-out.
+            Assert.Equal("0.00", page.AvailableSgstText);
+
+            // …and the failure is surfaced, naming the cell and saying what a blank does not mean.
+            Assert.True(page.CashReadFailed);
+            Assert.Contains("could not be read", page.CashReadErrorText);
+            Assert.Contains("the electronic cash ledger is unreadable", page.CashReadErrorText);
+            Assert.Contains("not read a blank cell as a nil balance", page.CashReadErrorText);
+
+            // A book that reads cleanly raises nothing at all — the warning is state, not decoration.
+            var healthy = new Drc03PaymentViewModel(vm.Company!, new CompanyStorage(dir));
+            Assert.False(healthy.CashReadFailed);
+            Assert.Equal(string.Empty, healthy.CashReadErrorText);
+            Assert.Equal("0.00", healthy.AvailableCgstText);
+        }
+        finally { Cleanup(w, dir); }
+    }
+
     // ================================================================ ROW 6.42 — Form 12BA
 
-    /// <summary>A saved salary-TDS company with one high-earning employee and twelve posted payroll runs.</summary>
-    private static void SeedSalaryTds(MainWindowViewModel vm, string name, decimal monthlyBasic)
+    /// <summary>
+    /// A saved salary-TDS company with one employee and twelve posted payroll runs.
+    /// Seeds a §192 company with one employee paid <paramref name="monthlyBasic"/> for twelve months, so gross
+    /// salary is exactly <c>12 × monthlyBasic</c> — Basic is the only earning in the fixture.
+    ///
+    /// <para><paramref name="lastMonthDelta"/> shifts the <b>final month's</b> Basic by a signed rupee amount using
+    /// a dated structure revision (<see cref="SalaryStructureService.InForceOn"/>, ER-4), making annual gross
+    /// <c>12 × monthlyBasic + lastMonthDelta</c>. That is the only way to land the fixture ONE RUPEE either side of
+    /// a threshold that is not divisible by twelve, and landing exactly there is the whole point: see
+    /// <see cref="Form_12ba_reports_the_rule_26A_threshold_verdict_from_real_gross_salary"/>.</para>
+    /// </summary>
+    private static void SeedSalaryTds(MainWindowViewModel vm, string name, decimal monthlyBasic,
+                                      decimal lastMonthDelta = 0m)
     {
         vm.NewCompanyName = name;
         vm.CreateCompany();
@@ -407,6 +542,15 @@ public sealed class Drc03AndForm12BaReachabilityTests
         var d = c.FinancialYearStart;
         for (var i = 0; i < 12; i++)
         {
+            // The final month may carry a signed rupee shift, applied as a dated structure revision so the payroll
+            // engine resolves it exactly as it would a real mid-year revision — no test-only path into the figures.
+            if (i == 11 && lastMonthDelta != 0m)
+                new SalaryStructureService(c).DefineForEmployee(e.Id, d, new[]
+                {
+                    new SalaryStructureLine(basic.Id, 0, new Money(monthlyBasic + lastMonthDelta)),
+                    new SalaryStructureLine(tds.Id, 1),
+                });
+
             svc.Post(d, new DateOnly(d.Year, d.Month, DateTime.DaysInMonth(d.Year, d.Month)), new[] { e.Id });
             d = d.AddMonths(1);
         }
@@ -466,23 +610,35 @@ public sealed class Drc03AndForm12BaReachabilityTests
     /// The one genuinely COMPUTED thing on the 12BA screen: the rule 26A(2)(b) applicability test. Gross salary is a
     /// figure this book really does hold, so the verdict is real — and it is strictly greater-than, so a salary of
     /// exactly the threshold does not cross it.
+    ///
+    /// <para>🔴 <b>THE THREE-ROW BOUNDARY BLOCK IS THE POINT OF THIS TEST, AND IT IS PINNED TWICE OVER.</b> The
+    /// strict-inequality claim is asserted in four places in the shipped source — the type remarks, the constant's
+    /// own doc, the inline comment at the comparison, and the wording of <c>ThresholdText</c> — and four assertions
+    /// of a claim are still zero tests of it. The far-over and far-under rows below pass identically whether the
+    /// code says <c>&gt;</c> or <c>&gt;=</c>; only <b>exactly at</b> separates them.</para>
+    ///
+    /// <para>Each boundary row also asserts the <b>gross salary the fixture actually produced</b>, not merely the
+    /// verdict. Without that, a fixture that drifted off ₹1,50,000 by a rupee would leave a boundary test that no
+    /// longer tests the boundary and never says so — a dead guard that reads exactly like a live one, which is a
+    /// defect class this project has shipped before.</para>
     /// </summary>
     [AvaloniaTheory]
-    [InlineData(1_25_000, true)]    // ₹15,00,000 a year — far over the threshold
-    [InlineData(10_000, false)]     // ₹1,20,000 a year — under it
-    // 🔴 THE BOUNDARY, AND IT IS THE ONLY CASE THAT LOCKS THE COMPARISON OPERATOR. Basic is the sole earning in
-    // this fixture, so 12 × ₹12,500 is gross salary of EXACTLY ₹1,50,000. Rule 26A(2)(b) requires the statement
-    // where salary "exceeds" the threshold, so exactly-at-it is NOT due. Without this row the two rows above pass
-    // identically whether the code says `>` or `>=` — measured: mutating ThresholdRupees comparison to `>=` left
-    // the whole suite green until this case existed.
-    [InlineData(12_500, false)]     // ₹1,50,000 a year — EXACTLY the threshold; "exceeds" is strict
+    [InlineData(1_25_000, 0, 15_00_000, true)]    // ₹15,00,000 a year — far over the threshold
+    [InlineData(10_000, 0, 1_20_000, false)]      // ₹1,20,000 a year — far under it
+    // 🔴 THE BOUNDARY. Basic is the sole earning, so gross is 12 × basic (+ the final-month delta). Rule 26A(2)(b)
+    // requires the statement where salary "exceeds" ₹1,50,000, so exactly-at-it is NOT due, one rupee under is NOT
+    // due, and one rupee over IS. Flip the operator to `>=` and the exactly-at row reddens on IsFormDue.
+    [InlineData(12_500, -1, 1_49_999, false)]     // ₹1,49,999 — one rupee below
+    [InlineData(12_500, 0, 1_50_000, false)]      // ₹1,50,000 — EXACTLY the threshold; "exceeds" is strict
+    [InlineData(12_500, 1, 1_50_001, true)]       // ₹1,50,001 — one rupee above
     public void Form_12ba_reports_the_rule_26A_threshold_verdict_from_real_gross_salary(
-        int monthlyBasic, bool expectedDue)
+        int monthlyBasic, int lastMonthDelta, int expectedAnnualGross, bool expectedDue)
     {
-        var (w, vm, dir) = NewWindow("F12BAThresh" + monthlyBasic);
+        var (w, vm, dir) = NewWindow($"F12BAThresh{monthlyBasic}_{lastMonthDelta}");
         try
         {
-            SeedSalaryTds(vm, $"Form12BA Threshold Co {monthlyBasic}", monthlyBasic);
+            SeedSalaryTds(vm, $"Form12BA Threshold Co {monthlyBasic} {lastMonthDelta}", monthlyBasic,
+                          lastMonthDelta);
             Pump(w);
 
             vm.OpenForm12Ba();
@@ -490,6 +646,14 @@ public sealed class Drc03AndForm12BaReachabilityTests
             var page = vm.Form12Ba!;
 
             Assert.NotEmpty(page.Employees);
+
+            // 🔴 FIRST: prove the fixture is where it claims to be. A boundary case that has drifted off the
+            // boundary still passes its verdict assertion and guards nothing.
+            Assert.True(page.Certificate?.PartB is not null,
+                "The fixture produced no Form 24Q Annexure-II row, so there is no measured gross salary to test " +
+                "the threshold against.");
+            Assert.Equal(expectedAnnualGross, page.Certificate!.PartB!.GrossSalary.Amount);
+
             Assert.Equal(expectedDue, page.IsFormDue);
             Assert.Contains(expectedDue ? "is required for this employee"
                                         : "is not required for this employee",
@@ -498,6 +662,111 @@ public sealed class Drc03AndForm12BaReachabilityTests
             // The verdict is on screen, not just in the view model.
             Assert.True(ScreenShows(w, "rule 26A(2)(b)"),
                 "The threshold verdict is computed but never rendered.");
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>AN UNMEASURED SALARY MUST NOT BE PRINTED AS A COMPUTED VERDICT.</b> <c>Project</c> used to read
+    /// <c>cert.PartB?.GrossSalary ?? Money.Zero</c>. Through the picker that fallback cannot fire — the employee
+    /// list IS the Annexure-II projection — but the day it did, an <b>unmeasured</b> salary would enter the rule
+    /// 26A(2)(b) test as ₹0.00, fail it, and the screen would state "this statement is not required for this
+    /// employee" as though something had decided it. A nil figure and an unmeasured figure are not interchangeable
+    /// on a statutory form; that is the same principle the empty perquisite table on this very screen exists to
+    /// honour.
+    ///
+    /// <para>Reached the only way it can be: by selecting an employee who <b>exists</b> but has no §192 activity in
+    /// the year, so <c>Form16.Build</c> resolves the employee and finds no Annexure-II row.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Form_12ba_states_an_unmeasured_gross_salary_instead_of_giving_a_verdict_on_zero()
+    {
+        var (w, vm, dir) = NewWindow("F12BAUnmeasured");
+        try
+        {
+            SeedSalaryTds(vm, "Form12BA Unmeasured Co", 1_25_000m);
+            Pump(w);
+
+            // A second employee with no salary structure and no payroll voucher: a real employee of this company,
+            // with no §192 activity at all, so Form 24Q Annexure-II carries no row for them.
+            var c = vm.Company!;
+            var payroll = new PayrollService(c);
+            var groupId = c.EmployeeGroups.First().Id;
+            var quiet = payroll.CreateEmployee("Silent Partner", groupId);
+
+            vm.OpenForm12Ba();
+            Pump(w);
+            var page = vm.Form12Ba!;
+
+            // The picker itself never offers them — that is the invariant that makes the fallback unreachable.
+            Assert.DoesNotContain(page.Employees, x => x.EmployeeId == quiet.Id);
+
+            page.SelectedEmployee = new Form12BaEmployeeOptionVm
+            {
+                EmployeeId = quiet.Id, Name = "Silent Partner", Pan = "PANNOTAVBL", GrossSalary = "0.00",
+            };
+            Pump(w);
+
+            Assert.Null(page.Certificate!.PartB);
+
+            // 🔴 The figure is stated as unmeasured, NOT as zero.
+            Assert.Equal("—", page.GrossSalaryText);
+            Assert.DoesNotContain("0.00", page.GrossSalaryText);
+
+            // 🔴 And no verdict is given in either direction.
+            Assert.False(page.IsFormDue);
+            Assert.DoesNotContain("is not required for this employee", page.ThresholdText);
+            Assert.DoesNotContain("is required for this employee", page.ThresholdText);
+            Assert.Contains("could not be measured", page.ThresholdText);
+            Assert.Contains("UNKNOWN", page.ThresholdText);
+
+            Assert.True(ScreenShows(w, "could not be measured"),
+                "The screen still shows a threshold verdict for a salary it never measured.");
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>
+    /// After <see cref="Form12BaViewModel.Rebuild"/> replaces the employee list, the selection must point INTO the
+    /// new list. Setting <c>HighlightedIndex</c> to the value it already holds raises no change notification, so the
+    /// index alone cannot re-point anything — the unconditional <c>SelectedEmployee</c> assignment is what does it.
+    /// This is the shape the deleted per-row <c>IsHighlighted</c> flag failed at silently: nothing bound it, so
+    /// nothing could notice it pointing at a discarded object.
+    ///
+    /// <para>🔴 <b>Exercised on a BARE view model, with no window and no ListBox — and that is the whole design of
+    /// this test, not an economy.</b> Measured: with the page realised in the window, deleting the
+    /// <c>SelectedEmployee</c> assignment leaves every assertion here still passing, because the ListBox's
+    /// <c>SelectedIndex</c> two-way binding drives the index to -1 when the collection is cleared and back to 0
+    /// afterwards, so the change notification fires anyway and the view rescues the view model. A test that only
+    /// ever runs bound to its view cannot see a view-model defect the view happens to paper over — and
+    /// <see cref="Form12BaViewModel"/>'s own remarks promise it is headlessly testable, which is exactly the promise
+    /// this asserts.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Rebuilding_the_form_12ba_employee_list_repoints_the_selection_into_the_new_list()
+    {
+        var (w, vm, dir) = NewWindow("F12BARebuild");
+        try
+        {
+            SeedSalaryTds(vm, "Form12BA Rebuild Co", 1_25_000m);
+            Pump(w);
+
+            // Bare view model: nothing binds to it, so nothing can compensate for it.
+            var page = new Form12BaViewModel(vm.Company!);
+
+            Assert.NotEmpty(page.Employees);
+            Assert.Equal(0, page.HighlightedIndex);          // the index that will NOT change across the rebuild
+            var before = page.SelectedEmployee;
+            Assert.NotNull(before);
+
+            page.Rebuild();
+
+            Assert.Equal(0, page.HighlightedIndex);
+            Assert.NotNull(page.SelectedEmployee);
+            Assert.NotSame(before, page.SelectedEmployee);   // the old row really was discarded…
+            Assert.Contains(page.SelectedEmployee!, page.Employees);          // …and the new one is in the new list
+            Assert.Same(page.Employees[page.HighlightedIndex], page.SelectedEmployee);
+            Assert.NotNull(page.Certificate);                // …and the projection re-ran off the new selection
         }
         finally { Cleanup(w, dir); }
     }

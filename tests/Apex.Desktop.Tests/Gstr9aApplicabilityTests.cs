@@ -29,15 +29,28 @@ namespace Apex.Desktop.Tests;
 /// thing that makes the row honest: <b>a composition dealer who opened a page headed "GST Offline Return Files",
 /// read 9A figures off it and filed them would file the WRONG FORM.</b> The operative annual return for a person
 /// paying tax under section 10 is <b>GSTR-4</b> (rule 62(1)(ii)), which the very same page offers one row above, and
-/// GSTR-9A has been waived by notification for years after FY 2018-19. So the page must say so <b>on its face</b>,
-/// and these tests assert it does — on the realised visual tree, because a view-model string nobody renders would
-/// pass a flag assertion and still leave the operator filing the wrong return.</para>
+/// GSTR-9A is a form the common portal will no longer accept even for the two years it was ever relaxed for. So the
+/// page must say so <b>on its face</b>, and these tests assert it does — on the realised visual tree, because a
+/// view-model string nobody renders would pass a flag assertion and still leave the operator filing the wrong
+/// return.</para>
 ///
-/// <para><b>🔴 THE SOURCING GUARD IS THE POINT OF <see cref="The_waiver_clause_names_no_notification_we_did_not_read"/>.</b>
-/// The waiver notification for FY 2019-20 onward could <b>not</b> be retrieved (the notification-series slug 404s),
-/// so the statement says "waived by notification" and names none. A later editor "improving" that sentence by
-/// dropping a plausible number into it would be repeating the <c>SeedTdsTcsRates</c> mistake this project has
-/// already had to strip out of shipped code. That test is the lock against it.</para>
+/// <para><b>🔴 THIS FILE ONCE PINNED A FALSE STATEMENT, AND THAT IS WHY
+/// <see cref="The_relaxation_clause_says_what_the_circular_says"/> IS SHAPED THE WAY IT IS.</b> The shipped string
+/// used to read <i>"GSTR-9A filing has been waived by notification for years after FY 2018-19"</i>, and the test
+/// here asserted that sentence <b>verbatim</b> — so the test was not a guard, it was a lock holding the error in.
+/// CBIC's own <b>Circular 124/43/2019-GST dt. 18.11.2019</b>
+/// (<c>https://cbic-gst.gov.in/pdf/circular-cgst-124.pdf</c>, retrieved 2026-09-06) refutes it on every limb: the
+/// relaxation was <b>optional filing, not a waiver</b>; it covered <b>FY 2017-18 and FY 2018-19</b> — the years
+/// <b>before</b> the cut-off the sentence named, not the years after it; and it applied only where aggregate
+/// turnover did not exceed <b>two crore rupees</b>, a condition the sentence dropped entirely.
+///
+/// <para>The lock is now two-sided, which is the only shape that works. It pins the corrected clause <b>and</b>
+/// asserts the old false wording is absent, so the error cannot creep back; and it still refuses any notification
+/// number that is not quoted in <see cref="GstOfflineReturnsViewModel.Gstr9aApplicabilityText"/>'s own sources
+/// block, because the original worry was real — dropping a plausible-looking number into a statutory sentence is
+/// the <c>SeedTdsTcsRates</c> mistake this project has already had to strip out of shipped code. What changed is
+/// that 47/2019-CT is no longer plausible-looking: it is quoted, by number and date, in a CBIC PDF that was
+/// actually read.</para></para>
 ///
 /// <para>Headless-safe: visual-tree and text inspection only — no Skia, no rendered frame, no printer, no disk write.
 /// Every path is built with <see cref="Path.Combine"/> and every comparison is <see cref="StringComparison.Ordinal"/>
@@ -48,8 +61,14 @@ public sealed class Gstr9aApplicabilityTests
     private const string GstinMaharashtra = "27AAPFU0939F1ZV";
     private static readonly DateOnly FyStart = new(2024, 4, 1);
 
-    /// <summary>The clause whose whole purpose is to name NO notification. Asserted verbatim.</summary>
-    private const string WaiverClause = "waived by notification for years after FY 2018-19";
+    /// <summary>The corrected relaxation clause, asserted verbatim and used as the on-screen probe. Every word of it
+    /// is quoted or paraphrased from Circular 124/43/2019-GST — see the type remarks.</summary>
+    private const string RelaxationClause =
+        "For FY 2017-18 and FY 2018-19 only, Notification 47/2019-CT dt. 09.10.2019 made that annual return optional";
+
+    /// <summary>🔴 The wording this file used to pin. It is FALSE and must never return. Kept as a named constant so
+    /// the regression assertion reads as what it is, rather than as an anonymous string nobody dares delete.</summary>
+    private const string RetractedFalseClause = "waived by notification for years after FY 2018-19";
 
     // ---------------------------------------------------------------- scaffolding
 
@@ -198,26 +217,51 @@ public sealed class Gstr9aApplicabilityTests
     }
 
     /// <summary>
-    /// 🔴 <b>THE SOURCING LOCK.</b> The waiver notification for FY 2019-20 onward was <b>not retrieved</b> — the
-    /// notification-series PDF slug returns 404 and the CBIC consolidation we did read is the Rules, not the
-    /// notifications. The statement therefore says "waived by notification" and names <b>none</b>. This test exists
-    /// so that the next editor who thinks the sentence looks unfinished cannot quietly complete it with a number
-    /// nobody here read. That is not a style preference: shipped code in this product has already had to have
-    /// blog-sourced statutory figures stripped back out of it.
+    /// 🔴 <b>THE SOURCING LOCK, NOW TWO-SIDED — AND THE REGRESSION LOCK ON A STATEMENT THAT WAS WRONG IN SHIPPED
+    /// CODE.</b> Every clause asserted here is quoted in the sources block on
+    /// <see cref="GstOfflineReturnsViewModel.Gstr9aApplicabilityText"/>, and every clause refused here is one that
+    /// was not read. The three positive assertions are the three limbs the old sentence got wrong — <b>which years,
+    /// optional-vs-waived, and the turnover condition</b> — because a correction that only fixes the wording an
+    /// editor happens to look at is not a correction.
     /// </summary>
     [Fact]
-    public void The_waiver_clause_names_no_notification_we_did_not_read()
+    public void The_relaxation_clause_says_what_the_circular_says()
     {
         var text = GstOfflineReturnsViewModel.Gstr9aApplicabilityText;
 
-        Assert.Contains(WaiverClause, text, StringComparison.Ordinal);
+        // 1. 🔴 THE RETRACTION. The false sentence must be gone, in any casing.
+        Assert.DoesNotContain(RetractedFalseClause, text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("after FY 2018-19", text, StringComparison.OrdinalIgnoreCase);
 
-        // The ONE notification the statement may name is 20/2019-CT, which substituted rule 62(1) and WAS read in
-        // the CBIC consolidation cited on the constant. Any other notification number in this sentence is unsourced.
-        foreach (var unsourced in new[] { "47/2019", "30/2021-CT dt", "notification 47", "Notification 47" })
-            Assert.DoesNotContain(unsourced, text, StringComparison.OrdinalIgnoreCase);
+        // 2. The corrected clause, verbatim: the right years, the right instrument, and "optional" not "waived".
+        Assert.Contains(RelaxationClause, text, StringComparison.Ordinal);
 
+        // 3. The turnover condition the old sentence dropped. Circular 124/43/2019-GST para 2(a) states the
+        //    relaxation only "for those registered persons whose aggregate turnover in a financial year does not
+        //    exceed two crore rupees" — a statement of the relaxation without its condition is not true of everyone
+        //    reading it.
+        Assert.Contains("two crore rupees", text, StringComparison.Ordinal);
+
+        // 4. The circular itself is named, because it is the source that carries the portal cut-off.
+        Assert.Contains("Circular 124/43/2019-GST dt. 18.11.2019", text, StringComparison.Ordinal);
+
+        // 5. 🔴 AND THE LIMIT OF WHAT WE KNOW IS STATED, NOT IMPLIED. No later-year waiver was retrieved; the
+        //    sentence has to say so, because silence there is what let the false clause read as complete.
+        Assert.Contains("No waiver of GSTR-9A for any later year was retrieved", text, StringComparison.Ordinal);
+
+        // 6. Rule 62(1)(ii)'s own notification survives from the original lock — it was read in the CBIC Rules
+        //    consolidation and is still cited.
         Assert.Contains("Notification 20/2019-CT", text, StringComparison.Ordinal);
+
+        // 7. 🔴 THE ORIGINAL WORRY, UNCHANGED IN FORCE. Only instruments quoted in the constant's own sources block
+        //    may appear. 47/2019-CT and Circular 124/43/2019 have JOINED that list because a CBIC PDF quoting both
+        //    by number and date was actually retrieved and extracted; these have NOT, and each is a plausible
+        //    number an editor could reach for from memory when "completing" the sentence.
+        foreach (var unsourced in new[]
+                 {
+                     "77/2020", "31/2021", "10/2022", "14/2023", "07/2023", "30/2021", "notification 9/2020",
+                 })
+            Assert.DoesNotContain(unsourced, text, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -244,7 +288,7 @@ public sealed class Gstr9aApplicabilityTests
             Pump(w);
 
             Assert.Equal(string.Empty, page.ApplicabilityNoteText);
-            Assert.False(ScreenShows(w, WaiverClause),
+            Assert.False(ScreenShows(w, RelaxationClause),
                 "The GSTR-9A applicability statement is still on screen after the operator switched to GSTR-4. A " +
                 "note that outlives the form it describes is worse than no note: it tells the dealer that the " +
                 "return they DO file is not a filing artefact.");
@@ -252,7 +296,223 @@ public sealed class Gstr9aApplicabilityTests
             // And it comes back when they switch back — the note is state, not a one-shot.
             page.SelectedReturn = page.Returns.Single(r => r.Kind == GstOfflineReturnKind.Gstr9a);
             Pump(w);
-            Assert.True(ScreenShows(w, WaiverClause));
+            Assert.True(ScreenShows(w, RelaxationClause));
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>A saved <b>Regular</b> GST company on the Gateway — the registration type that is NOT offered
+    /// GSTR-9A. Identical to <see cref="SeedComposition"/> but for the registration type, so any difference the
+    /// tests find is the registration type and nothing else.</summary>
+    private static void SeedRegular(MainWindowViewModel vm, string name)
+    {
+        vm.NewCompanyName = name;
+        vm.CreateCompany();
+        var c = vm.Company!;
+        c.FinancialYearStart = FyStart;
+        c.BooksBeginFrom = FyStart;
+
+        new GstService(c).EnableGst(new GstConfig
+        {
+            HomeStateCode = "27",
+            Gstin = GstinMaharashtra,
+            RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = FyStart,
+            Periodicity = GstReturnPeriodicity.Monthly,
+        });
+
+        vm.ShowGateway();
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE COMMENT THAT DESCRIBED A STATE THE CODE CANNOT REACH.</b> <c>ProjectGstr9a</c> carried a comment
+    /// claiming the applicability statement "is raised for a Composition dealer AND for a Regular one". It never
+    /// was and never could be: <c>ApplicableReturns</c> offers GSTR-9A in the Composition arm only,
+    /// <c>OpenGstOfflineReturns</c> bails when the arm yields nothing, and the <c>preselect</c> argument can only
+    /// pick a form the arm already contains — so a Regular company has no path to <c>ProjectGstr9a</c> at all.
+    ///
+    /// <para>A false comment is not a cosmetic defect here. It describes a fallback as live, which is exactly the
+    /// invitation to delete the "redundant" real guard elsewhere. This test makes the corrected comment checkable:
+    /// it drives the two routes a Regular company actually has — the preselect argument, which is the strongest
+    /// form of the claim, and the menu — and pins that neither produces a GSTR-9A projection.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_regular_dealer_has_no_path_to_the_gstr9a_projection_at_all()
+    {
+        var (w, vm, dir) = NewWindow("Gstr9aRegular");
+        try
+        {
+            SeedRegular(vm, "Gstr9a Regular Co");
+            Pump(w);
+
+            // 1. The strongest form: ask for GSTR-9A BY NAME. The preselect cannot conjure a form the registration
+            //    type does not file, so the page opens on the Regular arm's own first form instead.
+            vm.OpenGstOfflineReturns(GstOfflineReturnKind.Gstr9a);
+            Pump(w);
+
+            var page = vm.GstOfflineReturns;
+            Assert.True(page is not null, "The offline-returns page did not open for a Regular company.");
+            Assert.DoesNotContain(page!.Returns, r => r.Kind == GstOfflineReturnKind.Gstr9a);
+            Assert.NotEqual(GstOfflineReturnKind.Gstr9a, page.SelectedReturn!.Kind);
+
+            // 2. Therefore ProjectGstr9a never ran, and the statement is not on the page — neither in the view model
+            //    nor on the realised tree. A note about a form this company does not file would be noise at best.
+            Assert.Equal(string.Empty, page.ApplicabilityNoteText);
+            Assert.False(ScreenShows(w, RelaxationClause),
+                "A Regular company is showing the GSTR-9A applicability statement. It does not file GSTR-9A, is " +
+                "never offered it, and cannot select it — so this note is describing a form that is not on screen.");
+
+            // 3. And the menu route does not offer it either: the Composition Returns group, which is where the
+            //    GSTR-9A row lives, is hidden from a Regular company entirely (ER-13).
+            vm.ShowGateway();
+            Pump(w);
+            vm.ShowCompositionReturnsMenu();
+            Pump(w);
+            Assert.DoesNotContain(vm.Menu.Where(i => i.IsSelectable).Select(i => i.Label), l => l == "GSTR-9A");
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>TWO FORMS MUST NOT DESCRIBE THEMSELVES IDENTICALLY.</b> GSTR-4 and GSTR-9A both carried
+    /// <c>Description = "Composition annual return"</c> — one line apart in the same arm. That is the precise
+    /// confusion <see cref="GstOfflineReturnsViewModel.Gstr9aApplicabilityText"/> exists to prevent, restated as a
+    /// data defect: the form the dealer must file and the form the portal will not accept, described in the same
+    /// words, in the same picker.
+    ///
+    /// <para>Asserted over <b>both</b> registration arms and over the pair as a whole, so this cannot be satisfied
+    /// by making one description unique while another pair collides.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(GstRegistrationType.Regular)]
+    [InlineData(GstRegistrationType.Composition)]
+    public void Every_offered_return_describes_itself_distinctly(GstRegistrationType registration)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ApexD3_Desc_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var vm = new MainWindowViewModel(new CompanyStorage(dir));
+            vm.NewCompanyName = "Description Co";
+            vm.CreateCompany();
+            var c = vm.Company!;
+            c.FinancialYearStart = FyStart;
+            c.BooksBeginFrom = FyStart;
+            new GstService(c).EnableGst(new GstConfig
+            {
+                HomeStateCode = "27",
+                Gstin = GstinMaharashtra,
+                RegistrationType = registration,
+                CompositionSubType = registration == GstRegistrationType.Composition
+                    ? CompositionSubType.Trader
+                    : null,
+                ApplicableFrom = FyStart,
+                Periodicity = registration == GstRegistrationType.Composition
+                    ? GstReturnPeriodicity.Quarterly
+                    : GstReturnPeriodicity.Monthly,
+            });
+
+            var page = new GstOfflineReturnsViewModel(c);
+            Assert.NotEmpty(page.Returns);
+
+            foreach (var option in page.Returns)
+                Assert.False(string.IsNullOrWhiteSpace(option.Description),
+                    $"{option.Label} offers no description at all.");
+
+            var duplicated = page.Returns
+                .GroupBy(r => r.Description, StringComparer.Ordinal)
+                .Where(g => g.Count() > 1)
+                .Select(g => $"\"{g.Key}\" is used by {string.Join(" and ", g.Select(r => r.Label))}")
+                .ToList();
+
+            Assert.True(duplicated.Count == 0,
+                "Two different return forms describe themselves identically, so the picker cannot tell them " +
+                "apart: " + string.Join("; ", duplicated) + ". For GSTR-4 vs GSTR-9A this is the exact mistake " +
+                "the applicability note exists to prevent — the return the dealer files and the return the portal " +
+                "will not accept, in the same words.");
+        }
+        finally
+        {
+            try
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE MEASUREMENT THIS PAGE NEVER HAD: PROSE IN AN <c>Auto</c> ROW DIRECTLY ABOVE A <c>*</c> ROW.</b>
+    /// The two notes (the applicability statement and the schema note) share an <c>Auto</c> row immediately above
+    /// the figure grid's <c>*</c> row, so every line they wrap to is taken straight out of the figures — and at a
+    /// narrow viewport multi-sentence statutory prose wraps to a great many lines. Nothing measured the result at
+    /// any viewport, which is the standing shape of this project's UI defect catalogue.
+    ///
+    /// <para>Both halves are asserted at four viewports, because either alone is satisfiable by a bad fix:
+    /// <b>(a)</b> the figure area keeps a workable height — capping the notes is what buys this, and a fix that
+    /// merely shrank the font would not; <b>(b)</b> the applicability note is never CLIPPED — the cap makes the
+    /// notes scroll rather than truncate, so no statutory sentence is silently cut. A <c>MaxHeight</c> without (b)
+    /// would trade a starved grid for a beheaded statutory warning, which is the worse of the two.</para>
+    ///
+    /// <para>The floors are deliberately modest — this asserts "not starved", not a pixel-perfect layout, so it
+    /// stays useful when the surrounding page is restyled.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1920, 1080)]
+    [InlineData(1366, 768)]
+    [InlineData(1280, 720)]
+    [InlineData(1024, 700)]
+    public void The_applicability_note_never_starves_the_figure_grid_or_clips_itself(int width, int height)
+    {
+        var (w, vm, dir) = NewWindow($"Gstr9aLayout{width}x{height}");
+        try
+        {
+            w.Width = width;
+            w.Height = height;
+            SeedComposition(vm, "Gstr9a Layout Co");
+            Dispatcher.UIThread.RunJobs();
+            w.Measure(new Size(width, height));
+            w.Arrange(new Rect(0, 0, width, height));
+            Dispatcher.UIThread.RunJobs();
+
+            vm.OpenGstOfflineReturns(GstOfflineReturnKind.Gstr9a);
+            Dispatcher.UIThread.RunJobs();
+            w.Measure(new Size(width, height));
+            w.Arrange(new Rect(0, 0, width, height));
+            Dispatcher.UIThread.RunJobs();
+
+            var notes = Descendants(w).OfType<ScrollViewer>()
+                .FirstOrDefault(s => s.Name == "GstReturnNotesScroller");
+            Assert.True(notes is not null,
+                "The notes row is not the named ScrollViewer any more, so nothing is constraining the Auto row " +
+                "above the figure grid's * row. Re-establish the cap or re-write this measurement.");
+
+            // (a) The notes row is capped, so the * row below it cannot be starved.
+            Assert.True(notes!.Bounds.Height <= 150.5,
+                $"At {width}x{height} the notes row measured {notes.Bounds.Height:0.#}px, above its 150px cap. " +
+                "Every pixel over the cap is taken from the figure grid's * row directly below it.");
+
+            // (b) …and the note inside it is not clipped: the ScrollViewer's extent covers the note's full desired
+            //     height, so the text is reachable by scrolling rather than truncated.
+            var noteBlock = VisibleTextBlocks(w)
+                .FirstOrDefault(t => (t.Text ?? string.Empty).Contains(RelaxationClause, StringComparison.Ordinal));
+            Assert.True(noteBlock is not null,
+                $"At {width}x{height} the applicability statement is not rendered at all.");
+            Assert.True(noteBlock!.Bounds.Height >= noteBlock.DesiredSize.Height - 1.0,
+                $"At {width}x{height} the applicability statement is CLIPPED: it was laid out into " +
+                $"{noteBlock.Bounds.Height:0.#}px but wants {noteBlock.DesiredSize.Height:0.#}px. A statutory " +
+                "warning that is cut off mid-sentence is worse than one that scrolls.");
+            Assert.True(notes.Extent.Height >= noteBlock.Bounds.Height,
+                $"At {width}x{height} the notes scroller's extent ({notes.Extent.Height:0.#}px) does not cover " +
+                $"the note ({noteBlock.Bounds.Height:0.#}px), so the tail of it cannot be scrolled to.");
+
+            // (c) The figures the page exists to show still have room to be read.
+            var figureRows = VisibleTextBlocks(w)
+                .Count(t => (t.Text ?? string.Empty) is "Total turnover" or "Taxable turnover" or "Late fee");
+            Assert.True(figureRows == 3,
+                $"At {width}x{height} only {figureRows} of the three probe figure labels are visible — the notes " +
+                "row has squeezed the figure grid out of the page.");
         }
         finally { Cleanup(w, dir); }
     }
