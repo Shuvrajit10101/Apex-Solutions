@@ -35,11 +35,11 @@ namespace Apex.Desktop.Tests;
 /// checks the count is unchanged and the SAME <c>Guid</c> now carries the new name. A "rename" that created a
 /// second master would pass a name-only assertion and silently fork every historical reference.</para>
 ///
-/// <para>🔴 <b>SCOPE — this file covers FOUR of the eight kinds, and row 7.16 is NOT closed.</b> Employee
-/// category, employee group, payroll unit and attendance/production type are driven end-to-end below. The
-/// employee, pay head, salary structure and tax declaration masters are not built;
+/// <para>🔴 <b>SCOPE — this file covers FIVE of the eight kinds, and row 7.16 is NOT closed.</b> Employee
+/// category, employee group, payroll unit, attendance/production type and — since W7-D2 — the employee master
+/// are driven end-to-end below. The pay head, salary structure and tax declaration masters are not built;
 /// <see cref="PayrollMasterHalfWiredKindsTests"/> locks that remainder so it cannot be quietly claimed. A green
-/// run of this file is evidence for four kinds and for nothing else.</para>
+/// run of this file is evidence for five kinds and for nothing else.</para>
 /// </summary>
 public sealed class PayrollMasterAlterDeleteTests
 {
@@ -280,6 +280,170 @@ public sealed class PayrollMasterAlterDeleteTests
             EscapeAndReopenList(window, vm, "Attendance / Production Type");
             ArrowToAndDelete(window, vm, "Present Days");
             Assert.Empty(vm.Company.AttendanceTypes);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE T0-13 TEST (census 7.2 / W7-D2).</b> <see cref="Employee.DateOfLeaving"/> had <b>zero hits
+    /// across all of src/Apex.Desktop</b> while three engines read it — so the field persisted, three reports
+    /// consulted it, and <b>no keystroke in the product could ever set it</b>. PF <b>Form 10</b> IS the return of
+    /// members leaving service during the month and ESI <b>Form 5</b> column 7(A) is "still working", so both
+    /// were permanently, silently empty: a capability no user could reach, which the census counts as absent.
+    ///
+    /// <para>This drives the whole route with real keys — arrow into the existing-employee list, Ctrl+Enter to
+    /// alter, type the date, Ctrl+A to accept — and then asserts the SAME employee id carries the date. It fails
+    /// on today's <c>main</c> by construction: without the <c>ForAlter</c> factory and the shell arm,
+    /// <c>PayrollMasterScreen</c> is null on the employee master and Ctrl+Enter does nothing at all.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Employee_alters_by_identity_and_the_date_of_leaving_round_trips_and_deletes()
+    {
+        var (window, vm, dir) = NewWindow("Employee Alter Co");
+        try
+        {
+            vm.ShowEmployeeGroupMaster();
+            vm.EmployeeGroupMaster!.Name = "Sales";
+            Assert.True(vm.EmployeeGroupMaster.Create(), vm.EmployeeGroupMaster.Message);
+
+            vm.ShowEmployeeMaster();
+            var master = vm.EmployeeMaster!;
+            Assert.Equal("Employee Creation", master.Caption);
+            master.Name = "Asha Menon";
+            master.SelectedGroup = master.GroupOptions.First();
+            Assert.True(master.Create(), master.Message);
+            var id = vm.Company!.Employees.Single(e => e.Name == "Asha Menon").Id;
+            Assert.Null(vm.Company.FindEmployee(id)!.DateOfLeaving);
+
+            ArrowToAndAlter(window, vm, "Asha Menon");
+            Assert.True(vm.EmployeeMaster!.IsAltering);
+            Assert.Equal("Employee Alteration", vm.EmployeeMaster.Caption);
+            // The alter form arrives PRE-FILLED — a form that opened blank would silently blank the master on
+            // accept, which is the failure mode a name-only assertion would miss entirely.
+            Assert.Equal("Asha Menon", vm.EmployeeMaster.Name);
+            Assert.Equal(string.Empty, vm.EmployeeMaster.DateOfLeavingText);
+
+            vm.EmployeeMaster.DateOfLeavingText = "2026-08-31";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Single(vm.Company.Employees);
+            Assert.Equal(new DateOnly(2026, 8, 31), vm.Company.FindEmployee(id)!.DateOfLeaving);
+
+            // ...and clearing the box puts the member back into service, rather than leaving the old date
+            // standing. A one-way field would make a mis-keyed leaving date permanent.
+            vm.EmployeeMaster.DateOfLeavingText = string.Empty;
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Null(vm.Company.FindEmployee(id)!.DateOfLeaving);
+
+            EscapeAndReopenList(window, vm, "Employee");
+            ArrowToAndDelete(window, vm, "Asha Menon");
+            Assert.Empty(vm.Company.Employees);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// The date of leaving survives a <b>save and reload</b>, not merely the in-memory company. The column
+    /// <c>employees.date_of_leaving</c> already persisted before this slice; what was missing was any way to put
+    /// a value into it, so this pins that the new write actually reaches the store.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_date_of_leaving_survives_a_reload_of_the_company()
+    {
+        var (window, vm, dir) = NewWindow("Employee Leaving Persist Co");
+        try
+        {
+            vm.ShowEmployeeGroupMaster();
+            vm.EmployeeGroupMaster!.Name = "Ops";
+            Assert.True(vm.EmployeeGroupMaster.Create(), vm.EmployeeGroupMaster.Message);
+
+            vm.ShowEmployeeMaster();
+            var master = vm.EmployeeMaster!;
+            master.Name = "Bala Iyer";
+            master.SelectedGroup = master.GroupOptions.First();
+            Assert.True(master.Create(), master.Message);
+            var id = vm.Company!.Employees.Single(e => e.Name == "Bala Iyer").Id;
+
+            ArrowToAndAlter(window, vm, "Bala Iyer");
+            vm.EmployeeMaster!.DateOfLeavingText = "2026-07-15";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            var storage = new CompanyStorage(dir);
+            var reloaded = storage.Load(storage.ListCompanies().Single(e => e.Name == "Employee Leaving Persist Co"));
+            Assert.Equal(new DateOnly(2026, 7, 15), reloaded.FindEmployee(id)!.DateOfLeaving);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// A leaving date before the joining date is refused with a message, and the master is left untouched — the
+    /// contradiction is caught on the form that holds both dates rather than surfacing later as a PF Form 10 row
+    /// in a month before the member existed.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_date_of_leaving_before_the_date_of_joining_is_refused_and_nothing_is_written()
+    {
+        var (window, vm, dir) = NewWindow("Employee Leaving Guard Co");
+        try
+        {
+            vm.ShowEmployeeGroupMaster();
+            vm.EmployeeGroupMaster!.Name = "Ops";
+            Assert.True(vm.EmployeeGroupMaster.Create(), vm.EmployeeGroupMaster.Message);
+
+            vm.ShowEmployeeMaster();
+            var master = vm.EmployeeMaster!;
+            master.Name = "Chandra Rao";
+            master.SelectedGroup = master.GroupOptions.First();
+            master.DateOfJoiningText = "2026-04-01";
+            Assert.True(master.Create(), master.Message);
+            var id = vm.Company!.Employees.Single(e => e.Name == "Chandra Rao").Id;
+
+            ArrowToAndAlter(window, vm, "Chandra Rao");
+            vm.EmployeeMaster!.DateOfLeavingText = "2026-03-31";
+            Assert.False(vm.EmployeeMaster.Create());
+            Assert.Contains("earlier than the date of joining", vm.EmployeeMaster.Message);
+            Assert.Null(vm.Company.FindEmployee(id)!.DateOfLeaving);
+            Assert.Equal(new DateOnly(2026, 4, 1), vm.Company.FindEmployee(id)!.DateOfJoining);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE UNGUARDED DELETE THAT W7-D2 WOULD OTHERWISE HAVE ARMED.</b>
+    ///
+    /// <para>Putting the employee master on <c>PayrollMasterScreen</c> grants it the arrows, Ctrl+Enter <b>and
+    /// Alt+D</b> in one step — that is the interface's whole design. But <c>PayrollService.DeleteEmployee</c> had
+    /// <b>no referential guard at all</b>: its doc comment still read <i>"No later master references an employee
+    /// in this slice… the attendance/payroll-voucher guard arrives with those slices."</i> Those slices arrived
+    /// years of commits ago. Until W7-D2 the method had zero callers, so the gap was theoretical; the moment
+    /// Alt+D reaches it, deleting an employee who is on a posted payroll voucher leaves that voucher's line
+    /// naming a member the company no longer has.</para>
+    ///
+    /// <para>This drives the real Alt+D + Y and requires the refusal to reach the operator in the engine's own
+    /// words, with the employee still there afterwards.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void An_employee_with_attendance_recorded_is_refused_by_alt_d_and_survives()
+    {
+        var (window, vm, dir) = NewWindow("Employee Delete Guard Co");
+        try
+        {
+            var payroll = new PayrollService(vm.Company!);
+            payroll.EnablePayroll();
+            var group = payroll.CreateEmployeeGroup("Ops");
+            var employee = payroll.CreateEmployee("Deepa Nair", group.Id);
+            var unit = payroll.CreateSimplePayrollUnit("Days", "Days");
+            var type = payroll.CreateAttendanceType(
+                "Present", AttendanceTypeKind.AttendancePaid, payrollUnitId: unit.Id);
+            vm.Company!.AddAttendanceEntry(new AttendanceEntry(
+                Guid.NewGuid(), employee.Id, type.Id,
+                new DateOnly(2026, 4, 1), new DateOnly(2026, 4, 30), 26m));
+
+            vm.ShowEmployeeMaster();
+            ArrowToAndDelete(window, vm, "Deepa Nair");
+
+            Assert.Contains(vm.Company!.Employees, e => e.Id == employee.Id);
+            Assert.Contains("cannot be deleted", vm.Notice ?? string.Empty);
         }
         finally { window.Close(); Cleanup(dir); }
     }

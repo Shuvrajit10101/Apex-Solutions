@@ -577,6 +577,26 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Statutory-period picker (W7-D2): PF Forms 3A / 6A run over the 1-Mar…28/29-Feb CURRENCY
+                             PERIOD and ESI Forms 5 / 6 over the Apr–Sep / Oct–Mar CONTRIBUTION PERIOD, neither of
+                             which is a wage month, so those four forms swap the wage-month picker for this one. Only
+                             real statutory periods are offered — the forms are not defined over an arbitrary date. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowStatutoryPeriodPicker}">
+                          <TextBlock Grid.Column="0" Text="Statutory Period" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" Width="240" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding StatutoryPeriods}"
+                                    SelectedItem="{Binding SelectedStatutoryPeriod, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:StatutoryPeriodOption">
+                                <TextBlock Text="{Binding Label}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- ============ ACCOUNTING reports (TB / BS / P&L / Day Book): Particulars | Dr | Cr | Amount ============ -->
                         <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*" IsVisible="{Binding ShowSingleAccountingGrid}">
                         <!-- Column header band (navy) -->
@@ -1908,6 +1928,77 @@
                               </ItemsControl>
                               <TextBlock Text="{Binding PayrollEmptyNote}" IsVisible="{Binding IsPayrollEmpty}"
                                          Margin="12" FontSize="12.5" Foreground="#777"/>
+
+                              <!-- ==== The matrix's optional SECOND section (W7-D2) ====
+                                   PF Form 6A is a two-PAGE form: page 1 is per member, page 2 is the twelve monthly
+                                   challan remittances, and the two pages have DIFFERENT columns. The second band
+                                   therefore carries its OWN headings (PayrollColumns2) — rendering page 2's figures
+                                   under page 1's headings would be a wrong figure under a right heading. It lives
+                                   INSIDE the body scroller so the two bands share one horizontal offset and stay in
+                                   register with each other; the frozen band above belongs to section 1 alone. -->
+                              <StackPanel IsVisible="{Binding HasPayrollSection2}">
+                                <TextBlock Text="{Binding PayrollSection2Title}" Margin="8,16,8,6"
+                                           FontWeight="SemiBold" FontSize="12.5"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <ItemsControl ItemsSource="{Binding PayrollColumns2}">
+                                    <ItemsControl.ItemsPanel>
+                                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PayrollMatrixColumnVm">
+                                        <TextBlock Text="{Binding Header}" Classes="colHdr" Width="{Binding Width}"
+                                                   TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding PayrollRows2}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PayrollMatrixRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              TextElement.FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}">
+                                        <ItemsControl ItemsSource="{Binding Cells}" Height="24">
+                                          <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                          </ItemsControl.ItemsPanel>
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:PayrollMatrixCellVm">
+                                              <!-- Padding (NOT Margin): see the section-1 body above. -->
+                                              <TextBlock Text="{Binding Text}" Width="{Binding Width}"
+                                                         VerticalAlignment="Center" FontSize="12.5" Padding="8,0,8,0"
+                                                         TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+
+                              <!-- ==== Statutory-form footnotes (W7-D2) ====
+                                   NOT decoration. Several columns on the PF and ESI forms are printed, ruled and
+                                   left BLANK because this book does not maintain their source (Father's / Husband's
+                                   Name, reason for leaving, the IP's dispensary) or because they are facts about a
+                                   bank challan. The footnote is the only thing that stops a blank column reading as
+                                   a bug, and the only thing that stops anyone inventing a value to fill it — so it
+                                   must be on screen wherever those columns are. TextWrapping, never trimming: a
+                                   half-shown footnote is a footnote that failed. -->
+                              <ItemsControl ItemsSource="{Binding PayrollFootnotes}"
+                                            IsVisible="{Binding HasPayrollFootnotes}" Margin="0,14,0,0">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="x:String">
+                                    <Border Background="#FFF7E6" BorderBrush="{StaticResource GridLine}"
+                                            BorderThickness="0,1,0,0" Padding="10,6">
+                                      <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                                 FontSize="11" Foreground="#7A5B00"/>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
                             </StackPanel>
                           </ScrollViewer>
                         </Grid>
@@ -8764,7 +8855,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:EmployeeMasterViewModel">
                           <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Employee Creation"
+                            <!-- W7-D2: BOUND, not the literal "Employee Creation" it used to be. Ctrl+A runs the
+                                 verb the screen is in, so this heading is the operator's only on-screen signal of
+                                 which one that is. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -8870,6 +8964,22 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding DateOfBirthText, Mode=TwoWay}"
                                            PlaceholderText="yyyy-MM-dd (optional)"/>
+                                </Grid>
+
+                                <!-- W7-D2 / census T0-13 — DATE OF LEAVING. This box is the only route in the
+                                     product to Employee.DateOfLeaving, and three engines read that field: PF
+                                     Form 10 IS the return of members leaving service in the month, and ESI
+                                     Form 5 column 7(A) reads "still working" from it. Blank = still in service.
+                                     It sits beside Date of Joining so the pair reads as one span of service. -->
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Date of Leaving" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DateOfLeavingText, Mode=TwoWay}"
+                                           PlaceholderText="yyyy-MM-dd — blank while in service"/>
+                                  <TextBlock Grid.Column="2" Grid.ColumnSpan="2"
+                                             Text="Set on alteration (Ctrl+Enter on the list below) when a member leaves."
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
                                 </Grid>
 
                                 <!-- Additional statutory / location / bank details (RQ-2): captured here so an
@@ -8997,6 +9107,12 @@
                                   <DataTemplate x:DataType="vm:EmployeeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,180,160,90" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. It is
+                                             ALSO the cursor Ctrl+Enter opens for alteration, which is the only
+                                             route to Date of Leaving (T0-13). -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
