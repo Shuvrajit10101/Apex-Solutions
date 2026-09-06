@@ -3196,7 +3196,36 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private const double StatCodeWidth = 130;
     private const double StatDateWidth = 110;
     private const double StatNumWidth = 118;
-    private const double StatWideLabelWidth = 300;
+
+    /// <summary>
+    /// The Form 12A particulars column. 🔴 Widened from 300 to fit its OWN longest label in full:
+    /// <c>"Contribution Payable by the Employer — A/c No. 10 (Pension Fund)"</c> is 64 characters, which at the
+    /// shipped monospace advance (6.8726px at the cell's 12.5pt) needs 440px of text plus the template's 16px
+    /// padding = 456. At 300 the three "Contribution Payable by the Employer" rows all cut at or before their
+    /// account number, so three different money rows read identically. Sized so nothing on the form truncates at
+    /// all, which is a stronger fix than re-ordering the caption.
+    /// </summary>
+    private const double StatWideLabelWidth = 460;
+
+    /// <summary>
+    /// Form 6A page 2's five challan account-head columns. 🔴 These five captions are the ONLY thing telling
+    /// A/c 1, 2, 10, 21 and 22 apart, and at <see cref="StatNumWidth"/> (118) an operator read "EPF Contributio"
+    /// and nothing more — five different money columns, visually identical, on the page where 6A reconciles to
+    /// the challans. The captions now LEAD with the account number (see BuildPfForm6A) and the column is wide
+    /// enough that the differentiator is never the part that gets cut.
+    /// </summary>
+    private const double StatChallanHeadWidth = 190;
+
+    // The PF Form 3A member identity band — one column per statutory identity field, each sized to the longest
+    // value that field actually carries (a PF account number is the widest, at 26 characters). These are the
+    // widths that replaced the single concatenated identity cell; see BuildPfForm3A.
+    private const double IdentityNameWidth = 190;
+    private const double IdentityAccountWidth = 230;
+    private const double IdentityUanWidth = 120;
+    private const double IdentityDobWidth = 116;
+    private const double IdentitySexWidth = 60;
+    private const double IdentityJoinedWidth = 130;
+    private const double IdentityFatherWidth = 170;
 
     /// <summary>Whole-rupee display of a statutory-form integer figure (always rendered, even zero — a statutory
     /// column that is genuinely nil must read "0", not blank; blank on these forms means "not maintained").</summary>
@@ -3379,15 +3408,29 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var card in form.Members)
         {
             var m = card.Member;
-            var identity = $"{m.Name}   ·   A/c {(string.IsNullOrEmpty(m.AccountNumber) ? "—" : m.AccountNumber)}"
-                         + $"   ·   UAN {(string.IsNullOrEmpty(m.Uan) ? "—" : m.Uan)}"
-                         + $"   ·   DOB {DateCell(m.DateOfBirth)}   ·   Sex {(string.IsNullOrEmpty(m.Sex) ? "—" : m.Sex)}"
-                         + $"   ·   Joined the Fund {DateCell(m.DateOfJoiningTheFund)}"
-                         + $"   ·   Father's / Husband's Name ____________";
+
+            // 🔴 The identity block gets ONE CELL PER STATUTORY FIELD, captioned, not one concatenated string.
+            // It used to be a single ~190-character run packed into the 190px Month column while the row's other
+            // seven cells sat empty; the cell trims with CharacterEllipsis, so ~86% of the block — the A/c
+            // number, the UAN, the date of birth, the sex and the fund-joining date — was silently cut, and every
+            // figure on the twelve rows below was attributed to a member the reader could not identify. Widths
+            // are sized to the longest real value each field carries (see IdentityBand*Width).
+            PayrollRows.Add(StatRow(false,
+                ("Name of Member", IdentityNameWidth, false),
+                ("PF Account Number", IdentityAccountWidth, false),
+                ("UAN", IdentityUanWidth, false),
+                ("Date of Birth", IdentityDobWidth, false),
+                ("Sex", IdentitySexWidth, false),
+                ("Joined the Fund", IdentityJoinedWidth, false),
+                ("Father's/Husband's", IdentityFatherWidth, false)));
             PayrollRows.Add(StatRow(true,
-                (identity, StatNameWidth, false), (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true),
-                (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true),
-                (string.Empty, StatNumWidth, true), (string.Empty, StatNumWidth, true)));
+                (m.Name, IdentityNameWidth, false),
+                (string.IsNullOrEmpty(m.AccountNumber) ? "—" : m.AccountNumber, IdentityAccountWidth, false),
+                (string.IsNullOrEmpty(m.Uan) ? "—" : m.Uan, IdentityUanWidth, false),
+                (DateCell(m.DateOfBirth), IdentityDobWidth, false),
+                (string.IsNullOrEmpty(m.Sex) ? "—" : m.Sex, IdentitySexWidth, false),
+                (DateCell(m.DateOfJoiningTheFund), IdentityJoinedWidth, false),
+                ("____________", IdentityFatherWidth, false)));   // not maintained — ruled blank, see the footnote
 
             foreach (var row in card.Months)
                 PayrollRows.Add(StatRow(false,
@@ -3397,8 +3440,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     (string.Empty, StatNumWidth, true),                       // higher voluntary RATE — not maintained
                     (RupeeCell(row.EmployerEpfDifference), StatNumWidth, true),
                     (RupeeCell(row.PensionFundContribution), StatNumWidth, true),
-                    (RupeeCell(row.RefundOfAdvance), StatNumWidth, true),
-                    (row.NonContributingServiceDays.ToString(CultureInfo.InvariantCulture), StatNumWidth, true)));
+                    // 🔴 Refund of Advance and Non-Contributing Days print BLANK, not "0". By this form's own
+                    // convention a rendered "0" asserts the figure is genuinely nil, and neither of these can be:
+                    // PfEcr hardcodes RefundOfAdvances to 0 with no parameter to supply it, and nothing in the
+                    // product ever passes its optional ncpDaysByEmployee. A literal 0 here would be an unfounded
+                    // statutory assertion, so the columns are ruled and blank with the footnote below.
+                    (string.Empty, StatNumWidth, true),
+                    (string.Empty, StatNumWidth, true)));
 
             PayrollRows.Add(StatRow(true,
                 ("Total", StatNameWidth, false),
@@ -3407,13 +3455,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 (string.Empty, StatNumWidth, true),
                 (RupeeCell(card.TotalEmployerEpfDifference), StatNumWidth, true),
                 (RupeeCell(card.TotalPensionFundContribution), StatNumWidth, true),
-                (RupeeCell(card.TotalRefundOfAdvance), StatNumWidth, true),
-                (card.TotalNonContributingServiceDays.ToString(CultureInfo.InvariantCulture), StatNumWidth, true)));
+                (string.Empty, StatNumWidth, true),      // Refund of Advance — not maintained, as above
+                (string.Empty, StatNumWidth, true)));    // Non-Contributing Days — not maintained, as above
         }
 
         Footnote("Father's / Husband's Name and the Higher Rate of Voluntary Contribution: "
                + PfStatutoryForms.NotMaintainedNote);
-        MarkPayrollEmpty(form.Members.Count == 0);
+        Footnote("Refund of Advance and Non-Contributing Service Days: " + PfStatutoryForms.NotMaintainedNote);
+        MarkStatutoryFormEmpty(form.Members.Count == 0,
+            "No member is enrolled in the Provident Fund — Form 3A has no contribution card to draw for this "
+            + "currency period.");
     }
 
     // ------------------------------------------------------------------------------------------- PF Form 6A
@@ -3451,7 +3502,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 (RupeeCell(r.WorkersContribution), StatNumWidth, true),
                 (RupeeCell(r.EmployerEpfDifference), StatNumWidth, true),
                 (RupeeCell(r.PensionFundContribution), StatNumWidth, true),
-                (RupeeCell(r.RefundOfAdvance), StatNumWidth, true),
+                (string.Empty, StatNumWidth, true),                            // Refund of Advance — not maintained
                 (string.Empty, StatNumWidth, true)));                          // higher voluntary RATE — not maintained
 
         PayrollRows.Add(StatRow(true,
@@ -3461,7 +3512,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             (RupeeCell(form.TotalWorkersContribution), StatNumWidth, true),
             (RupeeCell(form.TotalEmployerEpfDifference), StatNumWidth, true),
             (RupeeCell(form.TotalPensionFundContribution), StatNumWidth, true),
-            (RupeeCell(form.TotalRefundOfAdvance), StatNumWidth, true),
+            (string.Empty, StatNumWidth, true),      // Refund of Advance — not maintained, see the footnote
             (string.Empty, StatNumWidth, true)));
 
         // ---- Page 2: the twelve monthly remittances (its OWN column band). ----
@@ -3470,11 +3521,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             ("Sl. No.", StatSerialWidth, true),
             ("Month / Year", StatCodeWidth, false),
-            ("EPF Contributions incl. Refund of Advances — A/c No. 1", StatNumWidth, true),
-            ("Pension Fund Contributions — A/c No. 10", StatNumWidth, true),
-            ("EDLI Contribution — A/c No. 21", StatNumWidth, true),
-            ("Adm. Charges — A/c No. 2", StatNumWidth, true),
-            ("EDLI Adm. Charges — A/c No. 22", StatNumWidth, true),
+            // 🔴 The account number LEADS every caption. It is the only differentiator between these five heads,
+            // and trailing it meant all five truncated to the same unreadable stem in their column.
+            ("A/c No. 1 — EPF Contributions incl. Refund of Advances", StatChallanHeadWidth, true),
+            ("A/c No. 10 — Pension Fund Contributions", StatChallanHeadWidth, true),
+            ("A/c No. 21 — EDLI Contribution", StatChallanHeadWidth, true),
+            ("A/c No. 2 — Adm. Charges", StatChallanHeadWidth, true),
+            ("A/c No. 22 — EDLI Adm. Charges", StatChallanHeadWidth, true),
             ("Date of Remittance", StatDateWidth, false),
         })
             PayrollColumns2.Add(PayCol(header, width, numeric));
@@ -3483,17 +3536,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
             PayrollRows2.Add(StatRow(false,
                 (r.SerialNumber.ToString(CultureInfo.InvariantCulture), StatSerialWidth, true),
                 (r.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), StatCodeWidth, false),
-                (RupeeCell(r.EpfContributionsAccount1), StatNumWidth, true),
-                (RupeeCell(r.PensionFundContributionsAccount10), StatNumWidth, true),
-                (RupeeCell(r.EdliContributionAccount21), StatNumWidth, true),
-                (RupeeCell(r.AdminChargesAccount2), StatNumWidth, true),
-                (RupeeCell(r.EdliAdminChargesAccount22), StatNumWidth, true),
+                // Each figure carries its HEADER's width, not StatNumWidth — a value cell narrower than its
+                // header slides every later column left and the figures stop sitting under their own captions.
+                (RupeeCell(r.EpfContributionsAccount1), StatChallanHeadWidth, true),
+                (RupeeCell(r.PensionFundContributionsAccount10), StatChallanHeadWidth, true),
+                (RupeeCell(r.EdliContributionAccount21), StatChallanHeadWidth, true),
+                (RupeeCell(r.AdminChargesAccount2), StatChallanHeadWidth, true),
+                (RupeeCell(r.EdliAdminChargesAccount22), StatChallanHeadWidth, true),
                 (string.Empty, StatDateWidth, false)));                        // challan fact — see the footnote
         HasPayrollSection2 = PayrollRows2.Count > 0;
 
-        Footnote("Rate of Higher Voluntary Contribution: " + PfStatutoryForms.NotMaintainedNote);
+        Footnote("Rate of Higher Voluntary Contribution and Refund of Advance: "
+               + PfStatutoryForms.NotMaintainedNote);
         Footnote(PfStatutoryForms.ChallanFactNote);
-        MarkPayrollEmpty(form.Members.Count == 0);
+        MarkStatutoryFormEmpty(form.Members.Count == 0,
+            "No member is enrolled in the Provident Fund — Form 6A has nothing to consolidate for this currency "
+            + "period.");
     }
 
     // -------------------------------------------------------------------------------------------- PF Form 5
@@ -3716,7 +3774,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Footnote("Name of the Dispensary of IP: " + EsiStatutoryForms.NotMaintainedNote);
         Footnote("\"Still working\" is read from the member's date of leaving service; a member with no recorded "
                + "date of leaving is reported as still working.");
-        MarkPayrollEmpty(form.Rows.Count == 0);
+        MarkStatutoryFormEmpty(form.Rows.Count == 0,
+            "No insured person is covered by ESI — Form 5 has no contributions to return for this contribution "
+            + "period.");
     }
 
     // ------------------------------------------------------------------------------------------- ESI Form 6
@@ -3784,7 +3844,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Footnote(EsiStatutoryForms.AverageDailyWagesNote);
         Footnote("\"Rate of Wages in the First Wage Period\" is the member's ESI wages in the first month of the "
                + "contribution period in which they were paid; this book carries no separate wage-rate field.");
-        MarkPayrollEmpty(form.Rows.Count == 0);
+        MarkStatutoryFormEmpty(form.Rows.Count == 0,
+            "No insured person is covered by ESI — the Form 6 register has no employee to record for this "
+            + "contribution period.");
     }
 
     // --------------------------------------------------------------- Pay Sheet (employees × pay heads matrix)
@@ -4006,6 +4068,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         IsPayrollEmpty = empty;
         PayrollEmptyNote = empty ? "No employees with salary for this wage month." : string.Empty;
+    }
+
+    /// <summary>
+    /// Sets the empty state for a statutory form with its OWN reason, instead of the wage-month default.
+    ///
+    /// <para>🔴 The default note reads <i>"No employees with salary for this wage month."</i> On the four
+    /// MULTI-MONTH forms — PF 3A and 6A (a twelve-month currency period) and ESI 5 and 6 (a six-month
+    /// contribution period) — that is <b>the wrong window AND the wrong reason</b>: it names a wage month these
+    /// forms are not drawn over, and it blames missing salary when the real cause is that the establishment has
+    /// no member enrolled in the scheme at all. Forms 5, 10 and 3 already say what they mean; these four now do
+    /// too.</para>
+    /// </summary>
+    private void MarkStatutoryFormEmpty(bool empty, string note)
+    {
+        MarkPayrollEmpty(empty);
+        if (empty) PayrollEmptyNote = note;
     }
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;

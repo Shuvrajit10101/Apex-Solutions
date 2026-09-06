@@ -235,9 +235,15 @@ public static class EsiStatutoryForms
         // nil and the register is still built. This is a FILTER, not a swallowed exception: a member who IS on a
         // structure but carries no valid 10-digit IP number still reaches Build and still makes it refuse, because
         // that is a data fault the operator must fix rather than a month they were not employed in.
+        //
+        // 🔴 A member who has LEFT SERVICE is excluded on the same principle, and it matters more here than
+        // anywhere else in this file: a salary structure is open-ended and leaving does NOT end it, so without this
+        // test the projection kept returning full days, wages and a deducted contribution for months after the
+        // insured person had gone — printed on the SAME Form 5 row whose column 8 said "still working: No". The
+        // return contradicted itself. The month of leaving is still theirs; every month opening after it is not.
         var payable = new List<Guid>(members.Count);
         foreach (var e in members)
-            if (computation.ResolveStructureInForce(e, month.To) is not null)
+            if (!HasLeftBefore(e, month) && computation.ResolveStructureInForce(e, month.To) is not null)
                 payable.Add(e.Id);
 
         var monthly = EsiMonthlyContribution.Build(company, payable, month.From, month.To);
@@ -261,6 +267,18 @@ public static class EsiStatutoryForms
         }
         return figures;
     }
+
+    /// <summary>
+    /// Whether <paramref name="employee"/> had already left service before <paramref name="month"/> opened — the
+    /// test that stops a departed insured person being reported with days and wages they did not earn.
+    ///
+    /// <para>The comparison is against the month's FIRST day, not its last, so the month the person left in is
+    /// still reported: they drew wages in it. This is deliberately the same boundary Form 5's column 8 uses
+    /// (<c>left &gt; periodEnd</c> ⇒ still working), so the figures and the "still working" answer on one row can no
+    /// longer disagree. An unrecorded leaving date means the person has not left.</para>
+    /// </summary>
+    private static bool HasLeftBefore(Employee employee, StatutoryMonth month)
+        => employee.DateOfLeaving is { } left && left < month.From;
 
     /// <summary>Whole rupees, truncated — the same whole-rupee convention the monthly contribution file uses, so a
     /// register row and the file it reconciles to never differ by a rounding step.</summary>
@@ -287,16 +305,17 @@ public static class EsiStatutoryForms
         var serial = 0;
         foreach (var employee in EsiMembers(company))
         {
-            bool coveredNow, coveredBefore;
-            try
-            {
-                coveredNow = computation.IsEsiCovered(employee.Id, to);
-                coveredBefore = computation.IsEsiCovered(employee.Id, previousTo);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-            {
-                continue;   // no structure in force ⇒ the member is not yet an insured person
-            }
+            // 🔴 These two calls are NOT wrapped in a catch, and the guard that used to wrap them was deleted
+            // rather than re-commented. It claimed to be absorbing "no structure in force ⇒ the member is not yet
+            // an insured person" — a reason that CANNOT occur: PayrollComputationService.DecideEsiCoverage
+            // RETURNS FALSE when no structure is in force, it does not throw, and IsEsiCovered's only throw is
+            // "employee not found", which is unreachable here because every employee came from EsiMembers(company)
+            // — that is, out of company.Employees. So the guard caught nothing and documented a mechanism that
+            // does not exist. Anything IsEsiCovered ever does throw is a real data fault, and this file's whole
+            // doctrine (see the UAN and IP-number refusals above) is that such a fault must surface rather than
+            // silently shorten a statutory return; the report layer already turns it into an explained empty form.
+            var coveredNow = computation.IsEsiCovered(employee.Id, to);
+            var coveredBefore = computation.IsEsiCovered(employee.Id, previousTo);
 
             if (!coveredNow) continue;
             // A member who joined during this month enters coverage this month even if the coverage test would

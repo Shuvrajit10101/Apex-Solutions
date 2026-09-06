@@ -362,6 +362,112 @@ public sealed class PayrollStatutoryFormsTests
         Assert.Equal(string.Empty, row.ReasonForLeaving);
     }
 
+    // ------------------------------------------------------------------- PF: service ends, reporting ends
+
+    /// <summary>
+    /// 🔴 <b>The defect this test was written for: a member who LEFT SERVICE was still reported with full wages and
+    /// full contributions for every subsequent month of the currency period.</b>
+    ///
+    /// <para>The month-walk filtered the member list on "is a salary structure in force on the month end" and on
+    /// nothing else. A salary structure is defined open-endedly from a date — leaving service does not end it — so
+    /// <see cref="PfEcr.Build"/> kept computing the member's PF for months after they had gone, and the Form 3A
+    /// card footed twelve months of wages for someone who worked one. Form 10 reported them as a leaver in June
+    /// while Form 3A billed the establishment for their July-to-February contributions.</para>
+    ///
+    /// <para>The fixture leaves on <b>30 April 2025</b> — the last day of the only month the structure covers before
+    /// the leaving date — so the card must foot to exactly ONE month of wages out of twelve. Before the fix it
+    /// footed to eleven, an 11x overstatement of an annual statutory return.</para>
+    /// </summary>
+    [Fact]
+    public void Form_3A_stops_counting_months_after_the_member_leaves_service()
+    {
+        var (c, empId) = BuildPfCompany();          // structure from 1 April 2025; currency period opens 1 March 2025
+        var e = c.FindEmployee(empId)!;
+        var march = new DateOnly(2025, 3, 1);
+
+        // Baseline: still in service, so the card carries the eleven months April…February the structure covers.
+        var whileServing = Assert.Single(PfStatutoryForms.BuildForm3A(c, march).Members);
+        var monthsWithWagesWhileServing = whileServing.Months.Count(m => m.AmountOfWages > 0);
+        Assert.Equal(11, monthsWithWagesWhileServing);
+
+        e.DateOfLeaving = new DateOnly(2025, 4, 30);
+
+        var card = Assert.Single(PfStatutoryForms.BuildForm3A(c, march).Members);
+
+        // April — the month they left in — is still reported: they drew wages in it.
+        var april = card.Months.Single(m => m.Month == new DateOnly(2025, 4, 1));
+        Assert.True(april.AmountOfWages > 0, "the month of leaving is a worked month and must still be reported");
+
+        // Every month AFTER the leaving date is nil, in every money column — not just the wage column.
+        foreach (var m in card.Months.Where(m => m.Month > new DateOnly(2025, 4, 1)))
+        {
+            Assert.Equal(0, m.AmountOfWages);
+            Assert.Equal(0, m.WorkersEpf);
+            Assert.Equal(0, m.EmployerEpfDifference);
+            Assert.Equal(0, m.PensionFundContribution);
+        }
+
+        // ...and the annual footing is ONE month, not eleven. This is the 11x the reviewer measured.
+        Assert.Equal(1, card.Months.Count(m => m.AmountOfWages > 0));
+        Assert.Equal(april.AmountOfWages, card.TotalAmountOfWages);
+        Assert.Equal(april.WorkersEpf, card.TotalWorkersEpf);
+        Assert.Equal(whileServing.TotalAmountOfWages / 11, card.TotalAmountOfWages);
+    }
+
+    /// <summary>
+    /// The same rule on Form 6A: page 1's member row and page 2's challan remittances both stop at the leaving
+    /// date. Page 2 matters independently — it is the establishment's own monthly liability, and a departed
+    /// member's phantom contribution inflates the challan the employer is told to pay.
+    /// </summary>
+    [Fact]
+    public void Form_6A_page_one_and_the_challan_remittances_both_stop_at_the_leaving_date()
+    {
+        var (c, empId) = BuildPfCompany();
+        var march = new DateOnly(2025, 3, 1);
+        c.FindEmployee(empId)!.DateOfLeaving = new DateOnly(2025, 4, 30);
+
+        var form = PfStatutoryForms.BuildForm6A(c, march);
+        var row = Assert.Single(form.Members);
+
+        // Page 1 still foots to the member's own Form 3A card — the cross-form identity survives the fix.
+        var card = Assert.Single(PfStatutoryForms.BuildForm3A(c, march).Members);
+        Assert.Equal(card.TotalAmountOfWages, row.Wages);
+        Assert.Equal(card.TotalWorkersEpf, row.WorkersContribution);
+        Assert.True(row.Wages > 0, "an all-zero card would satisfy the equalities above vacuously");
+
+        // Page 2: April carries the challan, every later month is nil.
+        var april = form.Remittances.Single(r => r.Month == new DateOnly(2025, 4, 1));
+        Assert.True(april.EpfContributionsAccount1 > 0);
+        foreach (var r in form.Remittances.Where(r => r.Month > new DateOnly(2025, 4, 1)))
+        {
+            Assert.Equal(0, r.EpfContributionsAccount1);
+            Assert.Equal(0, r.PensionFundContributionsAccount10);
+            Assert.Equal(0, r.EdliContributionAccount21);
+        }
+    }
+
+    /// <summary>
+    /// Form 12A is a single wage month, so the leaving rule shows up as: the month of leaving still bills, the
+    /// month after it bills nothing and counts no subscribers.
+    /// </summary>
+    [Fact]
+    public void Form_12A_bills_the_month_of_leaving_and_nothing_after_it()
+    {
+        var (c, empId) = BuildPfCompany();
+        c.FindEmployee(empId)!.DateOfLeaving = new DateOnly(2025, 4, 30);
+
+        var leavingMonth = PfStatutoryForms.BuildForm12A(c, new DateOnly(2025, 4, 1));
+        Assert.True(leavingMonth.WagesOnWhichContributionsArePayable > 0);
+        Assert.Equal(1, leavingMonth.DetailsOfSubscribers);
+
+        var after = PfStatutoryForms.BuildForm12A(c, new DateOnly(2025, 5, 1));
+        Assert.Equal(0, after.WagesOnWhichContributionsArePayable);
+        Assert.Equal(0, after.ContributionRecoveredFromEmployeesAccount1);
+        Assert.Equal(0, after.ContributionPayableByEmployerAccount1);
+        Assert.Equal(0, after.ContributionPayableByEmployerAccount10);
+        Assert.Equal(0, after.DetailsOfSubscribers);
+    }
+
     // ------------------------------------------------------------------------------------------ PF Form 12A
 
     /// <summary>
@@ -491,6 +597,83 @@ public sealed class PayrollStatutoryFormsTests
         e.DateOfLeaving = new DateOnly(2025, 11, 30);
         Assert.True(Assert.Single(EsiStatutoryForms.BuildForm5(c, new DateOnly(2025, 4, 1)).Rows)
             .StillWorkingWithinCeiling);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The ESI half of the same defect, and the reason it is worse here than on the PF side: the return
+    /// CONTRADICTED ITSELF on a single printed row.</b>
+    ///
+    /// <para>Column 8 said <i>"still working = No"</i> off the date of leaving, while columns 4, 5 and 6 on that
+    /// same row carried days, wages and a deducted contribution for every month after the person had gone. A
+    /// half-yearly return that reports two months of wages for someone it also declares departed is not a return
+    /// the employer can file.</para>
+    ///
+    /// <para>The fixture leaves on <b>31 July 2025</b>, inside the Apr–Sep contribution period: four months of
+    /// wages must remain and two must vanish, and column 8 must read <i>No</i> alongside a figure that agrees
+    /// with it.</para>
+    /// </summary>
+    [Fact]
+    public void Form_5_does_not_report_wages_for_months_after_the_insured_person_left()
+    {
+        var (c, empId) = BuildEsiCompany();
+        var e = c.FindEmployee(empId)!;
+        var period = new DateOnly(2025, 4, 1);
+
+        var whileServing = Assert.Single(EsiStatutoryForms.BuildForm5(c, period).Rows);
+        Assert.True(whileServing.StillWorkingWithinCeiling);
+        Assert.True(whileServing.TotalWages > 0, "the fixture posted no ESI wages — the comparison below is vacuous");
+
+        e.DateOfLeaving = new DateOnly(2025, 7, 31);
+        var row = Assert.Single(EsiStatutoryForms.BuildForm5(c, period).Rows);
+
+        // The row no longer contradicts itself: "still working = No" AND the figures stop at the leaving month.
+        Assert.False(row.StillWorkingWithinCeiling);
+        Assert.True(row.TotalWages > 0, "the four served months are still reported");
+        Assert.True(row.TotalWages < whileServing.TotalWages,
+            "the two months after leaving are still being billed — the row contradicts its own column 8");
+
+        // Four of the six months served. Wages and the employee's share are a flat monthly figure here, so those
+        // aggregates are exactly four sixths; DAYS are calendar month lengths and are therefore summed for the four
+        // served months rather than assumed equal — Apr–Jul is 122 days, not four sixths of 183.
+        Assert.Equal(whileServing.TotalWages / 6 * 4, row.TotalWages);
+        Assert.Equal(whileServing.EmployeesContributionDeducted / 6 * 4, row.EmployeesContributionDeducted);
+
+        var servedDays = PayrollStatutoryPeriods.EsiContributionPeriodMonths(period)
+            .Where(m => m.From <= new DateOnly(2025, 7, 1))
+            .Sum(m => m.To.DayNumber - m.From.DayNumber + 1);
+        Assert.Equal(servedDays, row.NoOfDaysWagesPaid);
+        Assert.Equal(whileServing.NoOfDaysWagesPaid - row.NoOfDaysWagesPaid,
+            PayrollStatutoryPeriods.EsiContributionPeriodMonths(period)
+                .Where(m => m.From > new DateOnly(2025, 7, 1))
+                .Sum(m => m.To.DayNumber - m.From.DayNumber + 1));
+    }
+
+    /// <summary>
+    /// Form 6 is month-columned, so the leaving rule is visible cell by cell rather than only in the footing: the
+    /// month of leaving carries figures and each later month's cell is nil in all three of its columns.
+    /// </summary>
+    [Fact]
+    public void Form_6_month_cells_after_the_leaving_date_are_nil_and_the_footing_follows_them()
+    {
+        var (c, empId) = BuildEsiCompany();
+        c.FindEmployee(empId)!.DateOfLeaving = new DateOnly(2025, 7, 31);
+
+        var row = Assert.Single(EsiStatutoryForms.BuildForm6(c, new DateOnly(2025, 4, 1)).Rows);
+
+        var july = row.Months.Single(m => m.Month == new DateOnly(2025, 7, 1));
+        Assert.True(july.TotalWages > 0, "the month of leaving is a worked month and must still be reported");
+
+        foreach (var m in row.Months.Where(m => m.Month > new DateOnly(2025, 7, 1)))
+        {
+            Assert.Equal(0, m.NoOfDaysWagesPaid);
+            Assert.Equal(0, m.TotalWages);
+            Assert.Equal(0, m.EmployeesShareOfContribution);
+        }
+
+        Assert.Equal(4, row.Months.Count(m => m.TotalWages > 0));
+        Assert.Equal(row.Months.Sum(m => m.TotalWages), row.TotalWagesInContributionPeriod);
+        Assert.Equal(row.Months.Sum(m => m.EmployeesShareOfContribution),
+            row.TotalEmployeesShareInContributionPeriod);
     }
 
     /// <summary>

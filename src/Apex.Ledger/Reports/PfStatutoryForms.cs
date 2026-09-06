@@ -274,6 +274,14 @@ public static class PfStatutoryForms
     /// <para>This is a filter, <b>not</b> a swallowed exception: a member who <i>does</i> have a structure but no
     /// valid UAN still reaches <see cref="PfEcr.Build"/> and still makes it throw, because that is a real data fault
     /// the operator has to fix rather than a month the member was not yet employed in.</para>
+    ///
+    /// <para>🔴 <b>Why a member who has LEFT SERVICE is excluded too.</b> A salary structure is defined open-endedly
+    /// from a date and <b>leaving service does not end it</b>, so the structure-in-force test alone keeps returning
+    /// true for every month after the member has gone — and <see cref="PfEcr.Build"/> keeps computing their full
+    /// wages and full contributions. That put eleven phantom months on a twelve-month Form 3A card, inflated the
+    /// Form 6A challan the employer is told to pay, and let Form 10 report the member as a June leaver while Form
+    /// 3A billed for their July-to-February contributions. Reporting stops when service does: the month the member
+    /// left is still theirs (they drew wages in it), every month opening after that date is not.</para>
     /// </summary>
     private static (PfEcrReturn Return, Dictionary<string, PfEcrMember> ByUan) MonthReturn(
         Company company, IReadOnlyList<Guid> memberIds, StatutoryMonth month)
@@ -283,7 +291,9 @@ public static class PfStatutoryForms
         foreach (var id in memberIds)
         {
             var employee = company.FindEmployee(id);
-            if (employee is not null && computation.ResolveStructureInForce(employee, month.To) is not null)
+            if (employee is null) continue;
+            if (HasLeftBefore(employee, month)) continue;
+            if (computation.ResolveStructureInForce(employee, month.To) is not null)
                 payable.Add(id);
         }
 
@@ -292,6 +302,19 @@ public static class PfStatutoryForms
         foreach (var m in ecr.Members) byUan[m.Uan] = m;
         return (ecr, byUan);
     }
+
+    /// <summary>
+    /// Whether <paramref name="employee"/> had already left service before <paramref name="month"/> opened — the
+    /// test that stops a departed member being reported for months they did not work.
+    ///
+    /// <para>The comparison is against the month's FIRST day, not its last: a member who left on any day of a month
+    /// still drew wages in that month and belongs on that month's return (which is also the month Form 10 reports
+    /// them as a leaver on, so the two forms agree). Only a month that opens on or after the day after they left is
+    /// excluded. An unrecorded leaving date means the member has not left — the same reading Form 10 and ESI Form
+    /// 5's column 8 already take.</para>
+    /// </summary>
+    private static bool HasLeftBefore(Employee employee, StatutoryMonth month)
+        => employee.DateOfLeaving is { } left && left < month.From;
 
     // ============================================================================================ Form 3A
 
