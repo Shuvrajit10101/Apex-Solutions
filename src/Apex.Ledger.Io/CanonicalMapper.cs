@@ -410,6 +410,11 @@ public static class CanonicalMapper
         OpeningIsDebit = l.OpeningIsDebit, Alias = l.Alias, IsPredefined = l.IsPredefined,
         MaintainBillByBill = l.MaintainBillByBill,
         DefaultCreditPeriodDays = l.DefaultCreditPeriodDays,
+        // Census 10.1. The conditional is on the NULLABLE, never `?? 0`: "no limit" and "a limit of zero" are
+        // different facts and the second one blocks every credit transaction.
+        CreditLimitPaisa = l.CreditLimit is { } cl ? MoneyCodec.ToPaisa(cl) : null,
+        CheckCreditDaysOnEntry = l.CheckCreditDaysOnEntry,
+        OverrideCreditLimitWithPostDated = l.OverrideCreditLimitWithPostDated,
         CostCentresApplicable = l.CostCentresApplicable,
         EnableChequePrinting = l.EnableChequePrinting,
         ChequePrintingBankName = l.ChequePrintingBankName,

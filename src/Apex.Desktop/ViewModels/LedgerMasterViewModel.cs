@@ -149,6 +149,58 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>"Default credit period (days)" (catalog §5), typed as text; blank ⇒ none.</summary>
     [ObservableProperty] private string _defaultCreditPeriodText = string.Empty;
 
+    // ------------------------------------------------------------ census 10.1: the Credit Limits block
+
+    /// <summary>
+    /// <b>Census 10.1 — "Credit Limit"</b>, typed as text; <b>blank ⇒ NO limit</b>, which is not the same answer as
+    /// <c>0</c>.
+    ///
+    /// <para>🔴 <b>Blank and "0" are DIFFERENT and this screen keeps them apart.</b> A limit of zero is a real,
+    /// blocking value — "this party may take nothing on credit" — so it cannot double as "unset". Typing <c>0</c>
+    /// stores a limit of zero and every credit sale to the party will then be refused at save; clearing the box
+    /// stores NULL and nothing is checked. That distinction is why <c>credit_limit_paisa</c> is the one v54 column
+    /// declared NULLable with no DEFAULT.</para>
+    ///
+    /// <para><b>ATTESTED</b> (help.tallysolutions.com): the field caption, and that limits belong to ledgers
+    /// <i>"created under the groups Sundry Debtors and Sundry Creditors"</i> — hence <see cref="IsPartyGroup"/>
+    /// gates the whole block.</para>
+    /// </summary>
+    [ObservableProperty] private string _creditLimitText = string.Empty;
+
+    /// <summary>
+    /// <b>Census 10.1 — "Check For Credit Dates During Voucher Entry".</b> ATTESTED caption.
+    ///
+    /// <para>⚠️ <b>Stored, but nothing consumes it yet, and the screen SAYS so</b> (see
+    /// <see cref="CreditDaysNotice"/>). The vendor's credit-DAYS check is a <i>warning</i>, a different severity
+    /// from the amount limit's hard block, and it is not built in this wave. A switch that silently did nothing
+    /// would be the dead-capability defect this project has already filed twice; a switch that says what it does
+    /// not yet do is honest.</para>
+    /// </summary>
+    [ObservableProperty] private bool _checkCreditDaysOnEntry;
+
+    /// <summary>
+    /// <b>Census 10.1 — "Override credit limit using post-dated transactions".</b> ATTESTED caption, and one of the
+    /// vendor's exactly two named escapes from a breach. Live: with it on, a post-dated voucher for this party is
+    /// exempt from the limit (<c>CreditLimitRules.Check</c>).
+    /// </summary>
+    [ObservableProperty] private bool _overrideCreditLimitWithPostDated;
+
+    /// <summary>
+    /// The standing notice under the Credit Limits block. Two jobs, both of them about not over-claiming:
+    /// it states that the credit-DAYS warning is not built yet, and — the R-9 trap — that the credit period is
+    /// <b>discarded</b> when bill-wise is off, because <see cref="ApplyTo"/> writes <c>null</c> to
+    /// <c>DefaultCreditPeriodDays</c> in that case. Without the second half an operator sets a period, switches
+    /// bill-wise off, saves, and silently loses it.
+    /// </summary>
+    public string CreditDaysNotice =>
+        MaintainBillByBill
+            ? "A blank limit means no limit; 0 is a real limit that blocks every credit sale. "
+            + "The credit-days check is recorded but does not warn yet."
+            : "A blank limit means no limit; 0 is a real limit that blocks every credit sale. "
+            + "Credit period needs bill-by-bill balances — with it off, the period is not kept.";
+
+    partial void OnMaintainBillByBillChanged(bool value) => OnPropertyChanged(nameof(CreditDaysNotice));
+
     // --------------------------------------------------------------- opening balance (Study Guide pp.65–66)
 
     /// <summary>
@@ -801,6 +853,13 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         MaintainBillByBill = ledger.MaintainBillByBill;
         DefaultCreditPeriodText = ledger.DefaultCreditPeriodDays?.ToString() ?? string.Empty;
+        // Census 10.1: NULL ⇒ blank box (no limit); a limit of 0 ⇒ the string "0", which is a DIFFERENT answer.
+        // Invariant culture so the box round-trips the same text on every runner, matching the opening-balance box.
+        CreditLimitText = ledger.CreditLimit is { } cl
+            ? cl.Amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+        CheckCreditDaysOnEntry = ledger.CheckCreditDaysOnEntry;
+        OverrideCreditLimitWithPostDated = ledger.OverrideCreditLimitWithPostDated;
 
         var interest = ledger.Interest;
         EnableInterest = interest is { Enabled: true };
@@ -898,6 +957,36 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
                 return false;
             }
             creditDays = days;
+        }
+
+        // Census 10.1 — the Credit Limit. 🔴 BLANK ⇒ null ("no limit"); "0" ⇒ Money.Zero ("a limit of zero", which
+        // BLOCKS). The two must never collapse into one another, so the blank test comes first and there is no
+        // `?? Money.Zero` anywhere on this path. Refusals mirror the opening-balance box: a typo must not silently
+        // become "no limit", a negative limit is meaningless, and the store is INTEGER paisa so sub-paisa cannot
+        // round-trip. Invariant culture, matching the opening-balance parse, so a comma-decimal runner reads it the
+        // same way.
+        Money? creditLimit = null;
+        var limitText = (CreditLimitText ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(limitText))
+        {
+            if (!decimal.TryParse(limitText, System.Globalization.NumberStyles.Number,
+                                  System.Globalization.CultureInfo.InvariantCulture, out var limitAmount))
+            {
+                Message = "Credit limit must be an amount (e.g. 50000), or blank for no limit.";
+                return false;
+            }
+            if (limitAmount < 0m)
+            {
+                Message = "Credit limit cannot be negative. Leave it blank for no limit, or enter 0 to block "
+                        + "every credit transaction for this party.";
+                return false;
+            }
+            if (decimal.Round(limitAmount, 2) != limitAmount)
+            {
+                Message = "Credit limit cannot be finer than a paisa (two decimal places).";
+                return false;
+            }
+            creditLimit = new Money(limitAmount);
         }
 
         // Opening Balance (Study Guide pp.65–66) — blank ⇒ nil, which is the norm and must stay byte-identical to
@@ -1094,6 +1183,17 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         target.MaintainBillByBill = MaintainBillByBill;
         target.DefaultCreditPeriodDays = MaintainBillByBill ? creditDays : null;
+
+        // Census 10.1 — the Credit Limits block. Hidden-sub-form rule, the same one the Party GST block below
+        // follows: on a NON-party group the block was never on screen, so it is left EXACTLY as it was rather than
+        // silently cleared. On a party group the three values are written verbatim, INCLUDING a null limit — the
+        // operator clearing the box is a deliberate "no limit" and must be honoured.
+        if (IsPartyGroup)
+        {
+            target.CreditLimit = creditLimit;
+            target.CheckCreditDaysOnEntry = CheckCreditDaysOnEntry;
+            target.OverrideCreditLimitWithPostDated = OverrideCreditLimitWithPostDated;
+        }
         target.Interest = interest;
         // "Currency of ledger" — null (base ₹/INR) for every existing ledger; a foreign currency
         // makes this a forex ledger whose lines carry forex amounts + rates.
@@ -1180,6 +1280,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         _openingSideTouched = false;
         SetOpeningSideFromNature(SelectedGroup);
         DefaultCreditPeriodText = string.Empty;
+        // Census 10.1: the limit must NOT carry into the next ledger — leaving it on screen would silently give the
+        // following party the previous one's limit and start refusing its invoices.
+        CreditLimitText = string.Empty;
+        CheckCreditDaysOnEntry = false;
+        OverrideCreditLimitWithPostDated = false;
         EnableInterest = false;
         InterestRateText = string.Empty;
         SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry

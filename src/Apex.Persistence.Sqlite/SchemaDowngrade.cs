@@ -406,6 +406,14 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// 🔴 <b>A12 UNRESOLVED COLLISION — the two descriptions below document ONE method, <c>V54ToV53</c>, but they
+    /// describe DIFFERENT migrations, and they contradict each other</b> (block A says v54 adds no DDL and drops
+    /// nothing; block B drops three <c>ledgers</c> columns). origin/main's Credit Limits owns v54 (PR #62), so
+    /// BLOCK B is the behaviour that belongs on <c>V54ToV53</c>; BLOCK A describes the Karnataka PT back-fill,
+    /// which must be renumbered to v55 and needs its OWN new <c>V55ToV54</c> method — A12 did NOT create it, that
+    /// is the build agent's job. Note the executable body below currently keeps ONLY block B's DropColumns call.
+    ///
+    /// ── BLOCK A — THIS BRANCH (Karnataka PT back-fill) — BELONGS ON A NEW V55ToV54 ──
     /// Reverses <see cref="Schema.MigrateV53ToV54"/> — which, because v54 adds no DDL, means stamping
     /// <c>schema_version</c> back to 53 and <b>nothing else</b>. There is no column to drop and no table to
     /// remove: a v53 database and a v54 database have byte-identical <c>PRAGMA table_info</c> for every table.
@@ -424,10 +432,25 @@ public static class SchemaDowngrade
     ///
     /// <para>Like every method in this file this is test-only — nothing in <c>src/</c> calls
     /// <see cref="SchemaDowngrade"/>.</para>
+    ///
+    /// ── BLOCK B — origin/main (Credit Limits, PR #62) — THIS IS WHAT V54ToV53 ACTUALLY DOES NOW ──
+    /// v54 → v53 (census 10.1): drops the three Credit-Limit columns from <c>ledgers</c> and stamps the marker back
+    /// to 53. Used by the tests to manufacture a genuine v53 database out of a current one, so a migration test runs
+    /// against real rows rather than hand-written DDL.
+    ///
+    /// <para>⚠️ <b>NOT information-preserving, and that is the point of the version.</b> A party carrying a credit
+    /// limit comes back with none — the ledger will accept, at v53, an invoice it would have refused at v54. The
+    /// two flags come back off. Nothing else on the ledger moves. The same <c>CREATE … AS SELECT</c> constraint-loss
+    /// residual documented on <see cref="DropColumns"/> applies; <c>ix_ledgers_company</c> is replayed by that
+    /// helper.</para>
     /// </summary>
     public static void V54ToV53(SqliteConnection connection)
     {
         ArgumentNullException.ThrowIfNull(connection);
+
+        // 🔴 A12: kept from origin/main. This branch's side of the conflict was EMPTY here (its v54 added no DDL),
+        // but v54 is Credit Limits now, so dropping these three columns is required and must not be removed.
+        DropColumns(connection, "ledgers", Schema.V54CreditLimitColumns, "ledgers_v53");
 
         Exec(connection, "UPDATE schema_version SET version = 53;");
     }

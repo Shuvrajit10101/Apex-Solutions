@@ -604,6 +604,13 @@ internal sealed class ImportPlan
             // WI-4 (v45): the party Mailing Details block. Null for every ledger that carried none, so a pre-v45
             // document imports byte-for-byte to the ledger it always did (ER-13).
             domain.Mailing = BuildPartyMailing(l.Mailing);
+            // Census 10.1 (v54): the Credit Limits block. 🔴 The conditional is on the NULLABLE — an imported
+            // ledger that carried no limit must come back with NO limit (not zero, which would block every credit
+            // transaction against it), and one that carried a limit of zero must come back blocked. A pre-v54
+            // document carries neither attribute and imports exactly as it always did (ER-13).
+            domain.CreditLimit = l.CreditLimitPaisa is { } clp ? MoneyCodec.FromPaisa(clp) : null;
+            domain.CheckCreditDaysOnEntry = l.CheckCreditDaysOnEntry;
+            domain.OverrideCreditLimitWithPostDated = l.OverrideCreditLimitWithPostDated;
             // Phase 9: mirror the item-GST guard onto the sales/purchase LEDGER block (the recurring Io-bypass defect
             // class) — a malformed §17(5)/cess/RSP block (e.g. a BlockedCreditCategory with a non-blocked eligibility)
             // throws here in pre-flight, so the whole batch rejects all-or-nothing (Applied = false, target untouched)

@@ -125,6 +125,14 @@ namespace Apex.Persistence.Sqlite;
 /// additive, no back-fill: an existing type reads both OFF, which is exactly what a v52 type was. It is the storage
 /// half of the slice that gave the Voucher Type master a screen at all (census 2.4/5.11) — before it, not one of
 /// <c>VoucherType</c>'s ~20 properties could be edited by an operator.
+/// 🔴 <b>A12 UNRESOLVED SCHEMA-VERSION COLLISION — THE TWO BLOCKS BELOW BOTH CLAIM v54.</b> origin/main took v54
+/// for Credit Limits in PR #62 BEFORE user ruling 16 assigned v54 to this branch's Karnataka PT back-fill, so the
+/// back-fill must be renumbered to <b>v55</b>. A12 preserved BOTH sides verbatim and renumbered NOTHING: the
+/// renumber moves <see cref="CurrentVersion"/>, adds a downgrade, rewires the SqliteCompanyStore dispatch and
+/// re-pins every schema test — that is the build agent's call, not a rename.
+/// <b>THIS FILE DOES NOT COMPILE UNTIL THAT IS DONE. The break is deliberate, so the collision cannot be missed.</b>
+///
+/// ── BLOCK A — THIS BRANCH (Karnataka PT back-fill, ruling 16) — MUST BECOME v55 ──
 /// <b>v54</b> is the <b>first bump in this schema that adds NO DDL AT ALL</b>. It is a pure DATA REPAIR: it clears
 /// the unsourced ₹300 <b>February over-charge</b> off the seeded <b>Karnataka</b> Professional-Tax top band in books
 /// that already carry it, so an existing Karnataka employee stops being deducted ₹2,500 a year against a statutory
@@ -132,17 +140,31 @@ namespace Apex.Persistence.Sqlite;
 /// corrected table already (the code fix landed separately) — and the migration-equivalence test passes trivially.
 /// ⚠️ <b>It rewrites USER-EDITABLE rows, so it is fingerprint-gated</b>: only a Karnataka slab table that still
 /// matches the shipped seed EXACTLY is touched. See <see cref="MigrateV53ToV54"/>.
+///
+/// ── BLOCK B — origin/main (Credit Limits, PR #62) — KEEPS v54 ──
+/// <b>v54</b> adds <b>Credit Limits</b> on a party ledger: <c>credit_limit_paisa</c> (NULLable, no default — 0 is a
+/// real, blocking limit and must not double as "unset"), <c>check_credit_days_on_entry</c> and
+/// <c>override_credit_limit_post_dated</c> on <c>ledgers</c>. Purely additive, no back-fill: an existing ledger reads
+/// no limit and both flags off, which is exactly what a v53 ledger was. Census 10.1.
 /// <b><see cref="CurrentVersion"/> = 54</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
     /// <summary>The current schema version this adapter reads and writes. <b>v54</b> is the latest bump
+    /// 🔴 A12: COLLISION — the two parenthetical blocks below both describe "v54". BLOCK A must become v55.
+    /// ── BLOCK A — THIS BRANCH (ruling 16) — MUST BECOME v55 ──
     /// (the <b>Karnataka Professional-Tax February back-fill</b> — the first version here that adds NO DDL and
     /// exists only to correct WRONG MONEY already sitting in existing books. It clears the unsourced ₹300 February
     /// over-charge off the seeded Karnataka PT top band, and it is FINGERPRINT-GATED because those rows are
     /// user-editable: a slab table an operator has altered is left exactly as the operator left it.
     /// See <see cref="MigrateV53ToV54"/>).
+    /// ── BLOCK B — origin/main (PR #62) — KEEPS v54 ──
+    /// (<b>Credit Limits</b> on a party ledger: <c>credit_limit_paisa</c>, <c>check_credit_days_on_entry</c> and
+    /// <c>override_credit_limit_post_dated</c> on <c>ledgers</c>. ATTESTED fields of the vendor's Credit Limits
+    /// screen (census 10.1). Purely additive with no back-fill — an existing ledger reads no limit and both flags
+    /// off, which is what a v53 ledger was. ⚠️ The limit column is NULLable with NO default on purpose: a limit of
+    /// <b>zero</b> is a real, blocking value, so it cannot double as "unset". See <see cref="MigrateV53ToV54"/>).
     /// v53 was the latest bump
     /// (the <b>two Voucher Type user flags</b>: <c>print_after_saving</c> and
     /// <c>provide_narration_for_each_ledger</c> on <c>voucher_types</c>, both <c>INTEGER NOT NULL DEFAULT 0</c>.
@@ -880,7 +902,13 @@ public static class Schema
             mailing_name                 TEXT        NULL,            -- "Mailing Name" (blank ⇒ print the ledger Name)
             mailing_address              TEXT        NULL,            -- free text, newline-separated lines
             mailing_country              TEXT        NULL,
-            mailing_pincode              TEXT        NULL             -- 6-digit Indian PIN, or NULL
+            mailing_pincode              TEXT        NULL,            -- 6-digit Indian PIN, or NULL
+            -- v54 (W-F2; census 10.1): Credit Limits on a Sundry Debtor / Sundry Creditor ledger. Declarations
+            -- byte-identical to MigrateV53ToV54 — see that constant for why the limit is NULLable with NO default
+            -- and why there is deliberately no second credit-period column here.
+            credit_limit_paisa               INTEGER     NULL,            -- NULL = no limit; 0 IS a real, blocking limit
+            check_credit_days_on_entry       INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Check for credit days during voucher entry"
+            override_credit_limit_post_dated INTEGER NOT NULL DEFAULT 0   -- 0/1 "Override credit limit using post-dated transactions"
         );
 
         CREATE TABLE currencies (
@@ -4051,6 +4079,16 @@ public static class Schema
     public static readonly IReadOnlyList<string> V53VoucherTypeFlagColumns =
         new[] { "print_after_saving", "provide_narration_for_each_ledger" };
 
+    // 🔴🔴 A12 UNRESOLVED SCHEMA-VERSION COLLISION STARTS HERE — DO NOT "CLEAN THIS UP" BY DELETING EITHER SIDE. 🔴🔴
+    // BLOCK A below (this branch, Karnataka PT back-fill, ruling 16) and BLOCK B further down (origin/main, Credit
+    // Limits, PR #62) BOTH declare `public const string MigrateV53ToV54`. That duplicate member is a HARD COMPILE
+    // ERROR and it is INTENTIONAL: PR #62 took v54 before ruling 16 assigned it, so BLOCK A must be renumbered to
+    // v55 (CurrentVersion, a V55ToV54 downgrade, the SqliteCompanyStore dispatch, and every schema-test pin,
+    // including tests/Apex.Persistence.Sqlite.Tests/KarnatakaPtBackfillSchemaTests.cs which asserts
+    // `Schema.CurrentVersion == 54` and calls `SchemaDowngrade.V54ToV53`). A12 preserved both sides byte-for-byte
+    // and renumbered nothing, because that renumber is a design change, not a rename.
+    //
+    // ══════════ BLOCK A — THIS BRANCH (Karnataka PT back-fill, ruling 16) — MUST BECOME v55 ══════════
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
     // v54 — the Karnataka Professional-Tax February back-fill. Fingerprint constants first, because the migration
     // SQL, the downgrade and the tests must all speak about the SAME shipped-seed shape or the gate is theatre.
@@ -4137,4 +4175,50 @@ public static class Schema
                          AND nil.monthly_amount_paisa = 0
                          AND nil.month_overrides      = '');
         """;
+    // ══════════ BLOCK B — origin/main (Credit Limits, PR #62) — KEEPS v54 ══════════
+    /// <summary>
+    /// v53 → v54 (W-F2; census 10.1): <b>Credit Limits</b> on a party ledger — three columns on <c>ledgers</c>.
+    ///
+    /// <para><b>R7 — ATTESTED</b> (help.tallysolutions.com): <i>"Credit limits can be set for ledgers created under
+    /// the groups Sundry Debtors and Sundry Creditors"</i>, with the screen's own captions <b>"Credit Limit"</b>,
+    /// <b>"Credit Period"</b>, <b>"Check For Credit Dates During Voucher Entry"</b> and <b>"Override credit limit
+    /// using post-dated transactions"</b> (Credit_Limits.htm / Setting_Credit_Limits.htm), corroborated on the
+    /// TallyPrime-era receivables page (<c>/manage-receivables-outstanding-tally/</c>), which independently attests
+    /// the party credit limit, the save-time error and the credit-days warning. The column names are ours.</para>
+    ///
+    /// <para>🔴 <b><c>credit_limit_paisa</c> is NULLable with NO default, and that is a correctness decision, not a
+    /// style one.</b> <c>NOT NULL DEFAULT 0</c> would declare that every existing party may buy <b>nothing</b>: a
+    /// limit of zero is a real and blocking value, so it cannot double as "unset". <c>NULL</c> = no limit, which is
+    /// the literal truth about every pre-v54 ledger (ER-13). Paisa, matching <c>opening_balance_paisa</c> and every
+    /// other money column.</para>
+    ///
+    /// <para>The two flags are <c>INTEGER NOT NULL DEFAULT 0</c> and back-fill nothing, exactly as v53's two flags
+    /// do — <c>0</c> is what every pre-v54 row was.</para>
+    ///
+    /// <para>🔴 <b>There is deliberately NO <c>credit_period</c> column.</b> <c>ledgers.default_credit_period</c>
+    /// already exists ("days, NULL = none") and is already edited by the Ledger master. The vendor's Multi Ledger
+    /// Limit Alteration screen shows Credit Limit · Credit Period · Check For Credit Dates — we already hold the
+    /// middle one, and a second stored credit period could contradict the first. This is exactly the trap the
+    /// <c>mailing_state</c> note above records. Do not add one.</para>
+    ///
+    /// <para>No index: every access is by ledger id inside an already-loaded aggregate.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 54. The three declarations are
+    /// byte-identical to their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV53ToV54 = """
+        -- v54 (W-F2; census 10.1): Credit Limits on a Sundry Debtor / Sundry Creditor ledger. The limit is NULLable
+        -- with NO default because 0 is a real, blocking limit and must not double as "unset"; the two flags default
+        -- 0, which is the truth about every pre-v54 row. Nothing is back-filled.
+        ALTER TABLE ledgers ADD COLUMN credit_limit_paisa               INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN check_credit_days_on_entry       INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN override_credit_limit_post_dated INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>The three <c>ledgers</c> columns v54 adds — the exact set <see cref="MigrateV53ToV54"/> creates and
+    /// <c>SchemaDowngrade.V54ToV53</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V54CreditLimitColumns =
+        new[] { "credit_limit_paisa", "check_credit_days_on_entry", "override_credit_limit_post_dated" };
+    // 🔴🔴 A12 COLLISION REGION ENDS HERE. 🔴🔴
 }

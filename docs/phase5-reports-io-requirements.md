@@ -277,7 +277,7 @@ Stated so the Phase-5 boundary is unambiguous:
   lettering before any of it is quoted anywhere. This project has already had to strip mis-attributed
   citations out of shipped code once. *(CGST Act §34(1)/(3)/(4); CGST Rule 53)*
   **▶ THIS REQUIREMENT HAS NO DEPENDENCY ON CENSUS T0-10.** A note cannot carry inventory lines **at all** —
-  `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws *"Item-invoice stock lines are only valid on a
+  `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws *"Item-invoice stock lines are only valid on a
   Purchase or Sales voucher"* on every post — so the value-level shape above **is** the statutory minimum and
   is fully reachable today. Any per-item table on a note would sit **above** that minimum and is labelled OURS.
 

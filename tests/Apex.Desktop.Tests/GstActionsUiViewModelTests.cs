@@ -176,8 +176,15 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         Assert.Contains("GST Actions", statutory);
     }
 
+    /// <summary>
+    /// The GST Actions group's exact membership and order. It gained a <b>seventh</b> row —
+    /// "DRC-03 Voluntary Payment" — when census row 6.20 was given a front end; it sits immediately after
+    /// "Post ITC Reversal", the screen it is modelled on. This assertion is exhaustive on purpose: a row
+    /// appearing here that nothing opens, or an opener with no row, is the exact defect shape this group has
+    /// already had once.
+    /// </summary>
     [Fact]
-    public void Gst_actions_group_lists_the_six_action_screens()
+    public void Gst_actions_group_lists_the_seven_action_screens()
     {
         var vm = NewRegularGstCompany("Actions Nav Co");
 
@@ -188,6 +195,7 @@ public sealed class GstActionsUiViewModelTests : IDisposable
             new[]
             {
                 "IMS (Accept / Reject / Pending)", "Run Set-Off & Pay", "Post ITC Reversal",
+                "DRC-03 Voluntary Payment",
                 "Import GSTR-2B", "Generate e-Invoice", "Generate e-Way Bill",
             },
             items);
