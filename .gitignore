@@ -66,6 +66,12 @@ desktop.ini
 *.log
 *.tmp
 
+# Build/test transcripts. NOTE: the rules above cover *.log but NOT *.txt, and
+# a track once committed .review/build.txt and .review/test.txt because of it.
+# Gate logs belong OUTSIDE the worktree; this directory is ignored wholesale so
+# the mistake cannot recur even when someone redirects output in-tree.
+.review/
+
 # ---------------------------------------------------------------------------
 # THIRD-PARTY IP — NEVER COMMIT (CLAUDE.md R4). The entire tally/ folder holds
 # copyrighted Tally Prime study PDFs and must stay out of the repository.

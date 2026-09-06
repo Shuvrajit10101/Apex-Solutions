@@ -80,6 +80,62 @@ public sealed class GstReturnFigureRow
 /// </summary>
 public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 {
+    /// <summary>
+    /// 🔴 <b>THE FIDELITY CONTENT OF CENSUS ROW 6.13, AND IT IS RENDERED ON THE PAGE — NOT LEFT IN A COMMENT.</b>
+    /// The GSTR-9A row reaches this shared page and this page is headed <i>"GST Offline Return Files"</i>; a
+    /// composition dealer who read that heading and filed what the page showed would <b>file the wrong form</b>. The
+    /// operative annual return for a person paying tax under section 10 is <b>GSTR-4</b> — which this page offers one
+    /// row above — and GSTR-9A is a form the portal will no longer accept for the only two years it was ever relaxed
+    /// for. So the page states, on its face, that the 9A figures are a computation for reconciliation and for prior
+    /// years, never a filing artefact.
+    ///
+    /// <para><b>Sources</b> (Ruling 14 tier 2 — the statutory text itself, from CBIC's own consolidation
+    /// <c>https://cbic-gst.gov.in/pdf/amended-01012022-CGST-Rules-2017-Part-A.pdf</c>, the CGST Rules as amended to
+    /// 01.01.2022, page 83 of 170, text-extracted with <c>pdftotext -raw</c>):
+    /// <list type="bullet">
+    /// <item><b>Rule 80(1) proviso</b> (as substituted w.e.f. 01.08.2021 by Notification 30/2021-CT dt. 30.07.2021),
+    /// verbatim: <i>"Provided that a person paying tax under section 10 shall furnish the annual return in FORM
+    /// GSTR-9A."</i> The form is therefore <b>still prescribed</b> — it has not been deleted from the Rules, which is
+    /// not what the popular guides say.</item>
+    /// <item><b>Rule 62(1)(ii)</b> (as substituted by Notification 20/2019-CT dt. 23.04.2019), verbatim: a person
+    /// paying tax under section 10 shall <i>"furnish a return for every financial year … in FORM GSTR-4, till the
+    /// thirtieth day of April following the end of such financial year."</i></item>
+    /// <item><b>Circular 124/43/2019-GST dt. 18.11.2019</b>, CBIC's own PDF at
+    /// <c>https://cbic-gst.gov.in/pdf/circular-cgst-124.pdf</c> (retrieved 2026-09-06, text-extracted with
+    /// <c>pdftotext -raw</c>), paragraph 2(a), verbatim: <i>"Since the said notification has made it optional to
+    /// furnish the annual return for FY 2017-18 and 2018-19 for those registered persons whose aggregate turnover in
+    /// a financial year does not exceed two crore rupees, it is clarified that the tax payers under composition
+    /// scheme, may, at their own option file FORM GSTR-9A for the said financial years before the due date. After
+    /// the due date of furnishing the annual return for the year 2017-18 and 2018-19, the common portal shall not
+    /// permit furnishing of FORM GSTR-9A for the said period."</i> The circular's own subject line names <b>the said
+    /// notification</b> as <b>Notification 47/2019-Central Tax dt. 09.10.2019</b>, issued under section 148.</item>
+    /// </list>
+    /// 🔴 <b>THIS PARAGRAPH RECORDS A CORRECTION, NOT A STYLE CHANGE. The string used to say GSTR-9A had "been
+    /// waived by notification for years after FY 2018-19", and a test pinned that wording verbatim. It is wrong
+    /// twice over</b> and the circular above is the source that refutes it: the relaxation was <b>optional filing,
+    /// not a waiver</b>; it applied to <b>FY 2017-18 and FY 2018-19 — the years BEFORE the cut-off the sentence
+    /// named, not the years after</b>; and it was conditional on aggregate turnover not exceeding two crore rupees,
+    /// a limit the sentence omitted entirely.</para>
+    ///
+    /// <para>🔴 <b>What is still NOT claimed.</b> No notification waiving or dispensing with GSTR-9A for <b>FY
+    /// 2019-20 or any later year</b> has been retrieved here — <c>cbic-gst.gov.in/pdf/notification-47-2019-central-
+    /// tax-english.pdf</c> 404s and the CGST-Rules consolidation cited above is the Rules, not the notification
+    /// series — and the rule 80(1) proviso quoted above is still live in that consolidation. So the statement names
+    /// only the two instruments actually read (20/2019-CT and 47/2019-CT, the latter through the circular that
+    /// quotes it) and says in words that no later-year waiver was retrieved. Naming a notification nobody here read
+    /// is precisely the <c>SeedTdsTcsRates</c> mistake this project has already had to strip out of shipped code.
+    /// <b>Do not add a number to this string that is not quoted somewhere above.</b></para>
+    /// </summary>
+    public const string Gstr9aApplicabilityText =
+        "Rule 80(1) proviso (CGST Rules, as amended to 01.01.2022) prescribes FORM GSTR-9A as the annual return for " +
+        "a person paying tax under section 10. Rule 62(1)(ii), as substituted by Notification 20/2019-CT dt. " +
+        "23.04.2019, requires a composition taxpayer to furnish GSTR-4 annually by 30 April. For FY 2017-18 and " +
+        "FY 2018-19 only, Notification 47/2019-CT dt. 09.10.2019 made that annual return optional where aggregate " +
+        "turnover did not exceed two crore rupees, and Circular 124/43/2019-GST dt. 18.11.2019 states that after " +
+        "those years' due dates the common portal no longer permits GSTR-9A to be furnished for them. No waiver of " +
+        "GSTR-9A for any later year was retrieved, and none is claimed here. This computation is provided for " +
+        "reconciliation and for prior years; it is not a filing artefact.";
+
     private readonly Company _company;
 
     [ObservableProperty] private string _title = "GST Offline Return Files";
@@ -89,6 +145,15 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
     [ObservableProperty] private string _schemaNoteText =
         "The portal upload schema for these forms is published only behind the authenticated GST developer portal, " +
         "so these files use this application's own key names and every file states that in its schemaStatus field.";
+
+    /// <summary>
+    /// The applicability statement for the currently selected form — <b>empty for every form that has a live,
+    /// unambiguous filing obligation</b>, and non-empty only where reading the page as a "file this" surface would
+    /// make the operator file the wrong thing. Today exactly one form is in that position: <b>GSTR-9A</b>. See
+    /// <see cref="Gstr9aApplicabilityText"/>. Cleared on every path through <see cref="Rebuild"/> so it can never
+    /// linger over a different form.
+    /// </summary>
+    [ObservableProperty] private string _applicabilityNoteText = string.Empty;
     [ObservableProperty] private string _exportFolder = string.Empty;
     [ObservableProperty] private string _exportStatus = string.Empty;
 
@@ -148,8 +213,18 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
             { Enabled: true, RegistrationType: GstRegistrationType.Composition } =>
             [
                 new() { Kind = GstOfflineReturnKind.Cmp08, Label = "CMP-08", Description = "Quarterly statement" },
-                new() { Kind = GstOfflineReturnKind.Gstr4, Label = "GSTR-4", Description = "Composition annual return" },
-                new() { Kind = GstOfflineReturnKind.Gstr9a, Label = "GSTR-9A", Description = "Composition annual return" },
+                // 🔴 These two descriptions must not read alike. GSTR-4 is the return a composition dealer actually
+                // files (rule 62(1)(ii)); GSTR-9A is the rule 80(1) annual return the portal no longer accepts. They
+                // were both "Composition annual return", which is exactly the confusion ApplicabilityNoteText exists
+                // to prevent — a picker that describes the wrong form identically to the right one hands the operator
+                // the mistake. Gstr9aApplicabilityTests.Every_offered_return_describes_itself_distinctly pins that
+                // every description in every registration arm is distinct.
+                // ⚠️ STATED PLAINLY: no view binds Description on THIS page today — the picker's item template shows
+                // Label only — so this fix corrects the model, not a visible string. It is still worth making: the
+                // property is public, is what a description column would render, and two forms carrying the same
+                // self-description is a defect stored up for the moment one is shown.
+                new() { Kind = GstOfflineReturnKind.Gstr4, Label = "GSTR-4", Description = "Composition annual return (rule 62(1)(ii)) — the one to file" },
+                new() { Kind = GstOfflineReturnKind.Gstr9a, Label = "GSTR-9A", Description = "Rule 80(1) annual return — reconciliation only, see the note" },
             ],
             _ => [],
         };
@@ -243,6 +318,9 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
     {
         Figures.Clear();
         ExportStatus = string.Empty;
+        // Cleared FIRST, on every path, so an applicability statement can never linger over a form it does not
+        // describe. Only ProjectGstr9a re-raises it.
+        ApplicabilityNoteText = string.Empty;
         GstinText = string.IsNullOrWhiteSpace(_company.Gst?.Gstin) ? "GSTIN —" : $"GSTIN {_company.Gst!.Gstin}";
 
         // Both are computed from the selected form + period and are BOUND in the view (the file-name placeholder).
@@ -417,8 +495,22 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         Add("Composition tax paid", r.CompositionTaxPaid);
         Add("Reverse-charge inward tax", r.RcmInwardTax);
         Add("Late fee", r.LateFee);
+
+        // 🔴 Census row 6.13. This runs for a COMPOSITION dealer only, and that is not a limitation to work around —
+        // it is the shape of ApplicableReturns: GSTR-9A is offered in the Composition arm alone, OpenGstOfflineReturns
+        // bails when Returns is empty, and `preselect` can only select a form the arm already contains, so there is
+        // no reachable state in which a Regular company projects GSTR-9A. (An earlier comment here claimed the
+        // statement was raised "for a Regular one" as well; it never was, and could not be.
+        // Gstr9aApplicabilityTests.A_regular_dealer_has_no_path_to_the_gstr9a_projection_at_all now pins that, so
+        // the claim cannot silently come back.) The note still says something the not-applicable
+        // status line does not: the status line answers "does THIS company file it", while the note answers "is this
+        // form filed at all, and which form is the operative one" — and only the second stops a composition dealer
+        // filing 9A instead of GSTR-4. See Gstr9aApplicabilityText for the sources.
+        ApplicabilityNoteText = Gstr9aApplicabilityText;
+
         StatusText = r.Applicable
-            ? "GSTR-9A ready — the tax paid is the sum of the four quarterly CMP-08 figures by construction."
+            ? "GSTR-9A computed — the tax paid is the sum of the four quarterly CMP-08 figures by construction. " +
+              "The annual return a composition taxpayer files is GSTR-4; read the note above before filing anything."
             : "Not applicable — GSTR-9A is filed only by a Composition dealer.";
     }
 

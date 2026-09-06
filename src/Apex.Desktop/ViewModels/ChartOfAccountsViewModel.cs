@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DomainLedger = Apex.Ledger.Domain.Ledger;
@@ -110,6 +111,53 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
         Build();
     }
 
+    // ------------------------------------------------- census 2.13: the derived "Unused" view (Ctrl+J)
+
+    /// <summary>
+    /// <b>Census 2.13 — the Ctrl+J "Show Unused" filter.</b> While true the tree shows only ledgers that
+    /// <see cref="UnusedMasters.IsLedgerUnused"/> reports unused, with every group that has nothing unused beneath
+    /// it pruned away, and the heading becomes the vendor's own caption
+    /// <see cref="UnusedMasters.UnusedLedgersCaption"/>.
+    ///
+    /// <para>Nothing is stored. The answer is derived from the vouchers on every rebuild, so posting against a
+    /// listed ledger and pressing Ctrl+J again drops it out of the list with no master edit anywhere.</para>
+    ///
+    /// <para><b>Groups are pruned, not flattened</b> (OURS, ruling 9). The vendor's caption says "List of
+    /// Ledgers", but this screen IS a tree and the operator needs to know which head an unused ledger sits under
+    /// before deciding anything about it. So the surviving ledgers keep their parents; a head with nothing unused
+    /// under it disappears entirely rather than standing empty.</para>
+    /// </summary>
+    [ObservableProperty] private bool _showUnusedOnly;
+
+    partial void OnShowUnusedOnlyChanged(bool value)
+    {
+        Title = value ? UnusedMasters.UnusedLedgersCaption : "Chart of Accounts";
+        Subtitle = value
+            ? $"{_company.Name}  —  ledgers with no recorded transactions"
+            : $"{_company.Name}  —  Groups & Ledgers";
+        Refresh();
+        OnPropertyChanged(nameof(ShowsEmptyUnusedNotice));
+    }
+
+    /// <summary>
+    /// True when the filter is on but nothing survived it — the pane must SAY so rather than render an empty box
+    /// the operator reads as a broken screen.
+    ///
+    /// <para>🔴 It depends on <see cref="Rows"/> as well as on <see cref="ShowUnusedOnly"/>, so notifying it only
+    /// from <c>OnShowUnusedOnlyChanged</c> is NOT enough: a <see cref="Refresh"/> that empties the filtered tree —
+    /// which is exactly what happens when the last unused ledger is transacted with while the pane is open — left
+    /// the notice stale and the pane blank. <see cref="Build"/> raises it, so every path that rebuilds the rows
+    /// re-evaluates it. Pinned by
+    /// <c>ChartOfAccountsUnusedReachabilityTests.The_empty_notice_is_shown_only_when_the_filter_survives_nothing</c>,
+    /// which found this by driving the real window rather than the flag.</para>
+    /// </summary>
+    public bool ShowsEmptyUnusedNotice => ShowUnusedOnly && Rows.Count == 0;
+
+    /// <summary>How many of the company's ledgers are unused right now, independent of whether the filter is on.
+    /// Derived on every read; the Ctrl+J panel quotes it in its status line so the operator can see the answer
+    /// before committing to the filtered view.</summary>
+    public int UnusedLedgerCount => _company.Ledgers.Count(l => UnusedMasters.IsLedgerUnused(_company, l));
+
     // --------------------------------------------------------------- keyboard selection + drill (WI-3)
 
     /// <summary>The index of the highlighted row, or -1 when nothing is highlighted.</summary>
@@ -189,32 +237,43 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
             .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase);
 
         foreach (var primary in primaries)
-            EmitGroup(primary, depth: 0, childGroups, ledgersByGroup);
+            foreach (var row in BuildGroup(primary, depth: 0, childGroups, ledgersByGroup))
+                Rows.Add(row);
 
         // The reserved P&L head is kept out of Groups; show it (and its ledger) at the end.
         if (_company.ProfitAndLossHead is { } plHead)
-            EmitGroup(plHead, depth: 0, childGroups, ledgersByGroup);
+            foreach (var row in BuildGroup(plHead, depth: 0, childGroups, ledgersByGroup))
+                Rows.Add(row);
+
+        // Census 2.13: the empty-Unused notice reads Rows.Count, so EVERY rebuild must re-evaluate it — not just a
+        // toggle of the filter. Without this line a Refresh that empties the filtered tree leaves the notice stale
+        // and the operator staring at a blank pane. Raised last, once the rows are final.
+        OnPropertyChanged(nameof(ShowsEmptyUnusedNotice));
     }
 
-    private void EmitGroup(
+    /// <summary>
+    /// The rows for one group's whole subtree, in display order: the group, then its ledgers, then each sub-group's
+    /// subtree — exactly the order the tree has always emitted.
+    ///
+    /// <para>Returning a list rather than appending straight to <see cref="Rows"/> is what makes the census-2.13
+    /// filter possible: under <see cref="ShowUnusedOnly"/> a group is emitted <b>only when something survived
+    /// beneath it</b>, and that is knowable only after its children have been built. With the filter OFF the
+    /// method appends unconditionally, so the unfiltered tree is byte-identical to before.</para>
+    /// </summary>
+    private List<ChartRow> BuildGroup(
         Group group,
         int depth,
         IReadOnlyDictionary<Guid, List<Group>> childGroups,
         IReadOnlyDictionary<Guid, List<DomainLedger>> ledgersByGroup)
     {
-        Rows.Add(new ChartRow
-        {
-            Name = group.Name,
-            Kind = depth == 0 ? ChartNodeKind.Primary : ChartNodeKind.SubGroup,
-            Depth = depth,
-            Detail = group.Nature.ToString(),
-            GroupId = group.Id,   // WI-3: Enter on this row opens the Group master for alteration.
-        });
+        var below = new List<ChartRow>();
 
         // Ledgers sit directly under their group, one level deeper than the group.
         if (ledgersByGroup.TryGetValue(group.Id, out var ledgers))
             foreach (var l in ledgers)
-                Rows.Add(new ChartRow
+            {
+                if (ShowUnusedOnly && !UnusedMasters.IsLedgerUnused(_company, l)) continue;
+                below.Add(new ChartRow
                 {
                     Name = l.Name,
                     Kind = ChartNodeKind.Ledger,
@@ -222,11 +281,29 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
                     Detail = OpeningText(l),
                     LedgerId = l.Id,   // WI-3: Enter on this row opens the Ledger master for alteration.
                 });
+            }
 
         // Recurse into sub-groups (nested/indented under this parent).
         if (childGroups.TryGetValue(group.Id, out var subs))
             foreach (var sub in subs)
-                EmitGroup(sub, depth + 1, childGroups, ledgersByGroup);
+                below.AddRange(BuildGroup(sub, depth + 1, childGroups, ledgersByGroup));
+
+        // Filtered: a head with nothing unused beneath it disappears rather than standing empty.
+        if (ShowUnusedOnly && below.Count == 0) return below;
+
+        var rows = new List<ChartRow>(below.Count + 1)
+        {
+            new ChartRow
+            {
+                Name = group.Name,
+                Kind = depth == 0 ? ChartNodeKind.Primary : ChartNodeKind.SubGroup,
+                Depth = depth,
+                Detail = group.Nature.ToString(),
+                GroupId = group.Id,   // WI-3: Enter on this row opens the Group master for alteration.
+            },
+        };
+        rows.AddRange(below);
+        return rows;
     }
 
     private static string OpeningText(DomainLedger l)

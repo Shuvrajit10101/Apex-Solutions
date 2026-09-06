@@ -69,6 +69,7 @@ public sealed class AccountingInvoiceFlagSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
@@ -120,6 +121,7 @@ public sealed class AccountingInvoiceFlagSchemaTests
             // state a user's pre-v49 database is in.
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
@@ -161,6 +163,7 @@ public sealed class AccountingInvoiceFlagSchemaTests
 
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
                 SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters

@@ -42,6 +42,37 @@ public sealed class Ledger
     public int? DefaultCreditPeriodDays { get; set; }
 
     /// <summary>
+    /// <b>Census 10.1 — "Credit Limit"</b> on a ledger under Sundry Debtors / Sundry Creditors. <c>null</c> = <b>no
+    /// limit</b>, which is what every ledger was before v54.
+    ///
+    /// <para>🔴 <b><c>null</c> and <see cref="Money.Zero"/> are DIFFERENT and must never be conflated.</b> A limit of
+    /// zero is a real, blocking value — "this party may take nothing on credit" — so it cannot double as "unset".
+    /// That is why <c>credit_limit_paisa</c> is the one v54 column with no DEFAULT. Any code that writes
+    /// <c>?? Money.Zero</c> here has silently frozen every party in the book.</para>
+    ///
+    /// <para>The breach rule lives in <see cref="Services.CreditLimitRules"/> and is enforced at save by
+    /// <see cref="Services.VoucherValidator"/> on ENTRY paths only.</para>
+    /// </summary>
+    public Money? CreditLimit { get; set; }
+
+    /// <summary>
+    /// <b>Census 10.1 — "Check For Credit Dates During Voucher Entry".</b> When on, entry warns (it does NOT block)
+    /// that the party has bills past their credit period. Off on every pre-v54 ledger.
+    ///
+    /// <para>🔴 This is a <b>warning</b>, and <see cref="CreditLimit"/> is a <b>block</b>. The two severities are
+    /// the vendor's, not ours, and swapping them is the wrong-money failure this row exists to avoid: blocking on
+    /// days would refuse legitimate invoices, warning on the amount would let bad ones through.</para>
+    /// </summary>
+    public bool CheckCreditDaysOnEntry { get; set; }
+
+    /// <summary>
+    /// <b>Census 10.1 — "Override credit limit using post-dated transactions".</b> The vendor's named escape from a
+    /// breach: with this on, the party's post-dated vouchers are excluded from the exposure the limit is measured
+    /// against. Off on every pre-v54 ledger.
+    /// </summary>
+    public bool OverrideCreditLimitWithPostDated { get; set; }
+
+    /// <summary>
     /// "Cost centres applicable = Yes/No" (catalog §6). <c>null</c> ⇒ <b>auto</b>: the effective value
     /// follows the ledger's nature (true for Income/Expense-nature ledgers, false otherwise). Set a
     /// non-null value to <b>override</b> that default explicitly. Resolve the effective flag with
@@ -64,6 +95,71 @@ public sealed class Ledger
     /// unset. The concrete layout for a given format is a later-slice concern.
     /// </summary>
     public string? ChequePrintingBankName { get; set; }
+
+    // ---- Banking documents (census rows 8.4-8.7). Post-construction properties, so the ctor and its every
+    //      call site are untouched and an untouched bank ledger stays byte-identical (ER-13). ----
+    //
+    // 🔴 READ THIS BEFORE BUILDING ON THE SIX PROPERTIES BELOW — THEY DO NOT PERSIST YET, AND THE CHEQUE-LEAF
+    //    RENDERER THEY FEED IS THEREFORE NOT REACHABLE BY ANY OPERATOR.
+    //
+    //    ChequeLayout, ChequeAdjustTopTmm, ChequeAdjustLeftTmm, PrintCompanyNameOnCheque, BankAccountNumber,
+    //    BankBranch and BankIfsc are in-memory only. There is no `cheque_layouts` table and there are no
+    //    `ledgers` columns for them: that storage is the wave's single schema migration, and it could not be
+    //    taken on this branch (see below). So they are always at their defaults on a loaded company, which
+    //    means ChequePdf.Validate always refuses with "Cheque dimensions are not set for this bank" and the
+    //    cheque LEAF never prints. What DOES ship and is fully reachable is the other half of row 8.4 — the
+    //    Cheque Printing REPORT (Transactions > Banking > Cheque Management > Cheque Printing), which runs off
+    //    EnableChequePrinting / ChequePrintingBankName above; those are schema-v5 columns that persist today and
+    //    that the ledger master finally captures.
+    //
+    //    WHY THE MIGRATION WAS NOT TAKEN — AND THE OLD REASON HERE IS SPENT. It said this branch was cut at
+    //    v52 and to merge origin/main in first. THAT MERGE IS DONE: this tree reads Schema.CurrentVersion 53.
+    //    The live blocker is ALLOCATION, not arithmetic — wave 7 gave the next schema version to a sibling
+    //    track, and two live tracks taking one number is a collision this project has already been bitten by.
+    //    Whoever takes it next: claim a version no sibling holds; add that migration with cheque_layouts /
+    //    cheque_books / cheque_status_overrides and the ledgers columns, their byte-identical CreateV1 twins
+    //    and the matching downgrade; and add the ledger-master block. Until then nothing here is shipped.
+
+    /// <summary>
+    /// The bank's <b>Cheque Dimensions</b> — where each element is inked on this bank's pre-printed leaf
+    /// (catalog §8; row 8.4). <c>null</c> ⇒ never configured, and cheque printing refuses with a message rather
+    /// than guessing a millimetre. See <see cref="ChequeLayout"/> for the vendor grounding and the units rule.
+    ///
+    /// <para><b>🔴 Not persisted yet</b> — see the block above. It is <c>null</c> on every loaded company, so the
+    /// cheque-leaf renderer is currently unreachable and row 8.4 ships on its report half alone.</para>
+    /// </summary>
+    public ChequeLayout? ChequeLayout { get; set; }
+
+    /// <summary>
+    /// The per-print vertical nudge, tenths of a millimetre —
+    /// <c>help.tallysolutions.com/docs/te9rel53/Banking/Cheque_Printing.htm</c>, "Adjust Distance From Top Edge
+    /// (in mm)". Applied to every element at render time and, as that page states of the adjustment, it "does not
+    /// affect the settings of cheque dimensions pre-configured for the selected cheque format" — so it is NEVER
+    /// written back into <see cref="ChequeLayout"/>. Stored per bank only so the operator is not re-keying it on
+    /// every print.
+    /// </summary>
+    public int ChequeAdjustTopTmm { get; set; }
+
+    /// <summary>The per-print horizontal nudge, tenths of a millimetre ("Adjust Distance From Left Edge (in mm)").</summary>
+    public int ChequeAdjustLeftTmm { get; set; }
+
+    /// <summary>
+    /// <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Disable Company Name in the Pre-printed Cheques" —
+    /// off by default, because a bank's leaf is normally already printed with the drawer's name and printing it a
+    /// second time is the defect the vendor's own toggle exists to avoid.
+    /// </summary>
+    public bool PrintCompanyNameOnCheque { get; set; }
+
+    /// <summary>The bank account number, as printed on a deposit slip and a supplier payment advice
+    /// (<c>help.tallysolutions.com/deposit-slips/</c>, "Cash Deposit Slip"). <c>null</c> ⇒ not captured.</summary>
+    public string? BankAccountNumber { get; set; }
+
+    /// <summary>The bank branch name printed on the deposit slip. <c>null</c> ⇒ not captured.</summary>
+    public string? BankBranch { get; set; }
+
+    /// <summary>The bank's IFSC, printed in the payment advice's bank-transfer block
+    /// (<c>help.tallysolutions.com/payment-advice/</c>). <c>null</c> ⇒ not captured.</summary>
+    public string? BankIfsc { get; set; }
 
     /// <summary>
     /// "Activate Interest Calculation = Yes" (catalog §7) — the optional interest-parameter block. <c>null</c>
