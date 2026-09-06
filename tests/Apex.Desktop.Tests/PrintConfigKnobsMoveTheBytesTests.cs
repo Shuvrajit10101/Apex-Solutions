@@ -154,6 +154,37 @@ public sealed class PrintConfigKnobsMoveTheBytesTests
     }
 
     /// <summary>
+    /// <b>THE SAME INVARIANT FOR THE PAGE RANGE, WHICH IS NOW A SEPARATE OFFER.</b>
+    ///
+    /// <para>W2-31's finishing pass taught <c>InvoicePdf</c>, <c>VoucherPdf</c>, <c>PayslipPdf</c> and
+    /// <c>PosReceiptPdf</c> the F10 page range and starting number, so the range group in the panel is offered on
+    /// every document kind and is ungated. The format and the paper are STILL <c>ReportPdf</c>-only and stay
+    /// behind <see cref="PrintConfigViewModel.SupportsPageKnobs"/> — one boolean covering all three could only
+    /// re-offer the two that remain inert, which is the defect this whole file exists to catch.</para>
+    ///
+    /// <para>🔴 <b>UNCONDITIONAL, deliberately.</b> It used to open <c>if (!panel.SupportsPageRange) return;</c>
+    /// against a predicate that read a bare <c>true</c> — a guard that could never fire, guarding an offer that
+    /// is never withdrawn. The predicate is gone and so is the guard: the panel offers the range over a tax
+    /// invoice, so it OWES that the range moves the invoice's bytes, with no escape hatch.</para>
+    /// </summary>
+    [Fact]
+    public void An_offered_page_range_changes_a_document_preview()
+    {
+        var preview = new PrintPreviewViewModel(OutwardTaxInvoice());
+
+        var start = Render(preview, p => p.StartPageNumber = 7);
+        Assert.False(start.Before.SequenceEqual(start.After),
+            "the panel offers a starting page number over this document preview, but setting it to 7 left the PDF "
+          + "byte-identical — the renderer reads none of PageConfig.StartPageNumber. Either honour the knob in the "
+          + "renderer, or stop offering it here.");
+
+        var range = Render(preview, p => p.FirstPage = 2);
+        Assert.False(range.Before.SequenceEqual(range.After),
+            "the panel offers an F10 page range over this document preview, but skipping to page 2 left the PDF "
+          + "byte-identical — the renderer reads none of PageConfig.IncludesPage.");
+    }
+
+    /// <summary>
     /// The same invariant over a REPORT preview — where the knobs genuinely work. This is the non-vacuity half:
     /// it proves the byte comparison above can detect a change at all, so a green result upstream means the panel
     /// stopped over-offering rather than that the harness stopped looking.

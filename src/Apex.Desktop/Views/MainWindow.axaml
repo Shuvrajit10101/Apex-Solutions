@@ -431,9 +431,21 @@
                                       <DataTemplate x:DataType="vm:MenuItemViewModel">
                                         <Panel>
                                           <!-- Section header: dim, uppercase, non-selectable -->
+                                          <!-- 🔴 TextWrapping is the HONEST-DEGRADATION backstop for this row, and it
+                                               was added against a MEASURED hard cut, not on principle. Uppercase at
+                                               LetterSpacing 1.5 costs ~12.5px per character, so a header's whole budget
+                                               in this 350px-wide cascade column is ~28 characters. The five Gateway
+                                               root headers need 88 / 113 / 150 / 88 / 50px and are unaffected — for
+                                               every one of them "Wrap" is byte-identical, which is why this is
+                                               layout-neutral rather than a redesign (a shipped test measures exactly
+                                               that). But the company menu's disclosure line needed 888px against 350
+                                               available and, with NoWrap and TextTrimming=None, it was CUT MID-WORD AT
+                                               39% WITH NO ELLIPSIS: the operator read "NOT IN THIS BUILD: TALLYV" and
+                                               nothing told them text was missing. A header that cannot fit must fold,
+                                               not vanish. -->
                                           <Border Classes="menuRow" IsVisible="{Binding IsHeader}" Margin="0,7,0,1">
                                             <TextBlock Text="{Binding Label, Converter={StaticResource Upper}}"
-                                                       FontSize="11" FontWeight="Bold"
+                                                       FontSize="11" FontWeight="Bold" TextWrapping="Wrap"
                                                        Foreground="#9098A8" LetterSpacing="1.5"/>
                                           </Border>
                                           <!-- Selectable item: bright amber in the active column, dim slate when
@@ -511,6 +523,29 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Bank picker for the Cheque Printing report (census 8.4) — the vendor's "List of Banks"
+                             scope (help.tallysolutions.com/print-cheques/, "Cheque Printing Report"). It shares
+                             Grid.Row 2 with the scenario and payroll pickers, which are mutually exclusive with it:
+                             ShowChequeBankPicker is true on exactly one ReportKind, and SupportsScenario /
+                             ShowPayrollMonthPicker are both false there.
+                             The label column is Auto, not a literal width, and the caption is the shortest true one
+                             ("Bank"), so it cannot be sliced at the ComboBox border the way a fixed track slices. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowChequeBankPicker}">
+                          <TextBlock Grid.Column="0" Text="Bank" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding ChequeBanks}"
+                                    SelectedItem="{Binding SelectedChequeBank, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:ChequeBankOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
                              one wage month; the Payslip is additionally scoped to a single employee. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
@@ -538,6 +573,26 @@
                             <ComboBox.ItemTemplate>
                               <DataTemplate x:DataType="vm:PayrollEmployeeOption">
                                 <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
+                        <!-- Statutory-period picker (W7-D2): PF Forms 3A / 6A run over the 1-Mar…28/29-Feb CURRENCY
+                             PERIOD and ESI Forms 5 / 6 over the Apr–Sep / Oct–Mar CONTRIBUTION PERIOD, neither of
+                             which is a wage month, so those four forms swap the wage-month picker for this one. Only
+                             real statutory periods are offered — the forms are not defined over an arbitrary date. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowStatutoryPeriodPicker}">
+                          <TextBlock Grid.Column="0" Text="Statutory Period" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" Width="240" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding StatutoryPeriods}"
+                                    SelectedItem="{Binding SelectedStatutoryPeriod, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:StatutoryPeriodOption">
+                                <TextBlock Text="{Binding Label}"/>
                               </DataTemplate>
                             </ComboBox.ItemTemplate>
                           </ComboBox>
@@ -1874,6 +1929,77 @@
                               </ItemsControl>
                               <TextBlock Text="{Binding PayrollEmptyNote}" IsVisible="{Binding IsPayrollEmpty}"
                                          Margin="12" FontSize="12.5" Foreground="#777"/>
+
+                              <!-- ==== The matrix's optional SECOND section (W7-D2) ====
+                                   PF Form 6A is a two-PAGE form: page 1 is per member, page 2 is the twelve monthly
+                                   challan remittances, and the two pages have DIFFERENT columns. The second band
+                                   therefore carries its OWN headings (PayrollColumns2) — rendering page 2's figures
+                                   under page 1's headings would be a wrong figure under a right heading. It lives
+                                   INSIDE the body scroller so the two bands share one horizontal offset and stay in
+                                   register with each other; the frozen band above belongs to section 1 alone. -->
+                              <StackPanel IsVisible="{Binding HasPayrollSection2}">
+                                <TextBlock Text="{Binding PayrollSection2Title}" Margin="8,16,8,6"
+                                           FontWeight="SemiBold" FontSize="12.5"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <ItemsControl ItemsSource="{Binding PayrollColumns2}">
+                                    <ItemsControl.ItemsPanel>
+                                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PayrollMatrixColumnVm">
+                                        <TextBlock Text="{Binding Header}" Classes="colHdr" Width="{Binding Width}"
+                                                   TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding PayrollRows2}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PayrollMatrixRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              TextElement.FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}">
+                                        <ItemsControl ItemsSource="{Binding Cells}" Height="24">
+                                          <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                          </ItemsControl.ItemsPanel>
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:PayrollMatrixCellVm">
+                                              <!-- Padding (NOT Margin): see the section-1 body above. -->
+                                              <TextBlock Text="{Binding Text}" Width="{Binding Width}"
+                                                         VerticalAlignment="Center" FontSize="12.5" Padding="8,0,8,0"
+                                                         TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+
+                              <!-- ==== Statutory-form footnotes (W7-D2) ====
+                                   NOT decoration. Several columns on the PF and ESI forms are printed, ruled and
+                                   left BLANK because this book does not maintain their source (Father's / Husband's
+                                   Name, reason for leaving, the IP's dispensary) or because they are facts about a
+                                   bank challan. The footnote is the only thing that stops a blank column reading as
+                                   a bug, and the only thing that stops anyone inventing a value to fill it — so it
+                                   must be on screen wherever those columns are. TextWrapping, never trimming: a
+                                   half-shown footnote is a footnote that failed. -->
+                              <ItemsControl ItemsSource="{Binding PayrollFootnotes}"
+                                            IsVisible="{Binding HasPayrollFootnotes}" Margin="0,14,0,0">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="x:String">
+                                    <Border Background="#FFF7E6" BorderBrush="{StaticResource GridLine}"
+                                            BorderThickness="0,1,0,0" Padding="10,6">
+                                      <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                                 FontSize="11" Foreground="#7A5B00"/>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
                             </StackPanel>
                           </ScrollViewer>
                         </Grid>
@@ -4634,6 +4760,71 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- CREDIT LIMITS (census 10.1). Shown for ANY party ledger, on the same
+                                     IsPartyGroup predicate as the bill-wise block above, because the vendor scopes
+                                     the feature to "ledgers created under the groups Sundry Debtors and Sundry
+                                     Creditors" and to nothing else.
+                                     🔴 The placeholder is load-bearing, not decoration: a BLANK box means NO limit,
+                                     while a typed 0 is a REAL limit that refuses every credit sale to this party.
+                                     If the two ever read the same on screen an operator will freeze a party by
+                                     accident, so the box says which is which and the notice below repeats it. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding IsPartyGroup}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Credit Limits (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="Auto,140">
+                                      <TextBlock Grid.Column="0" Text="Credit limit"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="LedgerCreditLimitBox"
+                                               Text="{Binding CreditLimitText, Mode=TwoWay}"
+                                               PlaceholderText="blank = no limit" TextAlignment="Right"/>
+                                    </Grid>
+                                    <CheckBox Content="Check for credit days during voucher entry"
+                                              IsChecked="{Binding CheckCreditDaysOnEntry, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <CheckBox Content="Override credit limit using post-dated transactions"
+                                              IsChecked="{Binding OverrideCreditLimitWithPostDated, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <TextBlock Text="{Binding CreditDaysNotice}"
+                                               FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Cheque Printing (catalog §8; census 8.4). Shown only for a ledger under
+                                     Bank Accounts / Bank OD A/c, which is where the vendor captures it
+                                     (help.tallysolutions.com/cheque-payments-set-up/, "Specify Cheque Range and
+                                     Format in Bank Ledger"). These two fields are schema-v5 columns that had NO
+                                     screen at all until this block: without them the Cheque Printing report is
+                                     structurally empty for every company. The label column is Auto, not a fixed
+                                     width — "Name of bank (on cheque)" measures wider than 180px at 12.5pt and
+                                     would be sliced at the TextBox border. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowChequePrinting}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Cheque Printing" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <CheckBox Content="Enable cheque printing"
+                                              IsChecked="{Binding EnableChequePrinting, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <Grid ColumnDefinitions="Auto,*"
+                                          IsVisible="{Binding EnableChequePrinting}">
+                                      <TextBlock Grid.Column="0" Text="Name of bank (on cheque)"
+                                                 FontWeight="SemiBold" Margin="0,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1"
+                                               Text="{Binding ChequePrintingBankName, Mode=TwoWay}"
+                                               PlaceholderText="defaults to the ledger name"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party Mailing Details (WI-4). Shown for ANY party ledger — deliberately not
                                      behind an F11 flag, unlike the GST block below. The State/UT field lives in
                                      the GST block only: there is ONE party State (the place-of-supply driver),
@@ -5145,6 +5336,18 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+
+                            <!-- Census 2.13: when Ctrl+J "Show Unused" survives nothing, SAY so. An empty white
+                                 pane under a heading reading "List of Ledgers (Unused)" is indistinguishable
+                                 from a broken screen, and the operator has no way to tell "every ledger has
+                                 been transacted with" from "the filter failed". Drawn over the (empty) list
+                                 rather than in a row of its own so the unfiltered tree keeps every pixel. -->
+                            <TextBlock Grid.Row="3"
+                                       IsVisible="{Binding ShowsEmptyUnusedNotice}"
+                                       Text="Every ledger in this company has been used — nothing is unused."
+                                       HorizontalAlignment="Center" VerticalAlignment="Top"
+                                       Margin="12,20,12,0" FontSize="12.5" TextWrapping="Wrap"
+                                       TextAlignment="Center" Foreground="#6A6A6A"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -8699,7 +8902,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:EmployeeMasterViewModel">
                           <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Employee Creation"
+                            <!-- W7-D2: BOUND, not the literal "Employee Creation" it used to be. Ctrl+A runs the
+                                 verb the screen is in, so this heading is the operator's only on-screen signal of
+                                 which one that is. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -8805,6 +9011,22 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding DateOfBirthText, Mode=TwoWay}"
                                            PlaceholderText="yyyy-MM-dd (optional)"/>
+                                </Grid>
+
+                                <!-- W7-D2 / census T0-13 — DATE OF LEAVING. This box is the only route in the
+                                     product to Employee.DateOfLeaving, and three engines read that field: PF
+                                     Form 10 IS the return of members leaving service in the month, and ESI
+                                     Form 5 column 7(A) reads "still working" from it. Blank = still in service.
+                                     It sits beside Date of Joining so the pair reads as one span of service. -->
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Date of Leaving" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DateOfLeavingText, Mode=TwoWay}"
+                                           PlaceholderText="yyyy-MM-dd — blank while in service"/>
+                                  <TextBlock Grid.Column="2" Grid.ColumnSpan="2"
+                                             Text="Set on alteration (Ctrl+Enter on the list below) when a member leaves."
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
                                 </Grid>
 
                                 <!-- Additional statutory / location / bank details (RQ-2): captured here so an
@@ -8932,6 +9154,12 @@
                                   <DataTemplate x:DataType="vm:EmployeeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,180,160,90" Height="24">
+                                        <!-- 7.16 keyboard highlight — see the Employee Category list above for
+                                             why a destructive verb may not run on an invisible cursor. It is
+                                             ALSO the cursor Ctrl+Enter opens for alteration, which is the only
+                                             route to Date of Leaving (T0-13). -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -11509,11 +11737,38 @@
                                          VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                             </Grid>
 
-                            <!-- The schema honesty note: these key names are ours, not the portal ones -->
-                            <Border Grid.Row="3" Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
-                                    BorderThickness="1" Padding="8" Margin="0,0,0,8">
-                              <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
-                            </Border>
+                            <!-- 🔴 THE PROSE-ABOVE-THE-FIGURES TRAP, CONSTRAINED AND MEASURED. These two notes sit in
+                                 an Auto row DIRECTLY above the figure grid's * row, so every line they wrap to comes
+                                 straight out of the figures — and both are long, multi-sentence statutory prose that
+                                 grows as it is corrected (the applicability note gained two sentences when its waiver
+                                 clause was corrected against Circular 124/43/2019-GST). Unbounded, that is the exact
+                                 shape this project's UI defect catalogue is full of: at a small viewport the note
+                                 eats the page and the figures collapse to a sliver, and nothing fails.
+                                 The cap + scroll fixes both halves at once — the note stays FULLY readable (it
+                                 scrolls rather than clipping, so no statutory sentence is ever silently cut) and the
+                                 figure row can never be starved below its share. Measured at four viewports by
+                                 Gstr9aApplicabilityTests.The_applicability_note_never_starves_the_figure_grid_or_
+                                 clips_itself, which also records what the row costs UNCAPPED: 266px at 1280x720
+                                 and 278px at 1024x700. Do not remove the MaxHeight without re-running it. -->
+                            <ScrollViewer Grid.Row="3" MaxHeight="150" Name="GstReturnNotesScroller"
+                                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                              <StackPanel>
+                                <!-- Census row 6.13. The applicability statement for a form whose figures must NOT be
+                                     read as a filing artefact (today: GSTR-9A only). Empty — and therefore collapsed —
+                                     for every other form, so it can never mis-describe the one on screen. -->
+                                <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="8" Margin="0,0,0,6"
+                                        IsVisible="{Binding ApplicabilityNoteText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                  <TextBlock Text="{Binding ApplicabilityNoteText}" FontSize="11"
+                                             Foreground="#8A2B20" TextWrapping="Wrap"/>
+                                </Border>
+                                <!-- The schema honesty note: these key names are ours, not the portal ones -->
+                                <Border Background="#FFF8E1" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                                  <TextBlock Text="{Binding SchemaNoteText}" FontSize="11" Foreground="#7A5C00" TextWrapping="Wrap"/>
+                                </Border>
+                              </StackPanel>
+                            </ScrollViewer>
 
                             <!-- The selected return figure summary -->
                             <ScrollViewer Grid.Row="4">
@@ -12351,6 +12606,171 @@
                               </StackPanel>
                             </Border>
                             <Border Grid.Row="6" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                    Padding="10,6" Margin="0,6,0,0"
+                                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: DRC-03 — Voluntary / Self-Ascertained Payment (census row 6.20; Rule 142(2) / 142(3)).
+                         INTERACTIVE: opening it only projects the per-cell cash availability and the DRC-03s already
+                         filed; the Post button (Ctrl+A) is the only mutator. The engine's two refusals — credit may
+                         not settle interest, and a cash draw needs that exact (major, minor) cell funded — are shown
+                         on the face of the form rather than thrown at the operator on Post.
+                         🔴 The DECLARED DIVERGENCE (DivergenceText) is rendered, not hidden in a comment: the portal
+                         has Penalty / Fee / Others columns and a Section + Communication Reference number that this
+                         book has no field for, so the screen says so instead of taking a figure it would discard. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Drc03Payment, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Drc03Payment}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Drc03PaymentViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <!-- The per-cell unutilised cash: what a cash-funded DRC-03 may actually draw on. Only
+                                 meaningful for a cash payment, so it hides itself for bank / credit. -->
+                            <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,6" IsVisible="{Binding ShowsCashAvailability}">
+                              <StackPanel Spacing="6">
+                              <Grid ColumnDefinitions="*,*,*,*,*">
+                                <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="Cash CGST ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableCgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
+                                <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableSgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
+                                <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableIgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
+                                <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableCessText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
+                                <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Interest cell ₹" FontSize="10" Foreground="#777777" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding AvailableInterestText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right" TextTrimming="CharacterEllipsis"/></StackPanel>
+                              </Grid>
+                              <!-- A failed read is NOT a nil balance. When any of the five cells above could not be
+                                   read the cell shows "not read" and this states what failed — on a screen that is
+                                   about to take a payment, an unmeasured figure presented as a measured one is the
+                                   defect, not the missing number. Collapsed entirely when every cell read cleanly. -->
+                              <Border Background="#FDECEA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="6,4" IsVisible="{Binding CashReadFailed}">
+                                <TextBlock Text="{Binding CashReadErrorText}" FontSize="10.5" Foreground="#8A2B20"
+                                           TextWrapping="Wrap"/>
+                              </Border>
+                              </StackPanel>
+                            </Border>
+                            <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <!-- The declared divergence — three portal fields this book cannot hold, stated to the
+                                 operator's face. Do NOT collapse this into a tooltip. -->
+                            <Border Grid.Row="4" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="8,5" Margin="0,0,0,6">
+                              <TextBlock Text="{Binding DivergenceText}" FontSize="10.5" Foreground="#7A5B00" TextWrapping="Wrap"/>
+                            </Border>
+                            <!-- The DRC-03s already filed on this book. -->
+                            <ScrollViewer Grid.Row="5">
+                              <StackPanel Spacing="6">
+                                <TextBlock Text="DRC-03 already filed" FontWeight="Bold" FontSize="11.5" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,90,95,80,95">
+                                    <TextBlock Grid.Column="0" Text="Cause" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Period" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Interest" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Total" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ListBox Background="White" MaxHeight="180"
+                                         ItemsSource="{Binding Filed}"
+                                         SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Drc03RowVm">
+                                      <Grid ColumnDefinitions="*,90,95,80,95" Height="18" Margin="0,1">
+                                        <TextBlock Grid.Column="0" Text="{Binding Cause}" Margin="4,0" VerticalAlignment="Center" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Cause}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Period}" Margin="4,0" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Tax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Interest}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Total}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Margin="0,0,6,0" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+                              </StackPanel>
+                            </ScrollViewer>
+                            <!-- The explicit action bar — the portal's own field order. -->
+                            <Border Grid.Row="6" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="8" Margin="0,6,0,0">
+                              <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Cause of payment" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" FontSize="11"
+                                            ItemsSource="{Binding Causes}" SelectedItem="{Binding SelectedCause, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:Drc03CauseOption">
+                                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <!-- The portal's own "Please specify", live only under its cause 11 ("Others"). -->
+                                <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding NeedsOthersSpecify}">
+                                  <TextBlock Grid.Column="0" Text="Please specify" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding OthersSpecifyText, Mode=TwoWay}" FontSize="11" Padding="4,2"
+                                           PlaceholderText="the cause the portal is to be told"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,100,Auto,100,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Period" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Period, Mode=TwoWay}" FontSize="11" Padding="4,2" PlaceholderText="2024-25"/>
+                                  <TextBlock Grid.Column="2" Text="Payment date" FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding PaymentDateText, Mode=TwoWay}" FontSize="11" Padding="4,2"/>
+                                  <TextBlock Grid.Column="4" Text="DRC-03A demand ref." FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding DemandRefText, Mode=TwoWay}" FontSize="11" Padding="4,2"
+                                           PlaceholderText="the demand this payment is adjusted against (optional)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Reasons, if any" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ReasonsText, Mode=TwoWay}" FontSize="11" Padding="4,2"
+                                           PlaceholderText="recorded on the posted voucher's narration"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,70,Auto,70,Auto,70,Auto,70">
+                                  <TextBlock Grid.Column="0" Text="CGST ₹" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CgstText, Mode=TwoWay}" FontSize="11" Padding="4,2"/>
+                                  <TextBlock Grid.Column="2" Text="SGST ₹" FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding SgstText, Mode=TwoWay}" FontSize="11" Padding="4,2"/>
+                                  <TextBlock Grid.Column="4" Text="IGST ₹" FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding IgstText, Mode=TwoWay}" FontSize="11" Padding="4,2"/>
+                                  <TextBlock Grid.Column="6" Text="Cess ₹" FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <TextBox Grid.Column="7" Text="{Binding CessText, Mode=TwoWay}" FontSize="11" Padding="4,2"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,70,Auto,110,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Interest ₹" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                  <!-- §49(4) / Rule 86(2): credit settles the Tax head only. The box is DISABLED
+                                       under Credit and the reason is printed beside it, in the portal's words. -->
+                                  <TextBox Grid.Column="1" Text="{Binding InterestText, Mode=TwoWay}" FontSize="11" Padding="4,2"
+                                           IsEnabled="{Binding CanEnterInterest}"/>
+                                  <TextBlock Grid.Column="2" Text="Paid by" FontSize="11" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                  <ComboBox Grid.Column="3" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method, Mode=TwoWay}" FontSize="11"/>
+                                  <TextBlock Grid.Column="5" Text="{Binding InterestNoteText}" FontSize="10" Foreground="#7A5B00"
+                                             VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding NeedsBank}">
+                                  <TextBlock Grid.Column="0" Text="Paid from" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" FontSize="11"
+                                            ItemsSource="{Binding BankOptions}" SelectedItem="{Binding SelectedBank, Mode=TwoWay}">
+                                    <!-- D8, same cause as the other Pay-From pickers: a bank ledger name carries its
+                                         branch and A/c number, so without TextTrimming a half-shown bank reads whole. -->
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate><TextBlock Text="{Binding Name}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip.Tip="{Binding Name}"/></DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <Button Content="File DRC-03" Command="{Binding PostActionCommand}" FontSize="11" Padding="12,4"/>
+                                </StackPanel>
+                              </StackPanel>
+                            </Border>
+                            <Border Grid.Row="7" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
                                     Padding="10,6" Margin="0,6,0,0"
                                     IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                               <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
@@ -14106,6 +14526,172 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Kerala Flood Cess return (census row 6.26) — a Kerala STATE levy that lapsed on
+                         31-Jul-2021, so the screen is a historical one and says so in words on its own face. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).KeralaFloodCessPage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).KeralaFloodCessPage}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:KeralaFloodCessReturnViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- The lapse, stated on the screen rather than in a comment. -->
+                            <Border Grid.Row="2" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource AmberBorder}" BorderThickness="1"
+                                    Padding="8" Margin="0,0,0,8">
+                              <TextBlock Text="{Binding LapseText}" FontSize="11.5" FontWeight="SemiBold"
+                                         Foreground="{StaticResource Ink}" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <!-- Return-period selector: ONLY the periods the levy actually had. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,160,Auto,Auto,Auto,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Return Period" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Periods}"
+                                        SelectedItem="{Binding SelectedPeriod, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:KfcPeriodOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <!-- The period's ACTUAL covered dates: the last period is clipped at the cessation
+                                   date, so the operator must be able to see the range the figures cover. -->
+                              <TextBlock Grid.Column="2" Text="{Binding PeriodText}" FontSize="12"
+                                         VerticalAlignment="Center" Margin="12,0,0,0"
+                                         TextTrimming="CharacterEllipsis"/>
+                              <!-- "Remit by" and the date get their OWN Grid columns, never a horizontal StackPanel:
+                                   a horizontal StackPanel measures children at infinite width, so TextTrimming
+                                   could never engage and the date would paint over its neighbour. -->
+                              <TextBlock Grid.Column="3" Text="Remit by" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <TextBlock Grid.Column="4" Text="{Binding DueDateText}" FontSize="12"
+                                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+
+                            <!-- Footings: leviable turnover + cess payable -->
+                            <Border Grid.Row="4" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*">
+                                  <StackPanel Grid.Column="0" Classes="statCell">
+                                    <TextBlock Text="Leviable Turnover ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalTurnoverText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1" Classes="statCell">
+                                    <TextBlock Text="Kerala Flood Cess ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalCessText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Rate-slab grid -->
+                            <TextBlock Grid.Row="5" Text="Turnover of outward supply, by GST rate"
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                            <ScrollViewer Grid.Row="6" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                              <!-- The column budget is arithmetic, not taste: the track must stay UNDER the 638px
+                                   page-column floor (a Grid that hardcodes a width at or above it is wider than the
+                                   narrowest pane by construction), and the * column must still clear 150px or a
+                                   lakh-scale turnover ellipsizes to nothing. 620 - (90+150+90+120) = 170px. -->
+                              <Grid RowDefinitions="Auto,Auto,Auto" Width="620">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="90,150,90,*,120">
+                                    <TextBlock Grid.Column="0" Text="GST Rate" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Schedule" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Cess Rate" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Leviable Turnover" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:KfcSlabRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="90,150,90,*,120" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding GstRate}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Schedule}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding CessRate}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Turnover}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Cess}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 🔴 A computed NIL is worded, not an empty white box. An empty table and "we
+                                     computed this period and nothing was leviable" look identical otherwise, and
+                                     telling them apart is the whole point of a return. -->
+                                <TextBlock Grid.Row="1" Text="No rate slabs — nothing in this period fell in the 1% or 0.25% cess schedules."
+                                           IsVisible="{Binding IsEmpty}"
+                                           FontSize="11.5" FontStyle="Italic" Foreground="#777777"
+                                           Margin="6,8,6,8" TextWrapping="Wrap"/>
+
+                                <!-- What the projection EXCLUDED — disclosed, never silently dropped. -->
+                                <StackPanel Grid.Row="2" Margin="0,10,0,0" Spacing="3">
+                                  <TextBlock Text="Excluded from the return" FontWeight="Bold" FontSize="11.5"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Grid ColumnDefinitions="*,140">
+                                    <TextBlock Grid.Column="0" Text="Supply to a Kerala-registered buyer (FAQ Q12)"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ExemptedBusinessTurnoverText}"
+                                               FontSize="11.5" TextAlignment="Right"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="*,140">
+                                    <TextBlock Grid.Column="0" Text="Turnover at rates outside the cess schedules (FAQ Q5)"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding TurnoverOutsideTheSchedulesText}"
+                                               FontSize="11.5" TextAlignment="Right"/>
+                                  </Grid>
+                                  <TextBlock Text="{Binding FurtheranceNote}" FontSize="11" Foreground="#777777"
+                                             TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                              </Grid>
+                            </ScrollViewer>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="7" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export Return (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportKeralaFloodCessClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnKeralaFloodCessClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Gratuity Provision register (Phase 8 slice 9; RQ-14) -->
                     <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GratuityProvisionRegister, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GratuityProvisionRegister}">
@@ -14944,6 +15530,145 @@
                                       Click="OnExportForm16Click"/>
                               <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
                                       Click="OnSaveReturnForm16Click"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 12BA / 123 — Statement of Perquisites (census row 6.42). READ-ONLY. Form 16's
+                         annexure, so it renders the same employee picker off the same Annexure-II set.
+                         🔴 THE PERQUISITE TABLE HAS HEADERS AND NO ROWS, ON PURPOSE. This book maintains no
+                         perquisite record of any kind (measured: `perquisite` appears once in src/ and it is a form
+                         label), so the honest rendering is the prescribed COLUMN SHAPE plus a stated empty state.
+                         DO NOT "fix" this by binding zeros into the rows: a nil figure and an unmeasured figure look
+                         identical on paper, and an employer signing a 12BA of zeros would be certifying that no
+                         perquisite was provided. The four captions are [V-secondary] — the official form could not
+                         be retrieved (403 / download-only / 404 on every route) — so no numbered list of the ~18
+                         prescribed natures is printed either. See Form12BaViewModel's remarks. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Form12Ba, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Form12Ba}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form12BaViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY selector -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form12BaFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <Grid Grid.Row="3" ColumnDefinitions="220,*">
+                              <!-- Employee picker (left) -->
+                              <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,10,0">
+                                <TextBlock Grid.Row="0" Text="Employee" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                                <ListBox Grid.Row="1" Background="White"
+                                         ItemsSource="{Binding Employees}"
+                                         SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Form12BaEmployeeOptionVm">
+                                      <Grid ColumnDefinitions="*,Auto" Height="30">
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                          <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}"/>
+                                          <TextBlock Text="{Binding Pan}" FontSize="10.5" Foreground="#888888"
+                                                     FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding GrossSalary}" FontSize="11.5"
+                                                   VerticalAlignment="Center" Margin="4,0,4,0"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+                              </Grid>
+
+                              <!-- Statement detail (right) -->
+                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8">
+                                  <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto,Auto">
+                                      <TextBlock Grid.Row="0" Grid.Column="0" Text="Employee" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding EmployeeName}" FontSize="12"
+                                                 Margin="0,0,12,2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding EmployeeName}"/>
+                                      <TextBlock Grid.Row="0" Grid.Column="2" Text="PAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding EmployeePan}" FontSize="12"
+                                                 FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="0" Text="Designation" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EmployeeDesignation}" FontSize="12"
+                                                 Margin="0,0,12,2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding EmployeeDesignation}"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="2" Text="Employer TAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding EmployerTan}" FontSize="12"
+                                                 FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="0" Text="Responsible" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding ResponsiblePerson}"
+                                                 FontSize="12" TextWrapping="Wrap"/>
+                                    </Grid>
+                                  </Border>
+
+                                  <!-- The one genuinely computed thing on this screen: the rule 26A(2)(b) test. -->
+                                  <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <StackPanel Spacing="3">
+                                      <Grid ColumnDefinitions="*,150">
+                                        <TextBlock Grid.Column="0" Text="Salary paid or payable (gross)" FontSize="11.5" TextWrapping="Wrap"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding GrossSalaryText}" TextAlignment="Right"
+                                                   FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                      <TextBlock Text="{Binding ThresholdText}" FontSize="11" Foreground="#555555" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <TextBlock Text="Perquisites, other fringe benefits or amenities, and profits in lieu of salary"
+                                             FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"
+                                             TextWrapping="Wrap"/>
+                                  <!-- The prescribed column shape. Header row only; there is nothing to fill it with. -->
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <ItemsControl ItemsSource="{Binding Columns}">
+                                      <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
+                                      </ItemsControl.ItemsPanel>
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                          <TextBlock Text="{Binding}" Classes="colHdr" TextWrapping="Wrap"
+                                                     ToolTip.Tip="{Binding}"/>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                  </Border>
+                                  <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="10" IsVisible="{Binding IsEmpty}">
+                                    <TextBlock Text="{Binding EmptyState}" FontSize="11.5" Foreground="#7A5B00"
+                                               TextWrapping="Wrap"/>
+                                  </Border>
+
+                                  <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                             Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                              </ScrollViewer>
                             </Grid>
                           </Grid>
                         </DataTemplate>
@@ -16147,6 +16872,55 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+J "Exception Reports" panel (census 2.13 — the derived "Show Unused" view).
+                         A Miller-column page beside the Chart of Accounts it filters, never a stacked overlay.
+                         Nothing is stored: "unused" is recomputed from the vouchers on every rebuild, so this
+                         panel changes what the tree DISPLAYS and edits no master. -->
+                    <ContentControl IsVisible="{Binding ExceptionReports, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ExceptionReports}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ExceptionReportsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ScreenTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12"
+                                    VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MinWidth="260">
+                                <TextBlock Text="View" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="An unused ledger is one no voucher has ever been posted against and no other master names. The books are unchanged."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <RadioButton GroupName="ExceptionReportView" Content="All groups and ledgers"
+                                             IsChecked="{Binding IsAllMasters, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExceptionReportView" Content="Show Unused"
+                                             IsChecked="{Binding IsShowUnused, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyExceptionReportsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
                     <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintConfigPanel}">
@@ -16219,12 +16993,16 @@
                                 </Grid>
 
                                 <!-- 🔴 The PAGE-LAYOUT knobs are gated on SupportsPageKnobs, which is true only
-                                     where the renderer honours them. ReportPdf reads PageConfig's Formatted* /
-                                     Draws* / IncludesPage / StartPageNumber; InvoicePdf, VoucherPdf, PayslipPdf
-                                     and PosReceiptPdf read NONE of them and only ever apply the copy count. This
-                                     group was previously ungated (SupportsPageKnobs returned a bare `true` and was
-                                     bound to nothing), so a voucher/invoice operator could set a format, a paper,
-                                     a page range and a starting number and get byte-identical output.
+                                     where the renderer honours them: the FORMAT and the PAPER (PageConfig's
+                                     Formatted* / Draws* members) are read by ReportPdf alone. InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf read none of THOSE — but they DO now
+                                     read IncludesPage and StartPageNumber, which is why the page RANGE moved out
+                                     to its own SupportsPageRange group below. (This comment used to say all four
+                                     read NONE of PageConfig; W2-31's finishing pass made that false and the
+                                     correction is the point of this edit.) The group was previously ungated
+                                     (SupportsPageKnobs returned a bare `true` and was bound to nothing), so a
+                                     voucher/invoice operator could set a format, a paper, a page range and a
+                                     starting number and get byte-identical output.
                                      PrintConfigKnobsMoveTheBytesTests renders and compares bytes to hold this. -->
                                 <StackPanel Spacing="14" IsVisible="{Binding SupportsPageKnobs}">
                                   <TextBlock Text="Print format" FontWeight="Bold"
@@ -16248,6 +17026,19 @@
                                                IsChecked="{Binding IsPrePrinted, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
 
+                                </StackPanel>
+
+                                <!-- W2-31: the PAGE RANGE, in its OWN group. Every renderer now honours
+                                     PageConfig.IncludesPage and StartPageNumber - ReportPdf, InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf - so the range is offered on every
+                                     document kind. It is a SEPARATE StackPanel from the format/paper group above
+                                     because those two remain ReportPdf-only: folding them back under one gate
+                                     would re-offer two knobs that do nothing, which is the defect the withdrawal
+                                     fixed. PrintConfigKnobsMoveTheBytesTests holds both pairings by bytes.
+                                     UNGATED on purpose: there is no SupportsPageRange binding, because every
+                                     PrintKind honours the range and a predicate that can only read `true` is a
+                                     dead knob wearing a gate's clothes. See the note in PrintConfigViewModel. -->
+                                <StackPanel Spacing="14">
                                   <TextBlock Text="Pages" FontWeight="Bold"
                                              Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                   <Grid ColumnDefinitions="150,*">
@@ -16351,6 +17142,116 @@
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnPrintToPrinterClick"/>
                             </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: W2-32 / census 12.6 "Multi-Account Printing" (Reports -> Statements of Accounts).
+                         Selects a SET of accounts and prints them as one collated job of ledger accounts,
+                         reminder letters or confirmations of accounts (census 12.7's two multi-account outputs).
+                         Every account row is a real CheckBox, so the selection is reachable by keyboard (Tab to
+                         the row, Space to toggle) as well as by mouse — the view-model's IsSelected is not a
+                         feature until a control is bound to it. -->
+                    <ContentControl IsVisible="{Binding MultiAccountPrint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiAccountPrint}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiAccountPrintViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding PeriodText}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding PeriodText}"/>
+
+                            <!-- The document each selected account produces. Every title here is OURS under
+                                 ruling 9 (see MultiAccountPrintProjector) and none of the three is, or may
+                                 become, a tax invoice or a bill of supply. -->
+                            <Border Grid.Row="2" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,0,0,6">
+                              <StackPanel Spacing="4">
+                                <TextBlock Text="Document" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Ledger Account"
+                                               IsChecked="{Binding IsLedgerAccount, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Reminder Letter"
+                                               IsChecked="{Binding IsReminderLetter, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Confirmation of Accounts"
+                                               IsChecked="{Binding IsConfirmation, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+                                <!-- Says WHICH accounts the list below is offering. The reminder letter and the
+                                     confirmation of accounts are addressed to a counterparty, so they are offered
+                                     for party accounts only; without this line an operator who switches kind and
+                                     watches eleven of his thirteen accounts vanish would read it as a fault. -->
+                                <TextBlock Text="{Binding OfferedAccountsNote}"
+                                           FontSize="11.5" Foreground="#6A6A6A"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="40,*,220">
+                                <TextBlock Grid.Column="0" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Account" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="4" Background="White">
+                              <ItemsControl ItemsSource="{Binding Accounts}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:MultiAccountRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="40,*,220" Height="24">
+                                        <CheckBox Grid.Column="0" Margin="10,0,0,0"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Name}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding GroupName}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding GroupName}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Selection + print bar -->
+                            <Border Grid.Row="5" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                                <Button Grid.Column="0" Content="Select All" Padding="10,4"
+                                        Click="OnMultiAccountSelectAllClick"/>
+                                <Button Grid.Column="1" Content="Select None" Padding="10,4" Margin="6,0,0,0"
+                                        Click="OnMultiAccountSelectNoneClick"/>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"/>
+                                <Button Grid.Column="4" Content="Print (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnPrintMultiAccountClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="6" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,0" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -17253,6 +18154,71 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+G "Switch To" (census 14.2 — jump to any destination the Gateway can reach).
+                         The typed PREFIX is painted in the header on purpose: a list that silently shrinks under
+                         an invisible filter is a defect, not a feature, and this is the first prefix filter in
+                         the product. -->
+                    <ContentControl IsVisible="{Binding SwitchTo, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SwitchTo}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SwitchToViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,6"/>
+
+                            <Border Grid.Row="1" Background="#FFF8E1"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="8,5" Margin="0,0,0,8">
+                              <TextBlock Text="{Binding PrefixDisplay}" FontSize="12.5" FontWeight="SemiBold"
+                                         Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <!-- Named so the code-behind can drag this list to the highlighted row: the rows
+                                   are not focusable (the keyboard cursor is a bound flag, not focus), so nothing
+                                   scrolls on their behalf. Go To's list carries the identical Name for the
+                                   identical reason. -->
+                              <ScrollViewer>
+                                <ItemsControl Name="SwitchToResults" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SwitchToRowViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*" Height="26">
+                                          <!-- The keyboard cursor. Declared FIRST so it paints BEHIND the text,
+                                               converter-free, exactly as every other list in this shell does. -->
+                                          <Border Background="#FFF3CD" IsVisible="{Binding IsHighlighted}"/>
+                                          <!-- The parent section ALWAYS reads first: this list is nested by
+                                               construction, never a flat dump of ~120 page names.
+                                               🔴 THE THREE RUNS LIVE IN ONE TextBlock ON PURPOSE, and this is the
+                                               shell's own hard-won rule rather than a style choice — the cascade
+                                               menu row carries the identical comment. A horizontal StackPanel
+                                               measures its children at INFINITE width, so a TextTrimming declared
+                                               on a child can never engage: the text overflows and paints over its
+                                               neighbour instead of ellipsising. This row was built as a
+                                               StackPanel of three trimming TextBlocks and
+                                               XamlLayoutInvariantTests caught it. One TextBlock with Runs keeps
+                                               the two type treatments AND lets the trimming work. -->
+                                          <TextBlock VerticalAlignment="Center" Margin="8,0"
+                                                     FontSize="12.5"
+                                                     TextTrimming="CharacterEllipsis"><Run Text="{Binding Section}" FontSize="11.5" Foreground="#6A6A6A"/><Run Text=" › " FontSize="11.5" Foreground="#6A6A6A"/><Run Text="{Binding Label}" Foreground="{StaticResource BrandNavy}"/></TextBlock>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Grid.Row="3" Text="{Binding Status}"
+                                       Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Print Preview (RQ-9 / DP-8 — render the report to a de-branded PDF and preview it) -->
                     <ContentControl IsVisible="{Binding PrintPreview, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintPreview}">
@@ -17271,6 +18237,21 @@
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="16" Margin="2,0,0,8">
                               <CheckBox Content="Letter (else A4)" IsChecked="{Binding UseLetter, Mode=TwoWay}"/>
                               <CheckBox Content="Landscape" IsChecked="{Binding Landscape, Mode=TwoWay}"/>
+                              <!-- Supplier payment advice only (census 8.7) — help.tallysolutions.com/payment-advice/,
+                                   "Print each transaction on a fresh page". Ticked is the vendor's default (one
+                                   letter per supplier per sheet); unticking flows the letters onto shared sheets.
+                                   It is hidden, not disabled, on every other document: a page-break rule means
+                                   nothing on a cheque or an invoice.
+                                   🔴 IT CHANGES THE PRINTED PDF, NOT THE MIRROR BESIDE IT. The "Pages: N" label to
+                                   the right counts PrintPreviewViewModel.Pages — the flat on-screen mirror, which
+                                   carries no per-letter page break — so it does NOT move when this is toggled, and
+                                   on a two-supplier run it reads 1 while the PDF is 2 sheets. That mirror-vs-bytes
+                                   gap is how every bespoke preview here works (receipt, payslip, cheque); it is
+                                   REPORTED, not papered over, and the toggle is pinned against the bytes by
+                                   BankingFilterRouteVisibilityTests. -->
+                              <CheckBox Content="Each advice on a fresh page"
+                                        IsVisible="{Binding IsPaymentAdviceLetter}"
+                                        IsChecked="{Binding AdviceFreshPageEach, Mode=TwoWay}"/>
                               <TextBlock Text="{Binding PageCount, StringFormat='Pages: {0}'}"
                                          VerticalAlignment="Center" Foreground="#8A8A8A" FontSize="12"/>
                               <TextBlock Text="F12: Print Config" IsVisible="{Binding SupportsPrintConfig}"

@@ -533,7 +533,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > next is **51**~~ — and a slice that does not need a column still must not take one.
 > **▶ 🔴 BOTH STRUCK FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb`, AND THE CORRECTION IS MADE IN PLACE BECAUSE
 > RULING 8 BELOW QUOTES THIS NUMBER.** The rule this banner quotes is still there verbatim, but it now lives at
-> **`src/Apex.Persistence.Sqlite/Schema.cs:177-178`** — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
+> **`src/Apex.Persistence.Sqlite/Schema.cs:187-188`** — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
 > is still a valid line in a 3,880-line file and stayed green under the reach check, which is the exact blind
 > spot `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` exists to cover — **and this citation is now IN that table**, so its next drift goes red instead of staying green. And
 > **`Schema.CurrentVersion` is now `53`** — and it is **deliberately NOT re-pointed to a line**: the constant has
@@ -856,6 +856,47 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > missing or pending restoration any more** — it is gone, the user knows, and the decision is taken. One
 > session has already reported it as UNREACHED and lost time to it; that is what this block exists to prevent.
 
+> **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-09-06) — SETTLED; DO NOT RE-LITIGATE. THEY CLOSE PART OF THE
+> OWED BATCH BELOW, THEY LIFT A GATE THAT WAS HOLDING TEN CENSUS ROWS, AND THEY CLAIM SCHEMA v54.** Recorded
+> **here**, beside the 2026-08-15, 2026-08-16, 2026-08-19 and 2026-09-03 banners, so all eighteen rulings are
+> read in one place. Search string for cross-references: `FOUR FURTHER USER RULINGS (R12, 2026-09-06)`.
+>
+> **15 · THE TEN-ROW GATE IS LIFTED, IN FULL. ALL TEN ROWS ARE OPEN FOR SLICING.** The sentence at §5a.1
+> reading *"the remaining 10 (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) sit behind a user
+> ruling and have no slice at all until it lands"* is **REPEALED**, and it has been **amended in place** at
+> §5a.1 rather than corrected from here — this project has repeatedly been misled by a stale claim left
+> standing with its correction elsewhere. **The user's reasoning, recorded because it matters:** the gate had
+> become **inconsistent** — **three of the ten were already built and two had already landed** — so it was
+> **doing harm rather than protecting them**. ⚠️ **What this does NOT do:** it does not answer U-5 (strike FBT
+> / build it), U-7 (physical printer output), U-9 (TallyVault) or the U-10 architecture questions **on their
+> merits**. Those remain open R12 questions and a slice that reaches one must still surface it. What is gone
+> is the **blanket prohibition on slicing the ten at all**.
+>
+> **16 · SCHEMA v54 BELONGS TO THE KARNATAKA PROFESSIONAL-TAX BACK-FILL — NOT TO `cheque_layouts`.** **The
+> user's reason, quoted:** the Karnataka fix that landed in **PR #55** *"only reaches NEWLY ENROLLED
+> companies, because PT slab tables are seeded once at enrolment (`PayrollService.EnableProfessionalTax`) and
+> thereafter persisted and user-editable. Every company already enrolled KEEPS OVER-DEDUCTING Rs100 per
+> employee per year. That is live wrong money in existing books and it outranks making the cheque leaf
+> printable."* ⇒ **The next migration number is v54 and the back-fill owns it.** Any other track that needs a
+> migration takes **v55 or later** and must say so before it writes one. This is the schema-renumber hazard the
+> project has hit before: **two live tracks must never both take the same version.**
+>
+> **17 · THE VENDOR CHORD WINS: `Ctrl+I` BECOMES "MORE DETAILS" (census row 14.4). THE ITEM-INVOICE TOGGLE
+> MOVES TO `Ctrl+H` AND ANSWERS TO `Ctrl+H` ONLY.** The user **explicitly declined a `Ctrl+I` alias for the
+> toggle**, so nothing is ambiguous and no chord serves two verbs. **This closes the `Ctrl+I` arm of owed
+> ruling U-6**, which has blocked row 14.4 for the whole campaign. 🔴 **And it vindicates the refusals:** every
+> agent that declined to rebind `Ctrl+I` without a ruling was **right to refuse** — that is the behaviour this
+> project wants, not an exception to apologise for. ⚠️ **U-6's other two arms are NOT answered** — `Alt+I`
+> (Insert Voucher vs the POS tender toggle) and `Alt+K` (Company menu vs Saved Views), plus `Alt+A`'s
+> arbitration order, remain open. Register rows **T2-14**, **T2-15** and **T2-18** stand; **T2-17** is closed.
+>
+> **18 · STOP DE-BRANDING COUNTERPARTY NAMES PRODUCT-WIDE.** The de-brander **must keep rewriting OUR OWN
+> strings** — the shipped app and code must still never show the reference product's brand — **and must stop
+> rewriting master names that belong to customers, suppliers and banks.** 🔴 **The scope word is
+> "everywhere"**: the fix is **product-wide**, not confined to the two documents already corrected. A customer
+> ledger, a supplier ledger or a bank master named by the user is **the user's data**, and rewriting it is a
+> defect in every report, voucher and printed document that renders it, not only in the two that were caught.
+
 > **▶ 🔴 TEN RULINGS ARE STILL OWED TO THE USER AS OF 2026-09-04 — HELD HERE AS ONE BATCH SO THEY CAN BE PUT
 > TOGETHER RATHER THAN DRIBBLED OUT. NOTHING MAY BE DISPATCHED INTO ANY OF THEM (R12).**
 >
@@ -887,7 +928,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 >   FBT was abolished by the Finance Act 2009 and has **no reference-product behaviour left to clone**; current
 >   vendor documentation does not mention it. *Recommend: **strike it**. A build agent handed this row will
 >   invent a feature — the failure mode this project has the most scar tissue about.*
-> - **U-6 · 🔴 THE CHORD-MAP RULING — ONE RULING OVER THE WHOLE MAP, NOT THREE PIECEMEAL ANSWERS.** Three
+> - **U-6 · 🔴 PARTLY CLOSED 2026-09-06 BY RULING 17 — the `Ctrl+I` arm is DECIDED (`Ctrl+I` = More Details;
+>   the item-invoice toggle moves to `Ctrl+H` and answers to `Ctrl+H` ONLY, with no `Ctrl+I` alias). Census row
+>   **14.4** is unblocked and register row **T2-17** is closed. The `Alt+I`, `Alt+K` and `Alt+A` arms below are
+>   STILL OPEN.** The original text is kept verbatim so the shape of the question is not lost:
+>   **THE CHORD-MAP RULING — ONE RULING OVER THE WHOLE MAP, NOT THREE PIECEMEAL ANSWERS.** Three
 >   attested chords are occupied by unattested verbs: `Alt+I` (Insert Voucher) by the POS tender toggle;
 >   `Alt+K` (Company menu) by Saved Views; `Ctrl+I` (More Details) by the item-invoice toggle. `Alt+A`'s
 >   attested arm is **third in arbitration** behind two unattested ones. Register rows **T2-14**, **T2-15**,
@@ -2558,12 +2603,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
-     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3922`.**
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4999`**,
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3938`.**
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5031`**,
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**
-     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:443`**, inside `DropColumns`.
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:463`**, inside `DropColumns`.
      **(3) The DDL `DEFAULT` had no behavioural test.** The forbidden simplification (both `DEFAULT`s 0→1 +
      back-fill deleted) previously left **1** test red, and only on a hard-coded string literal; it now turns
      **4** red. **(4) Taxability was never exported at a non-default value** — a mapper hard-coding `"Taxable"`
@@ -3730,7 +3775,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
     below was being made against. `Company.State` (`src/Apex.Ledger/Domain/Company.cs:85`) **and `Company.Pin`
     are read and written by the canonical XML/JSON export–import round-trip** — `CanonicalMapper.cs:66-67`,
-    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1024-1025` (read), `ImportPlan.cs:1201-1202` (assign) — and
+    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1024-1025` (read), `ImportPlan.cs:1208-1209` (assign) — and
     `CanonicalRoundTripTests.cs:259` has asserted it all along. The accurate claim is narrow and entirely about
     printing: **no PRINT path reads `Company.State`.** Every book imported from canonical XML carries real
     values in that column.
@@ -5543,7 +5588,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (~~`Schema.cs:144-145`~~), **recorded in this file**. ~~`Schema.CurrentVersion` is **50** (`Schema.cs:146`), so
   the next is **51**.~~ **▶ 🔴 BOTH FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb` AND CORRECTED IN PLACE (the
   same correction is made on ruling 2 itself in §5).** The migration-equivalence rule now lives at
-  `src/Apex.Persistence.Sqlite/Schema.cs:177-178` — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
+  `src/Apex.Persistence.Sqlite/Schema.cs:187-188` — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
   **cited by TEXT and never by line: grep `public const int CurrentVersion` in that file.** **WF-1 took v51 in `e49b88e`; the voucher edit log took v52 on 2026-08-19; W2-03 (the Voucher Type master) took v53 on 2026-09-05** — two additive `voucher_types` columns, `MigrateV52ToV53`, `SchemaDowngrade.V53ToV52`, round-trip + migration-parity tests. **The next free version is v54**, so *"the next is 51"* must not be re-read as *"the next is 52"*: consult
   **W0-2b's `▶ SCHEMA` note** before any slice takes a number.
   **"NONE expected" still stands as the expectation** — the wave's items are UI over persisted
@@ -6016,7 +6061,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     the conjunction, and **(ii)** the recorded gaps. **The build is a LATER slice with its own grounding pass.**
 - **▶ 🔴 A CORRECTION THIS PHASE MAKES TO THE CENSUS, RECORDED HERE BECAUSE IT CHANGES WHAT IS OWED:
   ROWS 4.7 AND 12.2 BLAMED THE PRINT GATE FOR CREDIT / DEBIT NOTES. REFUTED, RE-MEASURED FIRST-HAND.** A note
-  **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws
+  **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws
   *"Item-invoice stock lines are only valid on a Purchase or Sales voucher"* on **every** post (reached from
   `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`), and
   `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert on that
@@ -6152,8 +6197,17 @@ BAND 4  W2-29 · W2-25 · W2-23 · W2-24 · W2-31 · W2-32 · W2-34 · W2-42 · 
 ```
 
 **Row-placement check, re-derived rather than trusted.** The 42 slices close **61** of the enumerated 71; the
-remaining **10** (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) sit behind a user ruling and have
-**no slice at all** until it lands. `61 + 10 = 71` ✓, and **no row appears in two slices**.
+remaining **10** (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) **HAVE NO SLICE DESIGNED HERE —
+but they are NO LONGER GATED.** `61 + 10 = 71` ✓, and **no row appears in two slices**.
+🔴 **AMENDED IN PLACE 2026-09-06 BY USER RULING 15 (R12 — §5 banner `FOUR FURTHER USER RULINGS (R12,
+2026-09-06)`).** This sentence previously read *"…sit behind a user ruling and have **no slice at all** until it
+lands."* **THAT IS NOW FALSE AND IS REPEALED, NOT FOOTNOTED.** The user lifted the gate **for all ten**, on the
+ground that it had become **inconsistent — three of the ten were already built and two had already landed** — so
+it was doing harm rather than protecting them. **All ten rows are open for slicing.** What they still lack is a
+*designed* slice in the table below, which is a gap in this section, not a prohibition. ⚠️ **The gate lifting is
+not an answer on the merits:** U-5 (FBT — strike or build), U-7 (physical printer output), U-9 (TallyVault) and
+the U-10 architecture carry-overs remain **open R12 questions**, and a slice that reaches one must surface it
+rather than decide it. **6.26 (Kerala Flood Cess) is already BUILT and landed** — see PR #60.
 
 **Leverage, best first:** **W2-03** (4 rows, and it unblocks T1-4 — an entire shipped module that cannot post
 because the one screen that could activate its voucher type does not exist) · **W2-12** (3 rows, 8 report
