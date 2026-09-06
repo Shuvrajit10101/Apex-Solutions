@@ -145,6 +145,7 @@ public enum Screen
     ImsActions,
     RunSetOff,
     PostItcReversal,
+    Drc03Payment,
     ImportGstr2b,
     GenerateEInvoice,
     GenerateEWayBill,
@@ -201,6 +202,7 @@ public enum Screen
     TaxDeclarationMaster,
     Form24Q,
     Form16,
+    Form12Ba,
 
     // Kerala Flood Cess return (census row 6.26) — under Reports → Statutory Reports, surfaced only for a Kerala
     // GST registrant whose books could contain a supply inside the levy's own closed window (01-08-2019 → 31-07-2021).
@@ -494,6 +496,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Post-ITC-Reversal action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
     [ObservableProperty] private PostItcReversalViewModel? _postItcReversal;
 
+    /// <summary>The DRC-03 voluntary-payment action screen (census row 6.20), non-null only while that page is open.</summary>
+    [ObservableProperty] private Drc03PaymentViewModel? _drc03Payment;
+
     /// <summary>The Import-GSTR-2B action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
     [ObservableProperty] private ImportGstr2bViewModel? _importGstr2b;
 
@@ -616,6 +621,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// column is open.</summary>
     [ObservableProperty] private Form16ViewModel? _form16;
 
+    /// <summary>The Form 12BA / 123 statement-of-perquisites screen (census row 6.42), non-null only while that page
+    /// is open. It is Form 16's annexure and sits immediately after it in the Payroll menu.</summary>
+    [ObservableProperty] private Form12BaViewModel? _form12Ba;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -707,14 +716,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
         && EsiContributionReport is null && ProfessionalTaxRegister is null
         && GratuityProvisionRegister is null && BonusRegister is null
-        && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
+        && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
         && Gstr9Report is null && Gstr9cReport is null && GstOfflineReturns is null
         && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
         && EInvoiceEWayStatusReport is null
-        && ImsActions is null && RunSetOff is null && PostItcReversal is null && ImportGstr2b is null
+        && ImsActions is null && RunSetOff is null && PostItcReversal is null && Drc03Payment is null
+        && ImportGstr2b is null
         && GenerateEInvoice is null && GenerateEWayBill is null
         && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
@@ -780,6 +790,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnImsActionsChanged(ImsActionsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnRunSetOffChanged(RunSetOffViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPostItcReversalChanged(PostItcReversalViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnDrc03PaymentChanged(Drc03PaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportGstr2bChanged(ImportGstr2bViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGenerateEInvoiceChanged(GenerateEInvoiceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGenerateEWayBillChanged(GenerateEWayBillViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -814,6 +825,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnTaxDeclarationMasterChanged(TaxDeclarationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm24QChanged(Form24QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm16Changed(Form16ViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm12BaChanged(Form12BaViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2249,6 +2261,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Form 12BA / 123 is the Form 16 ANNEXURE (statement of perquisites, rule 26A(2)(b)); it is issued to the
+            // same employee for the same year off the same data path, so it sits immediately beside its certificate.
+            col.Add(new MenuItemViewModel(FormMenuLabel("12BA"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2343,6 +2358,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("IMS (Accept / Reject / Pending)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Run Set-Off & Pay", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Post ITC Reversal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("DRC-03 Voluntary Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import GSTR-2B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Generate e-Invoice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Generate e-Way Bill", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -5098,6 +5114,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsPostItcReversalScreen =>
         CurrentScreen == Screen.PostItcReversal && PostItcReversal is not null;
 
+    /// <summary>Opens the <b>DRC-03 — Voluntary / Self-Ascertained Payment</b> action screen (Reports → Statutory
+    /// Reports → GST Actions → DRC-03 Voluntary Payment; census row 6.20). Rule 142(2) / 142(3). Opening it only
+    /// projects the per-cell cash availability and the DRC-03s already filed — nothing is posted until the explicit
+    /// Post action (Ctrl+A). A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenDrc03Payment()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new Drc03PaymentViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("DRC-03 Voluntary Payment", page), Screen.Drc03Payment,
+            "DRC-03 — Voluntary / Self-Ascertained Payment", () => Drc03Payment = page);
+    }
+
+    /// <summary>True while the DRC-03 screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsDrc03PaymentScreen =>
+        CurrentScreen == Screen.Drc03Payment && Drc03Payment is not null;
+
     /// <summary>Opens the <b>Import GSTR-2B</b> action screen (Reports → Statutory Reports → GST Actions → Import
     /// GSTR-2B; Phase 9 UI-2). Opening it imports nothing — only the explicit Import reads + materialises the file.
     /// A no-op unless the company is a Regular GST dealer (ER-13).</summary>
@@ -5605,6 +5637,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>True while the Form 16 certificate page is the active screen (drives its arrow-key nav).</summary>
     public bool IsForm16Screen => CurrentScreen == Screen.Form16 && Form16 is not null;
 
+    /// <summary>Opens the <b>Form 12BA / 123</b> statement-of-perquisites page (Reports → Statutory Reports → Payroll
+    /// → Form 12BA; census row 6.42) — the Form 16 annexure, rule 26A(2)(b). Gated on the same
+    /// <see cref="Company.SalaryTdsEnabled"/> feature as the Form 16 row it sits beside (ER-13). Read-only.</summary>
+    public void OpenForm12Ba()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var page = new Form12BaViewModel(Company);
+        var label = FormMenuLabel("12BA");
+        OpenPageColumn(new GatewayColumn(label, page), Screen.Form12Ba,
+            $"{label} (Statement of Perquisites)", () => Form12Ba = page);
+    }
+
+    /// <summary>True while the Form 12BA annexure page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm12BaScreen => CurrentScreen == Screen.Form12Ba && Form12Ba is not null;
+
     /// <summary>Alt+B on the Form 16 screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
     public void SaveReturnForm16()
     {
@@ -6075,6 +6123,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ImsActions = null;
         RunSetOff = null;
         PostItcReversal = null;
+        Drc03Payment = null;
         ImportGstr2b = null;
         GenerateEInvoice = null;
         GenerateEWayBill = null;
@@ -6110,6 +6159,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         TaxDeclarationMaster = null;
         Form24Q = null;
         Form16 = null;
+        Form12Ba = null;
         ReportConfig = null;
         BasisOfValues = null;
         ExceptionReports = null;
@@ -8525,6 +8575,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the DRC-03 screen the arrows move the filed-DRC-03 highlight.
+        if (IsDrc03PaymentScreen)
+        {
+            Drc03Payment!.MoveHighlight(direction);
+            return;
+        }
+
         // On the e-Invoice / e-Way Bill screens the arrows move the voucher highlight (what the actions act on).
         if (IsGenerateEInvoiceScreen)
         {
@@ -8563,6 +8620,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsForm16Screen)
         {
             Form16!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 12BA annexure the arrows move the employee highlight (re-projects the statement).
+        if (IsForm12BaScreen)
+        {
+            Form12Ba!.MoveHighlight(direction);
             return;
         }
 
@@ -8852,6 +8916,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.PostItcReversal:
                 PostItcReversal?.Post();   // Ctrl+A = post the form's reversal
                 return;
+            case Screen.Drc03Payment:
+                Drc03Payment?.Post();      // Ctrl+A = file the form's DRC-03 (Rule 142(2)/142(3))
+                return;
             case Screen.ImportGstr2b:
                 ImportGstr2b?.Import();    // Ctrl+A = import the chosen portal JSON
                 return;
@@ -8905,6 +8972,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.Form16:
                 Form16?.ExportPdf(); // Ctrl+A exports the Form 16 certificate PDF (the page's primary action)
                 return;
+            case Screen.Form12Ba:
+                return; // read-only annexure — Ctrl+A/Enter is a safe no-op (there is no PDF: see Form12BaViewModel)
             case Screen.TcsStatPayment:
                 TcsStatPayment?.Deposit();
                 return;
@@ -9333,6 +9402,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "IMS (Accept / Reject / Pending)": OpenImsActions(); break;
             case "Run Set-Off & Pay": OpenRunSetOff(); break;
             case "Post ITC Reversal": OpenPostItcReversal(); break;
+            case "DRC-03 Voluntary Payment": OpenDrc03Payment(); break;
             case "Import GSTR-2B": OpenImportGstr2b(); break;
             case "Generate e-Invoice": OpenGenerateEInvoice(); break;
             case "Generate e-Way Bill": OpenGenerateEWayBill(); break;
@@ -9434,6 +9504,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
             case "Form 24Q" or "Form 138" or "Form 24Q / 138": OpenForm24Q(); break;
             case "Form 16" or "Form 130" or "Form 16 / 130": OpenForm16(); break;
+            // Form 12BA / 123 — the same three-way match as its Form 16 parent: FY-gated label, renumbered label, and
+            // the dual label the menu shows before a company is loaded.
+            case "Form 12BA" or "Form 123" or "Form 12BA / 123": OpenForm12Ba(); break;
             // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
             case "Payslip": OpenReport(ReportKind.Payslip); break;
             case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;
