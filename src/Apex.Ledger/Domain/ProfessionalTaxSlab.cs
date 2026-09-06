@@ -1,11 +1,17 @@
 namespace Apex.Ledger.Domain;
 
 /// <summary>
-/// A <b>per-month override</b> on a <see cref="PtSlabBand"/> (Phase 8 slice 6) — some states charge a higher PT in a
-/// single balancing month (Maharashtra/Karnataka charge ₹300 in <b>February</b> so the top band's twelve months
-/// total exactly ₹2,500) — modelled as the generic <c>{month, amount}</c> pair. <see cref="Month"/> is 1–12; the
-/// <see cref="Amount"/> replaces the band's ordinary <see cref="PtSlabBand.MonthlyAmount"/> in that month. Pure data,
-/// framework-/DB-/clock-free.
+/// A <b>per-month override</b> on a <see cref="PtSlabBand"/> (Phase 8 slice 6) — <b>a few</b> states charge a higher
+/// PT in a single balancing month, modelled as the generic <c>{month, amount}</c> pair. <see cref="Month"/> is 1–12;
+/// the <see cref="Amount"/> replaces the band's ordinary <see cref="PtSlabBand.MonthlyAmount"/> in that month. Pure
+/// data, framework-/DB-/clock-free.
+/// <para>🔴 <b>A balancing month is a per-state fact and must be read off that state's own rate schedule</b> — it is
+/// not a general property of professional tax and it is not derivable from the ₹2,500 constitutional ceiling. Of the
+/// states seeded by <c>ProfessionalTax.SeedSlabTables</c>, <b>only Maharashtra</b> has one: its Schedule I says, in
+/// terms, <i>"two hundred per month except for the month of February ; three hundred for the month of February"</i>.
+/// <b>Karnataka's and West Bengal's schedules contain no February provision at all</b> — Karnataka's is a flat
+/// <i>"Rs. 200-00 per month"</i>. Karnataka was wrongly given this override until 2026-09-06 and over-deducted ₹100
+/// per employee per year as a result. Do not add an override to a state without quoting the schedule that grants it.</para>
 /// </summary>
 public sealed class PtMonthOverride
 {

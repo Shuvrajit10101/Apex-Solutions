@@ -138,7 +138,8 @@ public sealed class PtConfigReportViewModelTests : IDisposable
         Assert.Contains(page.PtSlabBands, r => r.AppliesTo == "Men" && r.MonthlyText == "200" && r.FebText == "300");
         Assert.Contains(page.PtSlabBands, r => r.AppliesTo == "Women");
 
-        // Switch to Karnataka — gender-agnostic: 2 bands (Nil + ₹200/₹300-Feb), no gendered rows.
+        // Switch to Karnataka — gender-agnostic: 2 bands (Nil + a FLAT ₹200, no February over-charge — Karnataka's
+        // schedule provides none), no gendered rows.
         page.SelectedPtState = page.PtStateOptions.First(o => o.Code == KA);
         Assert.True(page.ApplyPt());
         Assert.Equal(KA, vm.Company!.PtConfig!.StateCode);
