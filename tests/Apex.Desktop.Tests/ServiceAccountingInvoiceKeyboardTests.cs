@@ -25,7 +25,8 @@ namespace Apex.Desktop.Tests;
 /// <list type="bullet">
 /// <item><b>Ctrl+H</b> ("Change Mode") cycles a Sales voucher As Voucher → Item Invoice → Accounting Invoice →
 /// As Voucher, and is a <b>no-op AND UNHANDLED</b> on a non-invoiceable entry (Payment).</item>
-/// <item><b>Ctrl+I</b> stays the 2-way As-Voucher ↔ Item-Invoice toggle (regression guard).</item>
+/// <item><b>Ctrl+I</b> no longer touches the entry mode at all (user ruling 17 gave the chord to More Details),
+/// and <b>Ctrl+H</b> is now the only keyboard door into item-invoice mode.</item>
 /// <item>On a <b>Purchase</b> the accounting mode is DEFERRED, so Ctrl+H must never reach it.</item>
 /// <item>The rendered tree actually swaps grids: the plain Dr/Cr grid hides and the Particulars grid (with a
 /// working remove affordance) shows.</item>
@@ -110,19 +111,54 @@ public sealed class ServiceAccountingInvoiceKeyboardTests
         Assert.True(entry.IsAsVoucherMode);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE INVERSION OF <c>CtrlI_stays_a_two_way_item_toggle</c> (user ruling 17, 2026-09-06).</b> That
+    /// test used to lock <c>Ctrl+I</c> onto the two-way item-invoice toggle, and it was RIGHT to, because the
+    /// chord ruling (U-6) was open and a build agent must not resolve an open ruling by deleting the test that
+    /// guards the incumbent. The ruling has now landed: <c>Ctrl+I</c> is the vendor's More Details, and the
+    /// item-invoice toggle answers to <c>Ctrl+H</c> <b>only</b> — the user declined a <c>Ctrl+I</c> alias
+    /// explicitly, so "does nothing to the mode" is the specified behaviour and not an oversight.
+    ///
+    /// <para>The assertion is on the MODE, not on <c>e.Handled</c>: once 14.4 lands, Ctrl+I on a voucher IS
+    /// consumed (it opens More Details), so consumption would stop discriminating. What must never come back is
+    /// Ctrl+I <i>changing the entry mode</i>.</para>
+    /// </summary>
     [AvaloniaFact]
-    public void CtrlI_stays_a_two_way_item_toggle()
+    public void CtrlI_no_longer_changes_the_entry_mode()
     {
         var (window, vm, _) = NewWindow();
         vm.OpenVoucher(VoucherBaseType.Sales);
         var entry = vm.VoucherEntry!;
+        Assert.True(entry.IsAsVoucherMode);
 
         window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-        Assert.True(entry.IsItemInvoice);
 
-        window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
-        Assert.True(entry.IsAsVoucherMode);   // 2-way flip back, never into Accounting mode
+        Assert.True(entry.IsAsVoucherMode,
+            "Ctrl+I moved the voucher's entry mode. Under ruling 17 that chord is More Details and must not "
+            + "touch the mode; the item-invoice toggle answers to Ctrl+H ONLY, with no Ctrl+I alias.");
+        Assert.False(entry.IsItemInvoice);
         Assert.False(entry.IsAccountingInvoice);
+    }
+
+    /// <summary>
+    /// The other half of the re-homing, and the reason nothing was DELETED by it: item-invoice mode still has a
+    /// keyboard door, on <c>Ctrl+H</c>. This is the non-vacuity partner of
+    /// <see cref="CtrlI_no_longer_changes_the_entry_mode"/> — without it, that test would pass just as happily
+    /// if item-invoice mode had become keyboard-unreachable altogether.
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlH_is_the_keyboard_door_to_item_invoice_mode()
+    {
+        var (window, vm, _) = NewWindow();
+        vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = vm.VoucherEntry!;
+        Assert.True(entry.IsAsVoucherMode);
+
+        window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+
+        Assert.True(entry.IsItemInvoice,
+            "Ctrl+H no longer reaches item-invoice mode. Ruling 17 re-homed the toggle onto this chord, so "
+            + "this is the ONLY keyboard route to the mode and losing it deletes the capability.");
     }
 
     /// <summary>

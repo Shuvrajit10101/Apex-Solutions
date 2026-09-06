@@ -56,6 +56,12 @@ public enum Screen
     // screen id exists so the shell can tell "the company menu is the active pane" from "the Gateway is".
     CompanyMenu,
 
+    // 14.4 — More Details (Ctrl+I): the vendor's per-instance optional-field panel, pushed as a cascade column
+    // OVER the live voucher exactly like the F12 report-config column sits over its report. The voucher
+    // underneath stays bound (BindPageColumn re-hydrates it on Escape), because More Details edits THAT
+    // voucher — a panel that replaced the entry screen would have nothing to reveal a field on.
+    MoreDetails,
+
     PrintPreview,
     PrintConfig,
 
@@ -637,6 +643,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Ctrl+G "Switch To" destination list (census 14.2), non-null only while that column is open.</summary>
     [ObservableProperty] private SwitchToViewModel? _switchTo;
 
+    /// <summary>The Ctrl+I "More Details" optional-field panel (census 14.4), non-null only while that column is open.</summary>
+    [ObservableProperty] private MoreDetailsViewModel? _moreDetails;
+
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
 
@@ -714,7 +723,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Form16A is null && Form27D is null && Form27A is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null && SwitchTo is null
+        && SaveView is null && SavedViews is null && SwitchTo is null && MoreDetails is null
         && PrintPreview is null && PrintConfigPanel is null
         && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
@@ -813,6 +822,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSwitchToChanged(SwitchToViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMoreDetailsChanged(MoreDetailsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -3129,11 +3139,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== the navigation shell (census 14.2 / 14.9)
     //
     // Two top-level chords that are not "a report" and not "a master": Ctrl+G Switch To and Alt+K Company.
-    // 🔴 CENSUS 14.4 (More Details, Ctrl+I) IS NOT DELIVERED BY THIS SECTION AND IS NOT CLAIMED ANYWHERE. It
-    // waits on the open chord ruling U-6; the whole argument, including the measured reason the obvious
-    // context-partition compromise does not work, is recorded beside the table in ShellChordTable. Census row
-    // 14.4 stays ABSENT. This header once read "14.2 / 14.4 / 14.9", which read as a delivery claim for a row
-    // that has no code — corrected here rather than left to be believed.
+    // 🔴 CENSUS 14.4 (More Details, Ctrl+I) IS NOW DELIVERED — see OpenMoreDetails below. It had waited on the
+    // open chord ruling U-6, which USER RULING 17 (2026-09-06) closed: Ctrl+I is More Details, and the
+    // item-invoice toggle re-homes to Ctrl+H with no Ctrl+I alias. The long argument that used to sit beside
+    // ShellChordTable.Table — including the measured reason the context-partition compromise could not work —
+    // is preserved there as the record of why the row waited, with the ruling's resolution appended.
     //
     // Both chords are arbitrated by ShellChordTable, and both open through the SAME
     // overlay shape OpenSavedViews established — push a column, focus it, set the screen id — so neither of them
@@ -3240,6 +3250,65 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = panel.Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    // =============================================================== 14.4 — More Details (Ctrl+I)
+
+    /// <summary>
+    /// True while More Details has a voucher to stand on. The panel edits the OPEN voucher, so a voucher-entry
+    /// screen is the whole precondition.
+    ///
+    /// <para>🔴 <b>DELIBERATELY NOT NARROWED TO "has at least one row to show".</b> The tempting stricter gate
+    /// is to refuse the chord when the voucher hides no optional field — on a Journal, say. It was rejected:
+    /// a chord that silently does nothing on a screen where the operator pressed it is the EXACT defect that
+    /// got census 14.4 graded unreachable in the first place (the old Ctrl+I arm consumed the key on ~156
+    /// screens and did nothing on all of them). The panel opens and SAYS there is nothing to reveal — see
+    /// <see cref="MoreDetailsViewModel.Status"/>. An honest empty answer beats a dead key.</para>
+    /// </summary>
+    public bool CanOpenMoreDetails => CurrentScreen == Screen.VoucherEntry && VoucherEntry is not null;
+
+    /// <summary>
+    /// Ctrl+I — pushes the More Details column over the live voucher (census 14.4). The vendor's own framing is
+    /// that this reaches option-gated fields "for the current instance", so the panel writes per-instance
+    /// override flags on <see cref="VoucherEntryViewModel"/> and never the screen options themselves.
+    ///
+    /// <para>The voucher's own column stays in <see cref="Columns"/> beneath this one, which is what makes
+    /// Escape land back on the half-keyed voucher with every line intact: <c>BindPageColumn</c> re-binds the
+    /// SAME <see cref="VoucherEntryViewModel"/> instance the column has held all along.</para>
+    /// </summary>
+    public void OpenMoreDetails()
+    {
+        if (!CanOpenMoreDetails || VoucherEntry is not { } entry) return;
+        if (MoreDetails is not null) return;   // a re-press must not stack a second column
+
+        var panel = new MoreDetailsViewModel(entry);
+        MoreDetails = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.MoreDetails;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Down arrow on the More Details list.</summary>
+    public void MoreDetailsMoveDown() => MoreDetails?.MoveDown();
+
+    /// <summary>Up arrow on the More Details list.</summary>
+    public void MoreDetailsMoveUp() => MoreDetails?.MoveUp();
+
+    /// <summary>
+    /// Enter / Ctrl+A on the More Details list — reveals the highlighted field group on THIS voucher, then pops
+    /// the panel so the operator lands back on the voucher with the field now showing, rather than on a spent
+    /// column. Mirrors <see cref="ApplyBasisOfValues"/>, the other "apply then return" panel.
+    /// <para>A no-op row (nothing highlighted, i.e. an empty panel) leaves the column up; there is nothing to
+    /// apply and popping would make Enter indistinguishable from Escape.</para>
+    /// </summary>
+    public void TakeMoreDetailsRow()
+    {
+        if (MoreDetails is null) return;
+        if (!MoreDetails.Activate()) return;
+        if (CurrentScreen == Screen.MoreDetails) Back();
     }
 
     /// <summary>Down arrow on the Switch To list.</summary>
@@ -6064,6 +6133,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SaveView = null;
         SavedViews = null;
         SwitchTo = null;
+        MoreDetails = null;
         PrintPreview = null;
         PrintConfigPanel = null;
         MultiAccountPrint = null;
@@ -7614,7 +7684,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.ToggleOptional();
     }
 
-    /// <summary>Ctrl+I: toggle the in-progress Purchase/Sales voucher between plain accounting and item-invoice mode.</summary>
+    /// <summary>Toggle the in-progress Purchase/Sales voucher between plain accounting and item-invoice mode.
+    /// <para>NOT a chord's verb since ruling 17 — the "Item Invoice (Ctrl+H)" checkbox calls this; from the
+    /// keyboard the mode is reached by <see cref="ChangeMode"/> (Ctrl+H). Ctrl+I is More Details.</para></summary>
     public void ToggleItemInvoice()
     {
         if (CurrentScreen == Screen.VoucherEntry)
@@ -7637,7 +7709,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.ToggleAccountingInvoice();
     }
 
-    /// <summary>True while a Purchase/Sales voucher-entry page is active (drives the Ctrl+I item-invoice action).</summary>
+    /// <summary>True while a Purchase/Sales voucher-entry page is active (the item-invoice affordance's gate; it
+    /// is a strict subset of <see cref="IsChangeModeEntry"/>, which gates the Ctrl+H chord that now reaches it).</summary>
     public bool IsInvoiceableEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
 
@@ -9882,10 +9955,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
-        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // 🔴 THE "Ctrl+I / As Invoice" ROW IS GONE, AND ITS ABSENCE IS THE POINT (user ruling 17, 2026-09-06).
+        // Ctrl+I is now More Details (census 14.4, added below); the item-invoice toggle answers to Ctrl+H
+        // ONLY, with no alias. A button-bar row is a CLAIM ABOUT A KEYSTROKE, so leaving "Ctrl+I  As Invoice"
+        // on screen after the key stopped doing that would be a false caption, not a cosmetic miss.
+        //
+        // It is DELETED rather than relabelled to "Ctrl+H  As Invoice", for a mechanical reason recorded in
+        // this very method a few lines down (see the Alt+A branch): the shell's Fire()/hint lookup takes the
+        // FIRST key match, so a second Ctrl+H row would shadow — or be shadowed by — Change Mode, and the two
+        // do different things. One key, one row. Change Mode is the row that survives because its cycle is a
+        // superset: As Voucher → Item Invoice → Accounting Invoice already reaches item-invoice mode on every
+        // screen the deleted row was enabled on (IsChangeModeEntry ⊇ IsInvoiceableEntry).
+        //
         // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
         // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
         ButtonBar.Add(new ButtonBarItem("Ctrl+H", "Change Mode", ChangeMode, IsChangeModeEntry));
+        // Ctrl+I — More Details (census 14.4): the vendor's per-instance optional-field panel. The vendor lists
+        // this chord in the RIGHT BUTTON AREA, which is precisely this bar, so the button bar is not a
+        // consolation affordance for it — it is where the reference product puts it.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "More Details", OpenMoreDetails, CanOpenMoreDetails));
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));

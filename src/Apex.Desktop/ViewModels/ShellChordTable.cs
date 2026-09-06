@@ -128,10 +128,31 @@ public static class ShellChordTable
             vm => vm.Company is not null,
             vm => vm.ShutCompany()),
 
-        // ── Ctrl+I — More Details — DELIBERATELY NOT IN THIS TABLE ───────────────────────────────────────
-        // 🔴 Census 14.4 (More Details) is the vendor's Ctrl+I: "To add more details to a master or voucher for
-        // the current instance." It is NOT claimed here, and the omission is a finding rather than an
-        // oversight — the reasoning belongs beside the table so the next agent does not "fix" it.
+        // ── Ctrl+I — More Details (census 14.4) ──────────────────────────────────────────────────────────
+        // Vendor, verbatim: "To add more details to a master or voucher for the current instance", listed in
+        // the Right button area at help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/.
+        //
+        // 🔴 CLAIMED UNDER USER RULING 17 (2026-09-06), WHICH CLOSED THE OPEN U-6 CHORD RULING. Everything
+        // below this entry is the RECORD OF WHY THIS ROW WAITED — it is deliberately preserved rather than
+        // deleted, because it is also the map of what the re-homing had to answer for.
+        //
+        // WHAT THE RULING DECIDED: Ctrl+I is More Details. The item-invoice toggle moves to Ctrl+H and answers
+        // to Ctrl+H ONLY — the user declined a Ctrl+I alias explicitly, so nothing is ambiguous.
+        //
+        // 🔴 AND THE COLLISION THAT RE-HOMING WALKED INTO, MEASURED IN THIS TREE. Ctrl+H WAS NOT A FREE CHORD:
+        // it is the incumbent "Change Mode" arm in MainWindow.OnKeyDown, and the vendor's own shortcut page
+        // attests it ("Change mode - open vouchers in different modes"). NOTHING WAS DISPLACED TO MAKE ROOM,
+        // and nothing may be: the incumbent turned out to be a STRICT SUPERSET of the verb that moved.
+        //   • ChangeMode() cycles As Voucher -> Item Invoice -> Accounting Invoice, so it ALREADY reaches
+        //     item-invoice mode on exactly the Purchase/Sales screens the old two-way toggle worked on,
+        //     under a WIDER gate (IsChangeModeEntry, which also admits Contra/Payment/Receipt).
+        //   • So "the toggle answers to Ctrl+H" is satisfied by the key that was already there, and the
+        //     capability keeps a keyboard door. What is gone is only the two-way toggle's distinct cycling
+        //     SHAPE — the part the vendor never attested and census T2-14 graded as wrong.
+        // 🔴 IF A LATER AGENT IS TEMPTED TO "FREE" Ctrl+H BY MOVING Change Mode ELSEWHERE: don't. That would
+        // break a shipped, vendor-attested binding in order to re-seat an Apex invention.
+        //
+        // ── the record of why this row waited, kept verbatim ────────────────────────────────────────────
         //
         // Taking Ctrl+I means taking it FROM vm.ToggleItemInvoice(), and the case for that was argued on the
         // premise that it "costs nothing, because Ctrl+H already carries mode switching". MEASURED IN THIS
@@ -168,6 +189,22 @@ public static class ShellChordTable
         // at all: our Single/Double-entry switch is Ctrl+H, deliberately NOT an F12 flag (see the remarks at
         // VoucherEntryViewModel:113-133). There is therefore no honest half-measure — 14.4 needs the ruling,
         // and it must ship WITH a keyboard door for whatever the item-invoice toggle becomes.
+        //
+        // ── how the ruling answered that last paragraph ─────────────────────────────────────────────────
+        // 🔴 THE MEASUREMENT ABOVE STILL HOLDS AND IS STILL THE CONSTRAINT ON THE PANEL'S CONTENT: this build
+        // has exactly TWO option-gated field groups (bill-wise, batch), both reachable only in invoice mode on
+        // a Purchase/Sales. What the ruling changed is that Ctrl+I is no longer PARTITIONED — it is the whole
+        // chord — so the surface with the rows is included rather than excluded, and the "always-empty panel"
+        // failure mode does not arise. Where a voucher genuinely hides nothing (a Journal), the panel still
+        // opens and says so; see MainWindowViewModel.CanOpenMoreDetails for why an honest empty answer was
+        // chosen over a silently dead key.
+        //
+        // The gate is CanOpenMoreDetails (a live voucher-entry screen), NOT IsReportContext: the vendor's
+        // "master or voucher" wording does not extend to reports, and this build has no option-gated field
+        // group on a master screen to offer either. Where we have nothing, we claim nothing.
+        new("Ctrl+I", Key.I, KeyModifiers.Control,
+            vm => vm.CanOpenMoreDetails,
+            vm => vm.OpenMoreDetails()),
     };
 
     /// <summary>

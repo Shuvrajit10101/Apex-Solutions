@@ -417,6 +417,11 @@ public partial class MainWindow : Window
             // underneath — a keystroke landing on the wrong screen.
             else if (vm.CurrentScreen == Screen.SwitchTo)
                 vm.TakeSwitchToDestination();
+            // Ctrl+I "More Details" (census 14.4): same reasoning as Switch To directly above — without this
+            // arm, Ctrl+A on the panel would fall through to the VOUCHER ACCEPT below and post the very
+            // voucher the operator was still adding a field to.
+            else if (vm.CurrentScreen == Screen.MoreDetails)
+                vm.TakeMoreDetailsRow();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -593,6 +598,29 @@ public partial class MainWindow : Window
                 PostScrollSwitchToSelectionIntoView();
                 e.Handled = true;
                 return;
+            }
+        }
+
+        // ── More Details (Ctrl+I, census 14.4) — the open panel owns Up / Down / Enter ────────────────────
+        // Placed beside Switch To because it is the same column shape, but it owns FAR less of the keyboard:
+        // there is no prefix filter here, so printable characters are deliberately NOT claimed and fall
+        // through to the arms below exactly as they do with no panel open.
+        //
+        // 🔴 THIS BLOCK MUST STAY ABOVE THE VOUCHER-ENTRY ARMS, and that is a correctness constraint rather
+        // than a tidiness one: the voucher this panel is drawn over is STILL BOUND underneath (its column
+        // survives in Columns, which is what lets Escape return to it intact). An un-claimed Enter would
+        // therefore reach the live entry screen and act on the voucher the operator is only inspecting.
+        //
+        // Escape is deliberately NOT handled here: it falls through to `case Key.Escape` -> vm.Back(), which
+        // pops the column, clears the panel and re-binds the voucher beneath. One way out, the same one every
+        // other column in this shell has.
+        if (vm.CurrentScreen == Screen.MoreDetails && vm.MoreDetails is not null && !vm.IsGoToOpen)
+        {
+            switch (e.Key)
+            {
+                case Key.Down: vm.MoreDetailsMoveDown(); e.Handled = true; return;
+                case Key.Up: vm.MoreDetailsMoveUp(); e.Handled = true; return;
+                case Key.Enter: vm.TakeMoreDetailsRow(); e.Handled = true; return;
             }
         }
 
@@ -1001,46 +1029,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ctrl+I toggles a Purchase/Sales voucher between plain accounting and item-invoice ("as invoice") mode.
+        // ── Ctrl+I IS NO LONGER THE ITEM-INVOICE TOGGLE ──────────────────────────────────────────────────
+        // 🔴 USER RULING 17 (2026-09-06) SETTLED THE CHORD THIS ARM USED TO HOLD. Ctrl+I is the vendor's
+        // More Details ("To add more details to a master or voucher for the current instance",
+        // help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/) and census row 14.4 had been blocked
+        // on the open chord ruling U-6 for the whole campaign. The ruling releases Ctrl+I to More Details and
+        // re-homes the item-invoice toggle onto Ctrl+H, WITH NO Ctrl+I ALIAS — the user chose that explicitly
+        // so that nothing is ambiguous. There is therefore deliberately NO `Key.I + Control` arm here any
+        // more; the chord is claimed by ShellChordTable ("Ctrl+I", More Details), which this method consults
+        // near the top, well above this point.
         //
-        // 🔴 THE WAVE-7 SHELL WORK TRIED TO TAKE THIS CHORD FOR More Details (census 14.4) AND THE RELEASE WAS
-        // REVERTED. Recorded here because the argument for taking it is genuinely strong and will be made again:
-        // the vendor's Ctrl+I is "To add more details to a master or voucher for the current instance", this
-        // two-way toggle is an Apex invention the vendor does not attest, and census T2-14 already grades the
-        // binding as wrong. What killed the attempt was the JUSTIFICATION, which was that releasing it "costs
-        // nothing because Ctrl+H already carries mode switching". It does not: Ctrl+H is a THREE-WAY cycle
-        // (As Voucher -> Item -> Accounting) and this is a TWO-WAY toggle that never enters Accounting mode —
-        // different verbs, and ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle locks the
-        // difference on purpose. With this arm gone, vm.ToggleItemInvoice()'s only surviving door was a mouse
-        // Click handler. T2-14 itself says "Chord ruling required — see U-6. OPEN.", so the swap needs the
-        // ruling first, and it must ship WITH a keyboard door for whatever the toggle becomes.
+        // 🔴 AND THE COLLISION THE RE-HOMING WALKED INTO, RECORDED SO IT IS NOT RE-DISCOVERED. Ctrl+H WAS NOT
+        // FREE. It is the incumbent "Change Mode" arm immediately below — the vendor's ONE mode-change key.
+        // Nothing was displaced to make room, because the incumbent is a STRICT SUPERSET of the verb that
+        // moved: ChangeMode() cycles As Voucher → Item Invoice → Accounting Invoice, so it already reaches
+        // item-invoice mode on exactly the Purchase/Sales screens where the old two-way Ctrl+I toggle worked,
+        // under a WIDER gate (IsChangeModeEntry ⊇ IsInvoiceableEntry). "The toggle answers to Ctrl+H only" is
+        // satisfied by the key that was already there. What did NOT happen — and must not happen later — is
+        // Change Mode being pushed onto some third chord to make Ctrl+H "free" for the toggle; that would
+        // break a shipped vendor-attested binding to re-seat an Apex invention the vendor never attested.
         //
-        // 🔴 BUT THE APP-WIDE SWALLOW IS FIXED HERE, AND THAT HALF NEEDED NO RULING. On main this arm carried
-        // NO CONTEXT GUARD AT ALL — `e.Key == Key.I && HasFlag(Control)`, nothing else — so it set
-        // e.Handled = true on every one of the ~157 screens, including the ~156 where ToggleItemInvoice() is a
-        // no-op (it self-guards on Screen.VoucherEntry). Ctrl+I was therefore CONSUMED AND SILENTLY DEAD on
-        // every report, every master and the Gateway itself, which is why census 14.4 grades as unreachable
-        // rather than merely mis-keyed: even a correctly-placed later arm could never have fired.
-        //
-        // The gate is IsInvoiceableEntry — VoucherEntry screen AND CanBeItemInvoice — which is EXACTLY the
-        // predicate the button bar already advertises this chord under
-        // (MainWindowViewModel: `new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry)`).
-        // The key and the button it is drawn on now agree; before this, the button greyed out while the key
-        // went on eating the keystroke.
-        //
-        // This is the SAME correction Ctrl+H already carries directly below (gated on vm.IsChangeModeEntry),
-        // made for the same stated reason — "so the key is not swallowed app-wide" — and locked by
-        // ServiceAccountingInvoiceKeyboardTests.CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode, whose
-        // remarks record that an earlier version of THAT test passed vacuously because it asserted the mode
-        // flag (which ChangeMode() guards on its own) instead of observing e.Handled. The Ctrl+I counterpart
-        // below therefore bites on consumption too. Ruling-neutral: the incumbent keeps the chord everywhere
-        // it does anything, so nothing is re-pointed and no capability moves.
-        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsInvoiceableEntry)
-        {
-            vm.ToggleItemInvoice();
-            e.Handled = true;
-            return;
-        }
+        // What the old arm's own remarks called the cost of releasing Ctrl+I — that ToggleItemInvoice()'s only
+        // surviving door would be a mouse Click handler — is answered the same way: the CAPABILITY (get this
+        // voucher into item-invoice mode) keeps a keyboard door on Ctrl+H. Only the two-way toggle's distinct
+        // cycling shape is gone, and that shape was the un-attested part. The Click handler on the "Item
+        // Invoice (Ctrl+H)" checkbox still calls ToggleItemInvoice() directly, so the mouse affordance is
+        // unchanged and the caption now names a key that really does reach it.
 
         // Ctrl+H "Change Mode" cycles a Purchase/Sales voucher through the three entry modes
         // As Voucher → Item Invoice → Accounting Invoice → As Voucher. Consumed (e.Handled) ONLY on an invoiceable
@@ -1057,7 +1071,9 @@ public partial class MainWindow : Window
         }
 
         // Alt+I toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42). Scoped to
-        // the POS Billing screen so it never collides elsewhere; the item-invoice toggle stays on Ctrl+I.
+        // the POS Billing screen so it never collides elsewhere. (Since ruling 17 the item-invoice toggle is on
+        // Ctrl+H, not Ctrl+I; this arm is Alt+I and was never related to either, but the exact-modifier guard
+        // below still matters — it is what keeps Ctrl+Alt+I off this arm.)
         if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && vm.CurrentScreen == Screen.PosBilling)
         {
