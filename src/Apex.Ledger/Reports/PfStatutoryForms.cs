@@ -188,11 +188,46 @@ public static class PfStatutoryForms
     /// keys the member on the UAN, so a PF-applicable employee without one cannot appear on a PF return at all —
     /// <see cref="PfEcr.Build"/> refuses such a company outright, and these forms inherit that refusal.</summary>
     private static List<Employee> PfMembers(Company company)
-        => company.Employees
+    {
+        var members = company.Employees
             .Where(e => e.PfApplicable)
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
+        RefuseDuplicateUans(members);
+        return members;
+    }
+
+    /// <summary>
+    /// 🔴 Refuses a company in which two PF members carry the <b>same UAN</b>.
+    ///
+    /// <para><b>Why this guard has to exist here.</b> Nothing in the product enforces UAN uniqueness —
+    /// <c>PayrollService.ValidateUan</c> checks the 12-digit shape only, and there is no lookup-by-UAN anywhere — so
+    /// a typo or an import can leave two members sharing one. <see cref="PfEcr.Build"/> then emits a member row for
+    /// each, and these forms index those rows <b>by UAN</b> to pick one member out of each wage month. A duplicate
+    /// makes that index keep whichever row it saw last, and both members' Form 3A cards print the SAME figures under
+    /// each member's own name and PF account number — a wrong figure under a right heading, on an annual statutory
+    /// return, with nothing on the page to show it happened.</para>
+    ///
+    /// <para>It refuses rather than de-duplicating for the same reason a missing UAN refuses: this is a real data
+    /// fault the operator has to fix, and picking a winner would be choosing which member gets someone else's
+    /// contribution history.</para>
+    /// </summary>
+    private static void RefuseDuplicateUans(List<Employee> members)
+    {
+        var byUan = new Dictionary<string, Employee>(StringComparer.Ordinal);
+        foreach (var e in members)
+        {
+            var uan = (e.Uan ?? string.Empty).Trim();
+            if (uan.Length == 0) continue;   // PfEcr.Build refuses a blank UAN itself, with its own message
+            if (byUan.TryGetValue(uan, out var first))
+                throw new InvalidOperationException(
+                    $"PF members '{first.Name}' and '{e.Name}' share the UAN {uan}. A UAN identifies one member, "
+                    + "and the PF returns key each member's monthly figures on it — two members on one UAN would "
+                    + "print the same contribution history for both. Correct the UAN on one of them.");
+            byUan[uan] = e;
+        }
+    }
 
     /// <summary>The identity block for <paramref name="employee"/>. The <i>Account No.</i> column is the PF
     /// account number the Employee master carries; when it is unset the column prints blank rather than borrowing

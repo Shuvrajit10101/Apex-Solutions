@@ -159,11 +159,41 @@ public static class EsiStatutoryForms
     /// refuses such a company outright, and these forms inherit that refusal rather than silently dropping a
     /// member.</summary>
     private static List<Employee> EsiMembers(Company company)
-        => company.Employees
+    {
+        var members = company.Employees
             .Where(e => e.EsiApplicable)
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
+        RefuseDuplicateIpNumbers(members);
+        return members;
+    }
+
+    /// <summary>
+    /// 🔴 Refuses a company in which two insured persons carry the <b>same 10-digit IP number</b> — the exact
+    /// counterpart of the PF duplicate-UAN guard, and for the same reason.
+    ///
+    /// <para><see cref="EsiMonthlyContribution.Build"/> validates the IP number's SHAPE but not its uniqueness, and
+    /// <see cref="MonthFigures"/> indexes that projection's rows by IP number to read a member's days and wages out
+    /// of each wage month. Two members on one IP number make the index keep whichever row it saw last, so Forms 5
+    /// and 6 would report one person's days, wages and contribution against both — silently.</para>
+    /// </summary>
+    private static void RefuseDuplicateIpNumbers(List<Employee> members)
+    {
+        var byIp = new Dictionary<string, Employee>(StringComparer.Ordinal);
+        foreach (var e in members)
+        {
+            var ip = (e.EsiNumber ?? string.Empty).Trim();
+            if (ip.Length == 0) continue;   // EsiMonthlyContribution.Build refuses a blank IP number itself
+            if (byIp.TryGetValue(ip, out var first))
+                throw new InvalidOperationException(
+                    $"Insured persons '{first.Name}' and '{e.Name}' share the IP number {ip}. An IP number "
+                    + "identifies one insured person, and the ESI registers key each person's monthly days and "
+                    + "wages on it — two members on one number would report the same figures for both. Correct the "
+                    + "insurance number on one of them.");
+            byIp[ip] = e;
+        }
+    }
 
     /// <summary>The establishment name the forms print in <i>"Name and Address of the Factory/Establishment"</i>.</summary>
     private static string EstablishmentName(Company company)

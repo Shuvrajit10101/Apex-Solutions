@@ -572,6 +572,86 @@ public sealed class PayrollStatutoryFormsTests
     /// statutory pay heads the ECR reads. Deliberately the SAME shape as the shipped ECR writer fixture, so these
     /// forms and that file are demonstrably reading one engine.
     /// </summary>
+    /// <summary>
+    /// 🔴 <b>Two PF members sharing one UAN must be refused, not silently merged.</b>
+    ///
+    /// <para>Nothing in the product enforces UAN uniqueness — <c>PayrollService.ValidateUan</c> checks the 12-digit
+    /// SHAPE only, and there is no <c>FindEmployeeByUan</c> anywhere — so two employees can carry the same one after
+    /// a typo or an import. <see cref="PfEcr.Build"/> then emits a member row for each, and any consumer that
+    /// indexes those rows <i>by UAN</i> keeps whichever it saw last. Before this guard, Forms 3A and 6A did exactly
+    /// that: both members' contribution cards printed the SAME figures, under each member's own name and PF account
+    /// number. A wrong figure under a right heading, silently, on an annual statutory return.</para>
+    ///
+    /// <para>The refusal matches the rule this file already applies to a missing UAN: a real data fault the operator
+    /// must fix, never a member quietly going missing or quietly wearing someone else's numbers.</para>
+    /// </summary>
+    [Fact]
+    public void Two_pf_members_sharing_one_uan_are_refused_rather_than_silently_merged()
+    {
+        var (c, _) = BuildPfCompany();
+        var pay = new PayrollService(c);
+        // A second member on the SAME UAN, deliberately on a different wage so a merge is detectable.
+        var twin = pay.CreateEmployee("Meera Nair", c.FindEmployeeGroupByName("Staff")!.Id, uan: Uan);
+        pay.SetEmployeePfDetails(twin.Id, applicable: true, contributeOnHigherWages: false);
+        twin.PfAccountNumber = "MH/BAN/0000001/000/0000999";
+        new SalaryStructureService(c).DefineForEmployee(twin.Id, FyStart, new[]
+        {
+            new SalaryStructureLine(c.FindPayHeadByName("Basic")!.Id, 0, new Money(9000m)),
+            new SalaryStructureLine(c.FindPayHeadByName("Employee EPF")!.Id, 1),
+            new SalaryStructureLine(c.FindPayHeadByName("Employer EPF")!.Id, 2),
+            new SalaryStructureLine(c.FindPayHeadByName("Employer Pension")!.Id, 3),
+            new SalaryStructureLine(c.FindPayHeadByName("EDLI")!.Id, 4),
+        });
+
+        var march = new DateOnly(2025, 3, 1);
+        foreach (var build in new Action[]
+        {
+            () => PfStatutoryForms.BuildForm3A(c, march),
+            () => PfStatutoryForms.BuildForm6A(c, march),
+            () => PfStatutoryForms.BuildForm12A(c, new DateOnly(2025, 4, 1)),
+        })
+        {
+            var ex = Assert.Throws<InvalidOperationException>(build);
+            Assert.Contains(Uan, ex.Message);
+            Assert.Contains("Meera Nair", ex.Message);
+            Assert.Contains("Sanjay Kumar", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The same fault on the ESI side: two insured persons sharing one 10-digit IP number. The monthly contribution
+    /// projection keys its rows on the IP number, so an IP-indexed lookup merges them exactly the way the UAN one
+    /// did — Forms 5 and 6 would report one person's days and wages against both.
+    /// </summary>
+    [Fact]
+    public void Two_esi_members_sharing_one_ip_number_are_refused_rather_than_silently_merged()
+    {
+        var (c, _) = BuildEsiCompany();
+        var pay = new PayrollService(c);
+        var twin = pay.CreateEmployee("Meera Nair", c.FindEmployeeGroupByName("Staff")!.Id,
+            employeeNumber: "E-200", esiNumber: Ip);
+        pay.SetEmployeeEsiDetails(twin.Id, applicable: true);
+        twin.DateOfJoining = FyStart;
+        new SalaryStructureService(c).DefineForEmployee(twin.Id, FyStart, new[]
+        {
+            new SalaryStructureLine(c.FindPayHeadByName("Basic")!.Id, 0, new Money(9000m)),
+            new SalaryStructureLine(c.FindPayHeadByName("Employee ESI")!.Id, 1),
+            new SalaryStructureLine(c.FindPayHeadByName("Employer ESI")!.Id, 2),
+        });
+
+        foreach (var build in new Action[]
+        {
+            () => EsiStatutoryForms.BuildForm5(c, FyStart),
+            () => EsiStatutoryForms.BuildForm6(c, FyStart),
+        })
+        {
+            var ex = Assert.Throws<InvalidOperationException>(build);
+            Assert.Contains(Ip, ex.Message);
+            Assert.Contains("Meera Nair", ex.Message);
+            Assert.Contains("Sanjay Kumar", ex.Message);
+        }
+    }
+
     private static (Company Company, Guid EmployeeId) BuildPfCompany()
     {
         var c = CompanyFactory.CreateSeeded("PF Forms Co", FyStart, FyStart);
