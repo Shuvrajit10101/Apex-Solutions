@@ -109,10 +109,19 @@ public sealed class PageConfig
     /// F5 — how many collated copies of the WHOLE document the file carries. 1 by default; anything below 1 is
     /// read as 1. Copies repeat the document, not the page: a two-page report at two copies is 1,2,1,2.
     ///
-    /// <para><b>R6 caveat, stated rather than hidden.</b> There is no physical printer in this application —
-    /// "print" means render a PDF. A copy count is therefore a count of document sets INSIDE one PDF, which is
-    /// what makes it meaningful at all here; on paper it would be the spooler's job. Census row 12.5 (printer
-    /// selection / spooler) stays ABSENT and this knob does not change that.</para>
+    /// <para>🔴 <b>CORRECTED — the paragraph that stood here was true when it was written and is now false.</b>
+    /// It said "there is no physical printer in this application" and that census row 12.5 (printer selection /
+    /// spooler) "stays ABSENT". Row 12.5 SHIPPED on this branch: <c>PlatformPrinting</c> enumerates the
+    /// machine's queues (<c>EnumPrinters</c> on Windows, <c>lpstat</c> on CUPS) and hands the previewed bytes to
+    /// the spooler (<c>winspool.drv</c> RAW / <c>lp</c>). A doc comment asserting the opposite, in the very
+    /// solution that disproves it, is worse than no comment — the next reader believes it.</para>
+    ///
+    /// <para><b>What is still true, and why this knob is unchanged by any of that.</b> Copies are collated INTO
+    /// the PDF — every previewable renderer ends with <c>writer.RepeatAllPages(page.EffectiveCopies)</c> — so a
+    /// three-copy preview is physically a document repeated three times. The spooler is therefore asked for
+    /// exactly ONE copy of that file, never for this number as well (<c>PrintJobBuilder.SpoolerCopies</c> is the
+    /// constant that states it). Asking the queue for three as well is how three copies become nine on real
+    /// paper. This count has exactly one home and it is here.</para>
     /// </summary>
     public int Copies { get; init; } = 1;
 

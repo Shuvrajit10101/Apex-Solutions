@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
         xmlns:conv="using:Apex.Desktop.Converters"
+        xmlns:svc="using:Apex.Desktop.Services"
         xmlns:views="using:Apex.Desktop.Views"
         xmlns:ledger="using:Apex.Ledger.Domain"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -17066,7 +17067,7 @@
                                   </Grid>
                                 </StackPanel>
 
-                                <TextBlock Text="Print produces a PDF — there is no printer selection or spooler yet, so a copy count is a count of document sets inside the file. Logo embedding is deferred."
+                                <TextBlock Text="The copy count is collated into the document itself, so it is a count of document sets inside the file — and the spooler is therefore always asked for exactly one. Press Ctrl+P on the preview to choose a physical printer. Logo embedding is deferred."
                                            FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
 
                                 <Button Content="Apply (Ctrl+A)" Padding="14,6" HorizontalAlignment="Left"
@@ -17075,6 +17076,78 @@
                               </StackPanel>
                             </Border>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Ctrl+P "Printer" panel (census 12.5 — pick a PHYSICAL print queue and spool the
+                         previewed PDF to it). Opens as its own cascade column to the RIGHT of the preview.
+                         The submission notice is NOT decoration: on Windows the job is spooled RAW, which only
+                         prints on devices that read PDF/PostScript, and this line is the operator's only warning
+                         of that. PrinterPanelRealisedReachabilityTests holds the list, the copies box, the
+                         notice and the Print button as realised controls. -->
+                    <ContentControl IsVisible="{Binding PrinterPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PrinterPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PrinterSelectionViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White" MinWidth="320" MinHeight="120"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ListBox ItemsSource="{Binding Printers}"
+                                       SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                       Background="White" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="svc:PrinterDevice">
+                                    <Grid ColumnDefinitions="*,Auto" Height="30">
+                                      <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="13"
+                                                 Foreground="{StaticResource BrandNavy}"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="Default"
+                                                 IsVisible="{Binding IsDefault}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
+                                                 Foreground="#8A8A8A"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Border>
+
+                            <!-- The copy count IS the preview's own knob (one truth, never two): typing here
+                                 re-renders the preview beneath, and the spooler is still asked for one. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="150,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding HasPrinters}">
+                              <TextBlock Grid.Column="0" Text="Number of copies" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                              <TextBox Grid.Column="1" Name="PrinterCopiesBox"
+                                       Text="{Binding Copies, Mode=TwoWay}"
+                                       FontFamily="Consolas,Menlo,monospace"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="4" Text="{Binding SubmissionNotice}"
+                                       FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"
+                                       Margin="2,0,0,8"/>
+
+                            <TextBlock Grid.Row="5" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,0,0,8" TextWrapping="Wrap"/>
+
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto">
+                              <Button Grid.Column="1" Content="Print (Ctrl+A)" Padding="14,6"
+                                      IsEnabled="{Binding HasPrinters}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnPrintToPrinterClick"/>
+                            </Grid>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -18343,7 +18416,7 @@
                               </ItemsControl>
                             </ScrollViewer>
 
-                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
                               <TextBlock Grid.Column="0" Text="{Binding Status}"
                                          IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                          Foreground="{StaticResource BrandNavy}" FontSize="12"
@@ -18351,7 +18424,12 @@
                               <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say WHERE. -->
                               <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
                                       Click="OnBrowseForPathClick"/>
-                              <Button Grid.Column="2" Content="Save PDF (Ctrl+A)" Padding="14,6"
+                              <!-- Census 12.5: the door to a PHYSICAL printer. It is a button as well as a chord
+                                   because a capability reachable only by an undiscoverable keystroke is barely
+                                   reachable; the chord is the vendor's (Ctrl+P) and the caption names it. -->
+                              <Button Grid.Column="2" Content="Printer… (Ctrl+P)" Margin="0,0,6,0" Padding="10,4"
+                                      Click="OnOpenPrinterClick"/>
+                              <Button Grid.Column="3" Content="Save PDF (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnSavePrintPreviewClick"/>
                             </Grid>
