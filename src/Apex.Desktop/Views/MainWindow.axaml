@@ -16802,7 +16802,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding PeriodCaption}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding PeriodCaption}"/>
 
                             <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto">
                               <ItemsControl Name="DashboardTiles" ItemsSource="{Binding Tiles}">
