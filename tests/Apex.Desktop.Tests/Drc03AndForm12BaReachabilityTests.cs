@@ -325,6 +325,50 @@ public sealed class Drc03AndForm12BaReachabilityTests
         finally { Cleanup(w, dir); }
     }
 
+    /// <summary>
+    /// 🔴 <b>THE ENUMERATION LOCK — all twelve causes, verbatim, in the portal's own order.</b> The reachability test
+    /// above spot-checks causes 1, 11 and 12 and the count; that leaves the eight in the middle free to be reworded
+    /// or re-ordered with the whole suite staying green. <b>Measured, not assumed:</b> rewording cause 5 to
+    /// "Mismatch between GSTR-2B and GSTR-3B" (dropping the two "FORM " prefixes) left every other test in this file
+    /// passing.
+    ///
+    /// <para>That is not cosmetic. The picked string is written verbatim into <see cref="GstDrc03.Cause"/>, a free
+    /// text column, and is what every later reconciliation matches on — so a silent re-wording orphans the records
+    /// already filed under the old spelling. And this project's standing rule for a statutory taxonomy is
+    /// <i>clone, never invent</i>: the list is GSTN's, from
+    /// <c>tutorial.gst.gov.in/userguide/demandsandrecovery/Manual_GST_FORM_DRC-03.htm</c>, and this test is what
+    /// makes "we did not invent it" checkable instead of merely asserted in a comment.</para>
+    ///
+    /// <para>Plain <c>[Fact]</c> on purpose — it inspects a static table, needs no window, and therefore cannot be
+    /// made to pass vacuously by a headless-render quirk on a CI runner with no display.</para>
+    /// </summary>
+    [Fact]
+    public void The_twelve_drc03_causes_are_the_portals_own_words_in_the_portals_own_order()
+    {
+        var expected = new[]
+        {
+            "Annual return",
+            "Audit",
+            "Investigation/Enforcement",
+            "Intimation of tax ascertained through FORM GST DRC-01A",
+            "Mismatch between FORM GSTR-2B and FORM GSTR-3B",
+            "Mismatch between FORM GSTR-1 and FORM GSTR-3B",
+            "Reconciliation statement",
+            "After issuance of SCN/Statement but before issuance of the order",
+            "Scrutiny",
+            "Before issuance of SCN/Statement (Voluntary)",
+            "Others",
+            "Order",
+        };
+
+        Assert.Equal(expected, Drc03CauseOption.All.Select(c => c.Text).ToArray());
+
+        // The ordinal is the portal's own numbering and is what the conditional fields key off (the Communication
+        // Reference Number is portal-conditional on 4 / 8 / 12, and "Please specify" on 11). A gap or a renumber
+        // would silently re-point those conditions at the wrong cause.
+        Assert.Equal(Enumerable.Range(1, 12).ToArray(), Drc03CauseOption.All.Select(c => c.Ordinal).ToArray());
+    }
+
     // ================================================================ ROW 6.42 — Form 12BA
 
     /// <summary>A saved salary-TDS company with one high-earning employee and twelve posted payroll runs.</summary>
@@ -426,6 +470,12 @@ public sealed class Drc03AndForm12BaReachabilityTests
     [AvaloniaTheory]
     [InlineData(1_25_000, true)]    // ₹15,00,000 a year — far over the threshold
     [InlineData(10_000, false)]     // ₹1,20,000 a year — under it
+    // 🔴 THE BOUNDARY, AND IT IS THE ONLY CASE THAT LOCKS THE COMPARISON OPERATOR. Basic is the sole earning in
+    // this fixture, so 12 × ₹12,500 is gross salary of EXACTLY ₹1,50,000. Rule 26A(2)(b) requires the statement
+    // where salary "exceeds" the threshold, so exactly-at-it is NOT due. Without this row the two rows above pass
+    // identically whether the code says `>` or `>=` — measured: mutating ThresholdRupees comparison to `>=` left
+    // the whole suite green until this case existed.
+    [InlineData(12_500, false)]     // ₹1,50,000 a year — EXACTLY the threshold; "exceeds" is strict
     public void Form_12ba_reports_the_rule_26A_threshold_verdict_from_real_gross_salary(
         int monthlyBasic, bool expectedDue)
     {
