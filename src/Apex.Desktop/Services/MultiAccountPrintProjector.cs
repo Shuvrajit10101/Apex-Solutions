@@ -73,8 +73,58 @@ public static class MultiAccountPrintProjector
     };
 
     /// <summary>
+    /// 🔴 <b>Whether a document ADDRESSED TO A COUNTERPARTY may be produced for this account.</b>
+    ///
+    /// <para>A <see cref="MultiAccountDocumentKind.LedgerAccount"/> statement is meaningful for ANY account — an
+    /// operator legitimately prints the Sales or Office Rent ledger. The other two are not statements, they are
+    /// <b>letters to a person</b>: the reminder letter opens "To: …" and asks for settlement, and the confirmation
+    /// of accounts asks that person to confirm the balance and carries a "Confirmed by ____ Date ____" signature
+    /// line. Addressing either to <c>Cash</c>, <c>Sales Account</c> or <c>Profit &amp; Loss A/c</c> produces a
+    /// document the books cannot support — there is no counterparty to send it to and no balance anybody outside
+    /// the company could confirm. That is what this predicate refuses.</para>
+    ///
+    /// <para><b>The test is group ANCESTRY — under Sundry Debtors or Sundry Creditors</b> — walked exactly as
+    /// <c>LedgerMasterViewModel.IsUnderParty</c> walks it when the ledger master decides whether a ledger is a
+    /// party (that is the same walk which defaults "Maintain balances bill-by-bill" on). It is deliberately NOT
+    /// <see cref="Apex.Ledger.Domain.Ledger.MaintainBillByBill"/>: bill-wise tracking is a bookkeeping OPTION an
+    /// operator may switch off on a real debtor, and switching it off must not make that debtor unreachable by a
+    /// reminder. <c>MultiAccountPartyFilterTests</c> locks this against the ledger master's own
+    /// <c>IsPartyGroup</c>, so the two walks cannot drift apart silently.</para>
+    ///
+    /// <para>The 64-step guard mirrors the ledger master's: a cyclic parent chain terminates rather than hangs.</para>
+    /// </summary>
+    public static bool IsPartyAccount(Company company, DomainLedger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(ledger);
+
+        var g = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (g is not null && guard++ < 64)
+        {
+            if (g.Name.Equals("Sundry Debtors", StringComparison.OrdinalIgnoreCase) ||
+                g.Name.Equals("Sundry Creditors", StringComparison.OrdinalIgnoreCase))
+                return true;
+            g = g.ParentId is { } pid ? company.FindGroup(pid) : null;
+        }
+        return false;
+    }
+
+    /// <summary>Whether <paramref name="kind"/> is a letter addressed to a counterparty rather than a statement
+    /// about an account — i.e. whether <see cref="IsPartyAccount"/> gates it.</summary>
+    public static bool AddressesACounterparty(MultiAccountDocumentKind kind) =>
+        kind is MultiAccountDocumentKind.ReminderLetter or MultiAccountDocumentKind.ConfirmationOfAccounts;
+
+    /// <summary>
     /// Builds one document per id in <paramref name="ledgerIds"/>, in the order given. An id that names no
     /// ledger is skipped rather than throwing — a stale selection must not make the whole job unprintable.
+    ///
+    /// <para>🔴 <b>And an id that names a non-party account is skipped for the two counterparty letters</b>
+    /// (<see cref="IsPartyAccount"/>). The panel already offers only party accounts for those kinds, so this is
+    /// the second of two independent gates: this method is <c>public</c>, and the one thing it must never do is
+    /// hand back a "Reminder Letter" addressed "To: Cash" because some caller passed the wrong set. Skipping —
+    /// rather than throwing — matches the unknown-id rule directly above it: one bad id must not make the rest
+    /// of a job unprintable, and a job that ends up empty opens no preview at all.</para>
     /// </summary>
     public static IReadOnlyList<PrintReport> Project(
         Company company,
@@ -91,6 +141,7 @@ public static class MultiAccountPrintProjector
         {
             var ledger = FindLedger(company, id);
             if (ledger is null) continue;
+            if (AddressesACounterparty(kind) && !IsPartyAccount(company, ledger)) continue;
             documents.Add(kind switch
             {
                 MultiAccountDocumentKind.ReminderLetter => ReminderLetter(company, ledger, asOf),

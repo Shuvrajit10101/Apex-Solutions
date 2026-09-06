@@ -17,14 +17,22 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
     public string Name { get; }
     public string GroupName { get; }
 
+    /// <summary>
+    /// Whether this account is a party (under Sundry Debtors / Sundry Creditors) — see
+    /// <see cref="MultiAccountPrintProjector.IsPartyAccount"/>. Only a party can be sent a reminder letter or
+    /// asked to confirm a balance, so this decides whether the row is OFFERED for those two document kinds.
+    /// </summary>
+    public bool IsPartyAccount { get; }
+
     /// <summary>Whether this account is in the print job. Space toggles it; the panel drives Select All / None.</summary>
     [ObservableProperty] private bool _isSelected;
 
-    public MultiAccountRowViewModel(Guid ledgerId, string name, string groupName)
+    public MultiAccountRowViewModel(Guid ledgerId, string name, string groupName, bool isPartyAccount)
     {
         LedgerId = ledgerId;
         Name = name ?? string.Empty;
         GroupName = groupName ?? string.Empty;
+        IsPartyAccount = isPartyAccount;
     }
 }
 
@@ -55,6 +63,19 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
 /// missing link was small and specific — there was no way to get a document SET into a print preview, so the
 /// panel had nobody to hand its job to. <b>A projection with no opener is not a feature.</b></para>
 ///
+/// <para>🔴 <b>WHAT THIS PANEL DOES NOT CLOSE.</b> Naming a census row records what code is FOR; it never moves
+/// the row, and two halves of the two rows named above are still absent:
+/// <list type="bullet">
+///   <item><b>12.6's multi-VOUCHER (range) printing.</b> This panel iterates ACCOUNTS. Nothing in the product
+///     iterates a set of vouchers into one job — "print vouchers 10 to 25" has no route. (W2-31's F10 page range
+///     is row 12.4's range of SHEETS and is not this.)</item>
+///   <item><b>12.7's DELIVERY CHALLAN</b> — the Delivery Note voucher printed — and the <c>Alt+P</c> / <c>Alt+E</c>
+///     bulk menus the reference product reaches the reminder letter and the confirmation of accounts from
+///     (<c>T2-20</c>, the shared menu shell upstream of nine rows). This panel prints; it has no export arm.</item>
+/// </list>
+/// Two of 12.7's three documents now have a route, and 12.6's account half is done. Both rows are
+/// <b>PARTIAL</b>.</para>
+///
 /// <para>No clock: the "as at" date is supplied by the shell, so the panel stays deterministic in tests.</para>
 /// </summary>
 public sealed partial class MultiAccountPrintViewModel : ViewModelBase
@@ -65,8 +86,26 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
 
     public string Title => "Multi-Account Printing";
 
-    /// <summary>Every account in the company, in name order, each selectable.</summary>
+    /// <summary>
+    /// The accounts currently OFFERED, in name order, each selectable — the set the panel's list binds to.
+    ///
+    /// <para>🔴 <b>It is not always every account, and that is the point.</b> For
+    /// <see cref="MultiAccountDocumentKind.LedgerAccount"/> it is every account, because a statement is meaningful
+    /// for any of them. For the two counterparty letters it is the PARTY accounts only
+    /// (<see cref="MultiAccountPrintProjector.IsPartyAccount"/>). The panel previously offered all thirteen
+    /// accounts of a demo company for every kind and ticked them all on Select All, so two keystrokes produced
+    /// "Reminder Letter — To: Cash", "To: Freight Income" and "To: Profit &amp; Loss A/c", each with a Total
+    /// outstanding of 0.00, and the confirmation added "Confirmed by ____ Date ____" to a nominal account. That is
+    /// a document the books cannot support, reachable on the DEFAULT path.</para>
+    /// </summary>
     public ObservableCollection<MultiAccountRowViewModel> Accounts { get; } = new();
+
+    /// <summary>
+    /// Every account in the company, whatever the document kind — the master list <see cref="Accounts"/> is
+    /// projected from. Held so that switching kind back and forth restores the wider list without rebuilding
+    /// rows (and so a row's selection survives a there-and-back switch when it stays eligible).
+    /// </summary>
+    private readonly List<MultiAccountRowViewModel> _allAccounts = new();
 
     /// <summary>The document each selected account produces.</summary>
     [ObservableProperty] private MultiAccountDocumentKind _documentKind = MultiAccountDocumentKind.LedgerAccount;
@@ -120,15 +159,62 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         ordered.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         foreach (var l in ordered)
         {
-            var row = new MultiAccountRowViewModel(l.Id, l.Name, GroupNameOf(company, l));
+            var row = new MultiAccountRowViewModel(l.Id, l.Name, GroupNameOf(company, l),
+                MultiAccountPrintProjector.IsPartyAccount(company, l));
             row.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MultiAccountRowViewModel.IsSelected))
                     OnPropertyChanged(nameof(SelectedCount));
             };
+            _allAccounts.Add(row);
+        }
+
+        RebuildOfferedAccounts();
+    }
+
+    /// <summary>
+    /// Refills <see cref="Accounts"/> from <see cref="_allAccounts"/> for the current
+    /// <see cref="DocumentKind"/>, and DESELECTS every row that has just left the offered set.
+    ///
+    /// <para>The deselection is the load-bearing half. Leaving a dropped row selected would keep it in
+    /// <see cref="SelectedLedgerIds"/> and therefore in the job, so an operator who ticked Cash for a ledger
+    /// statement and then switched to Reminder Letter would print a letter to Cash <b>from a row he could no
+    /// longer see to untick</b> — worse than the defect this filter removes, because it would also be invisible.
+    /// </para>
+    /// </summary>
+    private void RebuildOfferedAccounts()
+    {
+        bool partiesOnly = MultiAccountPrintProjector.AddressesACounterparty(DocumentKind);
+
+        Accounts.Clear();
+        foreach (var row in _allAccounts)
+        {
+            if (partiesOnly && !row.IsPartyAccount)
+            {
+                row.IsSelected = false;               // it is leaving the list — it must leave the job with it
+                continue;
+            }
             Accounts.Add(row);
         }
+
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(HasOfferedAccounts));
+        OnPropertyChanged(nameof(OfferedAccountsNote));
     }
+
+    /// <summary>Whether any account is offered at all for the current kind.</summary>
+    public bool HasOfferedAccounts => Accounts.Count > 0;
+
+    /// <summary>
+    /// The line under the list saying WHICH accounts it is showing — so an operator who switches to Reminder
+    /// Letter and sees eleven of his thirteen accounts disappear is told why, rather than left to guess that the
+    /// panel is broken.
+    /// </summary>
+    public string OfferedAccountsNote => MultiAccountPrintProjector.AddressesACounterparty(DocumentKind)
+        ? (Accounts.Count > 0
+            ? "Party accounts only (Sundry Debtors / Sundry Creditors) — this document is addressed to a counterparty."
+            : "No party account exists (Sundry Debtors / Sundry Creditors), so there is nobody to address this document to.")
+        : "All accounts.";
 
     private static string GroupNameOf(Company company, DomainLedger ledger)
     {
@@ -143,9 +229,14 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsReminderLetter));
         OnPropertyChanged(nameof(IsConfirmation));
         OnPropertyChanged(nameof(JobTitle));
+        // The offered set depends on the kind — see RebuildOfferedAccounts.
+        RebuildOfferedAccounts();
     }
 
-    /// <summary>Puts every account in the job.</summary>
+    /// <summary>
+    /// Puts every OFFERED account in the job — the ones on screen, never the hidden non-party rows. Two
+    /// keystrokes (switch to Reminder Letter, Select All) must not be able to produce a letter to Sales Account.
+    /// </summary>
     public void SelectAll() { foreach (var a in Accounts) a.IsSelected = true; }
 
     /// <summary>Takes every account out of the job.</summary>
@@ -169,7 +260,12 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         var ids = SelectedLedgerIds();
         if (ids.Count == 0)
         {
-            Status = "Select at least one account to print.";
+            // Distinguish "you have not chosen" from "there is nothing to choose": on a company with no debtor
+            // or creditor the Reminder Letter list is EMPTY, and telling that operator to "select at least one
+            // account" would send him looking for a row that does not exist.
+            Status = HasOfferedAccounts
+                ? "Select at least one account to print."
+                : OfferedAccountsNote;
             return Array.Empty<PrintReport>();
         }
 

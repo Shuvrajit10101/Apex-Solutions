@@ -136,9 +136,18 @@ public sealed class MultiAccountPrintReachabilityTests
     }
 
     /// <summary>
-    /// <b>THE DOCUMENT-KIND ASSERTION (census 12.7).</b> The reminder letter and the confirmation of accounts
-    /// are reached from this panel — they are multi-account OUTPUTS, not standalone documents (census §1.3
-    /// item 22). Switching the kind changes the printed heading, so each is genuinely reachable.
+    /// <b>THE DOCUMENT-KIND ASSERTION (census 12.7, PARTIAL).</b> The reminder letter and the confirmation of
+    /// accounts are reached from this panel — they are multi-account OUTPUTS, not standalone documents (census
+    /// §1.3 item 22). Switching the kind changes the printed heading, so each is genuinely reachable.
+    ///
+    /// <para><b>Row 12.7 is NOT closed by this.</b> Its third item — the DELIVERY CHALLAN, i.e. the Delivery Note
+    /// voucher printed — has no route, and neither does the Alt+P / Alt+E menu pair the reference product
+    /// reaches these two documents from (T2-20). Two of three, stated as two of three.</para>
+    ///
+    /// <para>🔴 <b>THIS TEST USED TO SELECT <c>Accounts[0]</c>, WHICH ON THE ROBERT FIXTURE IS <c>Cash</c>.</b>
+    /// It therefore asserted that a "Reminder Letter" addressed To: Cash was produced, and passed. The panel now
+    /// offers party accounts only for the two counterparty letters (<c>MultiAccountPartyFilterTests</c>), so the
+    /// selection is made on a real debtor and the assertion means what it says.</para>
     /// </summary>
     [Fact]
     public void The_panel_reaches_the_reminder_letter_and_the_confirmation_of_accounts()
@@ -147,9 +156,14 @@ public sealed class MultiAccountPrintReachabilityTests
         OpenPanelThroughTheMenu(vm);
 
         var panel = vm.MultiAccountPrint!;
-        panel.Accounts[0].IsSelected = true;
 
         panel.DocumentKind = MultiAccountDocumentKind.ReminderLetter;
+        var debtor = panel.Accounts.FirstOrDefault(a => a.Name == "Global Traders");
+        Assert.True(debtor is not null,
+            "the Robert fixture's Sundry Debtor must be offered for a reminder letter — it is the only kind of "
+            + "account one can be sent to");
+        debtor!.IsSelected = true;
+
         var letters = panel.BuildJob();
         Assert.Single(letters);
         Assert.Equal("Reminder Letter", letters[0].Title);

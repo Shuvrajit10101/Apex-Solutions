@@ -1563,11 +1563,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
         // places it under Statement of Accounts, which is this hub.
         col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        // W2-32 (census 12.6 / 12.7): Multi-Account Printing — select a SET of accounts and print them as one
-        // collated job of ledger accounts, reminder letters or confirmations of accounts. It is nested HERE, under
-        // its parent section, because these are statements ABOUT accounts (the UI contract forbids a flat dump);
-        // and because 12.7's reminder letter and confirmation of accounts are multi-account OUTPUTS rather than
-        // three standalone documents (census §1.3 item 22), this hub is the surface that reaches them.
+        // W2-32 (census 12.6): Multi-Account Printing — select a SET of accounts and print them as one collated
+        // job of ledger accounts, reminder letters or confirmations of accounts. It is nested HERE, under its
+        // parent section, because these are statements ABOUT accounts (the UI contract forbids a flat dump).
+        //
+        // 🔴 ROW 12.6 IS ALSO ONLY HALF CLOSED, and this was not previously written down anywhere. The row reads
+        // "Multi-account printing / MULTI-VOUCHER (RANGE) PRINTING", and its evidence cell names both: "nothing
+        // iterates a set of ACCOUNTS **or VOUCHERS** into one print job". This panel iterates accounts. NOTHING
+        // here iterates vouchers — there is no way to say "print vouchers 10 to 25 as one job", and the opener
+        // still builds exactly one preview from exactly one drilled voucher. The F10 page RANGE that W2-31 taught
+        // the document renderers is row 12.4's range of SHEETS, not this row's range of VOUCHERS, and must not be
+        // counted for it. So: 12.6 multi-account = done; 12.6 multi-voucher = ABSENT and still open.
+        //
+        // 🔴 ROW 12.7 IS **NOT** CLOSED BY THIS ENTRY, AND THIS COMMENT USED TO SAY IT WAS. What is true is only
+        // that TWO of that row's three documents now have a route: 12.7's reminder letter and confirmation of
+        // accounts are multi-account OUTPUTS rather than standalone documents (census §1.3 item 22), and this hub
+        // reaches both. THREE things the row records are still absent, and none of them is built here:
+        //   • the DELIVERY CHALLAN — the row's third item, which is the Delivery Note VOUCHER printed. Our
+        //     print projector is inventory-blind and no drill route reaches it. Nothing in this slice touches it.
+        //   • the Alt+P print menu and the Alt+E export menu, which are where the reference product reaches these
+        //     two documents ("Print Multi-Account Reports", "Export Reminder Letters"). Alt+P is unbound and
+        //     Alt+E fires the current-object export; that is the shared menu shell filed as T2-20, upstream of
+        //     nine census rows, and it is not this slice's to build alone.
+        //   • EXPORT of the job at all — this panel prints, and has no export arm.
+        // So the honest grade this entry supports is 12.6 closed and 12.7 PARTIAL. Naming a row in a comment
+        // records what the code is FOR; it never moves the row. (Seven false closure claims of exactly this shape
+        // were found in the record two passes ago — this was the eighth.)
         col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -3103,8 +3124,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>An empty selection opens NOTHING: the panel's own <c>BuildJob</c> returns an empty list and sets its
     /// status line to say so. Previewing a blank sheet would present a mistake as output.</para>
     ///
-    /// <para>The existing preview is replaced rather than stacked — the same one-page-column rule
-    /// <see cref="OpenPageColumn"/> enforces — so re-printing after changing the selection shows the new job.</para>
+    /// <para>🔴 <b>The existing preview is REPLACED, and this method has to do that itself.</b> It cannot go
+    /// through <see cref="OpenPageColumn"/> — that trims back to the last MENU column, which would take the
+    /// PANEL away with the old preview, and the operator's selection has to survive so a second Print reprints
+    /// it. So the preview is appended beside the panel, exactly as <see cref="OpenPrintPreview"/> appends beside
+    /// a report; and because the one-page-column invariant is therefore not applied for us, it is applied HERE:
+    /// everything to the right of the panel column — a preview from a previous Print, and any F12 config column
+    /// stacked over it — is trimmed before the new preview goes on.</para>
+    ///
+    /// <para><b>This paragraph used to claim the replacement happened and it did not.</b> The method did a bare
+    /// <c>Columns.Add</c> with no trim, and <see cref="OpenPrintPreview"/>'s own <c>if (PrintPreview is not null)
+    /// return;</c> guard was not copied either, so pressing the panel's Print button three times left THREE Print
+    /// Preview columns, each needing its own Escape. (The Ctrl+A key path did not reproduce it — its arm matches
+    /// <see cref="Screen.PrintPreview"/> first and saves the PDF — so the button and the accelerator did
+    /// different things under the same caption, which is why a viewmodel-only test would not have found it.)</para>
     /// </summary>
     public void PrintMultiAccountJob()
     {
@@ -3112,6 +3145,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var documents = panel.BuildJob();
         if (documents.Count == 0) return;              // panel.Status already says why
+
+        // Replace, never stack — see the remarks above. Guarded on the index rather than on `PrintPreview` being
+        // non-null, because the column is the thing that stacks: the shell member is only its shadow.
+        var panelIndex = IndexOfColumnHosting(panel);
+        if (panelIndex >= 0) TrimColumnsAfter(panelIndex);
+        PrintConfigPanel = null;                       // an F12 config column over the old preview went with it
 
         var preview = new PrintPreviewViewModel(documents, panel.JobTitle);
         PrintPreview = preview;
@@ -5422,6 +5461,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         for (var i = Columns.Count - 1; i >= 0; i--)
             if (Columns[i].IsMenu) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Index of the column hosting <paramref name="page"/> (reference identity), or -1.
+    /// <para>Used by a route that appends a column BESIDE a live page instead of replacing it — the print
+    /// preview over the Multi-Account Printing panel — so that route can trim its own previous output without
+    /// trimming the page it was launched from. <see cref="TrimColumnsAfter"/> with
+    /// <see cref="LastMenuColumnIndex"/> would take that page away too.</para>
+    /// </summary>
+    private int IndexOfColumnHosting(object page)
+    {
+        for (var i = 0; i < Columns.Count; i++)
+            if (ReferenceEquals(Columns[i].Page, page)) return i;
         return -1;
     }
 

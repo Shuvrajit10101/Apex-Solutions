@@ -16333,6 +16333,13 @@
                                                IsChecked="{Binding IsConfirmation, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
                                 </StackPanel>
+                                <!-- Says WHICH accounts the list below is offering. The reminder letter and the
+                                     confirmation of accounts are addressed to a counterparty, so they are offered
+                                     for party accounts only; without this line an operator who switches kind and
+                                     watches eleven of his thirteen accounts vanish would read it as a fault. -->
+                                <TextBlock Text="{Binding OfferedAccountsNote}"
+                                           FontSize="11.5" Foreground="#6A6A6A"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
                               </StackPanel>
                             </Border>
 
