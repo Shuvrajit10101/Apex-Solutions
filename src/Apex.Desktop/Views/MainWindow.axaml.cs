@@ -411,6 +411,12 @@ public partial class MainWindow : Window
                 vm.ApplySaveView();
             else if (vm.CurrentScreen == Screen.SavedViews)
                 vm.OpenSelectedSavedView();
+            // Ctrl+G "Switch To" (census 14.2): Ctrl+A is the accept every other column in this shell
+            // advertises, so the panel answers it as well as Enter. Without this arm Ctrl+A on the panel would
+            // fall through to the voucher/company accept below and act on whatever page happens to be sitting
+            // underneath — a keystroke landing on the wrong screen.
+            else if (vm.CurrentScreen == Screen.SwitchTo)
+                vm.TakeSwitchToDestination();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -427,6 +433,10 @@ public partial class MainWindow : Window
                 vm.ApplyRestore();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
+            // W2-32 (census 12.6): Ctrl+A on the Multi-Account Printing panel PRINTS the selected accounts —
+            // the same accept-shortcut every other panel in this switch uses for its own primary action.
+            else if (vm.CurrentScreen == Screen.MultiAccountPrint)
+                vm.PrintMultiAccountJob();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
@@ -512,6 +522,77 @@ public partial class MainWindow : Window
                 case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
                 case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
                 case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
+            }
+        }
+
+        // ============================================================ THE SHELL CHORD TABLE
+        //
+        // ShellChordTable is consulted ONCE, here, and nothing already in the chain below moves. The position
+        // is chosen, not convenient:
+        //   • AFTER the master-accept prompt, so a pending "accept this master?" question still owns the
+        //     keyboard — the D2 work-loss class that arm exists for is untouched.
+        //   • BEFORE the ~55 legacy arms, so the table is where a chord is DECIDED rather than one more
+        //     candidate among them, which is the property that makes re-pointing a chord a one-line edit.
+        //
+        // 🔴 It is safe for exactly these chords because of what they are NOT. The two guards the chain relies
+        // on above the legacy arms are this accept prompt (already answered) and the open-dropdown guard
+        // (IsPickerOpen), which protects Up / Down / Enter / Left / Escape. Every chord in the table is a
+        // MODIFIER chord on a letter or an F-key, so none of those five, and none competes with type-ahead or
+        // with a focused TextBox.
+        //
+        // 🔴 Modifiers are matched EXACTLY (== in ShellChordTable.Match), never with HasFlag. That is what
+        // makes claiming Alt+F3 and Ctrl+F3 a NARROWING rather than a theft: bare F3 does not match either
+        // entry and still falls through to `case Key.F3:` in the trailing switch, where it always went. Before
+        // this table those two chords had no arm of their own anywhere — no F3 case exists in the Control block
+        // or the Alt block — so they fell into that unguarded bare-F3 arm and silently fired the button bar's
+        // F3 action. Nothing documented that alias; it was an accident, and this is where it ends.
+        if (ShellChordTable.Match(vm, e.Key, e.KeyModifiers) is { } chord)
+        {
+            chord.Fire(vm);
+            e.Handled = true;
+            return;
+        }
+
+        // ------------------------------------------------------------ Ctrl+G "Switch To" panel (census 14.2)
+        //
+        // The panel OWNS the keyboard while it is up, and that is the feature: a bare letter TYPES INTO ITS
+        // PREFIX FILTER instead of activating a menu hotkey or jumping a type-ahead cursor. Placed immediately
+        // after the table and before every bare-letter arm below, because those arms would otherwise eat the
+        // very characters the operator is filtering with.
+        //
+        // 🔴 `!vm.IsGoToOpen` IS NOT BELT-AND-BRACES. Go To is a floating overlay drawn OVER this column, and its
+        // own arm at the top of this chain owns only Up/Down/Enter/Escape — every printable character falls
+        // through to here. Without this clause, a Go To raised over an open Switch To column swallowed the
+        // operator's typing into the list they could not see, leaving the search box they were looking at empty.
+        // The other direction (Ctrl+G with Go To up) is closed in the view model, which dismisses Go To rather
+        // than opening underneath it — see MainWindowViewModel.OpenSwitchTo.
+        if (vm.CurrentScreen == Screen.SwitchTo && vm.SwitchTo is not null && !vm.IsGoToOpen)
+        {
+            switch (e.Key)
+            {
+                // The scroll calls are the keyboard-first contract, not decoration: ~99 destinations at 26px
+                // overflow the column many times over and these rows are never focused, so the viewport does not
+                // follow the cursor by itself. Go To's arm carries the identical call for the identical reason.
+                case Key.Down: vm.SwitchToMoveDown(); ScrollSwitchToSelectionIntoView(); e.Handled = true; return;
+                case Key.Up: vm.SwitchToMoveUp(); ScrollSwitchToSelectionIntoView(); e.Handled = true; return;
+                case Key.Enter: vm.TakeSwitchToDestination(); e.Handled = true; return;
+                case Key.Back: vm.SwitchToBackspace(); PostScrollSwitchToSelectionIntoView(); e.Handled = true; return;
+            }
+
+            // Escape is deliberately NOT handled here: it falls through to `case Key.Escape` → vm.Back(), which
+            // pops the column and clears the panel. One way out, the same one every other column has.
+            //
+            // The printable character comes from e.KeySymbol rather than being reconstructed from e.Key, so the
+            // filter is fed what the operator's own keyboard layout produced. e.Key would give "Key.Z" on a
+            // French AZERTY 'w' and would need a hand-written map of every layout to fix — the kind of
+            // platform assumption this project keeps catching on CI.
+            if (e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift
+                && e.KeySymbol is { Length: 1 } symbol && !char.IsControl(symbol[0]))
+            {
+                vm.SwitchToType(symbol[0]);
+                PostScrollSwitchToSelectionIntoView();
+                e.Handled = true;
+                return;
             }
         }
 
@@ -909,7 +990,40 @@ public partial class MainWindow : Window
         }
 
         // Ctrl+I toggles a Purchase/Sales voucher between plain accounting and item-invoice ("as invoice") mode.
-        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        //
+        // 🔴 THE WAVE-7 SHELL WORK TRIED TO TAKE THIS CHORD FOR More Details (census 14.4) AND THE RELEASE WAS
+        // REVERTED. Recorded here because the argument for taking it is genuinely strong and will be made again:
+        // the vendor's Ctrl+I is "To add more details to a master or voucher for the current instance", this
+        // two-way toggle is an Apex invention the vendor does not attest, and census T2-14 already grades the
+        // binding as wrong. What killed the attempt was the JUSTIFICATION, which was that releasing it "costs
+        // nothing because Ctrl+H already carries mode switching". It does not: Ctrl+H is a THREE-WAY cycle
+        // (As Voucher -> Item -> Accounting) and this is a TWO-WAY toggle that never enters Accounting mode —
+        // different verbs, and ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle locks the
+        // difference on purpose. With this arm gone, vm.ToggleItemInvoice()'s only surviving door was a mouse
+        // Click handler. T2-14 itself says "Chord ruling required — see U-6. OPEN.", so the swap needs the
+        // ruling first, and it must ship WITH a keyboard door for whatever the toggle becomes.
+        //
+        // 🔴 BUT THE APP-WIDE SWALLOW IS FIXED HERE, AND THAT HALF NEEDED NO RULING. On main this arm carried
+        // NO CONTEXT GUARD AT ALL — `e.Key == Key.I && HasFlag(Control)`, nothing else — so it set
+        // e.Handled = true on every one of the ~157 screens, including the ~156 where ToggleItemInvoice() is a
+        // no-op (it self-guards on Screen.VoucherEntry). Ctrl+I was therefore CONSUMED AND SILENTLY DEAD on
+        // every report, every master and the Gateway itself, which is why census 14.4 grades as unreachable
+        // rather than merely mis-keyed: even a correctly-placed later arm could never have fired.
+        //
+        // The gate is IsInvoiceableEntry — VoucherEntry screen AND CanBeItemInvoice — which is EXACTLY the
+        // predicate the button bar already advertises this chord under
+        // (MainWindowViewModel: `new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry)`).
+        // The key and the button it is drawn on now agree; before this, the button greyed out while the key
+        // went on eating the keystroke.
+        //
+        // This is the SAME correction Ctrl+H already carries directly below (gated on vm.IsChangeModeEntry),
+        // made for the same stated reason — "so the key is not swallowed app-wide" — and locked by
+        // ServiceAccountingInvoiceKeyboardTests.CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode, whose
+        // remarks record that an earlier version of THAT test passed vacuously because it asserted the mode
+        // flag (which ChangeMode() guards on its own) instead of observing e.Handled. The Ctrl+I counterpart
+        // below therefore bites on consumption too. Ruling-neutral: the incumbent keeps the chord everywhere
+        // it does anything, so nothing is re-pointed and no capability moves.
+        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsInvoiceableEntry)
         {
             vm.ToggleItemInvoice();
             e.Handled = true;
@@ -1656,6 +1770,40 @@ public partial class MainWindow : Window
     private void OnGoToSearchTextChanged(object? sender, TextChangedEventArgs e)
         => Dispatcher.UIThread.Post(ScrollGoToSelectionIntoView, DispatcherPriority.Background);
 
+    /// <summary>
+    /// 14.2 — drags the Switch To column to the highlighted row. <b>The same defect, the same fix, as
+    /// <see cref="ScrollGoToSelectionIntoView"/></b>, and written as its twin on purpose rather than shared: the
+    /// two lists live in different containers (an overlay vs a cascade column) and the only thing they have in
+    /// common is the ItemsControl name lookup.
+    ///
+    /// <para>🔴 <b>Why it is needed at all.</b> The Switch To cursor is a BOUND FLAG on the row
+    /// (<c>IsHighlighted</c>), never keyboard focus — focus stays where it was, which is what lets a bare letter
+    /// type into the prefix filter. Nothing therefore brings a row into view on its own. The list opens
+    /// UNFILTERED over every destination the Gateway can reach — measured at 99 rows of 26px, several times the
+    /// column's height — so without this the highlight is off the bottom after a dozen presses of Down and the
+    /// operator is pressing Enter on a destination whose name they were never shown. Roughly four fifths of the
+    /// list was unreachable by keyboard.</para>
+    /// </summary>
+    private void ScrollSwitchToSelectionIntoView()
+    {
+        var index = Vm?.SwitchTo?.SelectedIndex ?? -1;
+        if (index < 0) return;
+
+        // The panel lives inside a DataTemplate, so it is not a named field on this window.
+        var list = this.GetVisualDescendants().OfType<ItemsControl>()
+            .FirstOrDefault(c => c.Name == "SwitchToResults");
+        if (list?.ContainerFromIndex(index) is Control row) row.BringIntoView();
+    }
+
+    /// <summary>
+    /// The same scroll, POSTED — for the two keys that REBUILD the list (a typed prefix character and Backspace).
+    /// Rebuilding drops the highlight back to row one, and the new rows have no containers until the layout pass
+    /// after this keystroke, so asking for row one's container inline returns nothing. Go To posts for exactly
+    /// this reason on its own TextChanged.
+    /// </summary>
+    private void PostScrollSwitchToSelectionIntoView()
+        => Dispatcher.UIThread.Post(ScrollSwitchToSelectionIntoView, DispatcherPriority.Background);
+
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
 
@@ -1985,6 +2133,25 @@ public partial class MainWindow : Window
 
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
+
+    // W2-32 (census 12.6) — the Multi-Account Printing panel's three buttons. Print calls the SAME
+    // Vm.PrintMultiAccountJob() the Ctrl+A arm reaches, so the two cannot print DIFFERENT documents.
+    //
+    // 🔴 That is NOT the same as "the button and the accelerator can never diverge", which is what this comment
+    // used to claim, and which is false. They are guarded by different predicates: this handler has no screen
+    // test at all and prints whenever it is invoked, while the Ctrl+A arm in OnKeyDown fires only under
+    // `vm.CurrentScreen == Screen.MultiAccountPrint`. So the two agree on WHAT is printed and not on WHEN — with
+    // the panel's view model still alive after a navigation away, a click here still prints and Ctrl+A does
+    // nothing. What the shared call really guarantees is the thing worth guaranteeing: no second copy of the
+    // print logic can rot behind the button. Say that, and not more.
+    private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
+        => Vm?.PrintMultiAccountJob();
+
+    private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectAll();
+
+    private void OnMultiAccountSelectNoneClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiAccountPrint?.SelectNone();
 
     private void OnApplyExportClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyExport();
