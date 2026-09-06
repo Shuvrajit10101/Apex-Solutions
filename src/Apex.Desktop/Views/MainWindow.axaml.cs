@@ -425,12 +425,12 @@ public partial class MainWindow : Window
                 vm.ApplyBackup();
             else if (vm.CurrentScreen == Screen.RestoreCompany)
                 vm.ApplyRestore();
+            // Census 12.5 — on the Printer column Ctrl+A SPOOLS the job. Fire-and-forget: the panel reports the
+            // outcome on its own status line, and blocking the UI thread on a spooler would freeze the shell.
+            else if (vm.CurrentScreen == Screen.Printer)
+                _ = vm.PrintCurrentJobAsync();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
-            // W-F1 (census 12.6 / 12.7): Ctrl+A on the Multi-Account Printing panel builds the job and opens the
-            // multi-document preview over it. Selecting nothing opens no preview and the panel says why.
-            else if (vm.CurrentScreen == Screen.MultiAccountPrint)
-                vm.PrintMultiAccountJob();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
@@ -1027,6 +1027,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+P on an OPEN Print Preview (census 12.5) opens the Printer column — the machine's physical print
+        // queues, the copy count, and Ctrl+A to spool. The vendor's own print chord is Ctrl+P
+        // (help.tallysolutions.com, "How to Print Invoices/Reports in TallyPrime").
+        //
+        // 🔴 This MUST sit before the P/Ctrl+P preview arm below, which is guarded on `IsPrintablePage` — and
+        // that predicate is deliberately TRUE while a preview column is open, because the report stays bound
+        // beneath it. So Ctrl+P was already being swallowed there by an OpenPrintPreview() that immediately
+        // returned ("preview already open"): the chord was consumed and did nothing. Nothing about the bare P
+        // changes; only the Ctrl-modified chord, and only once a preview exists.
+        if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PrintPreview && !IsTyping(e))
+        {
+            vm.OpenPrinter();
+            e.Handled = true;
+            return;
+        }
+
         // P / Ctrl+P (RQ-9) opens the Print Preview of the CURRENT report — renders it to a de-branded PDF and
         // shows the paginated layout; "Save PDF" writes the bytes. Report context only (so the bare P never
         // fires while a drill column is active). Checked before the bare-P menu quick-jump (Profit & Loss),
@@ -1102,37 +1119,6 @@ public partial class MainWindow : Window
             vm.OpenEmailCompose();
             e.Handled = true;
             return;
-        }
-
-        // W-F1 (census 12.6 / 12.7) — the Multi-Account Printing panel.
-        //   Ctrl+Space  select all / none (checked FIRST, or the bare-Space arm below would eat it)
-        //   Space       toggle the highlighted account into the job
-        //   Up / Down   move the highlight
-        // All three are scoped to Screen.MultiAccountPrint, so no existing binding anywhere else changes. The
-        // `!IsTyping(e)` guard is kept for the same reason the Voucher Type master keeps it: this panel can grow
-        // a text field, and a space typed into one must never silently drop an account out of a print job.
-        if (vm.CurrentScreen == Screen.MultiAccountPrint && !IsTyping(e)
-            && vm.MultiAccountPrint is { } maPanel)
-        {
-            if (e.Key == Key.Space && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-            {
-                maPanel.ToggleSelectAll();
-                e.Handled = true;
-                return;
-            }
-            if (e.Key == Key.Space)
-            {
-                maPanel.ToggleHighlighted();
-                e.Handled = true;
-                return;
-            }
-            if (e.Key is Key.Up or Key.Down && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
-            {
-                maPanel.MoveHighlight(e.Key == Key.Down ? 1 : -1);
-                e.Handled = true;
-                return;
-            }
         }
 
         // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
@@ -2014,6 +2000,20 @@ public partial class MainWindow : Window
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
 
+    /// <summary>Census 12.5 — the preview's "Printer… (Ctrl+P)" button: opens the physical-printer column.</summary>
+    private void OnOpenPrinterClick(object? sender, RoutedEventArgs e)
+        => Vm?.OpenPrinter();
+
+    /// <summary>
+    /// Census 12.5 — the Printer panel's "Print (Ctrl+A)" button. Fire-and-forget for the same reason the Ctrl+A
+    /// arm is: the panel reports the spooler's answer on its own status line, and awaiting a spooler on the UI
+    /// thread would freeze the shell on a slow or offline queue.
+    /// </summary>
+    private void OnPrintToPrinterClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) _ = vm.PrintCurrentJobAsync();
+    }
+
     private void OnApplyExportClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyExport();
 
@@ -2113,21 +2113,6 @@ public partial class MainWindow : Window
     /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
-
-    // ---- W-F1 (census 12.6 / 12.7): the Multi-Account Printing panel's three buttons. Each runs the SAME door
-    // its chord runs, so the mouse and the keyboard can never diverge.
-
-    /// <summary>"Select All" on the Multi-Account Printing panel — the same door Ctrl+Space runs.</summary>
-    private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
-        => Vm?.MultiAccountPrint?.SelectAll();
-
-    /// <summary>"Select None" on the Multi-Account Printing panel.</summary>
-    private void OnMultiAccountSelectNoneClick(object? sender, RoutedEventArgs e)
-        => Vm?.MultiAccountPrint?.SelectNone();
-
-    /// <summary>"Print" on the Multi-Account Printing panel — the SAME door Ctrl+A runs.</summary>
-    private void OnPrintMultiAccountJobClick(object? sender, RoutedEventArgs e)
-        => Vm?.PrintMultiAccountJob();
 
 
     /// <summary>

@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
         xmlns:conv="using:Apex.Desktop.Converters"
+        xmlns:svc="using:Apex.Desktop.Services"
         xmlns:views="using:Apex.Desktop.Views"
         xmlns:ledger="using:Apex.Ledger.Domain"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -16146,102 +16147,6 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: W-F1 (census 12.6 / 12.7) Multi-Account Printing.
-                         Reports > Statements of Accounts > Multi-Account Printing > {Ledger Accounts |
-                         Reminder Letters | Confirmation of Accounts}. Up/Down move the highlight, Space toggles
-                         the highlighted account into the job, Ctrl+Space selects all / none, Ctrl+A previews the
-                         whole job as ONE multi-document PDF, Esc pops back.
-                         The three radios and the per-account check boxes are REALISED controls on purpose:
-                         MultiAccountPrintReachabilityTests reads them off the live window, because a view-model
-                         property with no control bound to it is not a feature (the CostReports.BuildLedgerBreakup
-                         / MultiAccountPrintViewModel shape this row exists to close). -->
-                    <ContentControl IsVisible="{Binding MultiAccountPrint, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding MultiAccountPrint}">
-                      <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:MultiAccountPrintViewModel">
-                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
-                            <TextBlock Grid.Row="1" Text="{Binding PeriodText}"
-                                       FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"
-                                       TextTrimming="CharacterEllipsis"/>
-
-                            <Border Grid.Row="2" Background="White"
-                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
-                              <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" MinWidth="360">
-                                <TextBlock Grid.Row="0" Text="Document" FontWeight="Bold"
-                                           Foreground="{StaticResource BrandNavy}" TextTrimming="CharacterEllipsis"/>
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="14" Margin="0,6,0,6">
-                                  <RadioButton GroupName="MultiAccountKind" Content="Ledger Accounts"
-                                               IsChecked="{Binding IsLedgerAccount, Mode=TwoWay}"
-                                               Foreground="{StaticResource BrandNavy}"/>
-                                  <RadioButton GroupName="MultiAccountKind" Content="Reminder Letters"
-                                               IsChecked="{Binding IsReminderLetter, Mode=TwoWay}"
-                                               Foreground="{StaticResource BrandNavy}"/>
-                                  <RadioButton GroupName="MultiAccountKind" Content="Confirmation of Accounts"
-                                               IsChecked="{Binding IsConfirmation, Mode=TwoWay}"
-                                               Foreground="{StaticResource BrandNavy}"/>
-                                </StackPanel>
-
-                                <TextBlock Grid.Row="2" Text="{Binding ScopeText}"
-                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"
-                                           Margin="0,0,0,6"/>
-
-                                <TextBlock Grid.Row="3" Text="Accounts (Space toggles, Ctrl+Space all / none)"
-                                           FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                           TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
-
-                                <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" MinHeight="120">
-                                  <ItemsControl ItemsSource="{Binding Accounts}">
-                                    <ItemsControl.ItemTemplate>
-                                      <DataTemplate x:DataType="vm:MultiAccountRowViewModel">
-                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                          <Grid ColumnDefinitions="Auto,*,Auto" Height="24">
-                                            <!-- Keyboard highlight: Space acts on THIS row, so the cursor must be
-                                                 visible before it can be pressed. Same idiom (and same #FFF3CD) as
-                                                 every other keyboard-driven list in this shell. -->
-                                            <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
-                                                    IsVisible="{Binding IsHighlighted}"/>
-                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                      MinWidth="0" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{StaticResource BrandNavy}"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding Name}"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding GroupName}"
-                                                       VerticalAlignment="Center" FontSize="11"
-                                                       Foreground="#8A8A8A" Margin="8,0,0,0"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding GroupName}"/>
-                                          </Grid>
-                                        </Border>
-                                      </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                  </ItemsControl>
-                                </ScrollViewer>
-
-                                <TextBlock Grid.Row="5" Text="{Binding Status}"
-                                           IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                           Foreground="{StaticResource BrandNavy}" FontSize="12"
-                                           TextWrapping="Wrap" Margin="0,6,0,0"/>
-
-                                <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                                  <Button Content="Select All" Padding="12,6" Click="OnMultiAccountSelectAllClick"/>
-                                  <Button Content="Select None" Padding="12,6" Click="OnMultiAccountSelectNoneClick"/>
-                                  <Button Content="Print (Ctrl+A)" Padding="14,6"
-                                          Background="{StaticResource BrandNavy}" Foreground="White"
-                                          Click="OnPrintMultiAccountJobClick"/>
-                                </StackPanel>
-                              </Grid>
-                            </Border>
-                          </Grid>
-                        </DataTemplate>
-                      </ContentControl.ContentTemplate>
-                    </ContentControl>
-
                     <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
                     <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PrintConfigPanel}">
@@ -16365,7 +16270,7 @@
                                   </Grid>
                                 </StackPanel>
 
-                                <TextBlock Text="Print produces a PDF — there is no printer selection or spooler yet, so a copy count is a count of document sets inside the file. Logo embedding is deferred."
+                                <TextBlock Text="The copy count is collated into the document itself, so it is a count of document sets inside the file — and the spooler is therefore always asked for exactly one. Press Ctrl+P on the preview to choose a physical printer. Logo embedding is deferred."
                                            FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
 
                                 <Button Content="Apply (Ctrl+A)" Padding="14,6" HorizontalAlignment="Left"
@@ -16374,6 +16279,78 @@
                               </StackPanel>
                             </Border>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Ctrl+P "Printer" panel (census 12.5 — pick a PHYSICAL print queue and spool the
+                         previewed PDF to it). Opens as its own cascade column to the RIGHT of the preview.
+                         The submission notice is NOT decoration: on Windows the job is spooled RAW, which only
+                         prints on devices that read PDF/PostScript, and this line is the operator's only warning
+                         of that. PrinterPanelRealisedReachabilityTests holds the list, the copies box, the
+                         notice and the Print button as realised controls. -->
+                    <ContentControl IsVisible="{Binding PrinterPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PrinterPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PrinterSelectionViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White" MinWidth="320" MinHeight="120"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ListBox ItemsSource="{Binding Printers}"
+                                       SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                       Background="White" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="svc:PrinterDevice">
+                                    <Grid ColumnDefinitions="*,Auto" Height="30">
+                                      <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="13"
+                                                 Foreground="{StaticResource BrandNavy}"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="Default"
+                                                 IsVisible="{Binding IsDefault}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
+                                                 Foreground="#8A8A8A"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Border>
+
+                            <!-- The copy count IS the preview's own knob (one truth, never two): typing here
+                                 re-renders the preview beneath, and the spooler is still asked for one. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="150,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding HasPrinters}">
+                              <TextBlock Grid.Column="0" Text="Number of copies" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                              <TextBox Grid.Column="1" Name="PrinterCopiesBox"
+                                       Text="{Binding Copies, Mode=TwoWay}"
+                                       FontFamily="Consolas,Menlo,monospace"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="4" Text="{Binding SubmissionNotice}"
+                                       FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"
+                                       Margin="2,0,0,8"/>
+
+                            <TextBlock Grid.Row="5" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,0,0,8" TextWrapping="Wrap"/>
+
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto">
+                              <Button Grid.Column="1" Content="Print (Ctrl+A)" Padding="14,6"
+                                      IsEnabled="{Binding HasPrinters}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnPrintToPrinterClick"/>
+                            </Grid>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -17372,7 +17349,7 @@
                               </ItemsControl>
                             </ScrollViewer>
 
-                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
                               <TextBlock Grid.Column="0" Text="{Binding Status}"
                                          IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                          Foreground="{StaticResource BrandNavy}" FontSize="12"
@@ -17380,7 +17357,12 @@
                               <!-- 13.10 / T1-20: Ctrl+A still saves to Documents; Alt+B lets the operator say WHERE. -->
                               <Button Grid.Column="1" Content="Browse… (Alt+B)" Margin="0,0,6,0" Padding="10,4"
                                       Click="OnBrowseForPathClick"/>
-                              <Button Grid.Column="2" Content="Save PDF (Ctrl+A)" Padding="14,6"
+                              <!-- Census 12.5: the door to a PHYSICAL printer. It is a button as well as a chord
+                                   because a capability reachable only by an undiscoverable keystroke is barely
+                                   reachable; the chord is the vendor's (Ctrl+P) and the caption names it. -->
+                              <Button Grid.Column="2" Content="Printer… (Ctrl+P)" Margin="0,0,6,0" Padding="10,4"
+                                      Click="OnOpenPrinterClick"/>
+                              <Button Grid.Column="3" Content="Save PDF (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnSavePrintPreviewClick"/>
                             </Grid>
