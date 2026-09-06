@@ -856,6 +856,47 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > missing or pending restoration any more** — it is gone, the user knows, and the decision is taken. One
 > session has already reported it as UNREACHED and lost time to it; that is what this block exists to prevent.
 
+> **▶ 🔴 FOUR FURTHER USER RULINGS (R12, 2026-09-06) — SETTLED; DO NOT RE-LITIGATE. THEY CLOSE PART OF THE
+> OWED BATCH BELOW, THEY LIFT A GATE THAT WAS HOLDING TEN CENSUS ROWS, AND THEY CLAIM SCHEMA v54.** Recorded
+> **here**, beside the 2026-08-15, 2026-08-16, 2026-08-19 and 2026-09-03 banners, so all eighteen rulings are
+> read in one place. Search string for cross-references: `FOUR FURTHER USER RULINGS (R12, 2026-09-06)`.
+>
+> **15 · THE TEN-ROW GATE IS LIFTED, IN FULL. ALL TEN ROWS ARE OPEN FOR SLICING.** The sentence at §5a.1
+> reading *"the remaining 10 (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) sit behind a user
+> ruling and have no slice at all until it lands"* is **REPEALED**, and it has been **amended in place** at
+> §5a.1 rather than corrected from here — this project has repeatedly been misled by a stale claim left
+> standing with its correction elsewhere. **The user's reasoning, recorded because it matters:** the gate had
+> become **inconsistent** — **three of the ten were already built and two had already landed** — so it was
+> **doing harm rather than protecting them**. ⚠️ **What this does NOT do:** it does not answer U-5 (strike FBT
+> / build it), U-7 (physical printer output), U-9 (TallyVault) or the U-10 architecture questions **on their
+> merits**. Those remain open R12 questions and a slice that reaches one must still surface it. What is gone
+> is the **blanket prohibition on slicing the ten at all**.
+>
+> **16 · SCHEMA v54 BELONGS TO THE KARNATAKA PROFESSIONAL-TAX BACK-FILL — NOT TO `cheque_layouts`.** **The
+> user's reason, quoted:** the Karnataka fix that landed in **PR #55** *"only reaches NEWLY ENROLLED
+> companies, because PT slab tables are seeded once at enrolment (`PayrollService.EnableProfessionalTax`) and
+> thereafter persisted and user-editable. Every company already enrolled KEEPS OVER-DEDUCTING Rs100 per
+> employee per year. That is live wrong money in existing books and it outranks making the cheque leaf
+> printable."* ⇒ **The next migration number is v54 and the back-fill owns it.** Any other track that needs a
+> migration takes **v55 or later** and must say so before it writes one. This is the schema-renumber hazard the
+> project has hit before: **two live tracks must never both take the same version.**
+>
+> **17 · THE VENDOR CHORD WINS: `Ctrl+I` BECOMES "MORE DETAILS" (census row 14.4). THE ITEM-INVOICE TOGGLE
+> MOVES TO `Ctrl+H` AND ANSWERS TO `Ctrl+H` ONLY.** The user **explicitly declined a `Ctrl+I` alias for the
+> toggle**, so nothing is ambiguous and no chord serves two verbs. **This closes the `Ctrl+I` arm of owed
+> ruling U-6**, which has blocked row 14.4 for the whole campaign. 🔴 **And it vindicates the refusals:** every
+> agent that declined to rebind `Ctrl+I` without a ruling was **right to refuse** — that is the behaviour this
+> project wants, not an exception to apologise for. ⚠️ **U-6's other two arms are NOT answered** — `Alt+I`
+> (Insert Voucher vs the POS tender toggle) and `Alt+K` (Company menu vs Saved Views), plus `Alt+A`'s
+> arbitration order, remain open. Register rows **T2-14**, **T2-15** and **T2-18** stand; **T2-17** is closed.
+>
+> **18 · STOP DE-BRANDING COUNTERPARTY NAMES PRODUCT-WIDE.** The de-brander **must keep rewriting OUR OWN
+> strings** — the shipped app and code must still never show the reference product's brand — **and must stop
+> rewriting master names that belong to customers, suppliers and banks.** 🔴 **The scope word is
+> "everywhere"**: the fix is **product-wide**, not confined to the two documents already corrected. A customer
+> ledger, a supplier ledger or a bank master named by the user is **the user's data**, and rewriting it is a
+> defect in every report, voucher and printed document that renders it, not only in the two that were caught.
+
 > **▶ 🔴 TEN RULINGS ARE STILL OWED TO THE USER AS OF 2026-09-04 — HELD HERE AS ONE BATCH SO THEY CAN BE PUT
 > TOGETHER RATHER THAN DRIBBLED OUT. NOTHING MAY BE DISPATCHED INTO ANY OF THEM (R12).**
 >
@@ -887,7 +928,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 >   FBT was abolished by the Finance Act 2009 and has **no reference-product behaviour left to clone**; current
 >   vendor documentation does not mention it. *Recommend: **strike it**. A build agent handed this row will
 >   invent a feature — the failure mode this project has the most scar tissue about.*
-> - **U-6 · 🔴 THE CHORD-MAP RULING — ONE RULING OVER THE WHOLE MAP, NOT THREE PIECEMEAL ANSWERS.** Three
+> - **U-6 · 🔴 PARTLY CLOSED 2026-09-06 BY RULING 17 — the `Ctrl+I` arm is DECIDED (`Ctrl+I` = More Details;
+>   the item-invoice toggle moves to `Ctrl+H` and answers to `Ctrl+H` ONLY, with no `Ctrl+I` alias). Census row
+>   **14.4** is unblocked and register row **T2-17** is closed. The `Alt+I`, `Alt+K` and `Alt+A` arms below are
+>   STILL OPEN.** The original text is kept verbatim so the shape of the question is not lost:
+>   **THE CHORD-MAP RULING — ONE RULING OVER THE WHOLE MAP, NOT THREE PIECEMEAL ANSWERS.** Three
 >   attested chords are occupied by unattested verbs: `Alt+I` (Insert Voucher) by the POS tender toggle;
 >   `Alt+K` (Company menu) by Saved Views; `Ctrl+I` (More Details) by the item-invoice toggle. `Alt+A`'s
 >   attested arm is **third in arbitration** behind two unattested ones. Register rows **T2-14**, **T2-15**,
@@ -6152,8 +6197,17 @@ BAND 4  W2-29 · W2-25 · W2-23 · W2-24 · W2-31 · W2-32 · W2-34 · W2-42 · 
 ```
 
 **Row-placement check, re-derived rather than trusted.** The 42 slices close **61** of the enumerated 71; the
-remaining **10** (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) sit behind a user ruling and have
-**no slice at all** until it lands. `61 + 10 = 71` ✓, and **no row appears in two slices**.
+remaining **10** (6.23, 6.25, 6.26, 8.10, 12.5, 14.2, 14.10, 15.9, 16.1, 16.7) **HAVE NO SLICE DESIGNED HERE —
+but they are NO LONGER GATED.** `61 + 10 = 71` ✓, and **no row appears in two slices**.
+🔴 **AMENDED IN PLACE 2026-09-06 BY USER RULING 15 (R12 — §5 banner `FOUR FURTHER USER RULINGS (R12,
+2026-09-06)`).** This sentence previously read *"…sit behind a user ruling and have **no slice at all** until it
+lands."* **THAT IS NOW FALSE AND IS REPEALED, NOT FOOTNOTED.** The user lifted the gate **for all ten**, on the
+ground that it had become **inconsistent — three of the ten were already built and two had already landed** — so
+it was doing harm rather than protecting them. **All ten rows are open for slicing.** What they still lack is a
+*designed* slice in the table below, which is a gap in this section, not a prohibition. ⚠️ **The gate lifting is
+not an answer on the merits:** U-5 (FBT — strike or build), U-7 (physical printer output), U-9 (TallyVault) and
+the U-10 architecture carry-overs remain **open R12 questions**, and a slice that reaches one must surface it
+rather than decide it. **6.26 (Kerala Flood Cess) is already BUILT and landed** — see PR #60.
 
 **Leverage, best first:** **W2-03** (4 rows, and it unblocks T1-4 — an entire shipped module that cannot post
 because the one screen that could activate its voucher type does not exist) · **W2-12** (3 rows, 8 report
