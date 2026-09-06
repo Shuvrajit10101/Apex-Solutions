@@ -576,6 +576,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         _selectedScenario = Scenarios[0];
 
         InitPayrollPickers();
+        InitChequeBankPicker();
 
         Show(kind);
     }
@@ -612,6 +613,34 @@ public sealed partial class ReportsViewModel : ViewModelBase
             PayrollEmployees.Add(new PayrollEmployeeOption { EmployeeId = e.Id, Display = label });
         }
         SelectedPayrollEmployee = PayrollEmployees.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Populates the Cheque Printing report's <b>bank</b> picker — "All Banks" followed by every ledger whose
+    /// <c>Enable Cheque Printing</c> is on, by name.
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/print-cheques/</c>, section "Cheque Printing
+    /// Report", scopes that report by a <b>List of Banks</b>. This is that scope.</para>
+    ///
+    /// <para><b>🔴 Why this exists at all.</b> <c>ChequePrinting.Build</c> has carried a <c>bankLedgerId</c>
+    /// parameter, and a test proving it narrows the list, since the engine was written — with <b>no caller in
+    /// <c>src/Apex.Desktop</c> that could ever pass a value</b>. A filter no operator can reach is the
+    /// "capability that exists as a service method no user can reach" this project has already filed twice
+    /// (<c>CostReports.BuildLedgerBreakup</c>, <c>MultiAccountPrintViewModel</c>). The picker is the route in.</para>
+    ///
+    /// <para>The default assignment cannot trigger a premature rebuild: <see cref="Kind"/> still holds the enum's
+    /// zero value here (<see cref="ReportKind.TrialBalance"/>) because <see cref="Show"/> has not run, and
+    /// <see cref="OnSelectedChequeBankChanged"/> guards on <see cref="ReportKind.ChequePrinting"/> — the same
+    /// argument <see cref="InitPayrollPickers"/> makes for its two pickers.</para>
+    /// </summary>
+    private void InitChequeBankPicker()
+    {
+        ChequeBanks.Add(ChequeBankOption.AllBanks);
+        foreach (var l in _company.Ledgers
+            .Where(l => l.EnableChequePrinting)
+            .OrderBy(l => l.Name, StringComparer.Ordinal))
+            ChequeBanks.Add(new ChequeBankOption { LedgerId = l.Id, Display = l.Name });
+        SelectedChequeBank = ChequeBanks[0];
     }
 
     // =============================================================== RQ-1 / RQ-2 / RQ-6 report parameters
@@ -798,6 +827,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsStockMovement));
         OnPropertyChanged(nameof(IsReorderStatus));
         OnPropertyChanged(nameof(IsSupplierPaymentAdvice));
+        // Without this the picker stays hidden when the operator arrives on the Cheque Printing report from
+        // another report in the same viewer — the bug the whole block above exists to prevent.
+        OnPropertyChanged(nameof(ShowChequeBankPicker));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
@@ -3048,6 +3080,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     // =============================================================== Wave 7 D1 — Banking documents (8.4 / 8.7)
 
+    /// <summary>Show the Cheque Printing report's bank picker — the vendor's "List of Banks" scope
+    /// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report"). False on every other report.</summary>
+    public bool ShowChequeBankPicker => Kind == ReportKind.ChequePrinting;
+
+    /// <summary>"All Banks", then every ledger with cheque printing enabled. Built once in the ctor.</summary>
+    public ObservableCollection<ChequeBankOption> ChequeBanks { get; } = new();
+
+    /// <summary>The bank the Cheque Printing report is scoped to; changing it re-projects the report.</summary>
+    [ObservableProperty] private ChequeBankOption? _selectedChequeBank;
+
+    partial void OnSelectedChequeBankChanged(ChequeBankOption? value)
+    {
+        if (Kind == ReportKind.ChequePrinting) Show(Kind);
+    }
+
     /// <summary>
     /// <b>Cheque Printing</b> (census row 8.4) — <c>help.tallysolutions.com/print-cheques/</c>, section "Cheque
     /// Printing Report": the cheques pending for printing, showing the favouring name with the instrument number
@@ -3059,9 +3106,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void BuildChequePrinting()
     {
         var period = StatementPeriod;
-        var rows = ChequePrinting.Build(_company, period);
+        // The picker's "All Banks" entry carries Guid.Empty, which the engine reads as "no bank filter" — the
+        // same shape its default argument has, so an unpicked report projects exactly what it always did.
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        var rows = ChequePrinting.Build(_company, period, bankId);
         Title = "Cheque Printing";
-        Subtitle = $"{CompanyName}  —  cheques drawn {FormatDate(period.From)} to {FormatDate(period.To)}";
+        Subtitle = $"{CompanyName}  —  cheques drawn {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (bankId is null ? string.Empty : $"  —  {SelectedChequeBank!.Display}");
         IsTwoColumn = false;
 
         foreach (var r in rows)
@@ -3079,8 +3130,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (rows.Count == 0)
             Rows.Add(new ReportRow
             {
-                Particulars = "No cheques pending for printing. A cheque appears here once a Payment voucher pays "
-                            + "a bank ledger with Enable Cheque Printing on, by Cheque/DD, carrying a cheque number.",
+                // When a FILTER is what emptied the list, the empty state has to say so, or the operator cannot
+                // tell "nothing drawn anywhere" from "nothing drawn on the bank I picked" — the same rule the
+                // supplier advice's empty state keeps below.
+                Particulars = bankId is not null
+                    ? $"No cheques pending for printing on {SelectedChequeBank!.Display}. Choose \"All Banks\" "
+                      + "above to see the cheques drawn on the other banks."
+                    : "No cheques pending for printing. A cheque appears here once a Payment voucher pays "
+                      + "a bank ledger with Enable Cheque Printing on, by Cheque/DD, carrying a cheque number.",
                 IsHeader = true,
             });
         else
@@ -3780,6 +3837,22 @@ public sealed class PayrollEmployeeOption
     public Guid EmployeeId { get; init; }
     public string Display { get; init; } = string.Empty;
     public override string ToString() => Display;
+}
+
+/// <summary>
+/// One entry of the Cheque Printing report's bank scope — the vendor's "List of Banks"
+/// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report").
+/// <see cref="LedgerId"/> is <see cref="Guid.Empty"/> on the <see cref="AllBanks"/> entry, which means no filter.
+/// </summary>
+public sealed class ChequeBankOption
+{
+    public Guid LedgerId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+
+    /// <summary>The unfiltered head of the list. A NEW instance per call would break <c>SelectedItem</c>
+    /// identity in the ComboBox, so it is a single shared instance.</summary>
+    public static readonly ChequeBankOption AllBanks = new() { Display = "All Banks" };
 }
 
 /// <summary>One column of the shared payroll matrix (Pay Sheet / Payroll Register / Attendance / Payment Advice):

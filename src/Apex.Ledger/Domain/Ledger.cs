@@ -81,13 +81,13 @@ public sealed class Ledger
     //    EnableChequePrinting / ChequePrintingBankName above; those are schema-v5 columns that persist today and
     //    that the ledger master finally captures.
     //
-    //    WHY THE MIGRATION WAS NOT TAKEN: this branch was cut from main at schema v52, and main has since moved
-    //    to v53 (the voucher_types payhead flags). Numbering this work v53 would collide with that; numbering it
-    //    v53->v54 here would leave a hole at 53 that EnsureSchema's `if (version == N)` chain cannot cross, so
-    //    the tree would go red. The fix is mechanical and belongs to whoever runs next: merge origin/main into
-    //    this branch FIRST, then add MigrateV53ToV54 with cheque_layouts / cheque_books /
-    //    cheque_status_overrides and the ledgers columns, its CreateV1 twins, SchemaDowngrade.V54ToV53, and the
-    //    ledger-master block that captures the dimensions. Until then nothing here may be described as shipped.
+    //    WHY THE MIGRATION WAS NOT TAKEN — AND THE OLD REASON HERE IS SPENT. It said this branch was cut at
+    //    v52 and to merge origin/main in first. THAT MERGE IS DONE: this tree reads Schema.CurrentVersion 53.
+    //    The live blocker is ALLOCATION, not arithmetic — wave 7 gave the next schema version to a sibling
+    //    track, and two live tracks taking one number is a collision this project has already been bitten by.
+    //    Whoever takes it next: claim a version no sibling holds; add that migration with cheque_layouts /
+    //    cheque_books / cheque_status_overrides and the ledgers columns, their byte-identical CreateV1 twins
+    //    and the matching downgrade; and add the ledger-master block. Until then nothing here is shipped.
 
     /// <summary>
     /// The bank's <b>Cheque Dimensions</b> — where each element is inked on this bank's pre-printed leaf

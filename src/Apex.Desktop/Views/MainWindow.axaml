@@ -510,6 +510,29 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Bank picker for the Cheque Printing report (census 8.4) — the vendor's "List of Banks"
+                             scope (help.tallysolutions.com/print-cheques/, "Cheque Printing Report"). It shares
+                             Grid.Row 2 with the scenario and payroll pickers, which are mutually exclusive with it:
+                             ShowChequeBankPicker is true on exactly one ReportKind, and SupportsScenario /
+                             ShowPayrollMonthPicker are both false there.
+                             The label column is Auto, not a literal width, and the caption is the shortest true one
+                             ("Bank"), so it cannot be sliced at the ComboBox border the way a fixed track slices. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowChequeBankPicker}">
+                          <TextBlock Grid.Column="0" Text="Bank" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding ChequeBanks}"
+                                    SelectedItem="{Binding SelectedChequeBank, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:ChequeBankOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
                              one wage month; the Payslip is additionally scoped to a single employee. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
@@ -17229,6 +17252,21 @@
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="16" Margin="2,0,0,8">
                               <CheckBox Content="Letter (else A4)" IsChecked="{Binding UseLetter, Mode=TwoWay}"/>
                               <CheckBox Content="Landscape" IsChecked="{Binding Landscape, Mode=TwoWay}"/>
+                              <!-- Supplier payment advice only (census 8.7) — help.tallysolutions.com/payment-advice/,
+                                   "Print each transaction on a fresh page". Ticked is the vendor's default (one
+                                   letter per supplier per sheet); unticking flows the letters onto shared sheets.
+                                   It is hidden, not disabled, on every other document: a page-break rule means
+                                   nothing on a cheque or an invoice.
+                                   🔴 IT CHANGES THE PRINTED PDF, NOT THE MIRROR BESIDE IT. The "Pages: N" label to
+                                   the right counts PrintPreviewViewModel.Pages — the flat on-screen mirror, which
+                                   carries no per-letter page break — so it does NOT move when this is toggled, and
+                                   on a two-supplier run it reads 1 while the PDF is 2 sheets. That mirror-vs-bytes
+                                   gap is how every bespoke preview here works (receipt, payslip, cheque); it is
+                                   REPORTED, not papered over, and the toggle is pinned against the bytes by
+                                   BankingFilterRouteVisibilityTests. -->
+                              <CheckBox Content="Each advice on a fresh page"
+                                        IsVisible="{Binding IsPaymentAdviceLetter}"
+                                        IsChecked="{Binding AdviceFreshPageEach, Mode=TwoWay}"/>
                               <TextBlock Text="{Binding PageCount, StringFormat='Pages: {0}'}"
                                          VerticalAlignment="Center" Foreground="#8A8A8A" FontSize="12"/>
                               <TextBlock Text="F12: Print Config" IsVisible="{Binding SupportsPrintConfig}"

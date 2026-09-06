@@ -79,6 +79,18 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// toggle, copy marking) apply. False for a plain report preview (those knobs are inert there).</summary>
     public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice;
 
+    /// <summary>
+    /// True while this preview is holding the supplier payment-advice LETTERS (census 8.7) — the one thing that
+    /// makes <see cref="AdviceFreshPageEach"/> mean anything, and therefore the visibility of its checkbox.
+    ///
+    /// <para><b>🔴 Why it exists.</b> <c>AdviceFreshPageEach</c> shipped as an observable property with a
+    /// re-render hook, a <c>PaymentAdvicePdf</c> parameter and a passing PDF test — and <b>no binding in
+    /// <c>MainWindow.axaml</c></b>, so the letters always printed one-per-page and the vendor's "Print each
+    /// transaction on a fresh page" (<c>help.tallysolutions.com/payment-advice/</c>) had no operator route. A
+    /// toggle nobody can reach is not a toggle.</para>
+    /// </summary>
+    public bool IsPaymentAdviceLetter => Kind == PrintKind.PaymentAdviceLetter;
+
     /// <summary>The report title being printed (heading line).</summary>
     public string ReportTitle { get; }
 

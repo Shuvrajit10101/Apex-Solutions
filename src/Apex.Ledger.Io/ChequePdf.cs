@@ -29,8 +29,8 @@ namespace Apex.Ledger.Io;
 ///
 /// <para><b>🔴 REACHABILITY, STATED PLAINLY: NO OPERATOR CAN REACH THIS RENDERER TODAY.</b> It is driven by
 /// <c>Ledger.ChequeLayout</c>, which does not persist — the <c>cheque_layouts</c> table is this wave's single
-/// schema migration and it could not be taken on this branch (the branch was cut at schema v52 and main has
-/// since moved to v53, so numbering it here either collides or leaves a hole the migration chain cannot cross).
+/// schema migration and it could not be taken on this branch (wave 7 allocated the next schema version to a
+/// SIBLING track; this tree is already at v53, so the cheque tables are a later version somebody must claim).
 /// A loaded company therefore always has a <c>null</c> layout, <see cref="Validate"/> always refuses, and the
 /// <b>leaf never prints</b>. The code, its guards and its tests are correct and complete and go live the moment
 /// the migration lands; until then row 8.4 ships on its <i>Cheque Printing report</i> half alone, and nothing
