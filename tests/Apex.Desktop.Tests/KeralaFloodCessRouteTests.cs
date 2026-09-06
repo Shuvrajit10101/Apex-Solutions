@@ -541,6 +541,28 @@ public sealed class KeralaFloodCessRouteTests
                 + "rendering the return. This is the dead-capability shape: an engine and a view model that are both "
                 + "correct behind a screen that shows nothing.");
 
+            // 🔴 THE ASSERTION THAT MAKES THE ONE ABOVE MEAN SOMETHING. "1,000.00" is ALSO emitted by the
+            // TotalCessText footing, which lives OUTSIDE the slab ItemsControl — so the assertion above passes with
+            // the whole rate-slab grid hidden, and this test was measured doing exactly that (mutation: put
+            // IsVisible="False" on the slab ItemsControl → the four original assertions all stayed green). The
+            // schedule wording is the one string in this window that ONLY the row DataTemplate can produce: it is
+            // built by KeralaFloodCessReturnViewModel.ScheduleWords, bound solely by column 1 of the row template,
+            // and appears in no header, footing, caption or other page. Asserting it is what proves the per-slab
+            // rows are realised rather than merely computed.
+            Assert.True(
+                visibleText.Any(t => t.Contains("Sch. II / III / IV", StringComparison.Ordinal)),
+                "the rate-slab ROWS did not render. The 18% slab's schedule wording 'Sch. II / III / IV' — emitted "
+                + "only by the row DataTemplate — is absent from the realised visual tree, so the cess figure "
+                + "asserted above came from the footing while the slab grid showed nothing.");
+
+            // The row's own rate cells too: the slab must state WHICH GST rate bore WHICH cess rate, in the row.
+            Assert.True(
+                visibleText.Any(t => t.Contains("18%", StringComparison.Ordinal)),
+                "the slab row's GST-rate cell did not render — the operator cannot see which rate the cess was charged on.");
+            Assert.True(
+                visibleText.Any(t => t.Contains("1%", StringComparison.Ordinal)),
+                "the slab row's cess-rate cell did not render — the 1% limb is not stated on the realised screen.");
+
             // …and the screen names itself, so the figure above is not floating in some other page's grid.
             Assert.True(
                 visibleText.Any(t => t.Contains("Kerala Flood Cess", StringComparison.Ordinal)),

@@ -214,8 +214,23 @@ public static class KeralaFloodCessReturnBuilder
     /// <para>🔴 <b>The Kerala-ness is read off the GSTIN's own first two digits, not off the party's State field.</b>
     /// Those two are different facts: <see cref="PartyGstDetails.StateCode"/> is the place-of-supply driver (where
     /// goods go), while the exemption in Q21 turns on <b>where the registration is</b>, which is exactly what the
-    /// GSTIN's leading State code records. They normally agree; where they do not, Q21 names the registration. The
-    /// State field is used only as a fall-back for a party carrying a registration type but no GSTIN string.</para>
+    /// GSTIN's leading State code records. They normally agree; where they do not, Q21 names the registration. Both
+    /// directions of that disagreement are pinned by tests —
+    /// <c>A_Kerala_GSTIN_earns_the_exemption_even_when_the_party_State_field_says_otherwise</c> and
+    /// <c>A_non_Kerala_GSTIN_is_leviable_even_when_the_party_State_field_says_Kerala</c>.</para>
+    ///
+    /// <para>🔴 <b>THE <c>pg.StateCode</c> FALL-BACK BELOW IS NOT WHAT IT LOOKS LIKE, AND AN EARLIER VERSION OF THIS
+    /// DOC DESCRIBED IT WRONGLY.</b> It claimed the State field served as "a fall-back for a party carrying a
+    /// registration type but no GSTIN string". <b>That party never reaches it.</b>
+    /// <see cref="PartyGstDetails.IsB2C"/> is true whenever the GSTIN is null or blank, so a party with no GSTIN is
+    /// returned as non-exempt by the B2C guard on the first line — which is the correct answer, not an oversight:
+    /// Q21 exempts a "registered taxable person having GST registration in Kerala GST", and a Kerala-addressed buyer
+    /// holding no registration is the unregistered buyer of Q19, whose supply IS leviable. Falling back to the State
+    /// field there would exempt every walk-in Kerala buyer and gut the levy;
+    /// <c>A_party_with_a_Kerala_State_field_but_no_GSTIN_gets_no_exemption</c> locks that. The fall-back is
+    /// therefore reachable only by a GSTIN string that is non-blank yet shorter than two characters — data that
+    /// <see cref="PartyGstDetails.EnsureValid"/> rejects — so it is a defensive default for corrupt input, never a
+    /// route the domain takes.</para>
     /// </summary>
     public static bool IsKeralaRegisteredBuyer(Domain.Ledger? party)
     {

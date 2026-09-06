@@ -346,6 +346,106 @@ public sealed class KeralaFloodCessReturnTests
         Assert.Equal(0m, ret.ExemptedBusinessTurnover.Amount);
     }
 
+    // ───────────────────────────────── Q21: the GSTIN decides, not the party's State field
+
+    /// <summary>
+    /// 🔴 <b>WHERE THE TWO FACTS DISAGREE, THE GSTIN WINS — AND UNTIL THIS TEST NOTHING ENFORCED IT.</b>
+    /// <see cref="KeralaFloodCessReturnBuilder.IsKeralaRegisteredBuyer"/> documents in bold that the buyer's
+    /// Kerala-ness is read off the GSTIN's own leading two digits and NOT off
+    /// <see cref="PartyGstDetails.StateCode"/>, because [KFC-FAQ] Q21 turns on <b>where the registration is</b>
+    /// while the State field is the place-of-supply driver. The two normally agree, so every fixture in this class
+    /// had them agreeing and the documented rule was untested: swapping the implementation to read
+    /// <c>pg.StateCode</c> would have left the whole suite green.
+    ///
+    /// <para>This is the exemption direction: a <b>Kerala</b> GSTIN (32…) on a party whose State field says Tamil
+    /// Nadu (33). Q21 is satisfied by the registration, so the supply is excluded and disclosed. Read
+    /// <c>pg.StateCode</c> instead and this reddens — the sale becomes leviable and ₹3,000.00 of cess is invented
+    /// on a buyer who is in fact exempt.</para>
+    /// </summary>
+    [Fact]
+    public void A_Kerala_GSTIN_earns_the_exemption_even_when_the_party_State_field_says_otherwise()
+    {
+        var book = BuildKeralaBook();
+        var mismatched = AddLedger(book.Company, "Kerala GSTIN, TN state field", "Sundry Debtors", openingIsDebit: true);
+        mismatched.PartyGst = new PartyGstDetails
+        {
+            RegistrationType = GstRegistrationType.Regular,
+            Gstin = GstinKeralaBuyer,   // 32… — registered in Kerala
+            StateCode = "33",           // …but the place-of-supply field says Tamil Nadu
+        };
+
+        PostSale(book, mismatched, 3_00_000m, 1800, SaleDate, interState: false);
+
+        var ret = BuildReturn(book);
+
+        Assert.True(KeralaFloodCessReturnBuilder.IsKeralaRegisteredBuyer(mismatched));
+        Assert.Empty(ret.Slabs);
+        Assert.Equal(0m, ret.TotalCess.Amount);
+        Assert.Equal(3_00_000m, ret.ExemptedBusinessTurnover.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE MIRROR, AND THE ONE THAT COSTS MONEY IF IT IS WRONG.</b> A <b>Tamil Nadu</b> GSTIN (33…) on a party
+    /// whose State field says Kerala (32). The registration is not a Kerala one, so Q21's exemption is NOT available
+    /// however the State field reads, and the intra-Kerala supply stays leviable at 1%. An implementation that
+    /// trusted the State field would exempt this buyer and <b>under-collect</b> ₹4,000.00 — a filer's shortfall.
+    /// </summary>
+    [Fact]
+    public void A_non_Kerala_GSTIN_is_leviable_even_when_the_party_State_field_says_Kerala()
+    {
+        var book = BuildKeralaBook();
+        var mismatched = AddLedger(book.Company, "TN GSTIN, Kerala state field", "Sundry Debtors", openingIsDebit: true);
+        mismatched.PartyGst = new PartyGstDetails
+        {
+            RegistrationType = GstRegistrationType.Regular,
+            Gstin = GstinTamilNadu,     // 33… — registered in Tamil Nadu
+            StateCode = "32",           // …but the place-of-supply field says Kerala
+        };
+
+        PostSale(book, mismatched, 4_00_000m, 1800, SaleDate, interState: false);
+
+        var ret = BuildReturn(book);
+
+        Assert.False(KeralaFloodCessReturnBuilder.IsKeralaRegisteredBuyer(mismatched));
+        Assert.Single(ret.Slabs);
+        Assert.Equal(4_00_000m, ret.TotalTurnover.Amount);
+        Assert.Equal(4_000.00m, ret.TotalCess.Amount);
+        Assert.Equal(0m, ret.ExemptedBusinessTurnover.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>PINS WHAT THE STATE FIELD CANNOT DO: RESCUE A PARTY THAT HOLDS NO GSTIN.</b> This method's own doc
+    /// used to claim the State field served as "a fall-back for a party carrying a registration type but no GSTIN
+    /// string" — <b>that branch cannot execute</b>. <see cref="PartyGstDetails.IsB2C"/> is true whenever the GSTIN
+    /// is null or blank, so such a party is rejected by the B2C guard on the first line and never reaches the
+    /// fall-back. The doc has been corrected; this test locks the behaviour it now describes.
+    ///
+    /// <para>And the behaviour is the right one: Q21 grants the exemption to a "registered taxable person having GST
+    /// registration in Kerala GST". A buyer with a Kerala address but no registration is not that person — it is the
+    /// unregistered buyer of Q19, and its supply is <b>leviable</b>. Falling back to the State field here would
+    /// exempt every walk-in Kerala buyer and gut the levy.</para>
+    /// </summary>
+    [Fact]
+    public void A_party_with_a_Kerala_State_field_but_no_GSTIN_gets_no_exemption()
+    {
+        var book = BuildKeralaBook();
+        var noGstin = AddLedger(book.Company, "Kerala address, unregistered", "Sundry Debtors", openingIsDebit: true);
+        noGstin.PartyGst = new PartyGstDetails
+        {
+            RegistrationType = GstRegistrationType.Unregistered,
+            Gstin = null,
+            StateCode = "32",           // Kerala — but there is no registration to be Kerala-registered under
+        };
+
+        PostSale(book, noGstin, 1_00_000m, 1800, SaleDate, interState: false);
+
+        var ret = BuildReturn(book);
+
+        Assert.False(KeralaFloodCessReturnBuilder.IsKeralaRegisteredBuyer(noGstin));
+        Assert.Equal(1_000.00m, ret.TotalCess.Amount);
+        Assert.Equal(0m, ret.ExemptedBusinessTurnover.Amount);
+    }
+
     /// <summary>[KFC-FAQ] Q11 — "Kerala Flood Cess is applicable only for intra-state supply." An IGST sale never
     /// enters the return, and it is not counted as an exclusion either (it was never in scope).</summary>
     [Fact]
@@ -381,7 +481,16 @@ public sealed class KeralaFloodCessReturnTests
     }
 
     /// <summary>[KFC-FAQ] Q14 — "Composition tax payers are exempted from the levy of Kerala Flood Cess." A Kerala
-    /// composition dealer files nothing however its book reads.</summary>
+    /// composition dealer files nothing however its book reads.
+    ///
+    /// <para>⚠️ <b>This test does NOT reach the builder's Composition guard, and says so rather than pretending
+    /// otherwise.</b> A composition company issues a Bill of Supply: <see cref="GstService.ComputeInvoiceTax"/>
+    /// suppresses every forward tax line for it, so the fixture's sale posts no GST leg,
+    /// <c>PostedForwardRouting</c> answers <c>null</c>, and the voucher is skipped as exempt/nil long before the
+    /// guard matters. Deleting the guard entirely leaves this test green (measured). It still earns its place as
+    /// the end-to-end statement of Q14 — but the guard itself is pinned by
+    /// <see cref="A_book_that_switched_to_composition_files_nothing_even_on_vouchers_that_posted_forward_tax"/>.</para>
+    /// </summary>
     [Fact]
     public void A_Kerala_composition_dealer_files_nothing()
     {
@@ -393,6 +502,49 @@ public sealed class KeralaFloodCessReturnTests
         Assert.Empty(ret.Slabs);
         Assert.Equal(0m, ret.TotalCess.Amount);
         Assert.True(KeralaFloodCessReturnBuilder.IsKeralaRegisteredSupplier(book.Company));  // Kerala, but…
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE TEST THAT ACTUALLY EXERCISES THE Q14 COMPOSITION GUARD.</b> The guard is unreachable for a book that
+    /// was composition all along (see the test above), so the only state that reaches it is a book holding vouchers
+    /// which DID post forward tax while the company reads as composition now — a dealer that opted into composition
+    /// after issuing tax invoices. Here the sale is posted while the company is Regular, and only then is the
+    /// registration switched; the vouchers keep their real CGST/SGST legs, so every later filter passes them and the
+    /// guard is the one thing standing between them and a levied slab. Remove it and this reddens with ₹5,000.00.
+    ///
+    /// <para><b>What this pins is the projection's stated reading, not a statutory finding:</b> the supplier-side
+    /// gates read the company's <b>current</b> registration — exactly as
+    /// <see cref="KeralaFloodCessReturnBuilder.IsKeralaRegisteredSupplier"/> immediately above the guard does. A
+    /// dealer who was Regular during the period and composition afterwards is a live question this projection does
+    /// not attempt to answer; it answers per the registration the book holds, consistently across both gates.</para>
+    /// </summary>
+    [Fact]
+    public void A_book_that_switched_to_composition_files_nothing_even_on_vouchers_that_posted_forward_tax()
+    {
+        var book = BuildKeralaBook();                                  // Regular: the sale posts real tax legs
+        PostSale(book, book.Consumer, 5_00_000m, 1800, SaleDate);
+
+        // Sanity: as a Regular book this return is emphatically NOT empty — ₹5,00,000 at 18% bears 1% = ₹5,000.
+        var asRegular = BuildReturn(book);
+        Assert.Single(asRegular.Slabs);
+        Assert.Equal(5_000m, asRegular.TotalCess.Amount);
+
+        // …now the same book reads as a composition dealer. The vouchers are untouched and still carry forward tax.
+        book.Company.Gst!.RegistrationType = GstRegistrationType.Composition;
+        book.Company.Gst!.CompositionSubType = Domain.CompositionSubType.Trader;
+
+        var ret = BuildReturn(book);
+
+        Assert.True(ret.IsEmpty);
+        Assert.Empty(ret.Slabs);
+        Assert.Equal(0m, ret.TotalCess.Amount);
+        // Not merely zero-footed: a composition dealer discloses nothing either, because it files no such return.
+        Assert.Equal(0m, ret.TotalTurnover.Amount);
+        Assert.Equal(0m, ret.ExemptedBusinessTurnover.Amount);
+        Assert.Equal(0m, ret.TurnoverOutsideTheSchedules.Amount);
+        // The levy window is still reported, so the screen can say WHICH days a nil return covers.
+        Assert.Equal(PeriodFrom, ret.LevyFrom);
+        Assert.Equal(PeriodTo, ret.LevyTo);
     }
 
     // ─────────────────────────────────────────────────────────── credit notes and rounding
