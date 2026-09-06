@@ -176,6 +176,26 @@ public static class VoucherValidator
                 "or Compensation Cess, which CGST Act section 10(4) forbids (\"shall not collect any tax from the " +
                 "recipient on supplies made by him\") and section 31(3)(c) answers by requiring a bill of supply " +
                 "instead of a tax invoice. Remove the tax legs, or change the Registration Type under F11 GST.");
+
+        // Census 10.1 — CREDIT LIMITS. The vendor's amount limit is an ERROR while saving, not a warning: "an error
+        // message appears with the credit limit defined for the party while saving the transaction. It also shows
+        // the amount that has been exceeded" (help.tallysolutions.com, /manage-receivables-outstanding-tally/). So
+        // it belongs here, with the §10(4) guard, and not on a print or report path.
+        //
+        // 🔴 ENTRY PATHS ONLY, AND THIS IS THE SINGLE MOST IMPORTANT LINE IN THE ROW. A credit limit is a rule the
+        // operator can CHANGE AFTER the fact: lower a party's limit and every invoice already on the book is
+        // suddenly over it. SqliteCompanyStore.Load re-posts every stored voucher through this engine, so a check
+        // that fired unconditionally would make that company PERMANENTLY UNOPENABLE the moment the limit was
+        // lowered — with no route back in, because the screen that could raise the limit again is inside the
+        // company that will not open. The two rehydration paths are exactly the two that pass
+        // CostAllocationStrictness.Legacy, the same discriminator the §10(4) guard above uses for the same reason.
+        // Pinned by CreditLimitBlockTests.Lowering_a_limit_below_an_existing_book_still_lets_the_book_LOAD.
+        if (costAllocationStrictness == CostAllocationStrictness.Strict)
+        {
+            var credit = CreditLimitRules.Check(c, v, replacing);
+            if (credit.Breached)
+                throw new InvalidVoucherException(CreditLimitRules.BreachMessage(credit));
+        }
     }
 
     /// <summary>

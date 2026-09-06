@@ -4633,6 +4633,40 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- CREDIT LIMITS (census 10.1). Shown for ANY party ledger, on the same
+                                     IsPartyGroup predicate as the bill-wise block above, because the vendor scopes
+                                     the feature to "ledgers created under the groups Sundry Debtors and Sundry
+                                     Creditors" and to nothing else.
+                                     🔴 The placeholder is load-bearing, not decoration: a BLANK box means NO limit,
+                                     while a typed 0 is a REAL limit that refuses every credit sale to this party.
+                                     If the two ever read the same on screen an operator will freeze a party by
+                                     accident, so the box says which is which and the notice below repeats it. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding IsPartyGroup}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Credit Limits (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="Auto,140">
+                                      <TextBlock Grid.Column="0" Text="Credit limit"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="LedgerCreditLimitBox"
+                                               Text="{Binding CreditLimitText, Mode=TwoWay}"
+                                               PlaceholderText="blank = no limit" TextAlignment="Right"/>
+                                    </Grid>
+                                    <CheckBox Content="Check for credit days during voucher entry"
+                                              IsChecked="{Binding CheckCreditDaysOnEntry, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <CheckBox Content="Override credit limit using post-dated transactions"
+                                              IsChecked="{Binding OverrideCreditLimitWithPostDated, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                    <TextBlock Text="{Binding CreditDaysNotice}"
+                                               FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party Mailing Details (WI-4). Shown for ANY party ledger — deliberately not
                                      behind an F11 flag, unlike the GST block below. The State/UT field lives in
                                      the GST block only: there is ONE party State (the place-of-supply driver),
@@ -5144,6 +5178,18 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+
+                            <!-- Census 2.13: when Ctrl+J "Show Unused" survives nothing, SAY so. An empty white
+                                 pane under a heading reading "List of Ledgers (Unused)" is indistinguishable
+                                 from a broken screen, and the operator has no way to tell "every ledger has
+                                 been transacted with" from "the filter failed". Drawn over the (empty) list
+                                 rather than in a row of its own so the unfiltered tree keeps every pixel. -->
+                            <TextBlock Grid.Row="3"
+                                       IsVisible="{Binding ShowsEmptyUnusedNotice}"
+                                       Text="Every ledger in this company has been used — nothing is unused."
+                                       HorizontalAlignment="Center" VerticalAlignment="Top"
+                                       Margin="12,20,12,0" FontSize="12.5" TextWrapping="Wrap"
+                                       TextAlignment="Center" Foreground="#6A6A6A"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

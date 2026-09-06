@@ -274,6 +274,106 @@ public sealed class ChartOfAccountsUnusedReachabilityTests
         finally { Cleanup(window, dir); }
     }
 
+    /// <summary>
+    /// 🔴 <b>The "nothing survived the filter" notice must be RENDERED, not merely computed.</b> The view model
+    /// carried <c>ShowsEmptyUnusedNotice</c> with a doc comment promising the pane "must SAY so rather than render
+    /// an empty box the operator reads as a broken screen" — and nothing in <c>MainWindow.axaml</c> was bound to
+    /// it, so the promise was not kept. This test pins the binding target's existence and that its visibility
+    /// genuinely follows the property; the truth table of the property itself is
+    /// <see cref="The_empty_notice_is_shown_only_when_the_filter_survives_nothing"/>.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_empty_unused_notice_is_realised_and_tracks_the_view_model()
+    {
+        var dir = TempDir("ApexUnusedEmptyNotice_");
+        MainWindow? window = null;
+        try
+        {
+            window = OpenChart(out var vm, dir);
+            var chart = vm.ChartOfAccounts!;
+
+            var notice = window.GetVisualDescendants().OfType<TextBlock>()
+                .FirstOrDefault(t => t.Text is { } s
+                                  && s.Contains("nothing is unused", StringComparison.Ordinal));
+
+            Assert.True(notice is not null,
+                "the empty-Unused notice is not in the realised tree at all. ShowsEmptyUnusedNotice would then be "
+              + "a dead property and an operator whose filter matches nothing sees a blank white pane they cannot "
+              + "tell from a broken screen.");
+
+            // The demo book HAS unused ledgers, so the notice must be computed false and rendered hidden. If the
+            // binding were missing the TextBlock would sit visible over the tree in every state.
+            Assert.False(chart.ShowsEmptyUnusedNotice, "premise: this fixture has unused ledgers.");
+            Assert.False(notice!.IsEffectivelyVisible,
+                "the notice is visible while the pane has rows — the IsVisible binding is missing or inverted.");
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>The notice's truth table: it appears only with the filter ON and nothing left to show, and never
+    /// on the ordinary unfiltered tree.</summary>
+    [AvaloniaFact]
+    public void The_empty_notice_is_shown_only_when_the_filter_survives_nothing()
+    {
+        var dir = TempDir("ApexUnusedEmptyTruth_");
+        MainWindow? window = null;
+        try
+        {
+            window = OpenChart(out var vm, dir);
+            var chart = vm.ChartOfAccounts!;
+
+            Assert.False(chart.ShowsEmptyUnusedNotice);          // filter off
+
+            chart.ShowUnusedOnly = true;
+            Dispatcher.UIThread.RunJobs();
+            Assert.NotEmpty(chart.Rows);
+            Assert.False(chart.ShowsEmptyUnusedNotice);          // filter on, rows survived
+
+            // Now genuinely reach the third state: transact against every remaining unused ledger, so nothing is
+            // unused any more. Posted through the real engine, so "used" means what the predicate means.
+            var company = vm.Company!;
+            var svc = new Apex.Ledger.Services.LedgerService(company);
+            var journal = company.FindVoucherTypeByName("Journal")!;
+            var counter = company.FindLedgerByName("Cash")!;
+            var day = company.BooksBeginFrom;
+
+            foreach (var l in company.Ledgers.Where(l => UnusedMasters.IsLedgerUnused(company, l)).ToList())
+            {
+                if (l.Id == counter.Id) continue;
+                svc.Post(new Apex.Ledger.Domain.Voucher(Guid.NewGuid(), journal.Id, day, new[]
+                {
+                    new Apex.Ledger.Domain.EntryLine(l.Id, Apex.Ledger.Money.FromRupees(1m),
+                        Apex.Ledger.DrCr.Debit),
+                    new Apex.Ledger.Domain.EntryLine(counter.Id, Apex.Ledger.Money.FromRupees(1m),
+                        Apex.Ledger.DrCr.Credit),
+                }));
+            }
+
+            Assert.DoesNotContain(company.Ledgers, l => UnusedMasters.IsLedgerUnused(company, l));
+
+            chart.Refresh();
+            Dispatcher.UIThread.RunJobs();
+            Pump(window);
+
+            Assert.Empty(chart.Rows);
+            Assert.True(chart.ShowsEmptyUnusedNotice,
+                "with the filter on and nothing unused, the pane must state it — otherwise the operator sees a "
+              + "blank white box they cannot tell from a broken screen.");
+
+            var notice = window.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text is { } s && s.Contains("nothing is unused", StringComparison.Ordinal));
+            Assert.True(notice.IsEffectivelyVisible, "the notice is computed but not rendered.");
+
+            // …and turning the filter off restores the full tree and hides the notice again.
+            chart.ShowUnusedOnly = false;
+            Dispatcher.UIThread.RunJobs();
+            Pump(window);
+            Assert.NotEmpty(chart.Rows);
+            Assert.False(chart.ShowsEmptyUnusedNotice);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
     /// <summary>The Ctrl+J badge is enabled on exactly the screen the key arm fires on, and dimmed elsewhere — an
     /// enabled badge that fires nothing is register defect IV-31.</summary>
     [AvaloniaFact]

@@ -406,6 +406,26 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// v54 → v53 (census 10.1): drops the three Credit-Limit columns from <c>ledgers</c> and stamps the marker back
+    /// to 53. Used by the tests to manufacture a genuine v53 database out of a current one, so a migration test runs
+    /// against real rows rather than hand-written DDL.
+    ///
+    /// <para>⚠️ <b>NOT information-preserving, and that is the point of the version.</b> A party carrying a credit
+    /// limit comes back with none — the ledger will accept, at v53, an invoice it would have refused at v54. The
+    /// two flags come back off. Nothing else on the ledger moves. The same <c>CREATE … AS SELECT</c> constraint-loss
+    /// residual documented on <see cref="DropColumns"/> applies; <c>ix_ledgers_company</c> is replayed by that
+    /// helper.</para>
+    /// </summary>
+    public static void V54ToV53(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        DropColumns(connection, "ledgers", Schema.V54CreditLimitColumns, "ledgers_v53");
+
+        Exec(connection, "UPDATE schema_version SET version = 53;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, via the <c>CREATE … AS SELECT</c> / swap
     /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
     /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the

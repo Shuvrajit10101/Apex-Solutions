@@ -42,6 +42,37 @@ public sealed class Ledger
     public int? DefaultCreditPeriodDays { get; set; }
 
     /// <summary>
+    /// <b>Census 10.1 — "Credit Limit"</b> on a ledger under Sundry Debtors / Sundry Creditors. <c>null</c> = <b>no
+    /// limit</b>, which is what every ledger was before v54.
+    ///
+    /// <para>🔴 <b><c>null</c> and <see cref="Money.Zero"/> are DIFFERENT and must never be conflated.</b> A limit of
+    /// zero is a real, blocking value — "this party may take nothing on credit" — so it cannot double as "unset".
+    /// That is why <c>credit_limit_paisa</c> is the one v54 column with no DEFAULT. Any code that writes
+    /// <c>?? Money.Zero</c> here has silently frozen every party in the book.</para>
+    ///
+    /// <para>The breach rule lives in <see cref="Services.CreditLimitRules"/> and is enforced at save by
+    /// <see cref="Services.VoucherValidator"/> on ENTRY paths only.</para>
+    /// </summary>
+    public Money? CreditLimit { get; set; }
+
+    /// <summary>
+    /// <b>Census 10.1 — "Check For Credit Dates During Voucher Entry".</b> When on, entry warns (it does NOT block)
+    /// that the party has bills past their credit period. Off on every pre-v54 ledger.
+    ///
+    /// <para>🔴 This is a <b>warning</b>, and <see cref="CreditLimit"/> is a <b>block</b>. The two severities are
+    /// the vendor's, not ours, and swapping them is the wrong-money failure this row exists to avoid: blocking on
+    /// days would refuse legitimate invoices, warning on the amount would let bad ones through.</para>
+    /// </summary>
+    public bool CheckCreditDaysOnEntry { get; set; }
+
+    /// <summary>
+    /// <b>Census 10.1 — "Override credit limit using post-dated transactions".</b> The vendor's named escape from a
+    /// breach: with this on, the party's post-dated vouchers are excluded from the exposure the limit is measured
+    /// against. Off on every pre-v54 ledger.
+    /// </summary>
+    public bool OverrideCreditLimitWithPostDated { get; set; }
+
+    /// <summary>
     /// "Cost centres applicable = Yes/No" (catalog §6). <c>null</c> ⇒ <b>auto</b>: the effective value
     /// follows the ledger's nature (true for Income/Expense-nature ledgers, false otherwise). Set a
     /// non-null value to <b>override</b> that default explicitly. Resolve the effective flag with

@@ -1,9 +1,0 @@
-  Determining projects to restore...
-  All projects are up-to-date for restore.
-  Apex.Ledger -> C:\Users\dkpho\apexf2\src\Apex.Ledger\bin\Release\net10.0\Apex.Ledger.dll
-  Apex.Ledger.Io -> C:\Users\dkpho\apexf2\src\Apex.Ledger.Io\bin\Release\net10.0\Apex.Ledger.Io.dll
-  Apex.Ledger.Tests -> C:\Users\dkpho\apexf2\tests\Apex.Ledger.Tests\bin\Release\net10.0\Apex.Ledger.Tests.dll
-Test run for C:\Users\dkpho\apexf2\tests\Apex.Ledger.Tests\bin\Release\net10.0\Apex.Ledger.Tests.dll (.NETCoreApp,Version=v10.0)
-A total of 1 test files matched the specified pattern.
-
-Passed!  - Failed:     0, Passed:     8, Skipped:     0, Total:     8, Duration: 219 ms - Apex.Ledger.Tests.dll (net10.0)

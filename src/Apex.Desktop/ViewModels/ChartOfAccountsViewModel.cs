@@ -139,8 +139,18 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
         OnPropertyChanged(nameof(ShowsEmptyUnusedNotice));
     }
 
-    /// <summary>True when the filter is on but nothing survived it — the pane must SAY so rather than render an
-    /// empty box the operator reads as a broken screen.</summary>
+    /// <summary>
+    /// True when the filter is on but nothing survived it — the pane must SAY so rather than render an empty box
+    /// the operator reads as a broken screen.
+    ///
+    /// <para>🔴 It depends on <see cref="Rows"/> as well as on <see cref="ShowUnusedOnly"/>, so notifying it only
+    /// from <c>OnShowUnusedOnlyChanged</c> is NOT enough: a <see cref="Refresh"/> that empties the filtered tree —
+    /// which is exactly what happens when the last unused ledger is transacted with while the pane is open — left
+    /// the notice stale and the pane blank. <see cref="Build"/> raises it, so every path that rebuilds the rows
+    /// re-evaluates it. Pinned by
+    /// <c>ChartOfAccountsUnusedReachabilityTests.The_empty_notice_is_shown_only_when_the_filter_survives_nothing</c>,
+    /// which found this by driving the real window rather than the flag.</para>
+    /// </summary>
     public bool ShowsEmptyUnusedNotice => ShowUnusedOnly && Rows.Count == 0;
 
     /// <summary>How many of the company's ledgers are unused right now, independent of whether the filter is on.
@@ -234,6 +244,11 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
         if (_company.ProfitAndLossHead is { } plHead)
             foreach (var row in BuildGroup(plHead, depth: 0, childGroups, ledgersByGroup))
                 Rows.Add(row);
+
+        // Census 2.13: the empty-Unused notice reads Rows.Count, so EVERY rebuild must re-evaluate it — not just a
+        // toggle of the filter. Without this line a Refresh that empties the filtered tree leaves the notice stale
+        // and the operator staring at a blank pane. Raised last, once the rows are final.
+        OnPropertyChanged(nameof(ShowsEmptyUnusedNotice));
     }
 
     /// <summary>

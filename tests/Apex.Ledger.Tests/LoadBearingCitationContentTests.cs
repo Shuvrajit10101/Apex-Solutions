@@ -70,7 +70,7 @@ public sealed class LoadBearingCitationContentTests
             "CanonicalMapper.cs",
             "State = c.State"),
         new("plan.md",
-            "(read), `ImportPlan.cs:1201-1202` (assign)",
+            "(read), `ImportPlan.cs:1208-1209` (assign)",
             "ImportPlan.cs",
             "t.State = c.State"),
 
