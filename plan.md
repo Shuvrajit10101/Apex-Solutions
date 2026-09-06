@@ -533,7 +533,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > next is **51**~~ — and a slice that does not need a column still must not take one.
 > **▶ 🔴 BOTH STRUCK FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb`, AND THE CORRECTION IS MADE IN PLACE BECAUSE
 > RULING 8 BELOW QUOTES THIS NUMBER.** The rule this banner quotes is still there verbatim, but it now lives at
-> **`src/Apex.Persistence.Sqlite/Schema.cs:177-178`** — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
+> **`src/Apex.Persistence.Sqlite/Schema.cs:187-188`** — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
 > is still a valid line in a 3,880-line file and stayed green under the reach check, which is the exact blind
 > spot `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` exists to cover — **and this citation is now IN that table**, so its next drift goes red instead of staying green. And
 > **`Schema.CurrentVersion` is now `53`** — and it is **deliberately NOT re-pointed to a line**: the constant has
@@ -2603,12 +2603,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
-     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3922`.**
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4999`**,
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3938`.**
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5031`**,
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**
-     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:443`**, inside `DropColumns`.
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:463`**, inside `DropColumns`.
      **(3) The DDL `DEFAULT` had no behavioural test.** The forbidden simplification (both `DEFAULT`s 0→1 +
      back-fill deleted) previously left **1** test red, and only on a hard-coded string literal; it now turns
      **4** red. **(4) Taxability was never exported at a non-default value** — a mapper hard-coding `"Taxable"`
@@ -3775,7 +3775,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
     below was being made against. `Company.State` (`src/Apex.Ledger/Domain/Company.cs:85`) **and `Company.Pin`
     are read and written by the canonical XML/JSON export–import round-trip** — `CanonicalMapper.cs:66-67`,
-    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1024-1025` (read), `ImportPlan.cs:1201-1202` (assign) — and
+    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1024-1025` (read), `ImportPlan.cs:1208-1209` (assign) — and
     `CanonicalRoundTripTests.cs:259` has asserted it all along. The accurate claim is narrow and entirely about
     printing: **no PRINT path reads `Company.State`.** Every book imported from canonical XML carries real
     values in that column.
@@ -5588,7 +5588,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (~~`Schema.cs:144-145`~~), **recorded in this file**. ~~`Schema.CurrentVersion` is **50** (`Schema.cs:146`), so
   the next is **51**.~~ **▶ 🔴 BOTH FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb` AND CORRECTED IN PLACE (the
   same correction is made on ruling 2 itself in §5).** The migration-equivalence rule now lives at
-  `src/Apex.Persistence.Sqlite/Schema.cs:177-178` — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
+  `src/Apex.Persistence.Sqlite/Schema.cs:187-188` — **re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
   **cited by TEXT and never by line: grep `public const int CurrentVersion` in that file.** **WF-1 took v51 in `e49b88e`; the voucher edit log took v52 on 2026-08-19; W2-03 (the Voucher Type master) took v53 on 2026-09-05** — two additive `voucher_types` columns, `MigrateV52ToV53`, `SchemaDowngrade.V53ToV52`, round-trip + migration-parity tests. **The next free version is v54**, so *"the next is 51"* must not be re-read as *"the next is 52"*: consult
   **W0-2b's `▶ SCHEMA` note** before any slice takes a number.
   **"NONE expected" still stands as the expectation** — the wave's items are UI over persisted
@@ -6061,7 +6061,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     the conjunction, and **(ii)** the recorded gaps. **The build is a LATER slice with its own grounding pass.**
 - **▶ 🔴 A CORRECTION THIS PHASE MAKES TO THE CENSUS, RECORDED HERE BECAUSE IT CHANGES WHAT IS OWED:
   ROWS 4.7 AND 12.2 BLAMED THE PRINT GATE FOR CREDIT / DEBIT NOTES. REFUTED, RE-MEASURED FIRST-HAND.** A note
-  **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:257-259` throws
+  **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws
   *"Item-invoice stock lines are only valid on a Purchase or Sales voucher"* on **every** post (reached from
   `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`), and
   `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert on that

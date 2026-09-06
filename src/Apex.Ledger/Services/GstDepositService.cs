@@ -159,11 +159,18 @@ public sealed class GstDepositService
     /// any non-zero interest is rejected, §11.2). The debit lands in the ITC-reversal cost ledger. Interest is a
     /// passed field, never auto-computed (DP-34; 18% if surfaced — §11.6).
     /// </summary>
+    /// <param name="reasons">
+    /// The portal's <i>"Reasons if any"</i> free text
+    /// (<c>https://tutorial.gst.gov.in/userguide/demandsandrecovery/Manual_GST_FORM_DRC-03.htm</c>). There is no
+    /// column for it on <see cref="GstDrc03"/>, so it is appended to the posted voucher's narration rather than
+    /// dropped. Blank / null leaves the narration exactly as it was before this parameter existed.
+    /// </param>
     public (Voucher Voucher, GstDrc03 Record) PostDrc03(
         string cause, string period, DateOnly date,
         long cgstPaisa, long sgstPaisa, long igstPaisa, long cessPaisa, long interestPaisa,
         PaymentMethod method, Domain.Ledger? bank = null,
-        string? drc03Ref = null, string? drc03aDemandRef = null, DateTimeOffset? createdAt = null)
+        string? drc03Ref = null, string? drc03aDemandRef = null, DateTimeOffset? createdAt = null,
+        string? reasons = null)
     {
         if (cgstPaisa < 0 || sgstPaisa < 0 || igstPaisa < 0 || cessPaisa < 0 || interestPaisa < 0)
             throw new ArgumentException("DRC-03 amounts must be ≥ 0 paisa.");
@@ -237,8 +244,14 @@ public sealed class GstDepositService
             Draw(GstTaxHead.Integrated, GstMinorHead.Interest, interestPaisa);
         }
 
+        // The portal's "Reasons if any" free text has NO field of its own on GstDrc03 and adding one is a schema
+        // change — so it lands where it can be retrieved without one: appended to the voucher narration, after the
+        // cause and period the narration already carries. Omitted entirely when blank, so an untouched book's
+        // narration is byte-identical to what it was before this parameter existed (ER-13).
+        var narration = $"DRC-03 — {cause} — {period}"
+                        + (string.IsNullOrWhiteSpace(reasons) ? string.Empty : $" — {reasons.Trim()}");
         var voucher = new LedgerService(_company).Post(new Voucher(
-            Guid.NewGuid(), type.Id, date, lines, narration: $"DRC-03 — {cause} — {period}"));
+            Guid.NewGuid(), type.Id, date, lines, narration: narration));
 
         var record = new GstDrc03(
             Guid.NewGuid(), drc03Ref, cause, period, cgstPaisa, sgstPaisa, igstPaisa, cessPaisa, interestPaisa,
