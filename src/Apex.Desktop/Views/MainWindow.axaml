@@ -430,9 +430,21 @@
                                       <DataTemplate x:DataType="vm:MenuItemViewModel">
                                         <Panel>
                                           <!-- Section header: dim, uppercase, non-selectable -->
+                                          <!-- 🔴 TextWrapping is the HONEST-DEGRADATION backstop for this row, and it
+                                               was added against a MEASURED hard cut, not on principle. Uppercase at
+                                               LetterSpacing 1.5 costs ~12.5px per character, so a header's whole budget
+                                               in this 350px-wide cascade column is ~28 characters. The five Gateway
+                                               root headers need 88 / 113 / 150 / 88 / 50px and are unaffected — for
+                                               every one of them "Wrap" is byte-identical, which is why this is
+                                               layout-neutral rather than a redesign (a shipped test measures exactly
+                                               that). But the company menu's disclosure line needed 888px against 350
+                                               available and, with NoWrap and TextTrimming=None, it was CUT MID-WORD AT
+                                               39% WITH NO ELLIPSIS: the operator read "NOT IN THIS BUILD: TALLYV" and
+                                               nothing told them text was missing. A header that cannot fit must fold,
+                                               not vanish. -->
                                           <Border Classes="menuRow" IsVisible="{Binding IsHeader}" Margin="0,7,0,1">
                                             <TextBlock Text="{Binding Label, Converter={StaticResource Upper}}"
-                                                       FontSize="11" FontWeight="Bold"
+                                                       FontSize="11" FontWeight="Bold" TextWrapping="Wrap"
                                                        Foreground="#9098A8" LetterSpacing="1.5"/>
                                           </Border>
                                           <!-- Selectable item: bright amber in the active column, dim slate when
@@ -16334,12 +16346,16 @@
                                 </Grid>
 
                                 <!-- 🔴 The PAGE-LAYOUT knobs are gated on SupportsPageKnobs, which is true only
-                                     where the renderer honours them. ReportPdf reads PageConfig's Formatted* /
-                                     Draws* / IncludesPage / StartPageNumber; InvoicePdf, VoucherPdf, PayslipPdf
-                                     and PosReceiptPdf read NONE of them and only ever apply the copy count. This
-                                     group was previously ungated (SupportsPageKnobs returned a bare `true` and was
-                                     bound to nothing), so a voucher/invoice operator could set a format, a paper,
-                                     a page range and a starting number and get byte-identical output.
+                                     where the renderer honours them: the FORMAT and the PAPER (PageConfig's
+                                     Formatted* / Draws* members) are read by ReportPdf alone. InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf read none of THOSE — but they DO now
+                                     read IncludesPage and StartPageNumber, which is why the page RANGE moved out
+                                     to its own SupportsPageRange group below. (This comment used to say all four
+                                     read NONE of PageConfig; W2-31's finishing pass made that false and the
+                                     correction is the point of this edit.) The group was previously ungated
+                                     (SupportsPageKnobs returned a bare `true` and was bound to nothing), so a
+                                     voucher/invoice operator could set a format, a paper, a page range and a
+                                     starting number and get byte-identical output.
                                      PrintConfigKnobsMoveTheBytesTests renders and compares bytes to hold this. -->
                                 <StackPanel Spacing="14" IsVisible="{Binding SupportsPageKnobs}">
                                   <TextBlock Text="Print format" FontWeight="Bold"
@@ -16363,6 +16379,19 @@
                                                IsChecked="{Binding IsPrePrinted, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
 
+                                </StackPanel>
+
+                                <!-- W2-31: the PAGE RANGE, in its OWN group. Every renderer now honours
+                                     PageConfig.IncludesPage and StartPageNumber - ReportPdf, InvoicePdf,
+                                     VoucherPdf, PayslipPdf and PosReceiptPdf - so the range is offered on every
+                                     document kind. It is a SEPARATE StackPanel from the format/paper group above
+                                     because those two remain ReportPdf-only: folding them back under one gate
+                                     would re-offer two knobs that do nothing, which is the defect the withdrawal
+                                     fixed. PrintConfigKnobsMoveTheBytesTests holds both pairings by bytes.
+                                     UNGATED on purpose: there is no SupportsPageRange binding, because every
+                                     PrintKind honours the range and a predicate that can only read `true` is a
+                                     dead knob wearing a gate's clothes. See the note in PrintConfigViewModel. -->
+                                <StackPanel Spacing="14">
                                   <TextBlock Text="Pages" FontWeight="Bold"
                                              Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                   <Grid ColumnDefinitions="150,*">
@@ -16394,6 +16423,116 @@
                               </StackPanel>
                             </Border>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: W2-32 / census 12.6 "Multi-Account Printing" (Reports -> Statements of Accounts).
+                         Selects a SET of accounts and prints them as one collated job of ledger accounts,
+                         reminder letters or confirmations of accounts (census 12.7's two multi-account outputs).
+                         Every account row is a real CheckBox, so the selection is reachable by keyboard (Tab to
+                         the row, Space to toggle) as well as by mouse — the view-model's IsSelected is not a
+                         feature until a control is bound to it. -->
+                    <ContentControl IsVisible="{Binding MultiAccountPrint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiAccountPrint}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiAccountPrintViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding PeriodText}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding PeriodText}"/>
+
+                            <!-- The document each selected account produces. Every title here is OURS under
+                                 ruling 9 (see MultiAccountPrintProjector) and none of the three is, or may
+                                 become, a tax invoice or a bill of supply. -->
+                            <Border Grid.Row="2" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,0,0,6">
+                              <StackPanel Spacing="4">
+                                <TextBlock Text="Document" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Ledger Account"
+                                               IsChecked="{Binding IsLedgerAccount, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Reminder Letter"
+                                               IsChecked="{Binding IsReminderLetter, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  <RadioButton GroupName="MultiAccountDocument" Content="Confirmation of Accounts"
+                                               IsChecked="{Binding IsConfirmation, Mode=TwoWay}"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+                                <!-- Says WHICH accounts the list below is offering. The reminder letter and the
+                                     confirmation of accounts are addressed to a counterparty, so they are offered
+                                     for party accounts only; without this line an operator who switches kind and
+                                     watches eleven of his thirteen accounts vanish would read it as a fault. -->
+                                <TextBlock Text="{Binding OfferedAccountsNote}"
+                                           FontSize="11.5" Foreground="#6A6A6A"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="40,*,220">
+                                <TextBlock Grid.Column="0" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Account" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="4" Background="White">
+                              <ItemsControl ItemsSource="{Binding Accounts}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:MultiAccountRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="40,*,220" Height="24">
+                                        <CheckBox Grid.Column="0" Margin="10,0,0,0"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Name}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding GroupName}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding GroupName}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Selection + print bar -->
+                            <Border Grid.Row="5" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                                <Button Grid.Column="0" Content="Select All" Padding="10,4"
+                                        Click="OnMultiAccountSelectAllClick"/>
+                                <Button Grid.Column="1" Content="Select None" Padding="10,4" Margin="6,0,0,0"
+                                        Click="OnMultiAccountSelectNoneClick"/>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"/>
+                                <Button Grid.Column="4" Content="Print (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnPrintMultiAccountClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="6" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,0" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -17291,6 +17430,71 @@
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnOpenSavedViewClick"/>
                             </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Ctrl+G "Switch To" (census 14.2 — jump to any destination the Gateway can reach).
+                         The typed PREFIX is painted in the header on purpose: a list that silently shrinks under
+                         an invisible filter is a defect, not a feature, and this is the first prefix filter in
+                         the product. -->
+                    <ContentControl IsVisible="{Binding SwitchTo, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SwitchTo}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SwitchToViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,6"/>
+
+                            <Border Grid.Row="1" Background="#FFF8E1"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="8,5" Margin="0,0,0,8">
+                              <TextBlock Text="{Binding PrefixDisplay}" FontSize="12.5" FontWeight="SemiBold"
+                                         Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <!-- Named so the code-behind can drag this list to the highlighted row: the rows
+                                   are not focusable (the keyboard cursor is a bound flag, not focus), so nothing
+                                   scrolls on their behalf. Go To's list carries the identical Name for the
+                                   identical reason. -->
+                              <ScrollViewer>
+                                <ItemsControl Name="SwitchToResults" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SwitchToRowViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*" Height="26">
+                                          <!-- The keyboard cursor. Declared FIRST so it paints BEHIND the text,
+                                               converter-free, exactly as every other list in this shell does. -->
+                                          <Border Background="#FFF3CD" IsVisible="{Binding IsHighlighted}"/>
+                                          <!-- The parent section ALWAYS reads first: this list is nested by
+                                               construction, never a flat dump of ~120 page names.
+                                               🔴 THE THREE RUNS LIVE IN ONE TextBlock ON PURPOSE, and this is the
+                                               shell's own hard-won rule rather than a style choice — the cascade
+                                               menu row carries the identical comment. A horizontal StackPanel
+                                               measures its children at INFINITE width, so a TextTrimming declared
+                                               on a child can never engage: the text overflows and paints over its
+                                               neighbour instead of ellipsising. This row was built as a
+                                               StackPanel of three trimming TextBlocks and
+                                               XamlLayoutInvariantTests caught it. One TextBlock with Runs keeps
+                                               the two type treatments AND lets the trimming work. -->
+                                          <TextBlock VerticalAlignment="Center" Margin="8,0"
+                                                     FontSize="12.5"
+                                                     TextTrimming="CharacterEllipsis"><Run Text="{Binding Section}" FontSize="11.5" Foreground="#6A6A6A"/><Run Text=" › " FontSize="11.5" Foreground="#6A6A6A"/><Run Text="{Binding Label}" Foreground="{StaticResource BrandNavy}"/></TextBlock>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Grid.Row="3" Text="{Binding Status}"
+                                       Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

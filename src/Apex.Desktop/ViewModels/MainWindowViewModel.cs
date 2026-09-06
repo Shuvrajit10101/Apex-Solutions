@@ -46,8 +46,22 @@ public enum Screen
     AutoColumns,
     SaveView,
     SavedViews,
+
+    // 14.2 — Switch To (Ctrl+G): the jump-anywhere destination list. Its own screen id (not a mode on the
+    // Gateway) because it owns the keyboard while it is up: bare letters TYPE INTO ITS PREFIX FILTER rather
+    // than activating a menu hotkey, which is the one thing the cascade's own columns do not do.
+    SwitchTo,
+
+    // 14.9 — the Alt+K company menu. A MENU column, not a page column, so it needs no panel view model; the
+    // screen id exists so the shell can tell "the company menu is the active pane" from "the Gateway is".
+    CompanyMenu,
+
     PrintPreview,
     PrintConfig,
+
+    /// <summary>W2-32 (census 12.6): Reports → Statements of Accounts → Multi-Account Printing — the panel that
+    /// selects a SET of accounts and prints them as one collated job.</summary>
+    MultiAccountPrint,
     Export,
     ExportData,
     ImportData,
@@ -608,11 +622,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
     [ObservableProperty] private SavedViewsViewModel? _savedViews;
 
+    /// <summary>The Ctrl+G "Switch To" destination list (census 14.2), non-null only while that column is open.</summary>
+    [ObservableProperty] private SwitchToViewModel? _switchTo;
+
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
 
     /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
     [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
+
+    /// <summary>The W2-32 "Multi-Account Printing" panel (census 12.6), non-null only while that page column is
+    /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
+    [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
 
     /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
     [ObservableProperty] private ExportViewModel? _exportPanel;
@@ -681,7 +702,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Form16A is null && Form27D is null && Form27A is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && SaveView is null && SavedViews is null && SwitchTo is null
+        && PrintPreview is null && PrintConfigPanel is null
+        && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
@@ -777,8 +800,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSwitchToChanged(SwitchToViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -865,12 +890,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== screen: company select
 
-    /// <summary>Shows the company-selection menu: existing companies + Create + Load Demo.</summary>
+    /// <summary>
+    /// Shows the company-selection menu: existing companies + Create + Load Demo.
+    ///
+    /// <para>🔴 <b>It dismisses the Go To overlay.</b> <c>ClearSubScreens</c> does not null
+    /// <see cref="GoTo"/> (the overlay is not a column), so before this line a shut — or any other route to this
+    /// screen — left the jump list floating over Company Select with an index built from a company that is no
+    /// longer open. <see cref="CanOpenGoTo"/> already refuses to OPEN it here for exactly that reason; leaving one
+    /// already up was the same state arrived at from the other side.</para>
+    /// </summary>
     public void ShowCompanySelect()
     {
         CurrentScreen = Screen.CompanySelect;
         ScreenTitle = "Company Info — Select Company";
         Message = null;
+        CloseGoTo();
         ClearSubScreens();
         LeaveCascade();
         Menu.Clear();
@@ -1553,6 +1587,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
         // places it under Statement of Accounts, which is this hub.
         col.Add(new MenuItemViewModel("Statistics", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W2-32 (census 12.6): Multi-Account Printing — select a SET of accounts and print them as one collated
+        // job of ledger accounts, reminder letters or confirmations of accounts. It is nested HERE, under its
+        // parent section, because these are statements ABOUT accounts (the UI contract forbids a flat dump).
+        //
+        // 🔴 ROW 12.6 IS ALSO ONLY HALF CLOSED, and this was not previously written down anywhere. The row reads
+        // "Multi-account printing / MULTI-VOUCHER (RANGE) PRINTING", and its evidence cell names both: "nothing
+        // iterates a set of ACCOUNTS **or VOUCHERS** into one print job". This panel iterates accounts. NOTHING
+        // here iterates vouchers — there is no way to say "print vouchers 10 to 25 as one job", and the opener
+        // still builds exactly one preview from exactly one drilled voucher. The F10 page RANGE that W2-31 taught
+        // the document renderers is row 12.4's range of SHEETS, not this row's range of VOUCHERS, and must not be
+        // counted for it. So: 12.6 multi-account = done; 12.6 multi-voucher = ABSENT and still open.
+        //
+        // 🔴 ROW 12.7 IS **NOT** CLOSED BY THIS ENTRY, AND THIS COMMENT USED TO SAY IT WAS. What is true is only
+        // that TWO of that row's three documents now have a route: 12.7's reminder letter and confirmation of
+        // accounts are multi-account OUTPUTS rather than standalone documents (census §1.3 item 22), and this hub
+        // reaches both. THREE things the row records are still absent, and none of them is built here:
+        //   • the DELIVERY CHALLAN — the row's third item, which is the Delivery Note VOUCHER printed. Our
+        //     print projector is inventory-blind and no drill route reaches it. Nothing in this slice touches it.
+        //   • the Alt+P print menu and the Alt+E export menu, which are where the reference product reaches these
+        //     two documents ("Print Multi-Account Reports", "Export Reminder Letters"). Alt+P is unbound and
+        //     Alt+E fires the current-object export; that is the shared menu shell filed as T2-20, upstream of
+        //     nine census rows, and it is not this slice's to build alone.
+        //   • EXPORT of the job at all — this panel prints, and has no export arm.
+        // So the honest grade this entry supports is 12.6 PARTIAL and 12.7 PARTIAL — NEITHER row is closed, and
+        // an earlier draft of this very comment said "12.6 closed" two lines after listing what 12.6 is still
+        // missing, which is how a false closure claim gets written by someone who knows better. Naming a row in
+        // a comment records what the code is FOR; it never moves the row. (Seven false closure claims of exactly
+        // this shape were found in the record two passes ago — this was the eighth, and the "12.6 closed" line
+        // would have been the ninth.)
+        col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2992,6 +3056,291 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
 
+    // =============================================================== the navigation shell (census 14.2 / 14.9)
+    //
+    // Two top-level chords that are not "a report" and not "a master": Ctrl+G Switch To and Alt+K Company.
+    // 🔴 CENSUS 14.4 (More Details, Ctrl+I) IS NOT DELIVERED BY THIS SECTION AND IS NOT CLAIMED ANYWHERE. It
+    // waits on the open chord ruling U-6; the whole argument, including the measured reason the obvious
+    // context-partition compromise does not work, is recorded beside the table in ShellChordTable. Census row
+    // 14.4 stays ABSENT. This header once read "14.2 / 14.4 / 14.9", which read as a delivery claim for a row
+    // that has no code — corrected here rather than left to be believed.
+    //
+    // Both chords are arbitrated by ShellChordTable, and both open through the SAME
+    // overlay shape OpenSavedViews established — push a column, focus it, set the screen id — so neither of them
+    // touches a Gateway column BUILDER. That last point is load-bearing rather than tidy:
+    // GatewayHierarchyTests pins the Gateway root column at exactly
+    // Masters / Statutory / Transactions / Reports / Data, and a "Company" SECTION on that column was built and
+    // removed TWICE (W0-2b, then W2-18) against docs/invented-vs-cloned.md IV-29's finding that this menu's
+    // standing fault is having grown a section per phase. An overlay is invisible to that test, which is
+    // exactly why it is the right shape and not merely a convenient one.
+
+    // NOTE: two public BuildRootColumnForWalk / BuildGroupColumnForWalk helpers stood here to feed a SECOND
+    // walk of the Gateway tree inside ShellDestinations. That walk is gone — Switch To now projects the
+    // shipped Go To index (see ShellDestinations) — so the helpers went with it rather than remaining as
+    // public methods no caller reaches, which is the dead-capability class this project keeps filing.
+
+    /// <summary>
+    /// 🔴 <b>THE SHELL IS LIVE: a company is open AND the cascade that holds its screens is on screen.</b>
+    ///
+    /// <para><b>The defect this closes, measured.</b> <see cref="ShowCompanySelect"/> (bare F3, the button bar's
+    /// "Company" action, and now Alt+F3) calls <see cref="LeaveCascade"/> — <c>Columns.Clear()</c> and
+    /// <c>IsGatewayCascade = false</c> — but deliberately does NOT release <see cref="Company"/>: the operator is
+    /// choosing another book, and the loaded one stays loaded until they pick. So <c>Company is not null</c> is
+    /// TRUE on a screen where the cascade region is HIDDEN. A chord predicated on the company alone therefore
+    /// fired there and pushed its column into a region nothing draws: two keystrokes (Alt+F3 then Ctrl+G, or
+    /// Alt+F3 then Alt+K) produced a BLANK WINDOW THAT OWNED THE KEYBOARD, because
+    /// <c>CurrentScreen</c> had moved to the panel's screen id while <see cref="IsMenuScreen"/> had gone false
+    /// with it.</para>
+    ///
+    /// <para><b>Why exactly these two screens.</b> <see cref="LeaveCascade"/> has exactly two callers —
+    /// <see cref="ShowCompanySelect"/> and <c>ShowCreateCompany</c> — so
+    /// <see cref="Screen.CompanySelect"/> and <see cref="Screen.CreateCompany"/> ARE the set of states in which a
+    /// company can be loaded with no cascade to put a column in. The predicate is written as the state it means,
+    /// not as <c>IsGatewayCascade</c>, because a page column (a report, a master) legitimately leaves the cascade
+    /// flag true and must keep its chords.</para>
+    ///
+    /// <para><b>One predicate, not two.</b> <see cref="CanOpenGoTo"/> had already derived exactly this test for
+    /// exactly this reason (its index IS the open company's menu) and now reads this property rather than
+    /// repeating it, so the shell can never come to disagree with itself about whether it is live.</para>
+    /// </summary>
+    public bool HasLiveCompanyShell =>
+        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+
+    /// <summary>
+    /// 🔴 <b>The operator is standing on a screen that holds keying which tearing the shell down would SILENTLY
+    /// DESTROY.</b> Read by the two verbs that tear it down — <see cref="ShutCompany"/> and
+    /// <see cref="OpenCompanyMenu"/> — never as a chord predicate; see those two for why.
+    ///
+    /// <para><b>The class, and the precedent it is copied from.</b> This is <see cref="OpenVoucherFromTypeKey"/>'s
+    /// defect exactly: a single keystroke reaching <c>ClearSubScreens</c>, which nulls <see cref="VoucherEntry"/>
+    /// and every master view model unconditionally — no prompt, no <see cref="Notice"/>, no <c>Message</c>, the
+    /// keying gone. That guard is written on <see cref="VoucherEntryViewModel.HasUnsavedWork"/> and NOT on
+    /// <c>IsAltering</c>, for the reason recorded there; this one inherits that decision rather than re-deriving
+    /// it, so a blank fresh voucher screen is not "work" and does not block anything.</para>
+    ///
+    /// <para><b>Why the master arm is the SCREEN and not a dirtiness flag.</b> No master view model exposes one —
+    /// <c>HasUnsavedWork</c> exists on <see cref="VoucherEntryViewModel"/> alone — so screen presence is the only
+    /// honest proxy available today, and it is deliberately the conservative direction: it refuses on a blank
+    /// master form too. The cost of that is one extra Esc; the cost of the other direction is a destroyed master.
+    /// Adding <c>HasUnsavedWork</c> to the master view models would narrow this and is REPORTED, not smuggled in
+    /// here. <see cref="Screen.PosBilling"/> is knowingly NOT covered, for the same reason
+    /// <see cref="OpenVoucherFromTypeKey"/> does not cover it.</para>
+    /// </summary>
+    public bool HasUnsavedEntryWork =>
+        (CurrentScreen == Screen.VoucherEntry && VoucherEntry is { HasUnsavedWork: true })
+        || IsMasterAcceptScreen;
+
+    // ------------------------------------------------------------- 14.2 Switch To (Ctrl+G)
+
+    /// <summary>
+    /// <b>Ctrl+G — Switch To</b> (census 14.2). Vendor, verbatim
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/): <i>"To switch to a different report,
+    /// and create masters and vouchers in the flow of work."</i>
+    ///
+    /// <para>Opens the destination list as an overlay column. A no-op unless the shell is live
+    /// (<see cref="HasLiveCompanyShell"/>) and a no-op if the list is already up — re-pressing must
+    /// not stack a second, the same re-entrancy guard <see cref="OpenSavedViews"/> carries.</para>
+    ///
+    /// <para>🔴 <b>The guard is <see cref="HasLiveCompanyShell"/> and NOT <c>Company is not null</c>, and that
+    /// difference is a measured defect rather than a tidy-up.</b> On Company Select the company is still loaded
+    /// while the cascade region is hidden and empty, so the weaker test let Ctrl+G push this panel into a region
+    /// nothing draws — a blank window that owned the keyboard, two keystrokes from the Gateway. See the property
+    /// for the full measurement.</para>
+    ///
+    /// <para>🔴 <b>It CLOSES Go To rather than opening underneath it.</b> Go To is a floating overlay drawn over
+    /// the whole shell, and the window's Go To arm owns only Up/Down/Enter/Escape while it is up — every other
+    /// key falls through. So Ctrl+G with Go To open used to leave TWO jump lists on screen at once, with the
+    /// visible one (Go To) on top and the invisible one (this panel) taking the typing, because the Switch To
+    /// key arm sits below Go To's in the chain and claims printable characters. Replacing one jump list with the
+    /// other is the behaviour a second jump chord should have; the alternative — declining the chord — would
+    /// leave Ctrl+G a dead key with no arm anywhere below to take it.</para>
+    /// </summary>
+    public void OpenSwitchTo()
+    {
+        if (!HasLiveCompanyShell) return;
+        if (SwitchTo is not null) return;
+
+        CloseGoTo();
+
+        var panel = new SwitchToViewModel(ShellDestinations.Build(this), d => NavigateTo(d));
+        SwitchTo = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SwitchTo;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Down arrow on the Switch To list.</summary>
+    public void SwitchToMoveDown() => SwitchTo?.MoveDown();
+
+    /// <summary>Up arrow on the Switch To list.</summary>
+    public void SwitchToMoveUp() => SwitchTo?.MoveUp();
+
+    /// <summary>A typed character on the Switch To list — appended to the PREFIX filter, never a menu hotkey.</summary>
+    public void SwitchToType(char c) => SwitchTo?.TypePrefix(c);
+
+    /// <summary>Backspace on the Switch To list — removes one character of the prefix.</summary>
+    public void SwitchToBackspace() => SwitchTo?.BackspacePrefix();
+
+    /// <summary>Enter / Ctrl+A on the Switch To list — takes the highlighted destination.</summary>
+    public void TakeSwitchToDestination() => SwitchTo?.Open();
+
+    /// <summary>
+    /// Walks the cascade to <paramref name="destination"/> <b>by replaying the operator's own keystrokes</b> —
+    /// highlight the Group row, drill in, repeat, then highlight the Page row and drill in.
+    ///
+    /// <para>🔴 <b>Replaying the menus, rather than calling the destination's opener directly, is the whole
+    /// point.</b> A jump list that calls openers directly can reach a screen the menus no longer offer, and it
+    /// keeps working after the route rots — which is how this project has twice shipped a capability with no
+    /// door (<c>CostReports.BuildLedgerBreakup</c>, <c>MultiAccountPrintViewModel</c>). Here a destination is
+    /// openable if and only if a user with a keyboard could have opened it.</para>
+    ///
+    /// <para><b>Switch To leaves NO return path</b>, and that is its one documented difference from Go To
+    /// (vendor: Go To <i>"takes you back to where you left"</i>). <see cref="ShowGateway"/> clears the cascade
+    /// before the walk, so the pre-jump page is gone rather than buried.</para>
+    /// </summary>
+    /// <returns>True when the walk reached the destination.</returns>
+    public bool NavigateTo(ShellDestination destination)
+    {
+        if (destination is null || Company is null) return false;
+
+        ShowGateway();  // no return path — see the remarks
+
+        foreach (var groupLabel in destination.Path)
+        {
+            if (!HighlightAndDrill(groupLabel, MenuItemKind.Group)) return false;
+        }
+
+        return HighlightAndDrill(destination.Label, destination.OpensSubmenu ? MenuItemKind.Group : MenuItemKind.Page);
+    }
+
+    /// <summary>
+    /// Puts the active menu column's highlight on the row named <paramref name="label"/> of kind
+    /// <paramref name="kind"/> and drills into it, exactly as Down-arrow-then-Enter would. False when the row
+    /// is not there — which is a rotted route, and the reachability test is what reports it.
+    /// </summary>
+    private bool HighlightAndDrill(string label, MenuItemKind kind)
+    {
+        if (ActiveColumn is not { IsMenu: true } column) return false;
+
+        for (var i = 0; i < column.Items.Count; i++)
+        {
+            var row = column.Items[i];
+            if (!row.IsSelectable || row.Kind != kind || !string.Equals(row.Label, label, StringComparison.Ordinal))
+                continue;
+
+            column.SetSelected(i);
+            SyncActiveColumn();
+            DrillIn();
+            return true;
+        }
+
+        return false;
+    }
+
+    // ------------------------------------------------------------- 14.9 Company menu (Alt+K)
+
+    /// <summary>
+    /// <b>Alt+K — the company menu</b> (census 14.9). Vendor, verbatim
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/): <i>"To open the company menu with the
+    /// list of actions related to managing your company."</i>
+    ///
+    /// <para>🔴 <b>A MENU COLUMN, not a bespoke panel.</b> The vendor's Alt+K IS a menu, and this application
+    /// already renders, arrow-navigates, hot-keys and Escape-pops menu columns. Building it as one means the
+    /// row is reachable by keyboard the moment it exists, with no new view code that could quietly fail to
+    /// render — the failure mode behind <c>MultiAccountPrintViewModel</c>. See <see cref="CompanyMenu"/> for
+    /// the verbs and for what is deliberately withheld.</para>
+    ///
+    /// <para>🔴 <b>IT REFUSES OVER UNSAVED KEYING, and that guard is what makes <see cref="ShutCompany"/>'s own
+    /// refusal real rather than decorative.</b> This method calls <c>ClearSubScreens</c> on the way in, which
+    /// nulls <see cref="VoucherEntry"/> and every master view model unconditionally. Without this arm, Alt+K on a
+    /// half-keyed voucher destroyed it BEFORE the Shut row was ever reached — so the guard on the Shut verb would
+    /// have seen a screen that was already empty and passed. The refusal names both exits, exactly as
+    /// <see cref="OpenVoucherFromTypeKey"/> does; see <see cref="HasUnsavedEntryWork"/> for the scope and for
+    /// what it knowingly does not cover.</para>
+    ///
+    /// <para><b>Guarded on <see cref="HasLiveCompanyShell"/>, not on <c>Company is not null</c></b> — the same
+    /// blank-window defect Ctrl+G had, reached by Alt+F3 then Alt+K.</para>
+    /// </summary>
+    public void OpenCompanyMenu()
+    {
+        if (!HasLiveCompanyShell || Company is not { } company) return;
+        if (CurrentScreen == Screen.CompanyMenu) return;  // re-press must not stack a second
+
+        if (HasUnsavedEntryWork)
+        {
+            RaiseLifecycleNotice(
+                "Opening the company menu would discard what you are keying on this screen. Press Esc to abandon "
+                + "it, or Ctrl+A to accept it, and then press Alt+K again.");
+            return;
+        }
+
+        CloseGoTo();
+        ClearSubScreens();
+        var column = CompanyMenu.BuildColumn(
+            company.Name,
+            create: ShowCreateCompany,
+            alter: ShowAlterCompany,
+            select: ShowCompanySelect,
+            shut: ShutCompany);
+
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.CompanyMenu;
+        ScreenTitle = column.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// <b>Ctrl+F3 — Shut Company</b>. Vendor, verbatim: <i>"To shut the currently loaded companies."</i>
+    ///
+    /// <para>🔴 <b>This is the ONE behavioural change in the navigation-shell work, and it is only correct
+    /// because this slice ships a reachable caller for it.</b> <see cref="ReleaseOpenCompany"/> was
+    /// deliberately kept private — its own doc-comment records that leaving it public would have left "a method
+    /// no operator could reach", the exact defect class this project keeps catching. It now has two doors: the
+    /// company menu's Shut row and the vendor's Ctrl+F3.</para>
+    ///
+    /// <para><b>The vendor's plural is not reachable here and the menu says so.</b> This application holds
+    /// exactly one company open (<see cref="Company"/> is a single nullable field, and
+    /// <see cref="OpenCompany"/> replaces it), so Shut is the degenerate singular.</para>
+    ///
+    /// <para>🔴 <b>IT REFUSES OVER UNSAVED KEYING — a review finding, and the exact work-loss class this
+    /// codebase spent a campaign closing.</b> Shut runs <see cref="ReleaseOpenCompany"/> →
+    /// <see cref="ShowCompanySelect"/> → <c>ClearSubScreens</c>, which nulls <see cref="VoucherEntry"/> and every
+    /// master view model unconditionally. As first written, Ctrl+F3 was predicated on <c>Company is not null</c>
+    /// alone — no screen guard of any kind — so ONE keystroke on a half-keyed voucher destroyed it with no
+    /// prompt, no <see cref="Notice"/> and no <c>Message</c>. See <see cref="HasUnsavedEntryWork"/> for the scope,
+    /// and <see cref="OpenVoucherFromTypeKey"/> for the precedent this copies verbatim, including why the answer
+    /// is a REFUSAL that names both exits and not a Y/N discard prompt (that channel,
+    /// <see cref="IsAcceptPromptOpen"/>, is scoped to master screens and cannot be answered on a voucher).</para>
+    ///
+    /// <para>🔴 <b>WHY THE GUARD IS HERE AND NOT IN THE CHORD'S <c>CanFire</c>.</b> A false <c>CanFire</c> means
+    /// the table does not CLAIM the keystroke, and an unclaimed Ctrl+F3 falls through to <c>case Key.F3:</c> in
+    /// the window's trailing switch — an arm with no modifier guard, which fires the button bar's Company action,
+    /// which is <see cref="ShowCompanySelect"/>, which calls the very <c>ClearSubScreens</c> this guard exists to
+    /// prevent. Declining the chord would therefore have DESTROYED THE SAME VOUCHER by a longer route. The chord
+    /// stays claimed and the verb refuses; the keystroke is consumed and the operator gets a sentence.</para>
+    /// </summary>
+    public void ShutCompany()
+    {
+        if (Company is null) return;
+
+        if (HasUnsavedEntryWork)
+        {
+            RaiseLifecycleNotice(
+                "Shutting the company would discard what you are keying on this screen. Press Esc to abandon it, "
+                + "or Ctrl+A to accept it, and then shut the company again.");
+            return;
+        }
+
+        ReleaseOpenCompany();
+        Message = "Company shut. Select or create a company to continue.";
+    }
+
     /// <summary>
     /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
     /// FRESH report of that kind as a page column, then re-applies the config so the projection recomputes — the
@@ -3082,6 +3431,77 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
     public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
+
+    // =============================================================== screen: Multi-Account Printing (W2-32)
+
+    /// <summary>
+    /// Opens the <b>Multi-Account Printing</b> panel (W2-32 / census 12.6) as a page column under
+    /// Reports → Statements of Accounts: every account in the company, each selectable with Space, plus the
+    /// document kind the job produces (Ledger Account / Reminder Letter / Confirmation of Accounts).
+    ///
+    /// <para>🔴 <b>This method is what row 12.6 was missing.</b> <c>MultiAccountPrintViewModel</c> and
+    /// <c>MultiAccountPrintProjector</c> shipped complete and correct with <b>zero references</b> — no shell
+    /// member, no menu route, no template — and were rightly refused as unreachable (<c>T2-40</c>). A projection
+    /// with no opener is not a feature.</para>
+    ///
+    /// <para><b>No clock (ER-12).</b> The period is the company's own books-begin date through
+    /// <see cref="AccountBooksAsOf"/> — the same bound every Account Book uses — so the panel is deterministic
+    /// in tests and matches what the on-screen ledger reports cover.</para>
+    /// </summary>
+    public void OpenMultiAccountPrint()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        var vm = new MultiAccountPrintViewModel(Company, Company.BooksBeginFrom, AccountBooksAsOf());
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.MultiAccountPrint, vm.Title,
+            () => MultiAccountPrint = vm);
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Print button on the Multi-Account Printing panel: projects the selected accounts into a
+    /// document SET and opens the ordinary <see cref="PrintPreviewViewModel"/> over the whole job, so the F12
+    /// config, the page range and the Ctrl+A Save-PDF arm all work on it exactly as they do on one report.
+    ///
+    /// <para>An empty selection opens NOTHING: the panel's own <c>BuildJob</c> returns an empty list and sets its
+    /// status line to say so. Previewing a blank sheet would present a mistake as output.</para>
+    ///
+    /// <para>🔴 <b>The existing preview is REPLACED, and this method has to do that itself.</b> It cannot go
+    /// through <see cref="OpenPageColumn"/> — that trims back to the last MENU column, which would take the
+    /// PANEL away with the old preview, and the operator's selection has to survive so a second Print reprints
+    /// it. So the preview is appended beside the panel, exactly as <see cref="OpenPrintPreview"/> appends beside
+    /// a report; and because the one-page-column invariant is therefore not applied for us, it is applied HERE:
+    /// everything to the right of the panel column — a preview from a previous Print, and any F12 config column
+    /// stacked over it — is trimmed before the new preview goes on.</para>
+    ///
+    /// <para><b>This paragraph used to claim the replacement happened and it did not.</b> The method did a bare
+    /// <c>Columns.Add</c> with no trim, and <see cref="OpenPrintPreview"/>'s own <c>if (PrintPreview is not null)
+    /// return;</c> guard was not copied either, so pressing the panel's Print button three times left THREE Print
+    /// Preview columns, each needing its own Escape. (The Ctrl+A key path did not reproduce it — its arm matches
+    /// <see cref="Screen.PrintPreview"/> first and saves the PDF — so the button and the accelerator did
+    /// different things under the same caption, which is why a viewmodel-only test would not have found it.)</para>
+    /// </summary>
+    public void PrintMultiAccountJob()
+    {
+        if (MultiAccountPrint is not { } panel) return;
+
+        var documents = panel.BuildJob();
+        if (documents.Count == 0) return;              // panel.Status already says why
+
+        // Replace, never stack — see the remarks above. Guarded on the index rather than on `PrintPreview` being
+        // non-null, because the column is the thing that stacks: the shell member is only its shadow.
+        var panelIndex = IndexOfColumnHosting(panel);
+        if (panelIndex >= 0) TrimColumnsAfter(panelIndex);
+        PrintConfigPanel = null;                       // an F12 config column over the old preview went with it
+
+        var preview = new PrintPreviewViewModel(documents, panel.JobTitle);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
 
     // =============================================================== screen: export
 
@@ -5386,6 +5806,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Index of the column hosting <paramref name="page"/> (reference identity), or -1.
+    /// <para>Used by a route that appends a column BESIDE a live page instead of replacing it — the print
+    /// preview over the Multi-Account Printing panel — so that route can trim its own previous output without
+    /// trimming the page it was launched from. <see cref="TrimColumnsAfter"/> with
+    /// <see cref="LastMenuColumnIndex"/> would take that page away too.</para>
+    /// </summary>
+    private int IndexOfColumnHosting(object page)
+    {
+        for (var i = 0; i < Columns.Count; i++)
+            if (ReferenceEquals(Columns[i].Page, page)) return i;
+        return -1;
+    }
+
+    /// <summary>
     /// Removes every column after <paramref name="index"/> (keeps [0..index]).
     /// <para>WI-1 (DEFECT 2) — this is the single choke point every page-REPLACING route funnels through, so an
     /// armed Alt+C create-on-the-fly is disarmed HERE the moment its column is trimmed away. Clearing it only in
@@ -5499,8 +5933,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AutoColumns = null;
         SaveView = null;
         SavedViews = null;
+        SwitchTo = null;
         PrintPreview = null;
         PrintConfigPanel = null;
+        MultiAccountPrint = null;
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
@@ -8449,6 +8885,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         };
     }
 
+    // NOTE: a non-nullable BuildGroupColumn wrapper over SubmenuFor stood here, added only so a second walk of
+    // the Gateway tree could resolve submenus without repeating the Create-column fallback. That walk is gone
+    // (Switch To projects the Go To index instead), and the wrapper went with it, so SubmenuFor is once again
+    // the single statement of the group tree with exactly one caller applying the fallback.
+
     // =============================================================== W2-14: Go To (Alt+G)
 
     /// <summary>
@@ -8473,8 +8914,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// advertise an enabled "Alt+G · Go To" that fires nothing (register defect IV-31), and can never dim a
     /// chord that would in fact have worked.</para>
     /// </summary>
-    public bool CanOpenGoTo =>
-        Company is not null && CurrentScreen is not (Screen.CompanySelect or Screen.CreateCompany);
+    /// <para>🔴 It now READS <see cref="HasLiveCompanyShell"/> rather than repeating its two clauses. The shell's
+    /// navigation chords (Ctrl+G, Alt+K) were found firing in the one state this predicate had always excluded —
+    /// a loaded company with the cascade region hidden — so the test became shared rather than duplicated, and
+    /// the two can no longer drift into disagreeing about whether the shell is live.</para>
+    public bool CanOpenGoTo => HasLiveCompanyShell;
 
     /// <summary>
     /// The single door Alt+G and the button bar's "Go To" badge both run, so key and button cannot drift into
@@ -8544,7 +8988,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// what stops Go To drifting: a row added to any menu builder appears here automatically, and a row removed
     /// disappears with it.
     /// </summary>
-    private IReadOnlyList<GoToDestination> BuildGoToIndex()
+    internal IReadOnlyList<GoToDestination> BuildGoToIndex()
     {
         var into = new List<GoToDestination>();
         if (Company is null) return into;
@@ -8767,6 +9211,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Debit Note Register": OpenReport(ReportKind.DebitNoteRegister); break;
             // W2-12 (census 11.8) — Reports → Statements of Accounts → Statistics.
             case "Statistics": OpenReport(ReportKind.Statistics); break;
+            // W2-32 (census 12.6) — Reports → Statements of Accounts → Multi-Account Printing.
+            case "Multi-Account Printing": OpenMultiAccountPrint(); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
@@ -8942,6 +9388,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
                 return Screen.PrintPreview;
+            // W2-32 — the Multi-Account Printing panel survives beneath a just-popped print-preview column, and
+            // it MUST be re-bound: Escape out of the preview and the operator is back on their selection, so
+            // pressing Print again reprints the same job rather than finding a null panel and doing nothing.
+            case MultiAccountPrintViewModel map:
+                MultiAccountPrint = map;
+                return Screen.MultiAccountPrint;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.
@@ -9290,7 +9742,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
-        // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
         ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
         // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
         // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
