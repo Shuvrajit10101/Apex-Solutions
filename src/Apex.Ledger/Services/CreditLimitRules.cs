@@ -186,6 +186,19 @@ public static class CreditLimitRules
         var baseType = company.FindVoucherType(voucher.TypeId)?.BaseType;
         if (baseType is not { } bt || !AppliesTo(bt)) return CreditLimitCheck.Clear;
 
+        // 🔴 A VOUCHER THAT NEVER REACHES THE BOOK CANNOT CONSUME CREDIT. An Optional entry (Ctrl+L, "excluded
+        // from live balances until regularised") and a Cancelled one are dropped by every balance this engine
+        // computes — LedgerBalances.CountsAsOf refuses them — so ExposureAfter would have added, and this method
+        // refused, an entry that moves the party's exposure by not one paisa. That is the "block a legitimate
+        // invoice" half of this row's wrong-money risk, and it is precisely the half a green suite hides: every
+        // breach test above posts a REAL voucher, so nothing here reddened until a test was written for it.
+        // Measured with the SAME predicate the exposure itself uses, at the voucher's own date, so the check and
+        // the arithmetic can never disagree about what is on the book. Note what this deliberately does NOT
+        // exempt: a POST-DATED voucher measured at its own date satisfies CountsAsOf (v.Date > asOf is false),
+        // so the vendor's "Override credit limit using post-dated transactions" flag below remains the only
+        // thing that lets one through — this guard does not quietly widen that attested escape.
+        if (!LedgerBalances.CountsAsOf(voucher, voucher.Date, bt)) return CreditLimitCheck.Clear;
+
         var seen = new HashSet<Guid>();
         foreach (var id in LedgerIdsOn(voucher))
         {

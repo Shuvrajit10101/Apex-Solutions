@@ -279,4 +279,76 @@ public class CreditLimitRulesTests
 
         Assert.False(CreditLimitRules.Check(c, SaleOf(c, acme, 9000m, D1)).Breached);
     }
+
+    // ------------------------------------------------------------------ off-book vouchers consume no credit
+
+    /// <summary>
+    /// 🔴 <b>THE DEFECT THIS ROW'S OWN GREEN SUITE HID.</b> An <b>Optional</b> voucher (Ctrl+L —
+    /// <i>"excluded from live balances until regularised"</i>) contributes nothing to any balance this engine
+    /// computes: <c>LedgerBalances.CountsAsOf</c> drops it, so it moves the party's exposure by not one paisa.
+    /// Before the <c>CountsAsOf</c> guard in <see cref="CreditLimitRules.Check"/>, one was nevertheless measured
+    /// and REFUSED — the "block a legitimate entry" half of this row's wrong-money risk, and invisible to every
+    /// other test here because they all post real vouchers.
+    ///
+    /// <para>Both directions are asserted in one test on purpose: the real voucher proves the premise is genuinely
+    /// over the limit, so the Optional assertion cannot pass vacuously on an amount that was never a breach.</para>
+    /// </summary>
+    [Fact]
+    public void An_OPTIONAL_voucher_is_off_the_book_and_consumes_no_credit()
+    {
+        var c = Seed();
+        var party = AddDebtor(c);
+        party.CreditLimit = Money.FromRupees(1000m);
+
+        // Premise: this very amount IS a breach when the voucher is real.
+        Assert.True(CreditLimitRules.Check(c, SaleOf(c, party, 5000m, D1)).Breached);
+
+        var sales = AddSales(c);
+        var type = c.FindVoucherTypeByName("Sales")!;
+        var optional = new Voucher(Guid.NewGuid(), type.Id, D1, new[]
+        {
+            new EntryLine(party.Id, Money.FromRupees(5000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(5000m), DrCr.Credit),
+        }, partyId: party.Id, optional: true);
+
+        Assert.False(CreditLimitRules.Check(c, optional).Breached);
+    }
+
+    /// <summary>A <b>Cancelled</b> voucher is off the book for the same reason and by the same predicate.</summary>
+    [Fact]
+    public void A_CANCELLED_voucher_is_off_the_book_and_consumes_no_credit()
+    {
+        var c = Seed();
+        var party = AddDebtor(c);
+        party.CreditLimit = Money.FromRupees(1000m);
+
+        var sales = AddSales(c);
+        var type = c.FindVoucherTypeByName("Sales")!;
+        var cancelled = new Voucher(Guid.NewGuid(), type.Id, D1, new[]
+        {
+            new EntryLine(party.Id, Money.FromRupees(5000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(5000m), DrCr.Credit),
+        }, partyId: party.Id, cancelled: true);
+
+        Assert.False(CreditLimitRules.Check(c, cancelled).Breached);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE GUARD ABOVE MUST NOT HAVE WIDENED THE VENDOR'S POST-DATED ESCAPE.</b> A post-dated voucher
+    /// measured as at its OWN date satisfies <c>CountsAsOf</c> (<c>v.Date &gt; asOf</c> is false), so it is still
+    /// measured, and the only thing that exempts it remains the attested master flag
+    /// <i>"Override credit limit using post-dated transactions"</i>. Without this test, replacing the guard with a
+    /// looser one — say <c>!voucher.PostDated</c> — would pass every other test in this file while silently
+    /// letting every post-dated invoice through on a party that never asked for the override.
+    /// </summary>
+    [Fact]
+    public void The_off_book_guard_does_not_exempt_a_post_dated_voucher_by_itself()
+    {
+        var c = Seed();
+        var party = AddDebtor(c);
+        party.CreditLimit = Money.Zero;
+        Assert.False(party.OverrideCreditLimitWithPostDated);
+
+        Assert.True(CreditLimitRules.Check(c, SaleOf(c, party, 5000m, D1, postDated: true)).Breached);
+    }
 }

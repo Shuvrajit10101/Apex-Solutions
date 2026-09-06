@@ -197,6 +197,41 @@ public class CreditLimitBlockTests
         Assert.Equal(Money.FromRupees(1000m), c.Vouchers.Single().TotalDebit);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE END-TO-END PROOF THAT AN OFF-BOOK ENTRY IS NOT REFUSED.</b> An Optional voucher (Ctrl+L) is
+    /// <i>"excluded from live balances until regularised"</i> — it moves the party's exposure by nothing — so
+    /// refusing one is the "block a legitimate entry" half of this row's wrong-money risk. This drives the real
+    /// <see cref="LedgerService.Post"/> door rather than <c>CreditLimitRules.Check</c>, so the guard is proven
+    /// where the operator actually meets it. The premise is asserted first: the identical amount IS refused when
+    /// the voucher is a real one, so the Optional assertion cannot pass on an amount that was never a breach.
+    /// </summary>
+    [Fact]
+    public void An_OPTIONAL_voucher_over_the_limit_still_POSTS()
+    {
+        var c = Seed();
+        var party = AddDebtor(c);
+        party.CreditLimit = Money.FromRupees(5000m);
+        var svc = new LedgerService(c);
+
+        Assert.Throws<InvalidVoucherException>(() => svc.Post(SaleOf(c, party, 7500m, D1)));
+        Assert.Empty(c.Vouchers);
+
+        var sales = AddSales(c);
+        var type = c.FindVoucherTypeByName("Sales")!;
+        var optional = new Voucher(Guid.NewGuid(), type.Id, D1, new[]
+        {
+            new EntryLine(party.Id, Money.FromRupees(7500m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(7500m), DrCr.Credit),
+        }, partyId: party.Id, optional: true);
+
+        svc.Post(optional);
+        Assert.Single(c.Vouchers);
+
+        // …and it consumed no headroom either: a real 5000 still posts on top of it.
+        svc.Post(SaleOf(c, party, 5000m, D1));
+        Assert.Equal(2, c.Vouchers.Count);
+    }
+
     /// <summary>An ALTERED copy of <paramref name="posted"/> — same id, same number, same date, new value. Replace
     /// refuses a change of identity, so the replacement must carry both through.</summary>
     private static Voucher EditOf(Company c, Voucher posted, DomainLedger party, decimal rupees)
