@@ -125,12 +125,25 @@ namespace Apex.Persistence.Sqlite;
 /// additive, no back-fill: an existing type reads both OFF, which is exactly what a v52 type was. It is the storage
 /// half of the slice that gave the Voucher Type master a screen at all (census 2.4/5.11) — before it, not one of
 /// <c>VoucherType</c>'s ~20 properties could be edited by an operator.
-/// <b><see cref="CurrentVersion"/> = 53</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v54</b> is the <b>first bump in this schema that adds NO DDL AT ALL</b>. It is a pure DATA REPAIR: it clears
+/// the unsourced ₹300 <b>February over-charge</b> off the seeded <b>Karnataka</b> Professional-Tax top band in books
+/// that already carry it, so an existing Karnataka employee stops being deducted ₹2,500 a year against a statutory
+/// ₹2,400. Because it adds nothing, <see cref="CreateV1"/> needs no counterpart line — a fresh database seeds the
+/// corrected table already (the code fix landed separately) — and the migration-equivalence test passes trivially.
+/// ⚠️ <b>It rewrites USER-EDITABLE rows, so it is fingerprint-gated</b>: only a Karnataka slab table that still
+/// matches the shipped seed EXACTLY is touched. See <see cref="MigrateV53ToV54"/>.
+/// <b><see cref="CurrentVersion"/> = 54</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v53</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v54</b> is the latest bump
+    /// (the <b>Karnataka Professional-Tax February back-fill</b> — the first version here that adds NO DDL and
+    /// exists only to correct WRONG MONEY already sitting in existing books. It clears the unsourced ₹300 February
+    /// over-charge off the seeded Karnataka PT top band, and it is FINGERPRINT-GATED because those rows are
+    /// user-editable: a slab table an operator has altered is left exactly as the operator left it.
+    /// See <see cref="MigrateV53ToV54"/>).
+    /// v53 was the latest bump
     /// (the <b>two Voucher Type user flags</b>: <c>print_after_saving</c> and
     /// <c>provide_narration_for_each_ledger</c> on <c>voucher_types</c>, both <c>INTEGER NOT NULL DEFAULT 0</c>.
     /// Both are ATTESTED fields of the vendor's Voucher Type screen; this is the storage half of the slice that
@@ -176,7 +189,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 53;
+    public const int CurrentVersion = 54;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -4037,4 +4050,91 @@ public static class Schema
     /// and <c>SchemaDowngrade.V53ToV52</c> drops. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V53VoucherTypeFlagColumns =
         new[] { "print_after_saving", "provide_narration_for_each_ledger" };
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v54 — the Karnataka Professional-Tax February back-fill. Fingerprint constants first, because the migration
+    // SQL, the downgrade and the tests must all speak about the SAME shipped-seed shape or the gate is theatre.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The 2-digit GST state code of Karnataka — the only state <see cref="MigrateV53ToV54"/> touches.
+    /// Mirrors <c>ProfessionalTax.Karnataka</c>, which is private to the ledger assembly.</summary>
+    public const string V54KarnatakaStateCode = "29";
+
+    /// <summary>The exact <c>month_overrides</c> text the defective Karnataka seed wrote: ₹300 (30,000 paisa) for
+    /// month 2. The migration matches this literal and nothing else — a band carrying any OTHER February figure was
+    /// typed by an operator and is left alone.</summary>
+    public const string V54KarnatakaBadFebruaryOverride = "2:30000";
+
+    /// <summary>
+    /// v53 → v54 (Ruling 16): the <b>Karnataka Professional-Tax February back-fill</b>. The one migration in this
+    /// schema that adds no table, no column and no index — it exists solely to correct <b>wrong money already
+    /// persisted in existing books</b>.
+    ///
+    /// <para><b>The defect.</b> <c>ProfessionalTax.SeedSlabTables</c> shipped a Karnataka top band carrying a ₹300
+    /// February over-charge that no Karnataka instrument grants. The state's own SCHEDULE [See Section 3(2)],
+    /// Sl. No. 1 (https://ptax.karnataka.gov.in/documents/pt%20amendment%20bill.pdf) reads in full: <i>"Salary or
+    /// wage earners whose salary or wage or both, as the case may be, for a month is Rs. 25,000-00 and above —
+    /// Rs. 200-00 per month"</i>. One band, one flat monthly rate, no balancing month; statutory annual liability is
+    /// 12 × ₹200 = ₹2,400 and the application deducted ₹2,500. The ₹2,500 of Article 276(2) is a constitutional CAP,
+    /// not a per-state annual target, which is why the annual cap never caught the over-charge — it landed exactly
+    /// <i>at</i> the cap. The seeding code was corrected on 2026-09-06, but PT slab tables are seeded ONCE at
+    /// enrolment (<c>PayrollService.EnableProfessionalTax</c>) and thereafter persisted and user-editable, so that
+    /// fix reaches only companies enrolled after it. This migration reaches the rest.
+    ///
+    /// <para>🔴 <b>Why this is fingerprint-gated, and why an unconditional UPDATE would be a SECOND defect.</b>
+    /// <c>pt_slab_bands</c> carries no provenance column — no <c>is_seeded</c> flag, no <c>updated_at</c>, no
+    /// audit row — so there is <b>no direct marker</b> separating an untouched seeded row from one an operator
+    /// deliberately edited. What IS available is that the Karnataka seed has been byte-identical since the table was
+    /// introduced at v35 (verified against the two commits that have ever touched
+    /// <c>ProfessionalTax.SeedSlabTables</c>), so the shipped shape is a single known constant:
+    /// <code>
+    ///   band_order 0 : from 0        to 24,999.00  ₹0    overrides ""
+    ///   band_order 1 : from 25,000.00 to NULL      ₹200  overrides "2:30000"
+    /// </code>
+    /// The UPDATE fires only when the WHOLE two-band table matches that fingerprint exactly. Any edit an operator
+    /// has made — a moved threshold, a different monthly figure, a third band, a deleted band, a February figure
+    /// other than ₹300 — breaks the fingerprint and the table is left untouched. The residual this cannot exclude is
+    /// an operator who re-typed the shipped shape by hand; that is indistinguishable in principle, and it is a
+    /// deliberate acceptance rather than an oversight: the value being removed is one the application itself put
+    /// there and cannot source.</para>
+    ///
+    /// <para><b>Idempotent by construction.</b> A book already correct (seeded after the fix, or already migrated)
+    /// fails the <c>month_overrides = '2:30000'</c> predicate and no row moves, so re-running is a no-op.</para>
+    ///
+    /// <para>⚠️ <b>Maharashtra must NOT be caught by this.</b> Its Schedule I says in terms "two hundred per month
+    /// except for the month of February ; three hundred for the month of February", so its identical
+    /// <c>2:30000</c> override is CORRECT. The <c>state_code = '29'</c> predicate is therefore load-bearing, not
+    /// decorative — dropping it would silently under-deduct every Maharashtra employee.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 54. There is no <c>CreateV1</c>
+    /// counterpart because there is nothing to create: a fresh database seeds the corrected table directly.</para>
+    /// </summary>
+    public const string MigrateV53ToV54 = """
+        -- v54 (Ruling 16): clear the unsourced Rs300 February over-charge off the seeded Karnataka PT top band.
+        -- (ASCII deliberately: this literal is DATA that ships to SQLite, not a doc comment the compiler eats.)
+        -- NO DDL. Fingerprint-gated: only a Karnataka (state 29, gender scope 0 = Any) slab table that still
+        -- matches the shipped two-band seed EXACTLY is corrected, because these rows are user-editable and an
+        -- unconditional UPDATE would clobber deliberate operator intent. Maharashtra's identical "2:30000" is
+        -- statutory and is excluded by state_code.
+        UPDATE pt_slab_bands
+        SET month_overrides = ''
+        WHERE state_code = '29'
+          AND gender_scope = 0
+          AND band_order = 1
+          AND from_wage_paisa = 2500000
+          AND to_wage_paisa IS NULL
+          AND monthly_amount_paisa = 20000
+          AND month_overrides = '2:30000'
+          AND (SELECT COUNT(*) FROM pt_slab_bands sib
+                WHERE sib.company_id = pt_slab_bands.company_id
+                  AND sib.slab_id    = pt_slab_bands.slab_id) = 2
+          AND EXISTS (SELECT 1 FROM pt_slab_bands nil
+                       WHERE nil.company_id           = pt_slab_bands.company_id
+                         AND nil.slab_id              = pt_slab_bands.slab_id
+                         AND nil.band_order           = 0
+                         AND nil.from_wage_paisa      = 0
+                         AND nil.to_wage_paisa        = 2499900
+                         AND nil.monthly_amount_paisa = 0
+                         AND nil.month_overrides      = '');
+        """;
 }

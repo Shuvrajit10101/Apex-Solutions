@@ -406,6 +406,33 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV53ToV54"/> — which, because v54 adds no DDL, means stamping
+    /// <c>schema_version</c> back to 53 and <b>nothing else</b>. There is no column to drop and no table to
+    /// remove: a v53 database and a v54 database have byte-identical <c>PRAGMA table_info</c> for every table.
+    ///
+    /// <para>🔴 <b>The corrected Karnataka figure deliberately SURVIVES the downgrade, and that is the whole
+    /// point.</b> v54's forward step is a data repair, so the only "information" it destroys is a ₹300 February
+    /// over-charge with no statutory basis. Restoring it here — putting back a deduction the state never levied,
+    /// in the name of symmetry — would re-introduce the exact wrong-money defect the version exists to close, in
+    /// every book that ever round-trips. A downgrade owes the caller a v53 <i>shape</i>; it does not owe them a
+    /// v53 <i>mistake</i>. A v53 reader opens the corrected book fine: <c>month_overrides = ''</c> is a value v53
+    /// has always been able to store and read (it is what every non-February band has always held).</para>
+    ///
+    /// <para>This asymmetry means <c>down → up</c> is a no-op rather than a re-run: the second forward pass finds
+    /// <c>month_overrides</c> already cleared, fails the <c>'2:30000'</c> predicate and moves nothing, which is
+    /// what makes the forward migration's idempotence testable from here.</para>
+    ///
+    /// <para>Like every method in this file this is test-only — nothing in <c>src/</c> calls
+    /// <see cref="SchemaDowngrade"/>.</para>
+    /// </summary>
+    public static void V54ToV53(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        Exec(connection, "UPDATE schema_version SET version = 53;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, via the <c>CREATE … AS SELECT</c> / swap
     /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
     /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the
