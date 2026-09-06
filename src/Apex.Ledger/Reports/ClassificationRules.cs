@@ -178,7 +178,24 @@ public static class ClassificationRules
     /// </summary>
     public static bool IsBankLedger(Domain.Ledger ledger, Company company)
     {
-        var group = company.FindGroup(ledger.GroupId);
+        ArgumentNullException.ThrowIfNull(ledger);
+        return IsBankGroup(ledger.GroupId, company);
+    }
+
+    /// <summary>
+    /// The same predicate as <see cref="IsBankLedger"/> asked of a GROUP rather than a saved ledger — the shape a
+    /// master screen needs, where the operator has picked a group but no ledger exists yet.
+    ///
+    /// <para>It exists so the ledger master can decide whether to offer the cheque-printing block <b>while the
+    /// ledger is being created</b>, and so that decision cannot drift from the one Bank Reconciliation and the
+    /// voucher grid make about the saved ledger: both now walk the same chain against the same
+    /// <see cref="BankGroupNames"/>.</para>
+    /// </summary>
+    public static bool IsBankGroup(Guid? groupId, Company company)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        var group = groupId is Guid gid ? company.FindGroup(gid) : null;
         var guard = 0;
         while (group is not null)
         {
@@ -190,7 +207,7 @@ public static class ClassificationRules
             }
             group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
             if (++guard > 1024)
-                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
+                throw new InvalidOperationException($"Cycle detected walking parents of group {groupId}.");
         }
         return false;
     }

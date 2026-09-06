@@ -253,11 +253,17 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+K "Saved Views" list panel (non-null only for that RQ-8 column).</summary>
     public SavedViewsViewModel? SavedViews => Page as SavedViewsViewModel;
 
+    /// <summary>The hosted Ctrl+G "Switch To" destination list (non-null only for that census-14.2 column).</summary>
+    public SwitchToViewModel? SwitchTo => Page as SwitchToViewModel;
+
     /// <summary>The hosted P / Ctrl+P "Print Preview" panel (non-null only for that RQ-9 column).</summary>
     public PrintPreviewViewModel? PrintPreview => Page as PrintPreviewViewModel;
 
     /// <summary>The hosted F12 print-config panel over a voucher/invoice preview (non-null only for that RQ-12 column).</summary>
     public PrintConfigViewModel? PrintConfigPanel => Page as PrintConfigViewModel;
+
+    /// <summary>The hosted W2-32 "Multi-Account Printing" panel (non-null only for that census-12.6 column).</summary>
+    public MultiAccountPrintViewModel? MultiAccountPrint => Page as MultiAccountPrintViewModel;
 
     /// <summary>The hosted E / Alt+E "Export" panel (non-null only for that RQ-14 column).</summary>
     public ExportViewModel? ExportPanel => Page as ExportViewModel;

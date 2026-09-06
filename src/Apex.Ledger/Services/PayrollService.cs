@@ -492,12 +492,43 @@ public sealed class PayrollService
         return employee;
     }
 
-    /// <summary>Deletes an employee. (No later master references an employee in this slice, so this always
-    /// succeeds; the attendance/payroll-voucher guard arrives with those slices.)</summary>
+    /// <summary>
+    /// Deletes an employee, <b>refusing when anything still refers to them</b>.
+    ///
+    /// <para>🔴 <b>W7-D2 — this guard was owed and its absence was a live hazard.</b> The method's own doc comment
+    /// used to read <i>"No later master references an employee in this slice, so this always succeeds; the
+    /// attendance/payroll-voucher guard arrives with those slices."</i> Those slices arrived. A posted payroll
+    /// voucher carries a <see cref="PayrollLineDetail"/> per member, attendance is keyed per member, a salary
+    /// structure can be scoped to one member, and a tax declaration belongs to one — and every one of them holds
+    /// the employee by <see cref="Guid"/>, so deleting the employee leaves a posted voucher whose line names a
+    /// member the company no longer has. Until W7-D2 nothing in the product called this method, so the gap was
+    /// theoretical; wiring the Employee master onto the Alt+D surface is what makes it reachable, and an
+    /// unguarded destructive verb is exactly the defect census row 7.16's own fixture warns about one level
+    /// down. The refusal carries the same shape as
+    /// <see cref="DeleteEmployeeCategory"/>'s — the operator's own words, and the master survives.</para>
+    /// </summary>
     public void DeleteEmployee(Guid employeeId)
     {
         var employee = _company.FindEmployee(employeeId)
             ?? throw new InvalidOperationException($"Employee {employeeId} not found.");
+
+        if (_company.Vouchers.Any(v => v.Lines.Any(l => l.Payroll is { } d && d.EmployeeId == employeeId)))
+            throw new InvalidOperationException(
+                $"Employee '{employee.Name}' appears on posted payroll vouchers and cannot be deleted. "
+                + "Delete or alter those vouchers first.");
+        if (_company.AttendanceEntries.Any(a => a.EmployeeId == employeeId))
+            throw new InvalidOperationException(
+                $"Employee '{employee.Name}' has attendance entries and cannot be deleted. "
+                + "Remove them first.");
+        if (_company.SalaryStructures.Any(s => s.Scope == SalaryStructureScope.Employee && s.ScopeId == employeeId))
+            throw new InvalidOperationException(
+                $"Employee '{employee.Name}' has a salary structure and cannot be deleted. "
+                + "Remove the structure first.");
+        if (_company.FindTaxDeclaration(employeeId) is not null)
+            throw new InvalidOperationException(
+                $"Employee '{employee.Name}' has an income-tax declaration and cannot be deleted. "
+                + "Remove the declaration first.");
+
         _company.RemoveEmployee(employee);
     }
 
