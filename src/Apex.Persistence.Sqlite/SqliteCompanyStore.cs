@@ -1316,6 +1316,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 53;
         }
 
+        // v53 → v54 (census 10.1): add the three Credit-Limit columns on ledgers (credit_limit_paisa,
+        // check_credit_days_on_entry, override_credit_limit_post_dated), then bump the marker. Purely additive and
+        // it back-fills NOTHING: a NULL credit_limit_paisa is "no limit", which is what every pre-v54 ledger was,
+        // and the two flags default 0. 🔴 A DEFAULT 0 on the LIMIT would have been a silent catastrophe — it would
+        // declare that every existing party may buy nothing — which is why that column alone is NULLable.
+        if (version == 53)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV53ToV54;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 54);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 54;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2128,7 +2153,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                    party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
                    itc_eligibility, blocked_credit_category,
-                   mailing_name, mailing_address, mailing_country, mailing_pincode
+                   mailing_name, mailing_address, mailing_country, mailing_pincode,
+                   credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2172,6 +2198,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 TdsTcsClassification = r.IsDBNull(41) ? (TdsTcsLedgerKind?)null : (TdsTcsLedgerKind)(int)r.GetInt64(41),
                 // v45 (WI-4): the party Mailing Details block (columns 57–60); NULL on every pre-v45 ledger.
                 Mailing = ReadPartyMailing(r),
+                // v54 (census 10.1): the Credit Limits block (columns 61–63). 🔴 A NULL credit_limit_paisa
+                // materialises as a NULL Money?, NOT as Money.Zero — "no limit" and "a limit of zero" are
+                // different facts and zero BLOCKS. Every pre-v54 ledger reads NULL/off (ER-13).
+                CreditLimit = r.IsDBNull(61) ? (Money?)null : Paisa.ToMoney(r.GetInt64(61)),
+                CheckCreditDaysOnEntry = r.GetInt64(62) != 0,
+                OverrideCreditLimitWithPostDated = r.GetInt64(63) != 0,
             });
         }
         return list;
@@ -5303,7 +5335,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                      party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
                      itc_eligibility, blocked_credit_category,
-                     mailing_name, mailing_address, mailing_country, mailing_pincode)
+                     mailing_name, mailing_address, mailing_country, mailing_pincode,
+                     credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
@@ -5311,7 +5344,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp,
                         $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc,
                         $spitcelig, $spblkcat,
-                        $mailname, $mailaddr, $mailcountry, $mailpin);
+                        $mailname, $mailaddr, $mailcountry, $mailpin,
+                        $climit, $ccheckdays, $coverridepd);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5407,6 +5441,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$mailaddr", (object?)ml?.Address ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$mailcountry", (object?)ml?.Country ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$mailpin", (object?)ml?.Pincode ?? DBNull.Value);
+
+            // v54 (census 10.1): Credit Limits. 🔴 The null-coalesce is on the OBJECT, never on the Money — writing
+            // `l.CreditLimit ?? Money.Zero` would store 0 for "no limit" and freeze every party in the book.
+            cmd.Parameters.AddWithValue(
+                "$climit", l.CreditLimit is { } cl ? Paisa.FromMoney(cl) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$ccheckdays", l.CheckCreditDaysOnEntry ? 1 : 0);
+            cmd.Parameters.AddWithValue("$coverridepd", l.OverrideCreditLimitWithPostDated ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
     }

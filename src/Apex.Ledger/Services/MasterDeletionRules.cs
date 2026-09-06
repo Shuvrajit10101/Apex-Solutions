@@ -535,12 +535,7 @@ public static class MasterDeletionRules
                 $"'{ledger.Name}' is a reserved ledger that the engine resolves by name (GST / round-off / payroll "
                 + "posting would silently stop finding it). It cannot be deleted.");
 
-        // vouchers.party_id + entry_lines.ledger_id + pos_tender_allocations.ledger_id — all three ride on a
-        // posted accounting voucher, so all three are "a transaction has been made with that ledger".
-        var vouchers = company.Vouchers.Count(
-            v => v.PartyId == ledger.Id
-              || v.Lines.Any(l => l.LedgerId == ledger.Id)
-              || v.PosTenders.Any(t => t.LedgerId == ledger.Id));
+        var vouchers = CountLedgerTransactions(company, ledger);
         if (vouchers > 0)
         {
             var head = vouchers == 1
@@ -552,6 +547,53 @@ public static class MasterDeletionRules
                 + "the Day Book row — and then the ledger can go.");
         }
 
+        ThrowIfNamed(LedgerReferenceParts(company, ledger), $"ledger '{ledger.Name}'");
+    }
+
+    /// <summary>
+    /// <b>THE ONE LEDGER TRANSACTION COUNTER.</b> Extracted from <see cref="EnsureLedgerDeletable"/> — which still
+    /// calls it and is still the only place that turns a non-zero answer into the attested refusal — so that
+    /// <c>UnusedMasters.IsLedgerUnused</c> (census 2.13) can be the exact COMPLEMENT of the deletion rule rather
+    /// than a second, drifting copy of the same three foreign keys.
+    ///
+    /// <para><c>vouchers.party_id</c> + <c>entry_lines.ledger_id</c> + <c>pos_tender_allocations.ledger_id</c> —
+    /// all three ride on a posted accounting voucher, so all three are "a transaction has been made with that
+    /// ledger".</para>
+    ///
+    /// <para>🔴 <b>CANCELLED VOUCHERS COUNT HERE TOO</b>, for the reason spelled out on
+    /// <see cref="EnsureLedgerDeletable"/>: cancelling sets a flag and leaves the row and its foreign keys in
+    /// place. A ledger whose only vouchers are cancelled has been transacted with, is not deletable, and must not
+    /// be offered as "unused".</para>
+    /// </summary>
+    public static int CountLedgerTransactions(Company company, Domain.Ledger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(ledger);
+
+        return company.Vouchers.Count(
+            v => v.PartyId == ledger.Id
+              || v.Lines.Any(l => l.LedgerId == ledger.Id)
+              || v.PosTenders.Any(t => t.LedgerId == ledger.Id));
+    }
+
+    /// <summary>
+    /// True when some OTHER master or setting names <paramref name="ledger"/> by a foreign key — an inventory
+    /// voucher's party, an additional-cost line, a POS till default, a pay head, a budget line, an RCM document.
+    /// None of these is a transaction, which is why <see cref="EnsureLedgerDeletable"/> refuses on them with
+    /// separate wording; they are counted here so <c>UnusedMasters</c> can honour them too.
+    /// </summary>
+    public static bool IsLedgerNamedByAnotherMaster(Company company, Domain.Ledger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(ledger);
+
+        return LedgerReferenceParts(company, ledger).Count > 0;
+    }
+
+    /// <summary>The "named by another master or setting" breakdown for a ledger, in refusal-message order. One
+    /// list, two consumers: the refusal above and <see cref="IsLedgerNamedByAnotherMaster"/>.</summary>
+    private static List<string> LedgerReferenceParts(Company company, Domain.Ledger ledger)
+    {
         var parts = new List<string>();
         // inventory_vouchers.party_id
         AddPart(parts, company.InventoryVouchers.Count(v => v.PartyId == ledger.Id),
@@ -577,8 +619,7 @@ public static class MasterDeletionRules
         // rcm_documents.supplier_ledger_id
         AddPart(parts, company.RcmDocuments.Count(d => d.SupplierLedgerId == ledger.Id),
                 "RCM document", "RCM documents");
-
-        ThrowIfNamed(parts, $"ledger '{ledger.Name}'");
+        return parts;
     }
 
     /// <summary>

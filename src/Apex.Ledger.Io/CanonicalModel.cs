@@ -672,6 +672,20 @@ public sealed record LedgerDto
     public bool IsPredefined { get; init; }
     public bool MaintainBillByBill { get; init; }
     public int? DefaultCreditPeriodDays { get; init; }
+
+    /// <summary>
+    /// Census 10.1 — the party Credit Limit, in paisa. <c>null</c> = <b>no limit</b>; <c>0</c> = a limit of zero,
+    /// which BLOCKS every credit transaction. 🔴 The two must stay distinct across the wire: dropping the field
+    /// would silently let an imported book accept invoices the exported one refused, and defaulting it to 0 would
+    /// freeze every party on import.
+    /// </summary>
+    public long? CreditLimitPaisa { get; init; }
+
+    /// <summary>Census 10.1 — "Check For Credit Dates During Voucher Entry".</summary>
+    public bool CheckCreditDaysOnEntry { get; init; }
+
+    /// <summary>Census 10.1 — "Override credit limit using post-dated transactions".</summary>
+    public bool OverrideCreditLimitWithPostDated { get; init; }
     public bool? CostCentresApplicable { get; init; }
     public bool EnableChequePrinting { get; init; }
     public string? ChequePrintingBankName { get; init; }
