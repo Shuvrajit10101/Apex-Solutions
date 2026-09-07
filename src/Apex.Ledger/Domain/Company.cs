@@ -398,6 +398,29 @@ public sealed class Company
     /// </summary>
     public BonusConfig? BonusConfig { get; set; }
 
+    /// <summary>
+    /// 🔴 <b>Census 16.2 — the "Use User Access Control" company gate</b> (schema v56). Vendor, verbatim
+    /// (help.tallysolutions.com/tallyvault-for-company-tally/): <i>"press F12 (Configure) &gt; set … Use User
+    /// Access Control … to Yes"</i>.
+    ///
+    /// <para><b>Default <c>false</c>, and here "column absent" and "feature off" deliberately coincide</b> — the
+    /// v56 column is <c>INTEGER NOT NULL DEFAULT 0</c>, so every pre-v56 company arrives with access control off,
+    /// which is exactly what it was (ER-13). This is deliberately UNLIKE
+    /// <see cref="WarnOnNegativeStock"/>, whose <c>DEFAULT 1</c> is the trap the schema doc records.</para>
+    /// </summary>
+    public bool UseUserAccessControl { get; set; }
+
+    /// <summary>
+    /// 🔴 <b>Census 16.2 — Security Control</b>: the company's security levels, users, one-way password
+    /// verifiers and password policy. Always present and <see cref="SecurityControl.IsEmpty"/> by default, so a
+    /// company that never enables access control persists byte-identically to a pre-v56 one (ER-13).
+    ///
+    /// <para><b>R13.</b> No password is stored recoverably anywhere in this graph — see
+    /// <see cref="Security.PasswordHash"/> for the exact scheme and for the irrecoverable-lockout consequence,
+    /// and <see cref="SecurityControl"/> for the architectural limit this row must declare.</para>
+    /// </summary>
+    public SecurityControl Security { get; } = new();
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

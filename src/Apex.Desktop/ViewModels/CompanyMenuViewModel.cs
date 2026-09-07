@@ -23,15 +23,24 @@ namespace Apex.Desktop.ViewModels;
 /// Masters / Statutory / Transactions / Reports / Data. This column is pushed onto the cascade and touches no
 /// column builder, so that test stays green and unmodified — which is the point.</para>
 ///
+/// <para>🔴 <b>W-I1 / census 16.2 — SECURITY CONTROL JOINED THIS MENU, AND THE DISCLOSURE WENT WITH IT.</b>
+/// The vendor reaches its user-management screens from exactly here: <i>"Press Alt+K (Company) &gt; Users and
+/// Passwords. The Users for Company screen will appear."</i> and <i>"Press Alt+K (Company) &gt; Password
+/// Policy"</i> (help.tallysolutions.com/manage-users-in-tallyprime/). Both rows are now built and both open a
+/// real screen, so the header line that said security actions were absent has been REMOVED rather than
+/// softened — it was a true statement until this slice landed and would be a false one now. What remains
+/// withheld is the data-vault row (census 16.1, whose crypto half is blocked on a user ruling) and the edit-log
+/// row (16.4, reachable elsewhere), and <see cref="Disclosure"/> now names exactly that narrower gap.</para>
+///
 /// <para>🔴 <b>WHAT THIS MENU DELIBERATELY DOES NOT OFFER, and why the omission is the honest answer.</b>
 /// <list type="bullet">
-/// <item>The <b>last three rows of the vendor's list</b> — its data-vault, change-user and edit-log entries.
-/// All three are census area 16 (security &amp; audit), which is outside this build. A row that opens a "not
-/// available" message is worse than no row: it advertises a capability the product does not have. The column
-/// discloses the gap in a header line instead of pretending the list is complete.</item>
+/// <item>The vendor's <b>data-vault row</b> — census 16.1, whose page-encryption half needs a new native
+/// dependency and a user ruling before it can be built. A row that opens a "not available" message is worse
+/// than no row: it advertises a capability the product does not have. The column discloses the gap in a header
+/// line instead of pretending the list is complete.</item>
 /// <item>🔴 <b>The disclosure names the CAPABILITY FAMILY, never the vendor's row names, and that is a rule
-/// rather than a style choice.</b> The first of those three rows is a vendor PRODUCT NAME carrying the "Tally"
-/// brand, and this application must never render that brand in a user-visible string — the suite enforces it
+/// rather than a style choice.</b> That withheld row is a vendor PRODUCT NAME carrying the "Tally" brand, and
+/// this application must never render that brand in a user-visible string — the suite enforces it
 /// with <c>Assert.DoesNotContain("Tally", …)</c> in a dozen places. An earlier draft of this menu shipped
 /// <c>"Not in this build: TallyVault, Change User, Edit Log (security &amp; audit)"</c> straight onto the
 /// screen, which was a brand leak; it was ALSO 888px of text in a 350px column, cut mid-word at 39% with no
@@ -54,7 +63,16 @@ public static class CompanyMenu
     /// last on the chord the vendor gives it. Named as a constant so the test that asserts "only verbs this
     /// application has" DERIVES its expectation instead of restating it.
     /// </summary>
-    public static readonly IReadOnlyList<string> OfferedVerbs = new[] { "Create", "Alter", "Select", "Shut" };
+    public static readonly IReadOnlyList<string> OfferedVerbs =
+        new[] { "Create", "Alter", "Select", "Shut", UsersAndPasswordsVerb, PasswordPolicyVerb };
+
+    /// <summary>The vendor's row label, verbatim: <i>"Alt+K (Company) &gt; <b>Users and Passwords</b>"</i>
+    /// (help.tallysolutions.com/manage-users-in-tallyprime/). Census 16.2.</summary>
+    public const string UsersAndPasswordsVerb = "Users and Passwords";
+
+    /// <summary>The vendor's row label, verbatim: <i>"Alt+K (Company) &gt; <b>Password Policy</b>"</i>
+    /// (help.tallysolutions.com/manage-users-in-tallyprime/). Census 16.2.</summary>
+    public const string PasswordPolicyVerb = "Password Policy";
 
     /// <summary>
     /// 🔴 THE HONEST DISCLOSURE — so nobody, operator or later agent, reads a four-row menu as the whole
@@ -67,19 +85,27 @@ public static class CompanyMenu
     /// header pays for every word. This one needs two wrapped lines and a test measures that it is fully
     /// readable — the predecessor line was composed from a list, grew to 888px, and was silently cut.</para>
     /// </summary>
-    public const string Disclosure = "Security & audit actions are not in this build";
+    public const string Disclosure = "Company data encryption is not in this build";
 
     /// <summary>
     /// Builds the Alt+K column for the company named <paramref name="companyName"/>.
     /// </summary>
     /// <param name="companyName">The open company, shown so the operator can see what Alter and Shut act on.</param>
     public static GatewayColumn BuildColumn(
-        string companyName, Action create, Action alter, Action select, Action shut)
+        string companyName,
+        Action create,
+        Action alter,
+        Action select,
+        Action shut,
+        Action usersAndPasswords,
+        Action passwordPolicy)
     {
         if (create is null) throw new ArgumentNullException(nameof(create));
         if (alter is null) throw new ArgumentNullException(nameof(alter));
         if (select is null) throw new ArgumentNullException(nameof(select));
         if (shut is null) throw new ArgumentNullException(nameof(shut));
+        if (usersAndPasswords is null) throw new ArgumentNullException(nameof(usersAndPasswords));
+        if (passwordPolicy is null) throw new ArgumentNullException(nameof(passwordPolicy));
 
         var column = new GatewayColumn(ColumnTitle);
 
@@ -95,6 +121,14 @@ public static class CompanyMenu
         column.Add(new MenuItemViewModel("Alter", alter, string.Empty, kind: MenuItemKind.Action));
         column.Add(new MenuItemViewModel("Select", select, "Alt+F3", kind: MenuItemKind.Action));
         column.Add(new MenuItemViewModel("Shut", shut, "Ctrl+F3", kind: MenuItemKind.Action));
+
+        // Census 16.2 — the vendor's two user-management rows, reached from exactly here. Neither carries a
+        // chord of its own: the vendor documents them as Alt+K rows, not as shortcuts, and an invented chord
+        // wearing an attested-looking hint is worse than no hint. Bare-letter hotkeys come from the cascade.
+        column.Add(new MenuItemViewModel(
+            UsersAndPasswordsVerb, usersAndPasswords, string.Empty, kind: MenuItemKind.Action));
+        column.Add(new MenuItemViewModel(
+            PasswordPolicyVerb, passwordPolicy, string.Empty, kind: MenuItemKind.Action));
 
         // A HEADER row, so arrows skip it and Enter can never fire it — the disclosure is a statement, not an
         // affordance.
