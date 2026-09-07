@@ -166,7 +166,12 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     /// </summary>
     private void SyncBillWise()
     {
-        var on = SelectedLedger?.MaintainBillByBill == true;
+        // F11 → Accounting → "Enable Bill-wise entry" (census 1.7) sits ABOVE the per-ledger switch, exactly as
+        // the vendor's company feature sits above its ledger field. Turning the company feature off hides the
+        // panel; it deletes nothing, and FromEntryLine's master-drift refusal is what stops a re-accept from
+        // silently dropping allocations that were posted while it was on.
+        var on = SelectedLedger?.MaintainBillByBill == true
+                 && _company?.EnableBillWiseEntry != false;
         if (on == IsBillWise && (!on || BillAllocations.Count > 0))
         {
             RecomputeBillSummary();
@@ -274,7 +279,10 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     /// </summary>
     private void SyncCostApplicable()
     {
+        // F11 → Accounting → "Enable Cost Centres" (census 1.7) is the company-level gate above the existing
+        // nature/override test — the same shape as the bill-wise gate in SyncBillWise.
         var on = _company is not null
+                 && _company.EnableCostCentres
                  && _costCentres.Count > 0
                  && SelectedLedger is not null
                  && ClassificationRules.CostCentresApplicableFor(SelectedLedger, _company);

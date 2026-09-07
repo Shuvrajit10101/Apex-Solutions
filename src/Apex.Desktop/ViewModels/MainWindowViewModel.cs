@@ -1713,9 +1713,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Multi Ledger", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Multi Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
-        col.Add(MenuItemViewModel.Header("Cost Masters"));
-        col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Cost Centre", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // F11 → Accounting → "Enable Cost Centres" (census row 1.7). The whole Cost Masters SECTION goes with
+        // the flag — the header too, because a section heading standing over nothing is the kind of empty
+        // scaffolding this cascade is not allowed to show.
+        if (Company?.EnableCostCentres != false)
+        {
+            col.Add(MenuItemViewModel.Header("Cost Masters"));
+            col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Cost Centre", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
 
         col.Add(MenuItemViewModel.Header("Inventory Masters"));
         col.Add(new MenuItemViewModel("Stock Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -1795,9 +1801,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var col = new GatewayColumn("Statements of Accounts");
         col.Add(MenuItemViewModel.Header("Statements of Accounts"));
         col.Add(new MenuItemViewModel("Outstandings", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // F11 → Accounting → "Enable Cost Centres" / "Enable Interest Calculation" (census row 1.7): the two
+        // report entries the vendor gates on those company features leave the hub with them.
+        if (Company?.EnableCostCentres != false)
+            col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        if (Company?.EnableInterestCalculation != false)
+            col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Forex Gain/Loss", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
         // places it under Statement of Accounts, which is this hub.
@@ -10883,8 +10893,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
-        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport, hasCompany));
+        // Census 1.7 — these two quick-buttons are DOORS to the same two features the F11 → Accounting group
+        // gates, so they close with it. Leaving them enabled would have made the gate cosmetic: the menu row
+        // would vanish and one click on the bar would still open the report the company had switched off.
+        // The F11 page calls BuildButtonBar through its onChanged hook, so the bar follows the tick live.
+        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup),
+            hasCompany && Company?.EnableCostCentres != false));
+        ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport,
+            hasCompany && Company?.EnableInterestCalculation != false));
         ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
