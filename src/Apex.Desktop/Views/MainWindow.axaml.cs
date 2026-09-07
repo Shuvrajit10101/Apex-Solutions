@@ -2311,6 +2311,19 @@ public partial class MainWindow : Window
     private void OnCreateVoucherTypeClick(object? sender, RoutedEventArgs e)
         => Vm?.VoucherTypeMaster?.Create();
 
+    /// <summary>W-K1 (census 9.9): adds the named Voucher Class to the Stock Journal type under alteration.</summary>
+    private void OnAddVoucherClassClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherTypeMaster?.AddClass();
+
+    /// <summary>W-K1 (census 9.9): removes the class whose row's Remove button was pressed. The row is read from
+    /// the button's own DataContext rather than from a selection, so a list with no selection concept still
+    /// removes exactly the row the operator pressed.</summary>
+    private void OnRemoveVoucherClassClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherClassListRow row })
+            Vm?.VoucherTypeMaster?.RemoveClass(row.Id);
+    }
+
     private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = false;

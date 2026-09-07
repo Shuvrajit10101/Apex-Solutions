@@ -867,6 +867,140 @@
                             </ScrollViewer>
                           </Grid>
 
+                          <!-- == W-K1 · census 9.8 — Bills Pending (Purchase and Sales share this grid):
+                                  Date | Tracking No. | Stock Item | Party | Received | Billed | Pending == -->
+                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsBillsPending}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="86,110,*,98,60,58,68">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Tracking No." Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Stock Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Recd." Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Billed" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Pending" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <!-- A section heading row spans the whole width: its caption is one of the
+                                           vendor's two ("Goods Recd. but Bills not Recd." / "Bills Recd. but
+                                           Goods not Recd."), and squeezing it into the 110px Date column would
+                                           truncate it to "Goods Recd. b…" — the truncation class the payroll
+                                           legibility invariants were written to catch. -->
+                                      <Grid ColumnDefinitions="86,110,*,98,60,58,68" Height="24">
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="7"
+                                                   Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12.5" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontFamily="Consolas,Menlo,monospace"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+
+                          <!-- == W-K1 · census 9.7 — Item Cost Analysis (all three reports share this grid).
+                                  The four money captions are the vendor's, verbatim. == -->
+                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsItemCostAnalysis}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,112,112,112,112">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Cost (Expense)" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="2" Text="Revenue (Income)" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="3" Text="Balance at Cost" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="4" Text="Profit/Loss" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,112,112,112,112" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+
+                          <!-- == W-K1 · census 9.6 — Job Work Analysis: Particulars | Amount, in the vendor's
+                                  Revenue (Income) / Cost (Expenses) / Nett Profit-Loss sections per job. == -->
+                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsJobWorkAnalysis}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,190">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,190" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+
                           <!-- == Stock Item Movement: Date | Voucher | In | Out | Balance | Value == -->
                           <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsStockMovement}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
@@ -3070,6 +3204,13 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
+                                          <!-- W-K1 · census 9.8 / 9.7: the tracking fields are a SECOND ROW under
+                                               the line, not two more columns — see the identical note on the
+                                               inventory-voucher grid below. This grid is the one whose fixed
+                                               tracks already starve the "*" Stock Item column to 0px at 1280x720
+                                               (the measured defect recorded on its header band above), so adding
+                                               width here is exactly what must not be done. -->
+                                          <StackPanel Spacing="0">
                                           <!-- Column shape MUST mirror the header band above, MinWidth included. -->
                                           <Grid>
                                             <Grid.ColumnDefinitions>
@@ -3176,6 +3317,30 @@
                                                      TextAlignment="Right" PlaceholderText="0"
                                                      IsVisible="{Binding ShowDiscount}"/>
                                           </Grid>
+                                          <!-- The BILL half of the tracking mechanism (census 9.8): the number
+                                               keyed here is netted against the same number on the Receipt or
+                                               Delivery Note by the Bills Pending reports. -->
+                                          <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,3,0,1">
+                                            <StackPanel Orientation="Horizontal" Spacing="4"
+                                                        IsVisible="{Binding ShowTrackingNumber}">
+                                              <TextBlock Text="Tracking No." VerticalAlignment="Center"
+                                                         FontSize="11" Foreground="{StaticResource BrandNavy}"/>
+                                              <TextBox Width="150" FontSize="11.5"
+                                                       Text="{Binding TrackingNumber, Mode=TwoWay}"
+                                                       ToolTip.Tip="The Receipt/Delivery Note this bill accounts for (Purchase/Sales Bills Pending)"
+                                                       PlaceholderText="—"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="4"
+                                                        IsVisible="{Binding ShowCostTrackingNumber}">
+                                              <TextBlock Text="Cost Tracking No." VerticalAlignment="Center"
+                                                         FontSize="11" Foreground="{StaticResource BrandNavy}"/>
+                                              <TextBox Width="150" FontSize="11.5"
+                                                       Text="{Binding CostTrackingNumber, Mode=TwoWay}"
+                                                       ToolTip.Tip="Follows this quantity's cost across its purchase-to-sales cycle (Item Cost Analysis)"
+                                                       PlaceholderText="—"/>
+                                            </StackPanel>
+                                          </StackPanel>
+                                          </StackPanel>
                                         </Border>
                                       </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -3945,6 +4110,19 @@
                                     <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                               Padding="6,4">
+                                        <!-- W-K1 · census 9.8 / 9.7. 🔴 THE TRACKING FIELDS ARE A SECOND ROW,
+                                             NOT TWO MORE COLUMNS, AND THAT IS DELIBERATE. This grid's fixed
+                                             tracks already sum to 482px (152 Godown + 120 Qty + 88 Rate + 86
+                                             Batch + 36 chevron); the cascade floors a page column at 640px,
+                                             leaving ~630px of content. Two 130px tracking columns would take the
+                                             total to 742 and starve the "*" Stock Item column to ZERO — the
+                                             exact measured defect documented on the item-invoice grid above,
+                                             which made a sales invoice unraisable on a standard laptop. A row
+                                             that only exists when the feature is on costs no width at all.
+                                             It is also CLOSER to the vendor, which puts Tracking No. on the
+                                             "Stock Item Allocations" sub-screen rather than in the line grid
+                                             (help.tallysolutions.com/purchase-order-tally/). -->
+                                        <StackPanel Spacing="0">
                                         <Grid ColumnDefinitions="*,152,120,88,86,36">
                                           <ComboBox Grid.Column="0" Classes="gridCombo"
                                                     MinWidth="0" HorizontalAlignment="Stretch"
@@ -4011,6 +4189,29 @@
                                                   IsVisible="{Binding WantsBatchAllocation}"
                                                   Click="OnOpenBatchAllocationClick"/>
                                         </Grid>
+                                        <!-- The tracking sub-row. Each half is independently gated by its own
+                                             F11 feature, so a company that uses only one sees only one. -->
+                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,3,0,1">
+                                          <StackPanel Orientation="Horizontal" Spacing="4"
+                                                      IsVisible="{Binding ShowTrackingNumber}">
+                                            <TextBlock Text="Tracking No." VerticalAlignment="Center"
+                                                       FontSize="11" Foreground="{StaticResource BrandNavy}"/>
+                                            <TextBox Width="150" FontSize="11.5"
+                                                     Text="{Binding TrackingNumber, Mode=TwoWay}"
+                                                     ToolTip.Tip="Links this movement to the bill that accounts for it (Purchase/Sales Bills Pending)"
+                                                     PlaceholderText="—"/>
+                                          </StackPanel>
+                                          <StackPanel Orientation="Horizontal" Spacing="4"
+                                                      IsVisible="{Binding ShowCostTrackingNumber}">
+                                            <TextBlock Text="Cost Tracking No." VerticalAlignment="Center"
+                                                       FontSize="11" Foreground="{StaticResource BrandNavy}"/>
+                                            <TextBox Width="150" FontSize="11.5"
+                                                     Text="{Binding CostTrackingNumber, Mode=TwoWay}"
+                                                     ToolTip.Tip="Follows this quantity's cost across its purchase-to-sales cycle (Item Cost Analysis)"
+                                                     PlaceholderText="—"/>
+                                          </StackPanel>
+                                        </StackPanel>
+                                        </StackPanel>
                                       </Border>
                                     </DataTemplate>
                                   </ItemsControl.ItemTemplate>
@@ -4021,8 +4222,57 @@
                                         Background="{StaticResource Panel}"
                                         Click="OnAddInventoryLineClick"/>
 
-                                <!-- Stock Journal destination (produced/inward) list -->
-                                <StackPanel Spacing="0" IsVisible="{Binding IsStockJournal}">
+                                <!-- W-K1 · census 9.9 — the Stock Journal TRANSFER CLASS. Shown only when the
+                                     voucher type actually has one (created on the Voucher Type master under
+                                     "Voucher Classes"), so a company that defines none sees nothing new.
+                                     Picking a class replaces the hand-keyed destination grid below with a single
+                                     destination godown: every source line is mirrored to it, batch, rate and
+                                     unit included. help.tallysolutions.com/voucher-types-tally/ -->
+                                <Border IsVisible="{Binding ShowTransferClass}"
+                                        Background="{StaticResource Panel}"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="10,8" Margin="0,6,0,4">
+                                  <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="70,190,150,*">
+                                      <TextBlock Grid.Column="0" Text="Class" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding TransferClassOptions}"
+                                                SelectedItem="{Binding SelectedTransferClass, Mode=TwoWay}"
+                                                PlaceholderText="No class…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:TransferClassOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                      <TextBlock Grid.Column="2" Text="Destination Godown"
+                                                 FontWeight="SemiBold" VerticalAlignment="Center"
+                                                 Margin="12,0,6,0"
+                                                 IsVisible="{Binding IsTransferClassActive}"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding Godowns}"
+                                                views:CreateField.Master="Godown"
+                                                SelectedItem="{Binding TransferDestinationGodown, Mode=TwoWay}"
+                                                IsVisible="{Binding IsTransferClassActive}"
+                                                PlaceholderText="Transfer to…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="ledger:Godown">
+                                            <TextBlock Text="{Binding Name}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Stock Journal destination (produced/inward) list. 🔴 Bound to
+                                     ShowsDestinationLines, NOT IsStockJournal: under an active transfer class the
+                                     destination arm is DERIVED, and leaving this grid on screen would invite the
+                                     operator to key an arm that the posting then overwrites. -->
+                                <StackPanel Spacing="0" IsVisible="{Binding ShowsDestinationLines}">
                                   <TextBlock Text="Destination — produced (inward)"
                                              FontSize="11" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" Margin="6,6,0,2"/>
@@ -6855,6 +7105,51 @@
                                             IsChecked="{Binding ProvideNarrationForEachLedger, Mode=TwoWay}" FontSize="12.5"/>
                                 </StackPanel>
 
+                                <!-- W-K1 · census 9.9 — VOUCHER CLASSES. Shown only while ALTERING a Stock
+                                     Journal type: a class is a child of a type, so there is nothing to attach
+                                     one to until the type exists, and the only class this product ships is the
+                                     transfer class. Census row 2.6 — the GENERAL Voucher Class machinery
+                                     (ledger pre-maps, default allocations, rounding) — remains ABSENT and is
+                                     deliberately not built here.
+                                     help.tallysolutions.com/voucher-types-tally/ -->
+                                <StackPanel Spacing="6" IsVisible="{Binding ShowVoucherClasses}">
+                                  <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                  <TextBlock Text="VOUCHER CLASSES" FontSize="11" FontWeight="Bold"
+                                             Foreground="#9098A8" LetterSpacing="1.5"/>
+                                  <Grid ColumnDefinitions="110,220,Auto,Auto">
+                                    <TextBlock Grid.Column="0" Text="Name of Class" FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewClassName, Mode=TwoWay}"
+                                             PlaceholderText="e.g. Transfer"/>
+                                    <CheckBox Grid.Column="2" Margin="14,0,10,0" FontSize="12.5"
+                                              Content="Use Class for Inter-Godown Transfers"
+                                              IsChecked="{Binding NewClassInterGodownTransfers, Mode=TwoWay}"/>
+                                    <Button Grid.Column="3" Content="Add class" Padding="12,5"
+                                            Background="{StaticResource Panel}"
+                                            Click="OnAddVoucherClassClick"/>
+                                  </Grid>
+                                  <ItemsControl ItemsSource="{Binding Classes}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:VoucherClassListRow">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="220,*,Auto" Height="26">
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}" Margin="8,0"
+                                                       VerticalAlignment="Center" FontSize="12.5"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11.5"
+                                                       Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"
+                                                       Text="{Binding InterGodownTransfers, StringFormat='Use Class for Inter-Godown Transfers: {0}'}"/>
+                                            <Button Grid.Column="2" Content="Remove" Padding="10,3"
+                                                    FontSize="11.5" Background="{StaticResource Panel}"
+                                                    Click="OnRemoveVoucherClassClick"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -7248,6 +7543,32 @@
                                 </Grid>
                                 <CheckBox Content="Third-party (our stock with others)"
                                           IsChecked="{Binding ThirdParty, Mode=TwoWay}" FontSize="13"/>
+                                <!-- W-K1 · census 9.6 (help.tallysolutions.com/job-costing-tally/): the vendor's
+                                     "Set job/project for job costing", which takes a COST CENTRE — a job/project
+                                     IS a cost centre, which is why this feature adds no cost dimension of its
+                                     own. Shown only while F11 "Enable Job Costing" is on, exactly as the vendor
+                                     gates it behind F12 "Set Job Costing details". -->
+                                <Grid ColumnDefinitions="220,*" IsVisible="{Binding ShowJobCostCentre}">
+                                  <TextBlock Grid.Column="0" Text="Set job/project for job costing"
+                                             FontWeight="SemiBold" VerticalAlignment="Center"
+                                             TextWrapping="Wrap"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding JobCostCentreOptions}"
+                                            SelectedItem="{Binding SelectedJobCostCentre, Mode=TwoWay}"
+                                            PlaceholderText="Not a job/project…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:JobCostCentreOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <!-- The vendor states Cost Centres are a PREREQUISITE for job costing. Saying so
+                                     is better than an empty picker that looks broken. -->
+                                <TextBlock Text="No cost centres exist yet. A job/project is a cost centre — create one under Masters → Create → Cost Centre first."
+                                           IsVisible="{Binding JobCostingNeedsCostCentres}"
+                                           FontSize="11.5" TextWrapping="Wrap" Foreground="#6A6A6A"/>
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -7262,10 +7583,13 @@
 
                             <!-- Existing godowns header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,200,140">
+                              <!-- W-K1 · census 9.6: the Job/Project column. It is a COLUMN, not a suffix on
+                                   Kind — a godown can be third-party AND a job at once. -->
+                              <Grid ColumnDefinitions="*,150,140,100">
                                 <TextBlock Grid.Column="0" Text="Godown" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="Job/Project" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -7274,12 +7598,17 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:GodownListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,200,140" Height="24">
+                                      <Grid ColumnDefinitions="*,150,140,100" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Under}"
-                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding JobProject}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Kind}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
                                                    VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
                                       </Grid>
@@ -10624,6 +10953,27 @@
                                      byte-identical (ER-13). -->
                                 <CheckBox Content="Enable Job Order Processing"
                                           IsChecked="{Binding EnableJobOrderProcessing, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- W-K1 · census 9.8 (help.tallysolutions.com/purchase-order-tally/): the master
+                                     gate for Tracking Numbers. The caption is the vendor's, verbatim. When on, the
+                                     Tracking No. field appears on a stock line and the two Bills Pending reports
+                                     surface under Reports → Inventory Reports. -->
+                                <CheckBox Content="Use tracking numbers (enables delivery and receipt notes)"
+                                          IsChecked="{Binding UseTrackingNumbers, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- W-K1 · census 9.7
+                                     (help.tallysolutions.com/tally-prime/inventory/track-item-cost-tally/): the
+                                     master gate for Item Cost Tracking. Surfaces the Cost Tracking Number on a
+                                     stock line and the three Item Cost Analysis reports. -->
+                                <CheckBox Content="Enable Cost Tracking"
+                                          IsChecked="{Binding EnableCostTracking, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- W-K1 · census 9.6 (help.tallysolutions.com/job-costing-tally/): the master gate
+                                     for Job Costing. Surfaces "Set job/project for job costing" on the Godown
+                                     master and the Job Work Analysis report. 🔴 It is a REPORTING dimension over
+                                     the existing cost centres, not a new ledger — see Company.EnableJobCosting. -->
+                                <CheckBox Content="Enable Job Costing"
+                                          IsChecked="{Binding EnableJobCosting, Mode=TwoWay}"
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <!-- Payroll F11 feature (Phase 8 slice 1; RQ-1): the master gate for the whole
                                      Payroll module. When on, the Payroll Masters section (Employee Category /

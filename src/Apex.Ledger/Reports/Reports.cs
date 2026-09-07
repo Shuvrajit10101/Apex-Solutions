@@ -40,6 +40,33 @@ public static class Report
         => StockSummary.Build(c, to, from);
 
     /// <summary>The Godown Summary as of a date (catalog §16; RQ-29).</summary>
+    // ---- W-K1: inventory costing & tracking (census 9.8 / 9.7 / 9.6) ----
+
+    /// <summary>Census 9.8 — Purchase Bills Pending. See <see cref="BillsPending"/>.</summary>
+    public static IReadOnlyList<BillsPendingRow> BuildPurchaseBillsPending(Company c, DateOnly asOf)
+        => BillsPending.BuildPurchase(c, asOf);
+
+    /// <summary>Census 9.8 — Sales Bills Pending. See <see cref="BillsPending"/>.</summary>
+    public static IReadOnlyList<BillsPendingRow> BuildSalesBillsPending(Company c, DateOnly asOf)
+        => BillsPending.BuildSales(c, asOf);
+
+    /// <summary>Census 9.7 — Stock Item Cost Analysis. See <see cref="ItemCostAnalysis"/>.</summary>
+    public static IReadOnlyList<ItemCostAnalysisRow> BuildStockItemCostAnalysis(Company c, DateOnly asOf)
+        => ItemCostAnalysis.BuildItems(c, asOf);
+
+    /// <summary>Census 9.7 — Stock Group Cost Analysis. See <see cref="ItemCostAnalysis"/>.</summary>
+    public static IReadOnlyList<ItemCostAnalysisRow> BuildStockGroupCostAnalysis(Company c, DateOnly asOf)
+        => ItemCostAnalysis.BuildGroups(c, asOf);
+
+    /// <summary>Census 9.7 — Cost Track Break-up. See <see cref="ItemCostAnalysis"/>.</summary>
+    public static IReadOnlyList<ItemCostAnalysisRow> BuildCostTrackBreakup(
+        Company c, DateOnly asOf, Guid? stockItemId = null)
+        => ItemCostAnalysis.BuildBreakup(c, asOf, stockItemId);
+
+    /// <summary>Census 9.6 — Job Work Analysis. See <see cref="Reports.JobWorkAnalysis"/>.</summary>
+    public static IReadOnlyList<JobWorkAnalysisRow> BuildJobWorkAnalysis(Company c, DateOnly from, DateOnly to)
+        => Reports.JobWorkAnalysis.Build(c, from, to);
+
     public static GodownSummary BuildGodownSummary(Company c, DateOnly asOf)
         => GodownSummary.Build(c, asOf);
 

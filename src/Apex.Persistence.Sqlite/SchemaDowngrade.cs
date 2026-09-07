@@ -560,6 +560,62 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV57ToV58"/> (census 9.6 Job Costing / 9.7 Item Cost Tracking / 9.8
+    /// Tracking Numbers / 9.9 Stock Journal Voucher Class): drops <c>voucher_type_classes</c>
+    /// (<see cref="Schema.V58ClassTables"/>), the three <c>companies</c> feature flags
+    /// (<see cref="Schema.V58CompanyColumns"/>), the one <c>godowns</c> job link
+    /// (<see cref="Schema.V58GodownColumns"/>) and the tracking pair
+    /// (<see cref="Schema.V58TrackingLineColumns"/>) from BOTH stock-line tables, then stamps the marker back to 57.
+    ///
+    /// <para><b>Not a true inverse, and the residual is data, not shape.</b> Every Tracking No. and every Cost
+    /// Tracking Number keyed by an operator is <b>discarded</b>, along with every godown→job/project link and
+    /// every named voucher class, because a v57 database has nowhere to keep one — the same honest loss
+    /// <see cref="V52ToV51"/> records for the edit log. The three feature flags return to "off", which is what a
+    /// v57 company was. 🔴 <b>The stock QUANTITIES are untouched</b>: a Receipt Note and its Purchase bill both
+    /// survive intact and simply stop being reconcilable by tracking number, falling back to the inferred FIFO
+    /// walk that was the only mechanism before v58.</para>
+    ///
+    /// <para>🔴 <b>Both stock-line tables and <c>godowns</c> are rebuilt with
+    /// <see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/>.</b> <c>godowns</c> is the PARENT of
+    /// foreign keys from <c>stock_opening_balances</c>, <c>inventory_allocations</c>, <c>order_lines</c> and more,
+    /// and a <c>CREATE … AS SELECT</c> rebuild loses its PRIMARY KEY, after which SQLite reports <c>foreign key
+    /// mismatch</c> on the next child insert — the measured failure <see cref="V56ToV55"/> documents. The two line
+    /// tables are children, but they are rebuilt the same way so their own outgoing FKs and AUTOINCREMENT-backed
+    /// INTEGER PRIMARY KEY survive; a lost <c>id</c> PK there would silently renumber rows. <c>companies</c> is the
+    /// parent of nearly every table in the schema and gets the same treatment for the same reason.</para>
+    ///
+    /// <para>🔴 <b>Order.</b> <c>voucher_type_classes</c> is dropped FIRST — it is a child of <c>voucher_types</c>,
+    /// and it is gone before any rebuild runs. The four v58 indexes are carried away with their tables' rebuilds
+    /// (<see cref="RebuildPreservingShape"/> skips any index naming a dropped column), so they need no explicit
+    /// DROP; the class table's unique index goes with the table.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing a v57 book out of a CURRENT one runs this FIRST and the
+    /// lower rungs after it. Calling <see cref="V57ToV56"/> alone on a v58 file stamps the marker 56 while the v58
+    /// objects are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V58ToV57(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        // The class table is a child of voucher_types and is dropped outright before any rebuild.
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        foreach (var table in Schema.V58ClassTables)
+            Exec(connection, $"DROP TABLE IF EXISTS \"{table}\";");
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+
+        // The two stock-line tables first (children), then godowns and companies (parents). Each rebuild
+        // preserves the table's PK, NOT NULLs, DEFAULTs and outgoing FKs — see RebuildPreservingShape.
+        RebuildPreservingShape(
+            connection, "inventory_allocations", Schema.V58TrackingLineColumns, "inventory_allocations_v57");
+        RebuildPreservingShape(
+            connection, "voucher_inventory_lines", Schema.V58TrackingLineColumns, "voucher_inventory_lines_v57");
+        RebuildPreservingShape(connection, "godowns", Schema.V58GodownColumns, "godowns_v57");
+        RebuildPreservingShape(connection, "companies", Schema.V58CompanyColumns, "companies_v57");
+
+        Exec(connection, "UPDATE schema_version SET version = 57;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

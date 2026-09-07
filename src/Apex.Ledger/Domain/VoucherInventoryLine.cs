@@ -81,6 +81,21 @@ public sealed class VoucherInventoryLine
     /// </summary>
     public Guid? UnitId { get; }
 
+    /// <summary>
+    /// The operator-entered <b>Tracking No.</b> quoted on this bill line, naming the goods movement it pays for
+    /// (census 9.8; schema v58). The Receipt Note's <see cref="InventoryAllocation.TrackingNumber"/> and this
+    /// carry the SAME string, and that shared string — not a FIFO guess — is what reconciles goods-in against the
+    /// bill. <c>null</c> ⇒ untracked. Free text, normalised blank → null; see
+    /// <see cref="InventoryAllocation.TrackingNumber"/> for why it is deliberately not a foreign key.
+    /// </summary>
+    public string? TrackingNumber { get; }
+
+    /// <summary>
+    /// The operator-entered <b>Cost Tracking Number</b> on this bill line (census 9.7; schema v58) — the lot whose
+    /// cost and revenue this line contributes to. <c>null</c> ⇒ not cost-tracked. Normalised blank → null.
+    /// </summary>
+    public string? CostTrackingNumber { get; }
+
     public VoucherInventoryLine(
         Guid stockItemId,
         Guid godownId,
@@ -89,7 +104,9 @@ public sealed class VoucherInventoryLine
         StockDirection direction = StockDirection.Inward,
         string? batchLabel = null,
         decimal? billedQuantity = null,
-        Guid? unitId = null)
+        Guid? unitId = null,
+        string? trackingNumber = null,
+        string? costTrackingNumber = null)
     {
         if (quantity <= 0m)
             throw new ArgumentException("An item-invoice line quantity must be > 0.", nameof(quantity));
@@ -120,6 +137,9 @@ public sealed class VoucherInventoryLine
         Direction = direction;
         BatchLabel = string.IsNullOrWhiteSpace(batchLabel) ? null : batchLabel.Trim();
         UnitId = unitId;
+        // v58 (9.8/9.7): normalise blank → null so "  " and "not entered" cannot become two report buckets.
+        TrackingNumber = string.IsNullOrWhiteSpace(trackingNumber) ? null : trackingNumber.Trim();
+        CostTrackingNumber = string.IsNullOrWhiteSpace(costTrackingNumber) ? null : costTrackingNumber.Trim();
     }
 
     /// <summary>The paisa-exact extended value of this line = <see cref="BilledQuantity"/> × <see cref="Rate"/> —
@@ -149,7 +169,13 @@ public sealed class VoucherInventoryLine
     /// <summary>Returns a copy of this line with its <see cref="Direction"/> set to <paramref name="direction"/>
     /// (used by <see cref="Voucher"/> to stamp the voucher-nature-implied direction on attach). Carries
     /// <see cref="BilledQuantity"/> through so the Actual/Billed split survives the stamping (which runs before
-    /// validation and valuation).</summary>
+    /// validation and valuation).
+    /// <para>🔴 <b>Every field must be carried, and this method is where a new one gets silently dropped.</b> The
+    /// stamping runs on EVERY item-invoice line attached to a voucher, so a field omitted here is <c>null</c> on
+    /// every line the operator ever keys — the line would round-trip through persistence correctly and still lose
+    /// its value, because the loss happens before persistence sees it. <see cref="TrackingNumber"/> and
+    /// <see cref="CostTrackingNumber"/> are carried for exactly that reason.</para></summary>
     public VoucherInventoryLine WithDirection(StockDirection direction) =>
-        new(StockItemId, GodownId, Quantity, Rate, direction, BatchLabel, BilledQuantity, UnitId);
+        new(StockItemId, GodownId, Quantity, Rate, direction, BatchLabel, BilledQuantity, UnitId,
+            TrackingNumber, CostTrackingNumber);
 }

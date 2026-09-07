@@ -263,6 +263,12 @@ public sealed class SavedViewRoundTripTests
     /// </summary>
     private const string MinimalV13Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
+        -- godowns and cost_centres are required because the chain now runs through the v57 -> v58 inventory
+        -- costing & tracking migration (census 9.6): it ALTERs godowns to add the job/project link, which
+        -- REFERENCES cost_centres. A real database of this vintage always has both (godowns at v9, cost_centres
+        -- at v1); this fixture is a minimal hand-written subset, so they are declared here for the ALTER to land on.
+        CREATE TABLE cost_centres (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+        CREATE TABLE godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE companies (
             id   TEXT NOT NULL PRIMARY KEY,
             name TEXT NOT NULL
