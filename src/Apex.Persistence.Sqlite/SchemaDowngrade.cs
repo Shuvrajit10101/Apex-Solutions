@@ -517,6 +517,49 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV56ToV57"/> (census 8.4 / 8.5 / 8.6 Banking documents): drops the three
+    /// v57 tables (<see cref="Schema.V57ChequeTables"/>) and the six v57 <c>ledgers</c> columns
+    /// (<see cref="Schema.V57BankingLedgerColumns"/>), then stamps the marker back to 56.
+    ///
+    /// <para><b>Not a true inverse, and the residual is data, not shape.</b> Every cheque book, every operator-set
+    /// cheque status and every captured cheque layout is <b>discarded</b>, because there is nowhere in a v56
+    /// database to keep one — the same honest loss <see cref="V52ToV51"/> records for the edit log. A ledger's
+    /// account number, branch and IFSC go with the columns. The two calibration nudges and the
+    /// print-company-name flag return to "never set", which is what a v56 ledger was.</para>
+    ///
+    /// <para>🔴 <b><c>ledgers</c> is rebuilt with <see cref="RebuildPreservingShape"/>, NOT
+    /// <see cref="DropColumns"/>.</b> <c>ledgers</c> is the PARENT of foreign keys elsewhere in this schema, and a
+    /// <c>CREATE … AS SELECT</c> rebuild loses its PRIMARY KEY, after which SQLite reports <c>foreign key
+    /// mismatch</c> on the next child insert — the measured failure <see cref="V56ToV55"/> documents for
+    /// <c>companies</c>. <see cref="V54ToV53"/> predates that finding and still uses <see cref="DropColumns"/> on
+    /// this same table; it is left alone rather than changed under this slice, but a new rung does not repeat it.</para>
+    ///
+    /// <para>🔴 <b>Order.</b> <c>cheque_status_overrides</c> FKs <c>cheque_books</c>, so the tables are dropped in
+    /// <see cref="Schema.V57ChequeTables"/> order (child first), and both are dropped BEFORE the <c>ledgers</c>
+    /// rebuild — <c>cheque_books</c> and <c>cheque_layouts</c> both reference <c>ledgers(id)</c>, and rebuilding a
+    /// parent out from under a live child FK is exactly the mismatch above.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing a v56 book out of a CURRENT one runs this FIRST and the
+    /// lower rungs after it. Calling <see cref="V56ToV55"/> alone on a v57 file stamps the marker 55 while the v57
+    /// objects are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V57ToV56(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        // FK order: the status table (child of cheque_books) first, then the two tables that reference ledgers,
+        // and only then the ledgers rebuild. V57ChequeTables is declared in exactly that order.
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        foreach (var table in Schema.V57ChequeTables)
+            Exec(connection, $"DROP TABLE IF EXISTS \"{table}\";");
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+
+        RebuildPreservingShape(connection, "ledgers", Schema.V57BankingLedgerColumns, "ledgers_v56");
+
+        Exec(connection, "UPDATE schema_version SET version = 56;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

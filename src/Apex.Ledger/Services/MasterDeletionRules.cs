@@ -144,6 +144,11 @@ public static class MasterDeletionRules
 
         // ---- pointing at a LEDGER (EnsureLedgerDeletable)
         "additional_cost_lines.ledger_id",
+        // v57 (census 8.5): a cheque book is a TOP-LEVEL row keyed to its bank ledger, written from
+        // Company.ChequeBooks and not from the ledger's own graph — so deleting the bank without deleting its
+        // books would leave a row whose parent is gone, and the very next Save would fail the FK. It is guarded,
+        // unlike cheque_layouts, which IS part of the ledger's graph and leaves with it.
+        "cheque_books.ledger_id",
         "budget_lines.ledger_id",
         "entry_lines.ledger_id",
         "inventory_vouchers.party_id",
@@ -179,12 +184,21 @@ public static class MasterDeletionRules
 
     /// <summary>
     /// The FK columns that need <b>no</b> guard because the row is written from the parent's own object graph and
-    /// therefore leaves with it on the next delete-all + re-insert. These are exactly the voucher's own children:
-    /// its entry lines, its item-invoice lines and its POS tender rows. Nothing else in the schema qualifies —
-    /// a stock item's opening balance, for instance, is a top-level row and IS guarded.
+    /// therefore leaves with it on the next delete-all + re-insert. These are the voucher's own children — its
+    /// entry lines, its item-invoice lines and its POS tender rows — plus, from v57, a bank ledger's cheque
+    /// layout. Nothing else in the schema qualifies: a stock item's opening balance, for instance, is a top-level
+    /// row and IS guarded, and so is a cheque BOOK.
+    ///
+    /// <para><b>Why <c>cheque_layouts</c> belongs here and <c>cheque_books</c> does not, since the two arrived in
+    /// the same version and point at the same parent.</b> A layout is written from <c>Ledger.ChequeLayout</c> — it
+    /// is a block on the ledger object, exactly like the party mailing details, and a deleted ledger simply is not
+    /// enumerated, so no row is written. A cheque book is written from <c>Company.ChequeBooks</c>, a collection of
+    /// its own that knows nothing about whether its ledger survived; leaving it unguarded is precisely the
+    /// "permitted delete that makes the open company unsavable" this file exists to prevent.</para>
     /// </summary>
     public static readonly IReadOnlyList<string> ForeignKeyColumnsThatDieWithTheirParent =
     [
+        "cheque_layouts.ledger_id",
         "entry_lines.voucher_id",
         "pos_tender_allocations.voucher_id",
         "voucher_inventory_lines.voucher_id",
@@ -619,6 +633,10 @@ public static class MasterDeletionRules
         // rcm_documents.supplier_ledger_id
         AddPart(parts, company.RcmDocuments.Count(d => d.SupplierLedgerId == ledger.Id),
                 "RCM document", "RCM documents");
+        // cheque_books.ledger_id (v57; census 8.5). The cheque LAYOUT is deliberately not counted: it is a block
+        // on this ledger object and leaves with it, so it can never dangle.
+        AddPart(parts, company.ChequeBooks.Count(b => b.LedgerId == ledger.Id),
+                "cheque book", "cheque books");
         return parts;
     }
 

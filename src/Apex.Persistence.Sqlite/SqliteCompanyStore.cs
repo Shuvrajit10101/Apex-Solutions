@@ -1405,6 +1405,36 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 56;
         }
 
+        // v56 → v57 (census 8.4/8.5/8.6): Banking documents — the three tables (cheque_books,
+        // cheque_status_overrides, cheque_layouts) and the six ledgers columns (bank_account_number, bank_branch,
+        // bank_ifsc, cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque), then bump the
+        // marker. Purely additive and it back-fills NOTHING: a pre-v57 ledger had no captured bank identity, no
+        // calibration nudge and no cheque layout, so every NULL / 0 default is the literal truth about it.
+        // 🔴 THIS VERSION EXISTS TO MAKE A DEAD FEATURE REACHABLE. Ledger.ChequeLayout had zero writers in src/
+        // because there was no table to load one from, so ChequePdf.Validate refused every render and the cheque
+        // LEAF could not print for any operator. See Schema.MigrateV56ToV57.
+        // 🔴 Every geometry column is TENTHS OF A MILLIMETRE as INTEGER, never REAL — a floating-point millimetre
+        // renders two different byte streams on two machines and breaks the PDF determinism tests.
+        if (version == 56)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV56ToV57;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 57);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 57;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1777,6 +1807,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddTcsChallan(ch);
         foreach (var (challanId, voucherId) in ReadTcsChallanVoucherLinks(companyId))
             company.LinkTcsChallanToVoucher(challanId, voucherId);
+
+        // Cheque books + their operator-set leaf statuses (v57; census 8.5). Loaded after the ledgers, because
+        // AddChequeBook refuses a book whose bank ledger is not on the company. Empty for every book that has not
+        // recorded a cheque book, which is what every company was before v57 (ER-13).
+        ReadChequeBooks(companyId, company);
 
         // RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2). Loaded after vouchers so
         // their source-voucher references resolve. The CDN/advance sets stay empty until S2b (ER-13).
@@ -2236,7 +2271,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
                    itc_eligibility, blocked_credit_category,
                    mailing_name, mailing_address, mailing_country, mailing_pincode,
-                   credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated
+                   credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated,
+                   bank_account_number, bank_branch, bank_ifsc,
+                   cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2286,9 +2323,87 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 CreditLimit = r.IsDBNull(61) ? (Money?)null : Paisa.ToMoney(r.GetInt64(61)),
                 CheckCreditDaysOnEntry = r.GetInt64(62) != 0,
                 OverrideCreditLimitWithPostDated = r.GetInt64(63) != 0,
+                // v57 (census 8.4/8.6): the bank identity trio and the cheque calibration block (columns 64-69).
+                // NULL / 0 on every pre-v57 ledger, which is what "never captured" is (ER-13). The cheque LAYOUT
+                // itself is not here — it is its own table, hydrated by ReadChequeLayouts below.
+                BankAccountNumber = r.IsDBNull(64) ? null : r.GetString(64),
+                BankBranch = r.IsDBNull(65) ? null : r.GetString(65),
+                BankIfsc = r.IsDBNull(66) ? null : r.GetString(66),
+                ChequeAdjustTopTmm = (int)r.GetInt64(67),
+                ChequeAdjustLeftTmm = (int)r.GetInt64(68),
+                PrintCompanyNameOnCheque = r.GetInt64(69) != 0,
             });
         }
+
+        // v57: hang each bank ledger's Cheque Dimensions off it. 🔴 THIS IS THE ASSIGNMENT THAT MAKES THE CHEQUE
+        // LEAF PRINTABLE — before it, Ledger.ChequeLayout had zero writers in src/ and ChequePdf.Validate refused
+        // every render on every loaded company.
+        ReadChequeLayouts(companyId, list);
         return list;
+    }
+
+    /// <summary>
+    /// Reads the v57 <c>cheque_layouts</c> rows and hangs each one off its bank ledger (census row 8.4).
+    /// A ledger with no row keeps <c>ChequeLayout = null</c>, which is what every pre-v57 ledger was.
+    ///
+    /// <para>🔴 Every measure is read as an <see langword="int"/> of TENTHS OF A MILLIMETRE. There is deliberately
+    /// no floating-point step anywhere on this path — see <c>Apex.Ledger.Domain.ChequeLayout</c>.</para>
+    /// </summary>
+    private void ReadChequeLayouts(Guid companyId, List<Apex.Ledger.Domain.Ledger> ledgers)
+    {
+        if (ledgers.Count == 0) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT l.ledger_id,
+                   l.leaf_width_tmm, l.leaf_height_tmm,
+                   l.date_top_tmm, l.date_left_tmm, l.date_char_pitch_tmm,
+                   l.payee_top_tmm, l.payee_left_tmm, l.payee_width_tmm,
+                   l.words_line1_top_tmm, l.words_line1_left_tmm,
+                   l.words_line2_top_tmm, l.words_line2_left_tmm, l.words_width_tmm,
+                   l.figures_top_tmm, l.figures_left_tmm, l.figures_width_tmm,
+                   l.sign_top_tmm, l.sign_left_tmm, l.sign_width_tmm, l.sign_height_tmm,
+                   l.salutation_1, l.salutation_2,
+                   l.print_currency_formal_name, l.print_currency_symbol
+            FROM cheque_layouts l
+            JOIN ledgers g ON g.id = l.ledger_id
+            WHERE g.company_id = $cid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        var byId = ledgers.ToDictionary(l => l.Id);
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var ledger)) continue;
+            ledger.ChequeLayout = new ChequeLayout
+            {
+                LeafWidthTmm = (int)r.GetInt64(1),
+                LeafHeightTmm = (int)r.GetInt64(2),
+                DateTopTmm = (int)r.GetInt64(3),
+                DateLeftTmm = (int)r.GetInt64(4),
+                DateCharPitchTmm = (int)r.GetInt64(5),
+                PayeeTopTmm = (int)r.GetInt64(6),
+                PayeeLeftTmm = (int)r.GetInt64(7),
+                PayeeWidthTmm = (int)r.GetInt64(8),
+                WordsLine1TopTmm = (int)r.GetInt64(9),
+                WordsLine1LeftTmm = (int)r.GetInt64(10),
+                WordsLine2TopTmm = (int)r.GetInt64(11),
+                WordsLine2LeftTmm = (int)r.GetInt64(12),
+                WordsWidthTmm = (int)r.GetInt64(13),
+                FiguresTopTmm = (int)r.GetInt64(14),
+                FiguresLeftTmm = (int)r.GetInt64(15),
+                FiguresWidthTmm = (int)r.GetInt64(16),
+                SignTopTmm = (int)r.GetInt64(17),
+                SignLeftTmm = (int)r.GetInt64(18),
+                SignWidthTmm = (int)r.GetInt64(19),
+                SignHeightTmm = (int)r.GetInt64(20),
+                Salutation1 = r.IsDBNull(21) ? null : r.GetString(21),
+                Salutation2 = r.IsDBNull(22) ? null : r.GetString(22),
+                PrintCurrencyFormalName = r.GetInt64(23) != 0,
+                PrintCurrencySymbol = r.GetInt64(24) != 0,
+            };
+        }
     }
 
     /// <summary>Reads the v45 party Mailing Details block (columns 57–60), or <c>null</c> when every one of them is
@@ -4916,6 +5031,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM pay_heads WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM pay_heads WHERE company_id = $cid;", ("$cid", cid));
+        // v57 banking documents (census 8.4/8.5): cheque_status_overrides FKs cheque_books, and cheque_books +
+        // cheque_layouts both FK ledgers(id) → child first, then both parents, all before the ledgers delete
+        // below. Neither table carries a company_id of its own; the company is reached through the ledger, which
+        // is why each of these is a sub-select rather than a flat WHERE.
+        ExecTx(tx, """
+            DELETE FROM cheque_status_overrides WHERE cheque_book_id IN (
+                SELECT b.id FROM cheque_books b
+                JOIN ledgers l ON l.id = b.ledger_id
+                WHERE l.company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM cheque_books WHERE ledger_id IN (
+                SELECT id FROM ledgers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM cheque_layouts WHERE ledger_id IN (
+                SELECT id FROM ledgers WHERE company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
@@ -5600,7 +5733,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
                      itc_eligibility, blocked_credit_category,
                      mailing_name, mailing_address, mailing_country, mailing_pincode,
-                     credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated)
+                     credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated,
+                     bank_account_number, bank_branch, bank_ifsc,
+                     cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
@@ -5609,7 +5744,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc,
                         $spitcelig, $spblkcat,
                         $mailname, $mailaddr, $mailcountry, $mailpin,
-                        $climit, $ccheckdays, $coverridepd);
+                        $climit, $ccheckdays, $coverridepd,
+                        $bankacct, $bankbranch, $bankifsc, $chqadjtop, $chqadjleft, $chqprintcoy);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5712,6 +5848,173 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 "$climit", l.CreditLimit is { } cl ? Paisa.FromMoney(cl) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$ccheckdays", l.CheckCreditDaysOnEntry ? 1 : 0);
             cmd.Parameters.AddWithValue("$coverridepd", l.OverrideCreditLimitWithPostDated ? 1 : 0);
+
+            // v57 (census 8.4/8.6): the bank identity trio + the cheque calibration block. All NULL / 0 for a
+            // ledger that never captured them, so an untouched book writes exactly the bytes it wrote at v56.
+            // 🔴 The two nudges are TENTHS OF A MILLIMETRE as INTEGER — never a rounded double.
+            cmd.Parameters.AddWithValue("$bankacct", (object?)l.BankAccountNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bankbranch", (object?)l.BankBranch ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bankifsc", (object?)l.BankIfsc ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$chqadjtop", l.ChequeAdjustTopTmm);
+            cmd.Parameters.AddWithValue("$chqadjleft", l.ChequeAdjustLeftTmm);
+            cmd.Parameters.AddWithValue("$chqprintcoy", l.PrintCompanyNameOnCheque ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+
+        InsertChequeLayouts(tx, c);
+        InsertChequeBooks(tx, c);
+    }
+
+    /// <summary>
+    /// Writes the v57 <c>cheque_books</c> rows and the operator-set <c>cheque_status_overrides</c> against them
+    /// (census row 8.5). Books first — the status table foreign-keys them.
+    ///
+    /// <para>A status whose book is not in the aggregate is skipped rather than written: it could only arrive
+    /// from a graph that had already dropped the book, and inserting it would fail the FK and take the whole Save
+    /// with it.</para>
+    /// </summary>
+    private void InsertChequeBooks(SqliteTransaction tx, Company c)
+    {
+        foreach (var b in c.ChequeBooks)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cheque_books (id, ledger_id, name, from_number, to_number)
+                VALUES ($id, $lid, $name, $from, $to);
+                """;
+            cmd.Parameters.AddWithValue("$id", b.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$lid", b.LedgerId.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", b.Name);
+            cmd.Parameters.AddWithValue("$from", b.FromNumber);
+            cmd.Parameters.AddWithValue("$to", b.ToNumber);
+            cmd.ExecuteNonQuery();
+        }
+
+        var books = c.ChequeBooks.Select(b => b.Id).ToHashSet();
+        foreach (var o in c.ChequeStatusOverrides)
+        {
+            if (!books.Contains(o.ChequeBookId)) continue;
+
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cheque_status_overrides (id, cheque_book_id, cheque_number, status, printed)
+                VALUES ($id, $bid, $num, $status, $printed);
+                """;
+            cmd.Parameters.AddWithValue("$id", o.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$bid", o.ChequeBookId.ToString("D"));
+            cmd.Parameters.AddWithValue("$num", o.ChequeNumber);
+            cmd.Parameters.AddWithValue("$status", (int)o.Status);
+            cmd.Parameters.AddWithValue("$printed", o.Printed ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Reads the v57 <c>cheque_books</c> and <c>cheque_status_overrides</c> rows back onto the company
+    /// (census row 8.5). Books first, because <c>AddChequeStatusOverride</c>'s parents must already be there.</summary>
+    private void ReadChequeBooks(Guid companyId, Company company)
+    {
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT b.id, b.ledger_id, b.name, b.from_number, b.to_number
+                FROM cheque_books b
+                JOIN ledgers l ON l.id = b.ledger_id
+                WHERE l.company_id = $cid
+                ORDER BY b.rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                company.AddChequeBook(new ChequeBook(
+                    Guid.Parse(r.GetString(0)),
+                    Guid.Parse(r.GetString(1)),
+                    r.GetString(2),
+                    r.GetString(3),
+                    r.GetString(4)));
+        }
+
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT o.id, o.cheque_book_id, o.cheque_number, o.status, o.printed
+                FROM cheque_status_overrides o
+                JOIN cheque_books b ON b.id = o.cheque_book_id
+                JOIN ledgers l ON l.id = b.ledger_id
+                WHERE l.company_id = $cid
+                ORDER BY o.rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                company.AddChequeStatusOverride(new ChequeStatusOverride(
+                    Guid.Parse(r.GetString(0)),
+                    Guid.Parse(r.GetString(1)),
+                    r.GetString(2),
+                    (ChequeStatus)(int)r.GetInt64(3),
+                    r.GetInt64(4) != 0));
+        }
+    }
+
+    /// <summary>
+    /// Writes the v57 <c>cheque_layouts</c> rows — one per bank ledger that has captured Cheque Dimensions
+    /// (census row 8.4). A ledger whose <c>ChequeLayout</c> is <c>null</c> writes no row at all, so an untouched
+    /// company persists exactly as it did at v56.
+    ///
+    /// <para>🔴 The row id is DERIVED from the ledger id rather than freshly generated, because whole-company Save
+    /// is DELETE-ALL + full re-INSERT: a <c>Guid.NewGuid()</c> here would give the same layout a different primary
+    /// key on every save, which is churn a diff of two backups would show as a change that never happened.</para>
+    /// </summary>
+    private void InsertChequeLayouts(SqliteTransaction tx, Company c)
+    {
+        foreach (var l in c.Ledgers)
+        {
+            if (l.ChequeLayout is not { } layout) continue;
+
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cheque_layouts
+                    (id, ledger_id, leaf_width_tmm, leaf_height_tmm,
+                     date_top_tmm, date_left_tmm, date_char_pitch_tmm,
+                     payee_top_tmm, payee_left_tmm, payee_width_tmm,
+                     words_line1_top_tmm, words_line1_left_tmm,
+                     words_line2_top_tmm, words_line2_left_tmm, words_width_tmm,
+                     figures_top_tmm, figures_left_tmm, figures_width_tmm,
+                     sign_top_tmm, sign_left_tmm, sign_width_tmm, sign_height_tmm,
+                     salutation_1, salutation_2,
+                     print_currency_formal_name, print_currency_symbol)
+                VALUES ($id, $lid, $lw, $lh, $dt, $dl, $dp, $pt, $pl, $pw,
+                        $w1t, $w1l, $w2t, $w2l, $ww, $ft, $fl, $fw,
+                        $st, $sl, $sw, $sh, $sal1, $sal2, $pcfn, $pcs);
+                """;
+            cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$lid", l.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$lw", layout.LeafWidthTmm);
+            cmd.Parameters.AddWithValue("$lh", layout.LeafHeightTmm);
+            cmd.Parameters.AddWithValue("$dt", layout.DateTopTmm);
+            cmd.Parameters.AddWithValue("$dl", layout.DateLeftTmm);
+            cmd.Parameters.AddWithValue("$dp", layout.DateCharPitchTmm);
+            cmd.Parameters.AddWithValue("$pt", layout.PayeeTopTmm);
+            cmd.Parameters.AddWithValue("$pl", layout.PayeeLeftTmm);
+            cmd.Parameters.AddWithValue("$pw", layout.PayeeWidthTmm);
+            cmd.Parameters.AddWithValue("$w1t", layout.WordsLine1TopTmm);
+            cmd.Parameters.AddWithValue("$w1l", layout.WordsLine1LeftTmm);
+            cmd.Parameters.AddWithValue("$w2t", layout.WordsLine2TopTmm);
+            cmd.Parameters.AddWithValue("$w2l", layout.WordsLine2LeftTmm);
+            cmd.Parameters.AddWithValue("$ww", layout.WordsWidthTmm);
+            cmd.Parameters.AddWithValue("$ft", layout.FiguresTopTmm);
+            cmd.Parameters.AddWithValue("$fl", layout.FiguresLeftTmm);
+            cmd.Parameters.AddWithValue("$fw", layout.FiguresWidthTmm);
+            cmd.Parameters.AddWithValue("$st", layout.SignTopTmm);
+            cmd.Parameters.AddWithValue("$sl", layout.SignLeftTmm);
+            cmd.Parameters.AddWithValue("$sw", layout.SignWidthTmm);
+            cmd.Parameters.AddWithValue("$sh", layout.SignHeightTmm);
+            cmd.Parameters.AddWithValue("$sal1", (object?)layout.Salutation1 ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$sal2", (object?)layout.Salutation2 ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pcfn", layout.PrintCurrencyFormalName ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pcs", layout.PrintCurrencySymbol ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
     }

@@ -523,11 +523,14 @@
                           </ComboBox>
                         </Grid>
 
-                        <!-- Bank picker for the Cheque Printing report (census 8.4) — the vendor's "List of Banks"
-                             scope (help.tallysolutions.com/print-cheques/, "Cheque Printing Report"). It shares
-                             Grid.Row 2 with the scenario and payroll pickers, which are mutually exclusive with it:
-                             ShowChequeBankPicker is true on exactly one ReportKind, and SupportsScenario /
-                             ShowPayrollMonthPicker are both false there.
+                        <!-- Bank picker for the four banking reports (census 8.4 / 8.5 / 8.6) — the vendor's
+                             "List of Banks" scope (help.tallysolutions.com/print-cheques/, "Cheque Printing
+                             Report"), which is also "View Cheques with Status for Specific Banks" on the Cheque
+                             Register and F4 on the Deposit Slip. It shares Grid.Row 2 with the scenario and payroll
+                             pickers, which stay mutually exclusive with it: ShowChequeBankPicker is true on exactly
+                             FOUR ReportKinds — ChequePrinting, ChequeRegister, ChequeRegisterDetail, DepositSlip —
+                             and on none of them is SupportsScenario (TrialBalance / BalanceSheet / ProfitAndLoss)
+                             or ShowPayrollMonthPicker (IsPayrollReport) true, so nothing overlaps in this row.
                              The label column is Auto, not a literal width, and the caption is the shortest true one
                              ("Bank"), so it cannot be sliced at the ComboBox border the way a fixed track slices. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
@@ -4862,6 +4865,219 @@
                                                Text="{Binding ChequePrintingBankName, Mode=TwoWay}"
                                                PlaceholderText="defaults to the ledger name"/>
                                     </Grid>
+
+                                    <!-- Bank identity + Cheque Dimensions (census 8.4 / 8.6; schema v57).
+                                         🔴 THIS IS THE ONLY SCREEN IN THE PRODUCT THAT WRITES A CHEQUE LAYOUT.
+                                         Without it Ledger.ChequeLayout has no writer at all, ChequePdf.Validate
+                                         refuses every render with "Cheque dimensions are not set for this bank",
+                                         and ~625 lines of shipped, tested cheque-rendering code are unreachable.
+                                         Vendor: help.tallysolutions.com/cheque-payments-set-up/, "Specify User
+                                         Defined Cheque Format"; the field list is
+                                         help.tallysolutions.com/docs/te9rel51/.../Creation_Mode.htm,
+                                         "Cheque Dimensions". Every box is MILLIMETRES on screen and tenths-mm in
+                                         the store. Labels carry TextTrimming and the boxes a fixed 110px so a
+                                         narrow window slices neither. -->
+                                    <StackPanel Spacing="8" IsVisible="{Binding ShowChequeDimensions}">
+                                      <TextBlock Text="Bank Identity (deposit slip / payment advice)"
+                                                 FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto"
+                                            ColumnSpacing="10" RowSpacing="6">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Account number"
+                                                   FontWeight="SemiBold" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1"
+                                                 Text="{Binding BankAccountNumber, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Branch name"
+                                                   FontWeight="SemiBold" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1"
+                                                 Text="{Binding BankBranch, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="IFSC"
+                                                   FontWeight="SemiBold" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1"
+                                                 Text="{Binding BankIfsc, Mode=TwoWay}"/>
+                                      </Grid>
+
+                                      <TextBlock Text="Cheque Dimensions (millimetres, measured from the leaf edges)"
+                                                 FontWeight="SemiBold" FontSize="12"
+                                                 TextWrapping="Wrap"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Text="Measure a real cheque leaf and key the distances here. An element left blank is not printed at all — nothing is guessed onto a negotiable instrument."
+                                                 FontSize="11.5" TextWrapping="Wrap" Opacity="0.85"/>
+                                      <Grid ColumnDefinitions="Auto,110,Auto,110"
+                                            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                            ColumnSpacing="10" RowSpacing="6">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Leaf width"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ChequeLeafWidthMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="Leaf height"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding ChequeLeafHeightMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Date — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ChequeDateTopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="2" Text="Date — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="3" Text="{Binding ChequeDateLeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Date — character pitch"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ChequeDateCharPitchMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="2" Text="Payee — width area"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="3" Text="{Binding ChequePayeeWidthMm, Mode=TwoWay}"
+                                                 PlaceholderText="135"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Payee — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ChequePayeeTopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="2" Text="Payee — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="3" Text="{Binding ChequePayeeLeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Words line 1 — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ChequeWordsLine1TopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="2" Text="Words line 1 — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="3" Text="{Binding ChequeWordsLine1LeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Words line 2 — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ChequeWordsLine2TopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="5" Grid.Column="2" Text="Words line 2 — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="5" Grid.Column="3" Text="{Binding ChequeWordsLine2LeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Words — width area"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding ChequeWordsWidthMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="6" Grid.Column="2" Text="Figures — width area"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="6" Grid.Column="3" Text="{Binding ChequeFiguresWidthMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Figures — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding ChequeFiguresTopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="7" Grid.Column="2" Text="Figures — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="7" Grid.Column="3" Text="{Binding ChequeFiguresLeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Signatory — from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding ChequeSignTopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="8" Grid.Column="2" Text="Signatory — from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="8" Grid.Column="3" Text="{Binding ChequeSignLeftMm, Mode=TwoWay}"/>
+
+                                        <TextBlock Grid.Row="9" Grid.Column="0" Text="Signature area — width"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding ChequeSignWidthMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="9" Grid.Column="2" Text="Signature area — height"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="9" Grid.Column="3" Text="{Binding ChequeSignHeightMm, Mode=TwoWay}"/>
+                                      </Grid>
+
+                                      <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto"
+                                            ColumnSpacing="10" RowSpacing="6">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Salutation, 1st signatory"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ChequeSalutation1, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Salutation, 2nd signatory"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ChequeSalutation2, Mode=TwoWay}"/>
+                                      </Grid>
+
+                                      <CheckBox Content="Print currency formal name in the amount in words"
+                                                IsChecked="{Binding ChequePrintCurrencyFormalName, Mode=TwoWay}"
+                                                FontSize="13"/>
+                                      <CheckBox Content="Print currency symbol before the amount in figures"
+                                                IsChecked="{Binding ChequePrintCurrencySymbol, Mode=TwoWay}"
+                                                FontSize="13"/>
+                                      <CheckBox Content="Print the company name on the cheque"
+                                                IsChecked="{Binding PrintCompanyNameOnCheque, Mode=TwoWay}"
+                                                FontSize="13"/>
+
+                                      <!-- The per-print nudge. help.tallysolutions.com/docs/te9rel53/Banking/
+                                           Cheque_Printing.htm is explicit that the adjustment "does not affect
+                                           the settings of cheque dimensions", so these are applied at render
+                                           time and never written back into the dimensions above. -->
+                                      <Grid ColumnDefinitions="Auto,110,Auto,110" ColumnSpacing="10">
+                                        <TextBlock Grid.Column="0" Text="Adjust from top"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding ChequeAdjustTopMm, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="2" Text="Adjust from left"
+                                                   FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="3" Text="{Binding ChequeAdjustLeftMm, Mode=TwoWay}"/>
+                                      </Grid>
+                                    </StackPanel>
+
+                                    <!-- Cheque Books (census 8.5; schema v57).
+                                         🔴 THIS IS THE ONLY ROUTE IN THE PRODUCT THAT CREATES A CHEQUE BOOK, and
+                                         the Cheque Register buckets leaves against a book's number range — so
+                                         without this block that report can only ever be empty. Vendor:
+                                         help.tallysolutions.com/cheque-payments-set-up/, "Specify Cheque Range
+                                         and Format in Bank Ledger" (Name of Cheque Book / From Number / To
+                                         Number; the leaf count is auto-calculated and is derived, not typed).
+                                         Shown only while ALTERING: a book carries the bank ledger's id, and
+                                         during Create there is no saved ledger for it to carry. -->
+                                    <StackPanel Spacing="8" IsVisible="{Binding ShowChequeBooks}">
+                                      <TextBlock Text="Cheque Books" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Text="Record the leaf numbers your bank issued. The Cheque Register (Transactions &gt; Banking) then reports which of them are still available, which are out, and which cleared."
+                                                 FontSize="11.5" TextWrapping="Wrap" Opacity="0.85"/>
+                                      <ListBox ItemsSource="{Binding ChequeBooks}"
+                                               SelectedItem="{Binding SelectedChequeBook, Mode=TwoWay}"
+                                               MaxHeight="140" FontSize="12.5">
+                                        <ListBox.ItemTemplate>
+                                          <DataTemplate>
+                                            <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"/>
+                                          </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                      </ListBox>
+                                      <Grid ColumnDefinitions="*,120,120,Auto,Auto" ColumnSpacing="8">
+                                        <TextBox Grid.Column="0" Text="{Binding NewChequeBookName, Mode=TwoWay}"
+                                                 PlaceholderText="Name of cheque book"/>
+                                        <TextBox Grid.Column="1" Text="{Binding NewChequeBookFrom, Mode=TwoWay}"
+                                                 PlaceholderText="From no."/>
+                                        <TextBox Grid.Column="2" Text="{Binding NewChequeBookTo, Mode=TwoWay}"
+                                                 PlaceholderText="To no."/>
+                                        <Button Grid.Column="3" Content="Add book"
+                                                Click="OnAddChequeBookClick"/>
+                                        <Button Grid.Column="4" Content="Remove"
+                                                Click="OnRemoveChequeBookClick"/>
+                                      </Grid>
+                                    </StackPanel>
                                   </StackPanel>
                                 </Border>
 

@@ -131,14 +131,26 @@ public sealed class ReportRow
     public Apex.Ledger.Reports.PeriodRange? DrillPeriod { get; init; }
 
     /// <summary>
+    /// The cheque book this row drills into (census 8.5): Enter on a Cheque Register summary row opens that
+    /// book's leaf-by-leaf detail — the vendor's "View More Details in Cheque Register"
+    /// (<c>help.tallysolutions.com/cheque-register/</c>). <see cref="Guid.Empty"/> on every other row and report.
+    ///
+    /// <para>It is its own key rather than a reuse of <see cref="DrillGroupId"/>: two different drills sharing
+    /// one Guid slot means the drill handler has to guess which one a row meant from the report kind, and the
+    /// first report that carries both would silently take the wrong branch.</para>
+    /// </summary>
+    public Guid DrillChequeBookId { get; init; }
+
+    /// <summary>
     /// True when this row can be drilled into by any of the drill keys (a stock item, a ledger, a voucher, a
-    /// group, or a month). Section headers, totals and computed/synthetic rows carry no drill key, so Enter is
-    /// a safe no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
+    /// group, a month, or a cheque book). Section headers, totals and computed/synthetic rows carry no drill key,
+    /// so Enter is a safe no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
     /// </summary>
     public bool CanDrill => DrillStockItemId is not null
         || DrillLedgerId != Guid.Empty
         || DrillVoucherId != Guid.Empty
         || DrillGroupId != Guid.Empty
+        || DrillChequeBookId != Guid.Empty
         || DrillPeriod is not null;
 
     /// <summary>Alias of <see cref="CanDrill"/> for the RQ-7 accounting-report grid (Enter guard).</summary>

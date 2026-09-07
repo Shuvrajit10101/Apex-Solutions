@@ -751,6 +751,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+A on the Cheque Register's leaf list is the vendor's "Alter Status" (census 8.5;
+        // help.tallysolutions.com/cheque-register/). It cycles the highlighted leaf Available → Blank →
+        // Cancelled → Available and saves.
+        // 🔴 THIS ARM IS WHAT MAKES THE OPERATOR-SET STATUSES REACHABLE AT ALL. Without it `cheque_status_overrides`
+        // has storage, the register has three buckets that read them, and NOTHING an operator can press ever
+        // writes one — the "capability no user can reach" shape this project has filed three times. The exact
+        // `== KeyModifiers.Alt` match (not HasFlag) keeps Ctrl+Alt+A and Alt+Shift+A off this arm, matching the
+        // Alt+X and Alt+D arms above and below it.
+        if (e.Key == Key.A && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsChequeRegisterDetailReport && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.ReportAlterChequeStatus();
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Alt+D DELETES THE HIGHLIGHTED VOUCHER OR MASTER. (Phase 10.11 S4 / VL-2.)                        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -1501,6 +1517,21 @@ public partial class MainWindow : Window
                     vm.ReportToggleAdviceReconciledOnly();
                     e.Handled = true;
                     return;
+                // F8 on either half of the Cheque Register is the vendor's "Cheque Status Filter" (census 8.5;
+                // help.tallysolutions.com/cheque-register/, "View Cheques with Specific Statuses"). Same door and
+                // same ordering as the two arms above.
+                case Key.F8 when vm.IsChequeRegisterReport:
+                    vm.ReportCycleChequeStatusFilter();
+                    e.Handled = true;
+                    return;
+                // F5 on the Deposit Slip switches Cash ⇄ Cheque (census 8.6;
+                // help.tallysolutions.com/deposit-slips/). 🔴 SCOPED TO THAT REPORT AND CHECKED FIRST, because
+                // the global F5 is the Payment voucher — without this guard F5 would open a Payment over the
+                // slip, which is the exact "global chord shadows a report chord" trap the F4/Contra note records.
+                case Key.F5 when vm.IsDepositSlipReport:
+                    vm.ReportToggleDepositSlipKind();
+                    e.Handled = true;
+                    return;
             }
         }
 
@@ -1786,6 +1817,23 @@ public partial class MainWindow : Window
 
     private void OnCreateCompanyClick(object? sender, RoutedEventArgs e)
         => Vm?.CreateCompany();
+
+    /// <summary>
+    /// The bank ledger master's <b>Add book</b> button (census 8.5). The view model is reached through the
+    /// button's own DataContext rather than through <c>Vm</c>: this block lives inside the ledger master's
+    /// DataTemplate, so the nearest DataContext IS the <c>LedgerMasterViewModel</c>, and going via the shell
+    /// would need a second property that could drift out of step with the template.
+    /// </summary>
+    private void OnAddChequeBookClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is LedgerMasterViewModel vm) vm.AddChequeBook();
+    }
+
+    /// <summary>The bank ledger master's <b>Remove</b> button for the selected cheque book (census 8.5).</summary>
+    private void OnRemoveChequeBookClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is LedgerMasterViewModel vm) vm.RemoveChequeBook();
+    }
 
     private void OnAcceptCompanyProfileClick(object? sender, RoutedEventArgs e)
         => Vm?.AlterCompany?.Accept();
