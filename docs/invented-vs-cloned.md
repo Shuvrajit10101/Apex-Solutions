@@ -1729,6 +1729,80 @@ is the premise, and it checks out.
 
 ---
 
+### IV-66 · Split Company Data: the two new companies must be NAMED, because our store keys a book by its file name
+
+| | |
+|---|---|
+| **Severity** | **LOW** — a naming divergence, not a figures one. The books themselves are the vendor's ranges exactly. |
+| **What TallyPrime does** | Splitting produces new companies **without asking for names**: its company list is keyed by an opaque **company number**, with the display name a payload of the entry — <i>"TallyPrime will create a new company by assigning a new company number and retaining the existing company name"</i> (`help.tallysolutions.com/tallyvault-for-company-tally/` and `…/data-security-faq/`, read 2026-09-07). Both halves can therefore carry the original name. |
+| **What we ship** | The Split Data panel asks for **one name per new book**, defaulted to `"<name> (to dd-MMM-yyyy)"` and `"<name> (from dd-MMM-yyyy)"`, and **refuses** two names that sanitise to one file, or a name that would land on the book being split. `CompanyStorage.PathForName` derives the `.db` file name from the company name (and is not injective), so two books cannot share a name here without one silently overwriting the other. |
+| **How it got in** | Forced by the storage identity model, not chosen. The registry that would remove the constraint is the wave-13 design's **16.1-P** (companies stored as `<guid>.db` with a `registry.json`), which is not built. |
+| **Fix** | 🔴 **None proposed. Record it as ours.** If 16.1-P ever lands, the defaults can become the vendor's shape (same name, distinct id) with no change to the engine — the naming lives entirely in `CompanySplitService`/`SplitCompanyViewModel`. |
+
+---
+
+### IV-66a · The Gateway row is labelled "Split Company Data", where the vendor's menu word is "Split"
+
+| | |
+|---|---|
+| **Severity** | **LOW** — a label divergence on a menu that is ours in shape anyway (our Data "menu" is a Gateway section, not the vendor's Alt+Y popup). |
+| **What TallyPrime does** | The menu word is **Split** (`Alt+Y (Data) > Split > Verify Data` / `> Split Data`). **Split Company Data** is the vendor's own name for the feature — the title of `help.tallysolutions.com/split-company-data-tally/`. |
+| **What we ship** | The Gateway's Data section carries **"Split Company Data"**; the two pages under it keep the vendor's exact words, **"Verify Data"** and **"Split Data"**. |
+| **How it got in** | **Measured, not preferred.** WI-9 computes this column's bare-letter accelerators. Labelled "Split", every letter (S·p·l·i·t) was already taken and the rehousing pass took **C away from "Create"** — the most-memorised key on the Gateway — which `DashboardReachabilityTests.The_root_Gateway_column_paints_exactly_these_accelerators` caught and `MenuHotKeyAndAcceptTests` confirmed. The longer label's free **'m'** costs no incumbent a letter. |
+| **Fix** | None. If the root column's letters are ever re-designed, the shorter label becomes available again. |
+
+---
+
+### IV-67 · The split books keep the SOURCE company's id, and its whole audit log
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM** — invisible in every shipped screen today; it would matter to anything that ever keyed across company files. |
+| **What TallyPrime does** | Assigns a **new company number** to each company a split creates (citation as IV-66). |
+| **What we ship** | Two things, both stated rather than hidden: **(a)** each split book carries the **same `Company.Id`** as the source, because `Company.Id` is immutable by construction and the only way to change it would be to rebuild the aggregate field by field — a deep copy that would silently drop anything added to `Company` afterwards. Nothing in this application keys across company files (each `.db` holds one book, and `CompanyStorage.Load` reads the single stored row), so it is unobservable today. **(b)** the **voucher edit log is carried WHOLE into both books** rather than partitioned, because it is append-only by construction (`Company.RemoveLastVoucherEditLogEntryInternal` can only drop the entry just appended) and dropping older entries would be an audit deletion. The cost is that a split book's log can name a voucher that book does not contain. |
+| **A third, smaller one, stated here rather than left to be found** | **Voucher NUMBERS are not re-sequenced.** The from-book keeps each voucher's original number, so its first Payment may be #4. Nothing retrieved says what the reference product does, and renumbering a book's vouchers is a change to primary records — so the split leaves them alone (R7 silence rule). |
+| **How it got in** | Deliberate, in both halves: the alternative to (a) is a hand-written clone that goes stale on the next field added to `Company`; the alternative to (b) is deleting audit rows. |
+| **Fix** | (a) becomes free the moment 16.1-P's registry exists. (b) is the smaller harm and should stay until there is a stated requirement. |
+
+---
+
+### IV-68 · A new book begins on the split date — the vendor's split pages do not say what the new company's period is
+
+| | |
+|---|---|
+| **Severity** | **LOW** |
+| **What TallyPrime does** | `help.tallysolutions.com/split-company-data-tally/` and `…/split-company-data-in-tallyprime-faq/` (read 2026-09-07) give the three options and their **date ranges**, and say <i>"After splitting your company, the original company will remain as it is"</i> — and are **silent** on the new company's Financial Year Start and Books Begin From. |
+| **What we ship** | The from-book's **`FinancialYearStart` and `BooksBeginFrom` are both set to the split date**; the before-book keeps the original's. This is the smallest rule that is consistent with the vendor's own framing (its split is documented around financial-year boundaries, where the split date IS the year start). |
+| **How it got in** | The R7 silence rule: no source speaks, so the smaller honest thing ships and is labelled here rather than asserted as fidelity. |
+| **Fix** | None until a source speaks. If one does and it disagrees, the change is two lines in `CompanySplit.ShapeAsFromBook`. |
+
+---
+
+### IV-69 · Verify Data checks the OPEN company; the vendor lets you pick one
+
+| | |
+|---|---|
+| **Severity** | **LOW** |
+| **What TallyPrime does** | <i>"Press Alt+Y (Data) &gt; Split &gt; Verify Data, **select your company**, and resolve any identified errors before proceeding"</i> (`help.tallysolutions.com/split-company-data-tally/`, read 2026-09-07). |
+| **What we ship** | Verify Data (and Split Data) act on the company that is **open**, whose file path is printed on the panel. |
+| **How it got in** | This shell holds one company at a time (`MainWindowViewModel.Company` is a single nullable field — census 14.9 / 16.7's missing primitive). A picker here would be the multi-company shell by the back door. |
+| **Fix** | Falls out of the loaded-set primitive when it is built; not worth inventing before then. ⚠️ Note the same constraint already governs backup/restore (T2-30). |
+
+---
+
+### IV-70 · A split is REFUSED where this build cannot carry a book's state forward faithfully
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM** — it is a capability limit, and an operator with a bill-wise book will meet it. |
+| **What TallyPrime does** | Splits regardless, and carries bill-wise references, unreconciled bank transactions and unreconciled GST transactions into the new company: <i>"All the unreconciled bank transactions, except those recorded before 180 days or more, will get carried forward"</i>, <i>"All the unreconciled GST transactions will get carried forward"</i> (`…/split-company-data-in-tallyprime-faq/`, read 2026-09-07). |
+| **What we ship** | `CompanySplit.Check` **refuses**, naming the reason, when the book carries: **bill-wise references still open at the split date** (a `Ledger` has an opening balance but no opening bill-wise breakdown, so the references have nowhere to go — and a book whose party balance says money is owed while Outstandings says nothing is owed is worse than no split); **payroll attendance entries** (each spans a date RANGE, so no partition is unambiguous); **voucher-linked statutory/e-document records** (TDS/TCS/GST challans and links, e-invoice and e-Way Bill records, credit/debit-note links, advance receipts, GSTR-2B snapshots and reconciliations, IMS actions, set-off lines, ITC reversals, DRC-03s), whose rows point at voucher ids the split would leave in the other book; and **opening stock whose carried unit rate would not be paisa-exact**. |
+| **How it got in** | Deliberate, and it is the row's own instruction: *verify before splitting, and refuse with a clear reason rather than producing a half-written company.* |
+| **Fix** | Each refusal has its own unblocker, and none of them is this row: opening bill-wise references need a `Ledger`-level opening breakdown **and a schema version**; the statutory records need a re-homing rule per record type (and the vendor's 180-day and unreconciled-GST rules above are the specification for two of them); attendance needs a stated rule for a range that straddles the date. **What is NOT deferred is honesty about it** — the operator is told which of these stopped the split. |
+| **What matches the vendor by NOT being carried** | Two things this build also does not carry are the vendor's own behaviour, not our limit: <i>"you cannot carry forward the closing balance of the cost center from the previous year when splitting your data"</i>, and <i>"Sales and Purchase Orders … aren't carried forward during the split"</i> (same FAQ). |
+
+---
+
 ## 3. Grouped by area
 
 ### TAX — tax & money (7)

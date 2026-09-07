@@ -456,6 +456,13 @@ public partial class MainWindow : Window
                 vm.ApplyBackup();
             else if (vm.CurrentScreen == Screen.RestoreCompany)
                 vm.ApplyRestore();
+            // Data -> Split (census row 16.5). Verify writes nothing; Split writes NEW company files and never
+            // the source, so Ctrl+A is safe on both — the destructive-confirmation shape the Restore panel needs
+            // has nothing to guard here.
+            else if (vm.CurrentScreen == Screen.VerifyData)
+                vm.ApplyVerifyData();
+            else if (vm.CurrentScreen == Screen.SplitCompany)
+                vm.ApplySplitCompany();
             // Census 12.5 — on the Printer column Ctrl+A SPOOLS the job. Fire-and-forget: the panel reports the
             // outcome on its own status line, and blocking the UI thread on a spooler would freeze the shell.
             else if (vm.CurrentScreen == Screen.Printer)
@@ -2409,6 +2416,12 @@ public partial class MainWindow : Window
 
     private void OnApplyBackupClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBackup();
+
+    private void OnApplyVerifyDataClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyVerifyData();
+
+    private void OnApplySplitCompanyClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplySplitCompany();
 
     private void OnExamineRestoreClick(object? sender, RoutedEventArgs e)
         => Vm?.ExamineRestore();

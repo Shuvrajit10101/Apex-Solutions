@@ -17588,6 +17588,147 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Data -> Split -> "Verify Data" (census 16.5 precondition / 16.6(a)). Read-only:
+                         it opens the company database read-only and reports what it finds. -->
+                    <ContentControl IsVisible="{Binding VerifyDataPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding VerifyDataPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:VerifyDataViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Company: {0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <TextBlock Text="Checks this company's data file for damage and for rows that point at records which are not there. Nothing is changed — the file is opened read-only. Run this before splitting."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <TextBlock Text="Data file" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding SourcePath}" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding SourcePath}"/>
+
+                                <ItemsControl ItemsSource="{Binding Findings}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding}" FontSize="12" Foreground="#B00020"
+                                                 TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Verify (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyVerifyDataClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Data -> Split -> "Split Data" (census row 16.5). Writes ONE or TWO NEW company
+                         files; the company being split is never written to. -->
+                    <ContentControl IsVisible="{Binding SplitCompanyPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SplitCompanyPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SplitCompanyViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Company: {0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="380">
+
+                                <TextBlock Text="Creates new companies from this book. The company being split is left exactly as it is."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <TextBlock Text="Data file" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding SourcePath}" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding SourcePath}"/>
+
+                                <TextBlock Text="Split date" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <TextBox Text="{Binding SplitDateText, Mode=TwoWay}"
+                                         PlaceholderText="dd-MMM-yyyy"/>
+
+                                <TextBlock Text="Split" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <RadioButton GroupName="SplitMode" Content="Before Split Date"
+                                             IsChecked="{Binding BeforeSplitDate, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="SplitMode" Content="From Split Date"
+                                             IsChecked="{Binding FromSplitDate, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="SplitMode" Content="Into Two Companies"
+                                             IsChecked="{Binding IntoTwoCompanies, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <TextBlock Text="Name for the company up to the day before the split date"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"
+                                           IsVisible="{Binding NeedsBeforeName}"/>
+                                <TextBox Text="{Binding BeforeName, Mode=TwoWay}"
+                                         IsVisible="{Binding NeedsBeforeName}"/>
+
+                                <TextBlock Text="Name for the company from the split date onwards"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"
+                                           IsVisible="{Binding NeedsFromName}"/>
+                                <TextBox Text="{Binding FromName, Mode=TwoWay}"
+                                         IsVisible="{Binding NeedsFromName}"/>
+
+                                <ItemsControl ItemsSource="{Binding Refusals}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding}" FontSize="12" Foreground="#B00020"
+                                                 TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Split (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplySplitCompanyClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Data -> "Restore Company" panel (the R-7 carve-out). Two-step BY DESIGN: Examine
                          reads the archive's manifest and touches nothing; Restore needs an explicit tick before
                          it will replace a whole company file (NFR-8). -->

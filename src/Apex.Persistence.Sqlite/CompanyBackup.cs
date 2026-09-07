@@ -40,6 +40,23 @@ public sealed record BackupManifest(
     string DatabaseSha256);
 
 /// <summary>
+/// What <see cref="CompanyBackup.Verify"/> found in a company database: whether it is clean, a one-line summary
+/// fit to show verbatim, the data-format stamp and stored company name when they could be read, and one line per
+/// problem. <see cref="Findings"/> is empty exactly when <see cref="Ok"/> is true.
+/// </summary>
+public sealed record DataVerification(
+    bool Ok,
+    string Summary,
+    int? SchemaVersion,
+    string? CompanyName,
+    IReadOnlyList<string> Findings)
+{
+    /// <summary>A verification that could not even begin — the reason is the summary and the only finding.</summary>
+    public static DataVerification Failed(string reason, int? schemaVersion = null) =>
+        new(false, reason, schemaVersion, null, new[] { reason });
+}
+
+/// <summary>
 /// <b>Backup and restore of a company database</b> — the mitigation <c>plan.md</c> names for its own top-ranked
 /// data-loss risk R-7, carved out of the otherwise-excluded Phase 10.
 ///
@@ -238,6 +255,125 @@ public static class CompanyBackup
             SafeDelete(staging);
             SafeDelete(partial);
         }
+    }
+
+    /// <summary>
+    /// <b>Census row 16.5 / 16.6(a) — Verify Data, as a verb of its own.</b> Checks a company database in place
+    /// and reports what it finds. <b>Read-only: it opens the file read-only and writes nothing, ever</b>, which
+    /// is what makes it safe to run on the book the operator is standing in.
+    ///
+    /// <para><b>Vendor grounding (R7).</b> <c>help.tallysolutions.com/split-company-data-tally/</c>:
+    /// <i>"Press <b>Alt+Y</b> (Data) &gt; <b>Split</b> &gt; <b>Verify Data</b>, select your company, and resolve
+    /// any identified errors before proceeding"</i>, and <i>"Before proceeding with the Split feature in
+    /// TallyPrime, it is recommended to verify your data and resolve the errors after data verification."</i>
+    /// The check ran only as a hidden gate inside backup and restore before this; the vendor makes it a verb,
+    /// so it is one.</para>
+    ///
+    /// <para><b>What it actually checks</b>, in order, stopping at the first finding that makes the rest
+    /// meaningless: the file exists · it opens as SQLite · it carries our <c>schema_version</c> stamp · that
+    /// version is one this build reads · <c>PRAGMA integrity_check</c> · <c>PRAGMA foreign_key_check</c> (the
+    /// orphan-row check no other path in this codebase runs) · the file holds exactly one company row.</para>
+    /// </summary>
+    public static DataVerification Verify(string databasePath)
+    {
+        if (string.IsNullOrWhiteSpace(databasePath))
+            return DataVerification.Failed("No company database was given to verify.");
+
+        var full = Path.GetFullPath(databasePath);
+        if (!File.Exists(full))
+            return DataVerification.Failed($"There is no file at '{full}'.");
+
+        try
+        {
+            var findings = new List<string>();
+            int? version;
+            string? companyName;
+
+            using (var conn = Open(full, SqliteOpenMode.ReadOnly))
+            {
+                version = ReadSchemaVersion(conn);
+                if (version is null)
+                    return DataVerification.Failed(
+                        $"'{Path.GetFileName(full)}' is not an Apex Solutions company database " +
+                        "(it carries no data-format stamp).");
+
+                if (!CanRestoreSchemaVersion(version.Value))
+                    return DataVerification.Failed(UnsupportedSchemaMessage(version.Value), version);
+
+                companyName = ReadCompanyName(conn);
+
+                var integrity = IntegrityCheck(conn);
+                if (!integrity.StartsWith("ok", StringComparison.OrdinalIgnoreCase))
+                    findings.Add("Integrity check: " + integrity);
+
+                foreach (var orphan in ForeignKeyFindings(conn))
+                    findings.Add(orphan);
+
+                var companies = CompanyRowCount(conn);
+                if (companies == 0)
+                    findings.Add("The file holds no company row.");
+                else if (companies > 1)
+                    findings.Add(
+                        $"The file holds {companies} company rows. One file is one book; opening it would show " +
+                        "only the first, and every later save would land on that one.");
+            }
+
+            var name = companyName ?? Path.GetFileNameWithoutExtension(full);
+            return findings.Count == 0
+                ? new DataVerification(true,
+                    $"{name} — data format v{version}. No errors found.", version, companyName,
+                    Array.Empty<string>())
+                : new DataVerification(false,
+                    $"{name} — data format v{version}. {findings.Count} problem(s) found.", version, companyName,
+                    findings);
+        }
+        catch (SqliteException ex)
+        {
+            return DataVerification.Failed($"'{Path.GetFileName(full)}' could not be read: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return DataVerification.Failed($"'{Path.GetFileName(full)}' could not be opened: {ex.Message}");
+        }
+        finally
+        {
+            // Release the file handle: on Windows a pooled connection keeps the .db locked, and the very next
+            // thing an operator does after verifying is split, back up or restore it.
+            SqliteConnection.ClearAllPools();
+        }
+    }
+
+    /// <summary>Every orphan row <c>PRAGMA foreign_key_check</c> reports, rendered for a person to read.</summary>
+    private static IReadOnlyList<string> ForeignKeyFindings(SqliteConnection conn)
+    {
+        var findings = new List<string>();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA foreign_key_check;";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            // columns: table, rowid, parent, fkid
+            var table = reader.IsDBNull(0) ? "?" : reader.GetString(0);
+            var parent = reader.FieldCount > 2 && !reader.IsDBNull(2) ? reader.GetString(2) : "?";
+            findings.Add($"Orphan row in '{table}': it points at a '{parent}' row that is not there.");
+            if (findings.Count == 20)
+            {
+                findings.Add("… further orphan rows not listed.");
+                break;
+            }
+        }
+        return findings;
+    }
+
+    private static long CompanyRowCount(SqliteConnection conn)
+    {
+        using var probe = conn.CreateCommand();
+        probe.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='companies';";
+        if (Convert.ToInt64(probe.ExecuteScalar(), CultureInfo.InvariantCulture) == 0) return 0;
+
+        using var count = conn.CreateCommand();
+        count.CommandText = "SELECT COUNT(*) FROM companies;";
+        return Convert.ToInt64(count.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>

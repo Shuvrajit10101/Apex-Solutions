@@ -98,6 +98,15 @@ public enum Screen
     // backup as the mitigation for its OWN top-ranked data-loss risk (R-7).
     BackupCompany,
     RestoreCompany,
+
+    /// <summary>Data → Split → <b>Verify Data</b> (census 16.5's precondition, and 16.6's missing standalone
+    /// verify verb): the read-only integrity check on the open company's database.</summary>
+    VerifyData,
+
+    /// <summary>Data → Split → <b>Split Data</b> (census row 16.5): writes one or two NEW companies from the
+    /// open company's book and leaves the original as it is.</summary>
+    SplitCompany,
+
     EmailCompose,
     SmtpSettings,
 
@@ -327,6 +336,11 @@ public enum GatewayMenu
     // Data -> Backup / Restore: the two data-safety screens, nested under a "Data" section on the Gateway root so
     // backup is reachable through the ordinary cascade, not a hidden hotkey.
     Data,
+
+    // Data -> Split (census 16.5): Verify Data + Split Data, the vendor's own pairing —
+    // "Alt+Y (Data) > Split > Verify Data" and "Alt+Y (Data) > Split > Split Data"
+    // (help.tallysolutions.com/split-company-data-tally/).
+    Split,
 }
 
 /// <summary>
@@ -744,6 +758,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Data -> "Restore Company" panel (the R-7 carve-out), non-null only while that column is open.</summary>
     [ObservableProperty] private RestoreCompanyViewModel? _restoreCompanyPanel;
 
+    /// <summary>The Data -> Split -> "Verify Data" panel (census 16.5/16.6), non-null only while that column is open.</summary>
+    [ObservableProperty] private VerifyDataViewModel? _verifyDataPanel;
+
+    /// <summary>The Data -> Split -> "Split Data" panel (census 16.5), non-null only while that column is open.</summary>
+    [ObservableProperty] private SplitCompanyViewModel? _splitCompanyPanel;
+
     /// <summary>The M / Ctrl+M "E-Mail" compose panel (RQ-25/26), non-null only while that column is open.</summary>
     [ObservableProperty] private EmailComposeViewModel? _emailCompose;
 
@@ -817,6 +837,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && MultiAccountPrint is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
+        && VerifyDataPanel is null && SplitCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
         && SecurityUsers is null && PasswordPolicy is null
         && LedgerVouchers is null && VoucherDetail is null;
@@ -924,6 +945,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBackupCompanyPanelChanged(BackupCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnRestoreCompanyPanelChanged(RestoreCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVerifyDataPanelChanged(VerifyDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSplitCompanyPanelChanged(SplitCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSecurityUsersChanged(SecurityUsersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1384,6 +1407,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // the rest of Phase 10 (security, roles, audit trail, vault) stays excluded.
         col.Add(MenuItemViewModel.Header("Data"));
         col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Split Company Data (census row 16.5) — the vendor's own Data-menu pairing, quoted at BuildSplitColumn:
+        // "Alt+Y (Data) > Split > Verify Data" and "Alt+Y (Data) > Split > Split Data".
+        //
+        // 🔴 THE LABEL IS THE VENDOR'S NAME FOR THE FEATURE ("Split Company Data") RATHER THAN ITS MENU WORD
+        // ("Split"), AND THAT IS A MEASURED DECISION, NOT A SLIP. WI-9 computes this column's bare-letter
+        // accelerators, and "Split" has no free letter here (S/p/l/i/t are all taken), so pass 2's augmenting
+        // walk re-housed the incumbents to make room — and it took C AWAY FROM "Create", the most-memorised
+        // key on the Gateway. "Split Company Data" claims the free 'm' in "Company" in pass 1 and moves
+        // nothing. DashboardReachabilityTests.The_root_Gateway_column_paints_exactly_these_accelerators is
+        // where that was caught and is where the whole map is pinned; do not shorten this label without
+        // re-reading it.
+        col.Add(new MenuItemViewModel("Split Company Data", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // 🔴 NO "Company" SECTION IS ADDED HERE, AND THAT IS THE FIDELITY ANSWER, NOT AN OMISSION.
         // W2-18 built one (Header "Company" + a Group row drilling to Create / Alter / Select / Shut) and it was
@@ -1621,6 +1656,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Backup / Restore"));
         col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Split Company Data" submenu column (Data → Split): <b>Verify Data</b> then <b>Split Data</b>, in that
+    /// order and under that parent because that is where the reference product keeps them —
+    /// <i>"Press <b>Alt+Y</b> (Data) &gt; <b>Split</b> &gt; <b>Verify Data</b>"</i> and <i>"Press <b>Alt+Y</b>
+    /// (Data) &gt; <b>Split</b> &gt; <b>Split Data</b>"</i>
+    /// (<c>help.tallysolutions.com/split-company-data-tally/</c>).
+    ///
+    /// <para>Verify is listed FIRST deliberately: the same page makes it the precondition — <i>"it is
+    /// recommended to verify your data and resolve the errors after data verification"</i> — and the split
+    /// itself refuses to run while verification fails, so a menu that put Split first would offer the operator
+    /// a door that is bolted.</para>
+    ///
+    /// <para><b>No new chord is claimed.</b> Both pages ride the existing Alt+Y door to the Data menu and the
+    /// ordinary arrows-and-Enter cascade. Census 14.5 / 14.7 / 14.9 record what happens when a build agent
+    /// picks a chord of its own.</para>
+    /// </summary>
+    private GatewayColumn BuildSplitColumn()
+    {
+        var col = new GatewayColumn("Split Company Data");
+        col.Add(MenuItemViewModel.Header("Split Company Data"));
+        col.Add(new MenuItemViewModel("Verify Data", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Split Data", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -4365,6 +4425,54 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    // =============================================================== screen: verify / split company data (16.5)
+
+    /// <summary>
+    /// Gateway → Data → Split → <b>Verify Data</b>: opens the read-only integrity check on the open company's
+    /// database (<i>"Alt+Y (Data) &gt; Split &gt; Verify Data"</i>). A no-op unless a company is open;
+    /// re-opening while the panel is up is a no-op (one column, not a stack).
+    /// </summary>
+    public void OpenVerifyData()
+    {
+        if (VerifyDataPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new VerifyDataViewModel(Company, _storage);
+        VerifyDataPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.VerifyData;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Verify button on the Verify Data panel: run the check. Returns "no errors found".</summary>
+    public bool ApplyVerifyData() => VerifyDataPanel?.Apply() ?? false;
+
+    /// <summary>
+    /// Gateway → Data → Split → <b>Split Data</b>: opens the panel that writes one or two NEW companies from the
+    /// open company's book (<i>"Alt+Y (Data) &gt; Split &gt; Split Data"</i>). The open company is not switched
+    /// and not modified — <i>"the original company will remain as it is"</i>.
+    /// </summary>
+    public void OpenSplitCompany()
+    {
+        if (SplitCompanyPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new SplitCompanyViewModel(Company, _storage);
+        SplitCompanyPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SplitCompany;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Split button on the Split Data panel: write the new book(s). Returns success.</summary>
+    public bool ApplySplitCompany() => SplitCompanyPanel?.Apply() ?? false;
+
     // =============================================================== the file / folder chooser (census 13.10, T1-20)
 
     /// <summary>
@@ -6612,6 +6720,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ImportDataPanel = null;
         BackupCompanyPanel = null;
         RestoreCompanyPanel = null;
+        VerifyDataPanel = null;
+        SplitCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
         // Census 16.2 — the two Security Control panels. Cleared like every other sub-screen so a re-open
@@ -9610,6 +9720,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Backup / Restore (the R-7 carve-out).
             "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
                 "Gateway of Apex Solutions — Backup / Restore"),
+            // Data → Split (census 16.5): Verify Data + Split Data.
+            "Split Company Data" => (BuildSplitColumn(), GatewayMenu.Split,
+                "Gateway of Apex Solutions — Split Company Data"),
             _ => null,
         };
     }
@@ -9818,6 +9931,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Backup / Restore (the R-7 carve-out).
             case "Backup Company": OpenBackupCompany(); break;
             case "Restore Company": OpenRestoreCompany(); break;
+            // Data → Split (census row 16.5).
+            case "Verify Data": OpenVerifyData(); break;
+            case "Split Data": OpenSplitCompany(); break;
             case "Chart of Accounts": ShowChartOfAccounts(); break;
             case "Day Book": OpenReport(ReportKind.DayBook); break;
             case "Balance Sheet": OpenReport(ReportKind.BalanceSheet); break;
@@ -10275,6 +10391,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
                     "Backup / Restore" => GatewayMenu.Data,
+                    "Split Company Data" => GatewayMenu.Split,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;
