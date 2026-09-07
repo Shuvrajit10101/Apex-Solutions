@@ -38,7 +38,7 @@ public sealed class CertificatePdfTests
         return l;
     }
 
-    private static (Company C, Guid DeducteeId) BuildTdsCompany(string vendorName = "Consultant")
+    private static (Company C, Guid DeducteeId) BuildTdsCompany(string vendorName = "Consultant", string? partyPan = null)
     {
         var c = CompanyFactory.CreateSeeded("Return Co", FyStart);
         new TdsTcsService(c).EnableTds(new TdsConfig
@@ -49,7 +49,8 @@ public sealed class CertificatePdfTests
         });
         var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
         var vendor = AddLedger(c, vendorName, "Sundry Creditors", false);
-        vendor.TdsApplicable = true; vendor.TdsNatureOfPaymentId = nop.Id; vendor.DeducteeType = DeducteeType.Firm; vendor.PartyPan = DeducteePan;
+        vendor.TdsApplicable = true; vendor.TdsNatureOfPaymentId = nop.Id; vendor.DeducteeType = DeducteeType.Firm;
+        vendor.PartyPan = partyPan ?? DeducteePan;
 
         var on = new DateOnly(2025, 5, 10);
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
@@ -167,13 +168,64 @@ public sealed class CertificatePdfTests
         Assert.Equal(a, b);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18 — this test previously asserted the defect.</b> It was named
+    /// <c>Form16A_debrands_a_tally_named_deductee</c> and demanded that a deductee legally named "Tally
+    /// Consultants" have that token stripped. The deductee is the COUNTERPARTY: Form 16A is issued TO them and
+    /// the name is matched against their PAN by the department, so the old behaviour handed a supplier a
+    /// statutory certificate naming somebody who does not exist, and disagreed with the 26Q return filed about
+    /// them. The deductor block, the "For &lt;deductor&gt;" signatory line and the <c>/Title</c> metadata are OURS
+    /// and are still asserted brand-free in the same breath — de-branding did not stop, it stopped at the
+    /// counterparty.
+    /// </summary>
     [Fact]
-    public void Form16A_debrands_a_tally_named_deductee()
+    public void Form16A_keeps_a_deductees_own_name_intact_while_our_side_stays_debranded()
     {
         var (c, deducteeId) = BuildTdsCompany("Tally Consultants");
         var cert = Form16A.Build(c, 2025, 1, deducteeId);
-        var bytes = Form16APdf.Render(cert, new PageConfig());
-        Assert.DoesNotContain("tally", AsLatin1(bytes).ToLowerInvariant());
+        string s = AsLatin1(Form16APdf.Render(cert, new PageConfig()));
+
+        // The counterparty's legal name is printed EXACTLY as it stands in the books.
+        Assert.Contains("Tally Consultants", s);
+        // Our own strings still carry no third-party brand: the ONLY occurrence of the token in the whole
+        // document is the one inside the deductee's own name. A leak anywhere else raises the count.
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        Assert.Contains("/Producer (Apex Solutions)", s);
+        Assert.Contains("For Return Co", s);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The deductee's PAN is theirs too, and the guard was mangling it into an invalid one.</b> The Name
+    /// line was exempted from the ER-11 scrub when ruling 18 landed; the PAN line IMMEDIATELY BELOW IT was not.
+    /// A PAN is 5 letters + 4 digits + 1 letter, and the vendor token is a structurally valid 5-letter prefix
+    /// (4th character L = Local Authority), so a real PAN <c>TALLY1234F</c> was printed on the certificate as
+    /// <c>1234F</c> — not a PAN at all, and not the number filed in the 26Q return for the same row.
+    /// </summary>
+    [Fact]
+    public void Form16A_prints_the_deductees_own_pan_intact_even_when_it_starts_with_the_vendor_token()
+    {
+        var (c, deducteeId) = BuildTdsCompany("Bright Consultants", partyPan: "TALLY1234F");
+        var cert = Form16A.Build(c, 2025, 1, deducteeId);
+        string s = AsLatin1(Form16APdf.Render(cert, new PageConfig()));
+
+        Assert.Contains("TALLY1234F", s, StringComparison.Ordinal);
+        // The party name is CLEAN here, so the PAN is the only possible source of the token — exactly one.
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        // And our own side of the certificate is untouched by the change.
+        Assert.Contains("/Producer (Apex Solutions)", s);
+        Assert.Contains("For Return Co", s);
+    }
+
+    /// <summary>Case-insensitive count of the forbidden vendor token in a rendered document.</summary>
+    private static int OccurrencesOfBrand(string text)
+    {
+        int n = 0;
+        for (int i = text.IndexOf("tally", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf("tally", i + 5, StringComparison.OrdinalIgnoreCase))
+        {
+            n++;
+        }
+        return n;
     }
 
     [Fact]
@@ -226,13 +278,21 @@ public sealed class CertificatePdfTests
         Assert.Equal(a, b);
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18</b>, for the same reason as the Form 16A case above: the collectee is the
+    /// customer the TCS certificate is issued to, and their legal name is not ours to rewrite. The collector
+    /// block and the signatory line are ours and stay de-branded.
+    /// </summary>
     [Fact]
-    public void Form27D_debrands_a_tally_named_collectee()
+    public void Form27D_keeps_a_collectees_own_name_intact_while_our_side_stays_debranded()
     {
         var (c, collecteeId) = BuildTcsCompany("Tally Scrap Buyers");
         var cert = Form27D.Build(c, 2025, 1, collecteeId);
-        var bytes = Form27DPdf.Render(cert, new PageConfig());
-        Assert.DoesNotContain("tally", AsLatin1(bytes).ToLowerInvariant());
+        string s = AsLatin1(Form27DPdf.Render(cert, new PageConfig()));
+
+        Assert.Contains("Tally Scrap Buyers", s);
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        Assert.Contains("/Producer (Apex Solutions)", s);
     }
 
     // ================================================================ Form 27A (control chart)

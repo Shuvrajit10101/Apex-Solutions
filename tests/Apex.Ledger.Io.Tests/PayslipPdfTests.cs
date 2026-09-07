@@ -23,7 +23,12 @@ public sealed class PayslipPdfTests
     private static readonly DateOnly PeriodFrom = new(2025, 4, 1);
     private static readonly DateOnly PeriodTo = new(2025, 4, 30);
 
-    private static (Company C, Guid Emp) BuildGolden(string companyName = "Apex Reports Co")
+    private static (Company C, Guid Emp) BuildGolden(
+        string companyName = "Apex Reports Co",
+        string employeeName = "Rajkumar Sharma",
+        string bankName = "State Bank",
+        string basicHeadName = "Basic",
+        string pan = "ABCPS1234K")
     {
         var c = CompanyFactory.CreateSeeded(companyName, new DateOnly(2025, 4, 1), new DateOnly(2025, 4, 1));
         var pay = new PayrollService(c);
@@ -32,7 +37,7 @@ public sealed class PayslipPdfTests
         var ie = c.FindGroupByName("Indirect Expenses")!.Id;
         var cl = c.FindGroupByName("Current Liabilities")!.Id;
 
-        var basic = ph.CreatePayHead("Basic", PayHeadType.Earnings, PayHeadCalculationType.FlatRate, underGroupId: ie);
+        var basic = ph.CreatePayHead(basicHeadName, PayHeadType.Earnings, PayHeadCalculationType.FlatRate, underGroupId: ie);
         var hra = ph.CreatePayHead("HRA", PayHeadType.Earnings, PayHeadCalculationType.AsComputedValue, underGroupId: ie,
             computation: new PayHeadComputation(
                 new[] { new PayHeadComputationComponent(basic.Id) },
@@ -40,8 +45,8 @@ public sealed class PayslipPdfTests
         var advance = ph.CreatePayHead("Advance Recovery", PayHeadType.LoansAndAdvances, PayHeadCalculationType.FlatRate, underGroupId: cl);
 
         var grp = pay.CreateEmployeeGroup("Staff").Id;
-        var emp = pay.CreateEmployee("Rajkumar Sharma", grp, employeeNumber: "E-001", pan: "ABCPS1234K");
-        emp.BankName = "State Bank";
+        var emp = pay.CreateEmployee(employeeName, grp, employeeNumber: "E-001", pan: pan);
+        emp.BankName = bankName;
         emp.BankAccountNumber = "1234567890";
         emp.BankIfsc = "SBIN0001234";
 
@@ -92,6 +97,9 @@ public sealed class PayslipPdfTests
         Assert.Equal(a, b);
     }
 
+    /// <summary>OUR OWN name on the payslip is still de-branded — the direction of ruling 18 that does not
+    /// change. The employee, bank and pay heads here are all deliberately CLEAN, so our company name is the only
+    /// possible source of the token.</summary>
     [Fact]
     public void Payslip_pdf_debrands_a_tally_named_employer()
     {
@@ -99,5 +107,59 @@ public sealed class PayslipPdfTests
         var slip = Report.BuildPayslip(c, emp, PeriodFrom, PeriodTo);
         var bytes = PayslipPdf.Render(slip, new PageConfig());
         Assert.DoesNotContain("tally", AsLatin1(bytes).ToLowerInvariant());
+    }
+
+    // ---------------------------------------------------------------- 🔴 RULING 18 on the payslip
+
+    /// <summary>
+    /// 🔴 <b>Everything identifying on a payslip belongs to somebody who is not us.</b> The employee's own legal
+    /// name, their PAN, their BANK MASTER'S name — the exact category ruling 18 names in words — and the pay-head
+    /// master names the user created. All four ran through the ER-11 de-brand, so an employee whose name carries
+    /// the vendor token received a payslip naming somebody else, banked at a bank that does not exist, on the
+    /// same page as their PAN; and that payslip is the document produced for loan and visa verification.
+    ///
+    /// <para>Two aggravating facts made this worth pinning: the identical bank field two files away in
+    /// <c>PaymentAdvicePdf</c> already shipped verbatim, so the correct treatment pre-existed and was simply not
+    /// propagated; and the payroll-register EXPORT of the same figures already showed the same pay-head names
+    /// correctly, so one company's own two documents disagreed about what its pay heads are called.</para>
+    /// </summary>
+    [Fact]
+    public void A_payslip_keeps_the_employees_own_name_bank_and_pay_head_names_intact()
+    {
+        var (c, emp) = BuildGolden(
+            companyName: "Apex Reports Co",              // OURS, and deliberately CLEAN here
+            employeeName: "Tally Murugan",               // theirs
+            bankName: "Tally Co-operative Bank",         // a BANK MASTER — the ruling names this category
+            basicHeadName: "Tally Allowance",            // a pay-head master the user created
+            pan: "TALLY1234F");                          // structurally valid: 4th char L = Local Authority
+
+        var slip = Report.BuildPayslip(c, emp, PeriodFrom, PeriodTo);
+        string s = AsLatin1(PayslipPdf.Render(slip, new PageConfig()));
+
+        Assert.Contains("Tally Murugan", s, StringComparison.Ordinal);
+        Assert.Contains("Tally Co-operative Bank", s, StringComparison.Ordinal);
+        Assert.Contains("Tally Allowance", s, StringComparison.Ordinal);
+        // The PAN in particular: de-branding it emitted "1234F", which is not a PAN at all.
+        Assert.Contains("TALLY1234F", s, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Both directions on ONE payslip: the employee's branded name survives while OUR branded company name in
+    /// the same document's header is still stripped. This is the assertion pair a one-direction fix fails.
+    /// </summary>
+    [Fact]
+    public void A_payslip_names_the_employee_in_full_while_still_debranding_our_own_company_name()
+    {
+        var (c, emp) = BuildGolden(
+            companyName: "Tally Solutions Pvt Ltd",      // OURS
+            employeeName: "Tally Murugan");              // theirs
+
+        var slip = Report.BuildPayslip(c, emp, PeriodFrom, PeriodTo);
+        string s = AsLatin1(PayslipPdf.Render(slip, new PageConfig()));
+
+        Assert.Contains("Tally Murugan", s, StringComparison.Ordinal);
+        // Ours lost the token but kept the rest — de-branding is not blanking.
+        Assert.Contains("Solutions Pvt Ltd", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tally Solutions", s, StringComparison.Ordinal);
     }
 }

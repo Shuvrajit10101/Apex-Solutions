@@ -212,6 +212,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
     [ObservableProperty] private ReportKind _kind;
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private string _subtitle = string.Empty;
+
+    /// <summary>
+    /// 🔴 <b>RULING 18 provenance seam, producer side.</b> True when <see cref="Title"/> was built by concatenating
+    /// a product-authored label with a MASTER NAME the user typed — "Ledger Monthly Summary — {ledger}", "Group
+    /// Summary — {group}". Only this class, which builds the title, knows that; a downstream renderer handed the
+    /// finished string cannot tell our heading from a customer's legal name, so it is stated here and carried to
+    /// <see cref="Apex.Ledger.Io.PrintReport.TitleCarriesMasterName"/> (the PDF) and
+    /// <see cref="Apex.Ledger.Io.TabularExport.TitleCarriesMasterName"/> (HTML / XML / JSON / XLSX) by the two
+    /// projectors, so one flag decides all five formats and they cannot drift.
+    ///
+    /// <para><b>It is reset to <see langword="false"/> on every rebuild, before the builder for the new kind runs</b>
+    /// — so a report that never sets it keeps the ER-11 guard on its heading. The fail-safe direction is the
+    /// guarded one: forgetting the flag scrubs our own text (harmless), never leaks the brand.</para>
+    /// </summary>
+    [ObservableProperty] private bool _titleCarriesMasterName;
     [ObservableProperty] private bool _isTwoColumn; // Dr/Cr grid (TB, BS) vs single-amount (P&L, DayBook)
 
     public ObservableCollection<ReportRow> Rows { get; } = new();
@@ -966,6 +981,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         PayslipEarnings.Clear();
         PayslipDeductions.Clear();
         PayslipEmployerContributions.Clear();
+        // 🔴 RULING 18: default the title back to GUARDED before the new kind's builder runs. Only a builder that
+        // concatenates a master name into the heading sets it true, and it must do so on every rebuild.
+        TitleCarriesMasterName = false;
 
         switch (kind)
         {
@@ -4401,7 +4419,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
 
         var gs = GroupSummary.Build(_company, _scopeMasterId, period.From, period.To);
+        // 🔴 RULING 18: the heading carries a GROUP MASTER NAME the user typed — flag it so the PDF and all four
+        // tabular formats print it verbatim instead of scrubbing the vendor token out of a real group's name.
         Title = $"Group Summary — {gs.GroupName}";
+        TitleCarriesMasterName = true;
         Subtitle = $"{CompanyName}  —  closing as at {FormatDate(period.To)} "
             + $"(movement {FormatDate(period.From)} to {FormatDate(period.To)})";
 
@@ -4451,7 +4472,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
 
         var gv = GroupVouchers.Build(_company, _scopeMasterId, period.From, period.To);
+        // 🔴 RULING 18: heading carries a GROUP MASTER NAME — see TitleCarriesMasterName.
         Title = $"Group Vouchers — {gv.GroupName}";
+        TitleCarriesMasterName = true;
         Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
 
         foreach (var r in gv.Rows)
@@ -4490,7 +4513,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
 
         var ms = LedgerMonthlySummary.Build(_company, _scopeMasterId, period.From, period.To);
+        // 🔴 RULING 18: heading carries a LEDGER MASTER NAME — the customer/supplier/bank this statement is ABOUT.
+        // This is the exact case the seam exists for; see TitleCarriesMasterName.
         Title = $"Ledger Monthly Summary — {ms.LedgerName}";
+        TitleCarriesMasterName = true;
         Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
 
         Rows.Add(new ReportRow

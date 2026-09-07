@@ -170,10 +170,16 @@ public static class ReportPdf
         double right = config.PageWidth - config.MarginRight;
         double y = config.PageHeight - config.MarginTop;
 
-        // Running header text (optional).
+        // Running header text (optional). 🔴 THIS IS OURS AND IT WAS THE ONE PIECE OF CHROME THAT SCRUBBED
+        // NOTHING — a hole in the "keep de-branding our own strings" half of Ruling 18, found while closing the
+        // other half. It is live: Form16ViewModel renders the salary-TDS certificate through
+        // ReportPdf.Render(..., CertificatePages.Build(_company.Name)), and CertificatePages puts OUR COMPANY NAME
+        // in HeaderText — whose own doc-comment claims it is "already de-branded by the writers". It was not. The
+        // same company name in the SUBTITLE of that same page went through the guard, so the two halves of one
+        // certificate disagreed. Conditional, so a clean header is byte-identical (ER-13).
         if (!string.IsNullOrEmpty(config.HeaderText))
         {
-            writer.Text(left, config.PageHeight - config.MarginTop + 4, config.HeaderText, config.FooterFontSize);
+            writer.Text(left, config.PageHeight - config.MarginTop + 4, Scrub(config.HeaderText), config.FooterFontSize);
         }
 
         // Title block (centered title + subtitle), repeated on every page for context. W2-31 F9: on pre-printed
@@ -181,7 +187,7 @@ public static class ReportPdf
         // the figures must land where the stationery leaves room for them, not slide up over the letterhead.
         y -= config.FormattedTitleFontSize;
         if (config.DrawsTitleBand)
-            DrawCentered(writer, Scrub(report.Title), left, right, y, config.FormattedTitleFontSize);
+            DrawCentered(writer, HeadingText(report), left, right, y, config.FormattedTitleFontSize);
         y -= 6;
         y -= config.SubtitleFontSize;
         if (config.DrawsTitleBand && !string.IsNullOrEmpty(report.Subtitle))
@@ -219,10 +225,16 @@ public static class ReportPdf
         }
     }
 
+    /// <summary>
+    /// The column-caption band, which is CHROME: every caption is a compile-time string this product authored
+    /// ("Particulars", "Debit", "Closing Qty"), so it keeps the ER-11 scrub that <see cref="DrawRowCells"/> no
+    /// longer applies to body cells (Ruling 18). The scrub is conditional, so a clean caption — which is all of
+    /// them today — is byte-identical and the band's measured widths do not move (ER-13).
+    /// </summary>
     private static PrintRow HeaderRow(PrintReport report)
     {
         var cells = new string[report.Columns.Count];
-        for (int i = 0; i < cells.Length; i++) cells[i] = report.Columns[i].Header;
+        for (int i = 0; i < cells.Length; i++) cells[i] = Scrub(report.Columns[i].Header);
         return new PrintRow { Cells = cells, IsHeader = true };
     }
 
@@ -236,12 +248,13 @@ public static class ReportPdf
         bool bold = row.IsHeader || row.IsTotal;
         for (int i = 0; i < n; i++)
         {
-            // ER-11: the cell text is scrubbed on the SAME terms the CSV / XLSX / HTML / JSON writers scrub the
-            // same projection's cells (TabularDebrand.Cell). Before W2-32 this renderer scrubbed nothing at all —
-            // it was the only PDF renderer in the assembly that did not — so the same report exported to CSV and
-            // printed to PDF disagreed about whether the forbidden brand appeared. Conditional, so a clean cell's
-            // bytes (and its measured width, and therefore its clipping) do not move (ER-13).
-            string text = i < row.Cells.Count ? Scrub(row.Cells[i]) : string.Empty;
+            // 🔴 RULING 18: a body cell is BOOK DATA and is drawn VERBATIM. Every one of them is projected from a
+            // master or a voucher — a party or bank name, a narration, a bill reference, a formatted amount — so
+            // the de-brand that used to run here rewrote a real customer's legal name on the printed page of the
+            // very document sent to them, and on every report about them. The header BAND still goes through the
+            // scrub (see HeaderRow), because those captions are strings this product authored; it shares this
+            // method purely for geometry.
+            string text = i < row.Cells.Count ? (row.Cells[i] ?? string.Empty) : string.Empty;
             if (i == 0 && row.Indent > 0)
                 text = new string(' ', row.Indent) + text;
             if (text.Length == 0) continue;
@@ -277,17 +290,39 @@ public static class ReportPdf
         writer.Text(x, y, text, fontSize);
     }
 
-    /// <summary>Keeps the /Title metadata brand-safe (never emits a third-party brand into the PDF).</summary>
+    /// <summary>
+    /// The heading actually drawn on the page. A product-authored title keeps the ER-11 scrub; a title the
+    /// producer has marked as carrying a master name (<see cref="PrintReport.TitleCarriesMasterName"/>) is drawn
+    /// VERBATIM, because under Ruling 18 the name of a customer, supplier or bank is theirs and not ours to
+    /// rewrite. The product-authored half of such a heading ("Ledger Account - ") is a compile-time constant that
+    /// can never carry the brand, so waiving the scrub over the whole string leaks nothing of ours.
+    /// </summary>
+    private static string HeadingText(PrintReport report)
+        => report.TitleCarriesMasterName ? report.Title ?? string.Empty : Scrub(report.Title);
+
+    /// <summary>
+    /// Keeps the <c>/Title</c> metadata brand-safe (never emits a third-party brand into the PDF).
+    ///
+    /// <para>🔴 <b>Deliberately still unconditional under Ruling 18</b>, which lists PDF <c>/Title</c> metadata
+    /// among the strings this product authors about itself and must keep de-branding. The consequence is worth
+    /// stating plainly: for a ledger-account sheet whose heading is a master name, the VISIBLE heading now keeps
+    /// that name intact while the document-properties <c>/Title</c> still has the token stripped. Nothing a
+    /// counterparty reads on the page is altered; only the file's metadata differs. If that divergence is not
+    /// wanted, the fix is to route this through <see cref="HeadingText"/> too — a user decision, not a silent
+    /// one.</para>
+    /// </summary>
     private static string SafeTitle(string title)
         => string.IsNullOrWhiteSpace(title) ? "Apex Solutions Report" : Scrub(title) + " — Apex Solutions";
 
     /// <summary>
-    /// 🔴 <b>ER-11 de-branding for a heading, added by W2-32 to close a REAL hole.</b> This renderer declared its
-    /// output de-branded and its metadata carried "Apex Solutions", but nothing ever scrubbed the report's own
-    /// title or subtitle — so a document whose heading carried the forbidden brand printed it, on the page and in
-    /// the <c>/Title</c>. It stayed invisible because every report title in the app is app-authored; a
-    /// multi-account job (census 12.6) titles each sheet with a LEDGER NAME the user typed, which is what makes
-    /// it reachable.
+    /// 🔴 <b>ER-11 de-branding for CHROME ONLY.</b> W2-32 added this because nothing scrubbed the report's own
+    /// title or subtitle, so a heading carrying the forbidden brand printed it on the page and in the
+    /// <c>/Title</c>. W2-32 then applied it far too widely — to the title unconditionally and to every body cell
+    /// — and the reachable case its own note described ("a multi-account job titles each sheet with a LEDGER NAME
+    /// the user typed") is precisely the case Ruling 18 says must NOT be scrubbed. So the guard now runs over
+    /// what this product wrote: the column captions, the subtitle (a company name and a date range — ours), a
+    /// product-authored title, and the <c>/Title</c> metadata. It does NOT run over body cells or over a title
+    /// the producer marked as a master name.
     ///
     /// <para>The scrub is applied only when the brand is actually present, because
     /// <see cref="Debrand.Text"/> also collapses whitespace runs — an unconditional call would have moved the

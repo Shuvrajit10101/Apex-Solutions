@@ -2318,13 +2318,18 @@
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="16"
                                             HorizontalAlignment="Left"
                                             VerticalAlignment="Center" Margin="0,6,0,0">
-                                  <!-- Entry-mode selector (Ctrl+I Item Invoice / Ctrl+H Change Mode) — only on a
-                                       Purchase/Sales voucher. Two OneWay-bound checkboxes over the 3-value Mode: both
-                                       clear ⇒ As Voucher, Item checked ⇒ Item Invoice, Accounting checked ⇒ Accounting
-                                       (service) Invoice. OneWay only — a TwoWay write onto the now get-only IsItemInvoice
-                                       would throw; the Click handlers drive the mode change (mirroring Ctrl+I/Ctrl+H). -->
+                                  <!-- Entry-mode selector — only on a Purchase/Sales voucher. Two OneWay-bound
+                                       checkboxes over the 3-value Mode: both clear ⇒ As Voucher, Item checked ⇒ Item
+                                       Invoice, Accounting checked ⇒ Accounting (service) Invoice. OneWay only — a TwoWay
+                                       write onto the now get-only IsItemInvoice would throw; the Click handlers drive the
+                                       mode change.
+                                       🔴 BOTH CAPTIONS NAME Ctrl+H, AND THAT IS CORRECT, NOT A COPY-PASTE SLIP (user
+                                       ruling 17): Ctrl+H is the single "Change Mode" key whose cycle passes through both
+                                       of these modes. The Item caption used to read "(Ctrl+I)"; Ctrl+I is now More
+                                       Details and no longer reaches this mode at all, so that caption had to move or it
+                                       would have been advertising a keystroke that does nothing here. -->
                                   <CheckBox IsVisible="{Binding CanBeItemInvoice}"
-                                            Content="Item Invoice (Ctrl+I)"
+                                            Content="Item Invoice (Ctrl+H)"
                                             IsChecked="{Binding IsItemInvoice, Mode=OneWay}"
                                             Click="OnToggleItemInvoiceClick"
                                             Foreground="#CFE0FF" FontSize="11"
@@ -2852,7 +2857,8 @@
                               </Border>
                             </Grid>
 
-                            <!-- INVOICE OVERLAY — Item Invoice (Ctrl+I) OR Accounting Invoice (Ctrl+H). Shares the
+                            <!-- INVOICE OVERLAY — Item Invoice OR Accounting Invoice, both reached by Ctrl+H
+                                 ("Change Mode"; Ctrl+I became More Details under ruling 17). Shares the
                                  party header, the line-grid row, the derived-summary line and the GST totals band;
                                  the line grid itself switches between the stock-item grid (IsItemInvoice) and the
                                  service Particulars grid (ShowParticularsGrid). The accounting legs are auto-derived
@@ -18540,6 +18546,86 @@
 
                             <TextBlock Grid.Row="3" Text="{Binding Status}"
                                        Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Ctrl+I "More Details" (census 14.4 — reach an option-gated field on THIS voucher
+                         without turning the screen option on). Each row NAMES the option that is hiding the
+                         field, because the whole point of the feature is that the option is left alone: an
+                         operator who cannot see which knob is involved cannot tell this apart from flipping it.
+                         🔴 EVERY DATA-BOUND TextBlock HERE CARRIES TextWrapping, and the two-run row label is one
+                         TextBlock rather than a horizontal StackPanel of two — the Switch To row above records
+                         why (a StackPanel measures children at INFINITE width, so trimming/wrapping on a child
+                         can never engage and the text paints over its neighbour). -->
+                    <ContentControl IsVisible="{Binding MoreDetails, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MoreDetails}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MoreDetailsViewModel">
+                          <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,6"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ScrollViewer>
+                                <ItemsControl Name="MoreDetailsRows" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MoreDetailsRowViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <!-- 🔴 FIXED ROW HEIGHT + TextTrimming, NOT Wrap — and this is a MEASURED
+                                             constraint, not a style preference. This template was first written
+                                             with TextWrapping on the bound text and it HUNG THE LAYOUT PASS
+                                             OUTRIGHT: the headless test host spun until a blame-hang dump
+                                             pinned it here. Inside this ScrollViewer the content is measured at
+                                             unbounded width, and a wrapping TextBlock never settles against an
+                                             infinite constraint. The Switch To list directly above carries
+                                             TextTrimming for the same reason and is the pattern being copied.
+                                             Wrapping IS safe on the Status/Footnote lines outside the scroller,
+                                             where the width is bounded, and they use it. -->
+                                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="20,18" Height="38">
+                                          <!-- The keyboard cursor. Declared FIRST so it paints BEHIND the text,
+                                               converter-free, exactly as every other list in this shell does.
+                                               Spans the whole row so the highlight reaches the status label. -->
+                                          <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                                  Background="#FFF3CD" IsVisible="{Binding IsHighlighted}"/>
+                                          <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center"
+                                                     Margin="8,0" FontSize="12.5" FontWeight="SemiBold"
+                                                     Foreground="{StaticResource BrandNavy}"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     Text="{Binding Label}"/>
+                                          <!-- The option that is hiding the field. Naming it is the point of the
+                                               feature: the operator has to be able to see that More Details is
+                                               NOT the same as turning that option on. -->
+                                          <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center"
+                                                     Margin="8,0" FontSize="11" Foreground="#6A6A6A"
+                                                     TextTrimming="CharacterEllipsis"><Run Text="hidden by: "/><Run Text="{Binding OwningOption}"/></TextBlock>
+                                          <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                                                     VerticalAlignment="Center" Margin="6,0,10,0"
+                                                     FontSize="11" FontWeight="SemiBold" Foreground="#1B7A3D"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     Text="shown on this voucher"
+                                                     IsVisible="{Binding IsRevealed}"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Grid.Row="2" Text="{Binding Status}"
+                                       Foreground="#555555" FontSize="12"
+                                       Margin="2,0,0,4" TextWrapping="Wrap"/>
+
+                            <!-- The honest footer: the vendor-attested field groups this build cannot reach.
+                                 Drawn, not merely stored, so the omission is visible to the operator rather
+                                 than only to whoever reads the view model. -->
+                            <TextBlock Grid.Row="3" Text="{Binding Footnote}"
+                                       Foreground="#6A6A6A" FontSize="11" FontStyle="Italic"
                                        Margin="2,0,0,4" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>

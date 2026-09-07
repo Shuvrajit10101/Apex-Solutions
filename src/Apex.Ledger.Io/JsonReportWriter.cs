@@ -30,7 +30,8 @@ public static class JsonReportWriter
 
         var sb = new StringBuilder();
         sb.Append("{\r\n");
-        sb.Append("  \"title\": \"").Append(Escape(Debrand.Text(export.Title))).Append("\",\r\n");
+        // 🔴 RULING 18: title through the provenance seam (see TabularExport.TitleText), not a bare scrub.
+        sb.Append("  \"title\": \"").Append(Escape(TabularExport.TitleText(export))).Append("\",\r\n");
 
         // ---- column declaration ----
         sb.Append("  \"columns\": [\r\n");
@@ -60,8 +61,10 @@ public static class JsonReportWriter
                 if (cell.Type == CellType.Number)
                     sb.Append("{ \"type\": \"number\", \"value\": ").Append(cell.NumberText).Append(" }");
                 else
+                    // 🔴 Ruling 18: book data is emitted verbatim (escaped, not de-branded) — a counterparty's
+                    // name must round-trip out of this file exactly as it stands in the books.
                     sb.Append("{ \"type\": \"text\", \"value\": \"")
-                      .Append(Escape(TabularDebrand.Cell(cell.TextValue))).Append("\" }");
+                      .Append(Escape(cell.TextValue ?? string.Empty)).Append("\" }");
             }
             sb.Append("] }");
             sb.Append(r == export.Rows.Count - 1 ? "\r\n" : ",\r\n");

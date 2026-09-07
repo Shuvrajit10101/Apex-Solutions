@@ -61,8 +61,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
     /// <summary>
     /// True only for a Purchase or Sales voucher — the two natures that can be entered "as invoice"
-    /// (item-invoice mode). For every other voucher type item-invoice mode is unavailable (Ctrl+I is a
-    /// no-op and the inventory panel never shows), so those screens behave exactly as before.
+    /// (item-invoice mode). For every other voucher type item-invoice mode is unavailable (Ctrl+H's Change Mode
+    /// cycle does not offer it and the inventory panel never shows), so those screens behave exactly as before.
     /// </summary>
     public bool CanBeItemInvoice =>
         _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
@@ -89,7 +89,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// The per-voucher <b>entry mode</b> (catalog §10; Tally "Change Mode", Ctrl+H) — the single source of truth for
     /// which grid/render the screen shows: the classic Dr/Cr grid (<see cref="VoucherEntryMode.AsVoucher"/>), the
     /// cash/bank <see cref="VoucherEntryMode.SingleEntry"/> re-render of those same lines, the stock-item Item Invoice
-    /// (<see cref="VoucherEntryMode.ItemInvoice"/>, Ctrl+I), or the service/accounting-ledger Accounting Invoice
+    /// (<see cref="VoucherEntryMode.ItemInvoice"/>, Ctrl+H), or the service/accounting-ledger Accounting Invoice
     /// (<see cref="VoucherEntryMode.AccountingInvoice"/>). All post ordinary balanced <c>Voucher</c> legs; the mode
     /// is transient screen state, never persisted (inferred downstream from the posted legs — see the print/GSTR-1 paths).
     ///
@@ -144,7 +144,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// Ctrl+I — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
+    /// Ctrl+H — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
     /// the user enters a party + inventory lines (Stock Item / Godown / Qty / Rate / Batch) and the VM
     /// auto-derives the two balancing accounting legs, so the pairing invariant always holds without any
     /// hand-balancing. When off, the plain Dr/Cr grid is used and the voucher behaves exactly as before.
@@ -265,7 +265,50 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// Plus the structural precondition that we are actually in an invoice mode (the plain grid keeps its own
     /// per-line panel).
     /// </summary>
-    public bool ShowInvoiceBillWise => InvoiceBillWiseApplies && !UseDefaultBillWiseAllocation;
+    /// <para>🔴 <b>THE SECOND DISJUNCT IS More Details (census 14.4)</b> — layer 4 is satisfied either by the
+    /// operator turning the screen option OFF <i>or</i> by Ctrl+I asking for this field group on THIS voucher
+    /// alone. See <see cref="MoreDetailsBillWiseRequested"/> for why that is a separate flag and not a write to
+    /// the option.</para>
+    /// </summary>
+    public bool ShowInvoiceBillWise =>
+        InvoiceBillWiseApplies && (!UseDefaultBillWiseAllocation || MoreDetailsBillWiseRequested);
+
+    /// <summary>
+    /// 🔴 <b>Ctrl+I "More Details" asked for the Bill-wise screen ON THIS VOUCHER ONLY</b> (census 14.4).
+    ///
+    /// <para><b>Fidelity (Ruling 14 tier 1).</b> help.tallysolutions.com documents Ctrl+I as "To add more details
+    /// to a master or voucher <b>for the current instance</b>", and on the banking pages spells out the
+    /// defining half verbatim: <i>"press Ctrl+I (More Details) to enter any of the values <b>without activating
+    /// the options in F12 (Configure)</b>."</i></para>
+    ///
+    /// <para>That bolded half is the whole reason this is a SECOND flag rather than More Details simply setting
+    /// <see cref="UseDefaultBillWiseAllocation"/> to false: <b>More Details must not WRITE the option.</b>
+    /// Everything that reads the knob — the checkbox the operator is looking at, the first disjunct of
+    /// <see cref="ShowInvoiceBillWise"/>, and the refusal message that tells them to "Clear 'Use default
+    /// Bill-wise details for Bill Allocation' to review the split" — must still see the setting they chose.
+    /// <see cref="MoreDetailsViewModel"/> is this flag's only writer, and a test asserts the knob is unchanged
+    /// across a reveal.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS DOES NOT MEAN IN THIS BUILD, stated so the comment is not read as more than it
+    /// is.</b> The vendor's "for the current instance" implies the NEXT voucher is unaffected. That is true
+    /// here — but <b>trivially</b>, and not because of this flag: <c>MainWindowViewModel.OpenVoucher</c>
+    /// constructs a FRESH <see cref="VoucherEntryViewModel"/> per voucher, so
+    /// <see cref="UseDefaultBillWiseAllocation"/> is itself per-entry-screen state and re-defaults on the next
+    /// voucher too. This codebase has no persistent screen-option store for either to outlive. The real,
+    /// observable difference the separate flag buys is the one above — the option is not rewritten under the
+    /// operator — and a later slice that DOES make screen options persist must keep it that way.</para>
+    /// </summary>
+    [ObservableProperty] private bool _moreDetailsBillWiseRequested;
+
+    partial void OnMoreDetailsBillWiseRequestedChanged(bool value)
+    {
+        // Revealing the panel must also SEED it, exactly as turning the option off does — otherwise More Details
+        // opens an empty allocation grid on a voucher whose party leg already carries a derived allocation, and
+        // the operator would be looking at a blank where a filled bill reference belongs. Recalculate() is the
+        // same path OnUseDefaultBillWiseAllocationChanged relies on for that seeding.
+        OnPropertyChanged(nameof(ShowInvoiceBillWise));
+        Recalculate();
+    }
 
     /// <summary>
     /// Whether bill-wise allocation <b>applies</b> to this invoice at all — the structural precondition (an invoice
@@ -641,6 +684,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
     partial void OnUseBatchWiseDetailsChanged(bool value) => RecalculateItemInvoice();
 
+    /// <summary>
+    /// 🔴 <b>Ctrl+I "More Details" asked for the batch sub-screen ON THIS VOUCHER ONLY</b> (census 14.4). The
+    /// per-instance twin of <see cref="UseBatchWiseDetails"/>, for the same reason
+    /// <see cref="MoreDetailsBillWiseRequested"/> exists: the vendor's More Details reaches an option-gated
+    /// field "without activating the options in F12 (Configure)", so the knob above must come out of this
+    /// byte-identical. <see cref="MoreDetailsViewModel"/> is its only writer.
+    /// </summary>
+    [ObservableProperty] private bool _moreDetailsBatchRequested;
+
+    partial void OnMoreDetailsBatchRequestedChanged(bool value) => RecalculateItemInvoice();
+
     /// <summary>True iff the layer-4 batch knob is worth showing at all — a Sales/Purchase item invoice on a
     /// company that maintains batch-wise details (C-06). Off ⇒ the checkbox never appears (ER-13).</summary>
     public bool CanUseBatchWiseDetails => CanBeItemInvoice && _company.MaintainBatchwiseDetails;
@@ -668,7 +722,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     public bool LineWantsBatchAllocation(InventoryVoucherLineViewModel line) =>
         _company.MaintainBatchwiseDetails
-        && UseBatchWiseDetails
+        // L4 is satisfied by the screen knob OR by More Details (Ctrl+I) asking for the field group on THIS
+        // voucher alone (census 14.4). L1/L3 above and below are untouched: More Details reveals an
+        // option-gated field, it never overrides the company flag or the item's own MaintainInBatches.
+        && (UseBatchWiseDetails || MoreDetailsBatchRequested)
         && IsItemInvoice && CanBeItemInvoice
         && line is { ShowsBatch: true, SelectedItem: { MaintainInBatches: true }, SelectedGodown: not null }
         && line.ParsedQuantity > 0m;
@@ -5033,9 +5090,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     partial void OnSelectedStockLedgerChanged(DomainLedger? value) => RecalculateItemInvoice();
 
     /// <summary>
-    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type), redefined over the
+    /// Toggles item-invoice mode on a Purchase/Sales (a no-op on any other type), redefined over the
     /// 3-value <see cref="Mode"/> as a 2-way As-Voucher↔Item-Invoice flip so its exact current behaviour (and all its
     /// tests) are preserved. Recomputes so the Accept gate reflects the new mode immediately.
+    ///
+    /// <para>🔴 <b>NO LONGER A KEYBOARD CHORD'S VERB (user ruling 17, 2026-09-06).</b> This used to be Ctrl+I.
+    /// Ctrl+I is now More Details (census 14.4) and has NO alias back to here. The remaining callers are the
+    /// "Item Invoice (Ctrl+H)" checkbox's Click handler and existing tests; from the keyboard, item-invoice mode
+    /// is reached through <see cref="ChangeMode"/> (Ctrl+H), whose three-way cycle passes through it. Do not
+    /// re-bind a chord to this method without checking that chord against <c>ShellChordTable</c> first.</para>
     /// </summary>
     public void ToggleItemInvoice()
     {
