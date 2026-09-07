@@ -119,7 +119,11 @@ public static class PosReceiptPdf
 
         foreach (var it in data.Items)
         {
-            var desc = PdfWriter.FitToWidth(Debrand.Text(it.Description), qtyR - 60 - left - 4, page.BodyFontSize);
+            // 🔴 RULING 18: the description is the STOCK-ITEM MASTER NAME the user typed — book data, printed
+            // verbatim on the receipt physically handed to the customer. The de-brand that used to run here
+            // turned an item named "Metally Coated Sheet" into "Me Coated Sheet" on the customer's receipt while
+            // the CSV of the same sale showed it correctly. Width-fitting stays: that is layout, not an edit.
+            var desc = PdfWriter.FitToWidth(it.Description ?? string.Empty, qtyR - 60 - left - 4, page.BodyFontSize);
             writer.Text(left, y, desc, page.BodyFontSize);
             RightText2(writer, it.QuantityText, qtyR - 60, qtyR, y, page.BodyFontSize, bold: false);
             RightText2(writer, it.RateText, qtyR, rateR, y, page.BodyFontSize, bold: false);

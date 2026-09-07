@@ -39,7 +39,9 @@ public static class EcrWriter
         //      would be rejected by the per-line ECR validation.
         foreach (var m in ecr.Members)
             WriteRecord(sb,
-                Text(m.Uan), Text(m.Name),
+                // 🔴 RULING 18: the UAN and the member's legal name are the EPF member's OWN identity, matched
+                // against each other by EPFO. Both go through Name() — delimiter-safed, never de-branded.
+                Name(m.Uan), Name(m.Name),
                 Int(m.GrossWages), Int(m.EpfWages), Int(m.EpsWages), Int(m.EdliWages),
                 Int(m.EmployeeShareEpf), Int(m.EpsContribution), Int(m.EmployerShareEpf),
                 Int(m.NcpDays), Int(m.RefundOfAdvances));
@@ -56,6 +58,21 @@ public static class EcrWriter
         // corrupt the record framing. Deterministic; no culture leak.
         var cleaned = Debrand.Text(value);
         return cleaned.Replace(Delimiter, " ").Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    /// <summary>
+    /// 🔴 <b>RULING 18 — an EPF MEMBER'S own identity (name or UAN), delimiter-safed but NEVER de-branded.</b> The
+    /// member is the person this return is filed about, and EPFO matches the name against the 12-digit UAN.
+    /// <see cref="Text"/> strips a case-insensitive vendor token, so a real member whose legal name carries that
+    /// token was filed under a name that is not theirs — a name-vs-UAN mismatch in a statutory return, not a
+    /// cosmetic edit. The record-framing guard STAYS: it is a property of the FILE FORMAT, and a stray
+    /// <c>#~#</c> or newline in a name would break the per-line ECR validation and the portal would reject the
+    /// upload. Pinned by <c>EcrWriterTests</c> with a fixture name that actually contains the delimiter.
+    /// </summary>
+    private static string Name(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Replace(Delimiter, " ").Replace('\r', ' ').Replace('\n', ' ');
     }
 
     private static string Int(long value) => value.ToString(CultureInfo.InvariantCulture);

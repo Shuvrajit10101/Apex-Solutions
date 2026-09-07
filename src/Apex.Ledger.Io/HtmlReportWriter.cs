@@ -25,7 +25,9 @@ public static class HtmlReportWriter
     {
         ArgumentNullException.ThrowIfNull(export);
 
-        string title = Escape(Debrand.Text(export.Title));
+        // 🔴 RULING 18: the title goes through the provenance seam, not the scrub. A product-authored heading is
+        // still guarded; a heading the producer flagged as carrying a counterparty's master name ships verbatim.
+        string title = Escape(TabularExport.TitleText(export));
         var sb = new StringBuilder();
 
         sb.Append("<!DOCTYPE html>\r\n");

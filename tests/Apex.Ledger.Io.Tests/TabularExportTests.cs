@@ -217,6 +217,57 @@ public sealed class TabularExportTests
         Assert.StartsWith("'", records[1][0]);
     }
 
+    /// <summary>
+    /// 🔴 <b>The injection guard must fire on an INDENTED cell.</b> The guard used to test <c>field[0]</c>, and it
+    /// used to be handed a cell that <c>Debrand.Text</c> had already trimmed. Ruling 18 removed that de-brand from
+    /// body cells — correctly, it was rewriting counterparty names — and with it the accidental trim, so every
+    /// indented row started reaching the guard with leading spaces and was left UNGUARDED.
+    ///
+    /// <para>That is not hypothetical: <c>MasterListTabularProjector.ProjectChartOfAccounts</c> prefixes two
+    /// spaces per level onto every non-root Name, so EVERY nested group and ledger in the Chart of Accounts
+    /// export took the unguarded path. A user who names a group <c>=HYPERLINK("http://evil","Click")</c> at any
+    /// depth &gt; 0 then ships a CSV that an importer which trims on the way in (LibreOffice's "Trim spaces",
+    /// Google Sheets, downstream tooling) will evaluate.</para>
+    ///
+    /// <para>The indentation itself must SURVIVE — the guard prefixes, it never rewrites — because the tree shape
+    /// is what the export is for and re-trimming would re-break the counterparty name ruling 18 protects.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("  ", "=HYPERLINK(\"http://evil\",\"Click\")")]   // one level deep — the common case
+    [InlineData("    ", "=SUM(A1)")]                              // two levels deep
+    [InlineData(" ", "+1")]
+    [InlineData("      ", "@x")]
+    [InlineData("  ", "-1")]
+    public void Csv_text_cell_that_is_indented_before_a_formula_trigger_is_still_neutralized(
+        string indent, string dangerous)
+    {
+        string cell = indent + dangerous;
+        var model = new TabularExport("Chart of Accounts",
+            new[] { new TabularColumn("Name", CellType.Text) },
+            new[] { TabularRow.Of(TabularCell.Text(cell)) });
+
+        var records = ParseCsv(CsvText(CsvWriter.Write(model)));
+
+        // Guarded — the leading quote is there despite the value not STARTING with the trigger character.
+        Assert.StartsWith("'", records[1][0]);
+        // And guarded by PREFIX only: the indentation and the payload survive byte-for-byte after it, so the
+        // hierarchy the export exists to show is intact and no counterparty name is rewritten.
+        Assert.Equal("'" + cell, records[1][0]);
+    }
+
+    /// <summary>A leading space is not itself a trigger: an ordinary indented label stays unguarded, so the guard
+    /// has not simply been widened to quote every indented row in the Chart of Accounts.</summary>
+    [Fact]
+    public void Csv_indented_ordinary_label_is_not_guarded()
+    {
+        var model = new TabularExport("Chart of Accounts",
+            new[] { new TabularColumn("Name", CellType.Text) },
+            new[] { TabularRow.Of(TabularCell.Text("    Sundry Debtors")) });
+
+        var records = ParseCsv(CsvText(CsvWriter.Write(model)));
+        Assert.Equal("    Sundry Debtors", records[1][0]);
+    }
+
     [Fact]
     public void Csv_negative_number_cell_stays_a_plain_number_not_guarded()
     {

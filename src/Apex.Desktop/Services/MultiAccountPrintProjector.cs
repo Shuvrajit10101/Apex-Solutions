@@ -77,6 +77,32 @@ public static class MultiAccountPrintProjector
     private static string Day(DateOnly date) =>
         date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// The signatory line of the Reminder Letter and the Confirmation of Accounts — <c>"For &lt;our company&gt;"</c>.
+    ///
+    /// <para>🔴 <b>This is OUR OWN name, so it is DE-BRANDED HERE, at source.</b> Ruling 18 has two directions and
+    /// they pull opposite ways: a COUNTERPARTY'S name is book data and ships verbatim, but OUR name is the one
+    /// string the ER-11 guard exists for. These two letters put our name in a <see cref="PrintRow"/> BODY CELL,
+    /// and <c>ReportPdf.DrawRowCells</c> deliberately no longer scrubs body cells (they are book data) — so the
+    /// renderer will not catch it and the projector must. Without this the letter posted to a customer reads
+    /// "For Tally Solutions Retail" on the signature line while the SUBTITLE of the same page, which the renderer
+    /// still scrubs (<c>ReportPdf</c> Subtitle), reads "Solutions Retail" — one document disagreeing with itself.
+    /// <c>PaymentAdvicePdf</c>'s own signatory line does exactly this, and this matches it.</para>
+    ///
+    /// <para>The scrub is CONDITIONAL, the same way <c>ReportPdf</c>'s is and for the same reason (ER-13): a clean
+    /// company name is passed through untouched, so the bytes of every already-shipped letter do not move.
+    /// <see cref="Debrand.Text"/> also collapses whitespace runs and trims, and running that over a clean name
+    /// would shift the line for no benefit.</para>
+    ///
+    /// <para>Pinned by <c>MultiAccountPartyNameOnPaperTests</c>, which renders both kinds with a BRANDED company
+    /// name and asserts the token does not reach the page.</para>
+    /// </summary>
+    private static string SignatoryLine(Company company)
+    {
+        string name = ReportPrintProjector.Ascii(company.Name);
+        return "For " + (Debrand.Contains(name) ? Debrand.Text(name) : name);
+    }
+
     /// <summary>The heading each document kind carries. OURS (ruling 9) — see <see cref="MultiAccountDocumentKind"/>.</summary>
     public static string TitleFor(MultiAccountDocumentKind kind) => kind switch
     {
@@ -270,11 +296,17 @@ public static class MultiAccountPrintProjector
         return new PrintReport
         {
             Title = TitleFor(MultiAccountDocumentKind.LedgerAccount) + " - " + ReportPrintProjector.Ascii(ledger.Name),
-            // 🔴 RULING 18. This is the ONE heading in the product that concatenates a product-authored label
-            // with a MASTER NAME the user typed. Without this flag the renderer's ER-11 guard strips the vendor
-            // token out of the ledger's name, so a real customer named after it is printed under a mangled name
-            // on the very statement posted to them. The label half is a compile-time constant, so waiving the
-            // guard over the whole heading leaks nothing of ours. Subtitle stays guarded: it is OUR company name.
+            // 🔴 RULING 18. This heading concatenates a product-authored label with a MASTER NAME the user typed,
+            // so it is flagged. Without the flag the renderer's ER-11 guard strips the vendor token out of the
+            // ledger's name and a real customer named after it is printed under a mangled name on the very
+            // statement posted to them. The label half is a compile-time constant, so waiving the guard over the
+            // whole heading leaks nothing of ours. Subtitle stays guarded: it is OUR company name.
+            //
+            // It is NOT the only such heading, and an earlier version of this comment wrongly said it was — the
+            // same shape lives on ReportsViewModel's Group Summary, Group Vouchers and Ledger Monthly Summary
+            // headings, which set the same flag through ReportsViewModel.TitleCarriesMasterName and reach both
+            // ReportPrintProjector (the PDF) and ReportTabularProjector (HTML / XML / JSON / XLSX). Any NEW
+            // producer that builds a heading this way must set the flag too; nothing infers it from the string.
             TitleCarriesMasterName = true,
             Subtitle = ReportPrintProjector.Ascii(company.Name)
                 + "  -  " + Day(from) + " to " + Day(asOf),
@@ -336,7 +368,7 @@ public static class MultiAccountPrintProjector
                 : "This is a statement of the amounts currently open on your account; no amount is overdue.",
             string.Empty, string.Empty, string.Empty));
         rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow("For " + ReportPrintProjector.Ascii(company.Name), string.Empty, string.Empty, string.Empty));
+        rows.Add(new PrintRow(SignatoryLine(company), string.Empty, string.Empty, string.Empty));
 
         return new PrintReport
         {
@@ -389,7 +421,7 @@ public static class MultiAccountPrintProjector
             "Please confirm that this balance agrees with your books, or advise us of the difference.",
             string.Empty, string.Empty, string.Empty));
         rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow("For " + ReportPrintProjector.Ascii(company.Name), string.Empty, string.Empty, string.Empty));
+        rows.Add(new PrintRow(SignatoryLine(company), string.Empty, string.Empty, string.Empty));
         rows.Add(new PrintRow("Confirmed by ____________________   Date ____________",
             string.Empty, string.Empty, string.Empty));
 

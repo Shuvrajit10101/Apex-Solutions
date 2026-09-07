@@ -20,13 +20,23 @@ namespace Apex.Ledger.Io.Tests;
 /// fixture here deliberately does not.</para>
 ///
 /// <para><b>Why the API needed a seam and where it is.</b> A <see cref="string"/> carries no provenance, so a
-/// renderer handed a cell cannot tell our text from theirs. It does not have to: provenance is STRUCTURAL here.
-/// A <see cref="PrintColumn.Header"/>/<see cref="TabularColumn.Header"/> caption and a report's own subtitle are
-/// compile-time strings this product authored; a <see cref="PrintRow"/> / <see cref="TabularRow"/> cell is ALWAYS
-/// book data projected from masters and vouchers. The single place the two are concatenated is a report TITLE
-/// (<c>"Ledger Account - " + ledger.Name</c>), and that one mixing point is what
-/// <see cref="PrintReport.TitleCarriesMasterName"/> exists to declare. Every assertion below is written against
-/// that split.</para>
+/// renderer handed a cell cannot tell our text from theirs. For most of the model it does not have to, because
+/// provenance is structural: a <see cref="PrintColumn.Header"/>/<see cref="TabularColumn.Header"/> caption and a
+/// report's own subtitle are compile-time strings this product authored and stay guarded, and the overwhelming
+/// majority of <see cref="PrintRow"/> / <see cref="TabularRow"/> cells are book data projected from masters and
+/// vouchers and ship verbatim. The TITLE is the one string that is genuinely either — <c>"Trial Balance"</c> is
+/// ours, <c>"Ledger Account - " + ledger.Name</c> is half theirs — so the PRODUCER declares it, through
+/// <see cref="PrintReport.TitleCarriesMasterName"/> for the PDF and
+/// <see cref="TabularExport.TitleCarriesMasterName"/> for HTML / XML / JSON / XLSX, resolved once in
+/// <see cref="TabularExport.TitleText"/> so the five formats cannot disagree about one heading.</para>
+///
+/// <para>🔴 <b>A BODY CELL IS NOT AUTOMATICALLY THEIRS.</b> An earlier version of this note said cells are
+/// "ALWAYS book data", and that claim was false and load-bearing: a handful of producers write OUR OWN prose
+/// into a body cell — most importantly the <c>"For &lt;our company&gt;"</c> signatory line of the Reminder Letter
+/// and the Confirmation of Accounts — and when the renderer's body-cell scrub was removed, our own branding
+/// started printing on two letters posted to counterparties. There is no per-cell flag; a producer that writes
+/// its own text into a cell de-brands it AT SOURCE, and <c>MultiAccountPartyNameOnPaperTests</c> pins both
+/// letters in both directions.</para>
 /// </summary>
 public sealed class CounterpartyNameExportTests
 {
@@ -235,6 +245,150 @@ public sealed class CounterpartyNameExportTests
     }
 
     /// <summary>
+    /// 🔴 <b>A text cell's WHITESPACE is now verbatim too, and that is deliberate rather than incidental.</b>
+    /// <c>TabularDebrand.Cell</c> called <c>Debrand.Text</c> unconditionally, and that helper also collapses runs
+    /// of whitespace and trims — so until ruling 18 every text cell in every export was silently trimmed and
+    /// whitespace-collapsed. Removing the de-brand removed that too. It is a real change to every document the
+    /// product emits and nothing pinned it, so it is pinned here.
+    ///
+    /// <para>It has two consequences worth naming. The good one: <c>MasterListTabularProjector</c> indents each
+    /// Chart-of-Accounts row by depth and documents that the export mirrors the screen — the trim had been
+    /// destroying that indentation in all five formats, and it now survives. The dangerous one: the CSV
+    /// formula-injection guard used to be handed pre-trimmed text and so could test <c>field[0]</c>; it can no
+    /// longer, and <c>TabularExportTests</c> pins the indented-injection case that fell through.</para>
+    /// </summary>
+    [Fact]
+    public void A_text_cell_keeps_its_leading_trailing_and_doubled_internal_whitespace()
+    {
+        const string Indented = "    Sundry Debtors";              // hierarchy indentation from the projector
+        const string Doubled = "Smith  and  Co";                   // a doubled internal space the user typed
+        const string Trailing = "Bright Traders  ";
+
+        var export = new TabularExport("Chart of Accounts",
+            new[] { new TabularColumn("Name", CellType.Text) },
+            new[]
+            {
+                TabularRow.Of(TabularCell.Text(Indented)),
+                TabularRow.Of(TabularCell.Text(Doubled)),
+                TabularRow.Of(TabularCell.Text(Trailing)),
+            });
+
+        string html = Utf8(HtmlReportWriter.Write(export));
+        string json = Utf8(JsonReportWriter.Write(export));
+
+        Assert.Contains(Indented, html, StringComparison.Ordinal);
+        Assert.Contains(Doubled, html, StringComparison.Ordinal);
+        Assert.Contains(Trailing, html, StringComparison.Ordinal);
+        Assert.Contains(Indented, json, StringComparison.Ordinal);
+        Assert.Contains(Doubled, json, StringComparison.Ordinal);
+    }
+
+    // ================================================================ the TABULAR title seam (ruling 18)
+    //
+    // 🔴 The four tests above pin the CHROME half in each format with a product-authored title. These pin the
+    // OTHER half — the title that IS a counterparty's name — which is the case that shipped broken: the seam was
+    // built on PrintReport for the PDF and never given a tabular twin, so a report headed "Ledger Monthly
+    // Summary — Tally Traders Pvt Ltd" reached the HTML <title>, the XML @title, the JSON title and the XLSX
+    // worksheet name with the party's name mangled, from four shipped egress points (Export, Email, Print
+    // preview, WhatsApp share).
+
+    // Deliberately SHORT (30 chars): the XLSX worksheet name is capped at 31 characters by Excel, and a longer
+    // realistic heading would be truncated before the party's name appeared, so the test would prove nothing
+    // about that format. The shape is what matters — our label concatenated with a master name.
+    private const string HeadingWithMasterName = "Ledger - " + Counterparty;
+
+    private static TabularExport TabularTitleCarriesAMasterName() => new(
+        title: HeadingWithMasterName,
+        columns: new[] { new TabularColumn("Particulars", CellType.Text) },
+        rows: new[] { TabularRow.Of(TabularCell.Text("Opening Balance")) },
+        titleCarriesMasterName: true);
+
+    private static TabularExport TabularSameHeadingUnflagged() => new(
+        title: HeadingWithMasterName,
+        columns: new[] { new TabularColumn("Particulars", CellType.Text) },
+        rows: new[] { TabularRow.Of(TabularCell.Text("Opening Balance")) });
+
+    /// <summary>
+    /// The seam itself: one title string, two provenances, two outcomes. Flagged, it is emitted verbatim;
+    /// unflagged — the same bytes, a product-authored heading that merely happens to carry the token — it is
+    /// still scrubbed. Asserting BOTH is what stops a "fix" that simply stops de-branding titles altogether.
+    /// </summary>
+    [Fact]
+    public void A_tabular_title_marked_as_carrying_a_master_name_is_emitted_verbatim_and_an_unmarked_one_is_scrubbed()
+    {
+        Assert.Equal(HeadingWithMasterName, TabularExport.TitleText(TabularTitleCarriesAMasterName()));
+        Assert.Equal("Ledger - Traders Pvt Ltd", TabularExport.TitleText(TabularSameHeadingUnflagged()));
+    }
+
+    [Fact]
+    public void The_tabular_master_name_flag_defaults_to_false()
+    {
+        var export = new TabularExport("Trial Balance",
+            new[] { new TabularColumn("Particulars", CellType.Text) },
+            System.Array.Empty<TabularRow>());
+        Assert.False(export.TitleCarriesMasterName,
+            "the guarded treatment is the fail-safe default; a producer that forgets the flag must scrub its own "
+          + "text, never leak the brand.");
+    }
+
+    /// <summary>
+    /// End of each pipe: a heading flagged as carrying a counterparty's name reaches the HTML document title,
+    /// the XML report attribute, the JSON title and the XLSX worksheet name IN FULL. One theory over all four so
+    /// a future format cannot be added on the scrubbing path unnoticed.
+    /// </summary>
+    [Theory]
+    [InlineData("html")]
+    [InlineData("xml")]
+    [InlineData("json")]
+    [InlineData("xlsx")]
+    public void A_report_headed_with_a_counterparty_name_keeps_that_name_in_every_tabular_format(string format)
+    {
+        var export = TabularTitleCarriesAMasterName();
+        string text = format switch
+        {
+            "html" => Utf8(HtmlReportWriter.Write(export)),
+            "xml" => Utf8(XmlReportWriter.Write(export)),
+            "json" => Utf8(JsonReportWriter.Write(export)),
+            _ => WorkbookXml(XlsxWriter.Write(export)),
+        };
+
+        // The party's own name is on the heading, in full.
+        Assert.Contains(Counterparty, text, StringComparison.Ordinal);
+        // Scrubbed, not blanked, is not enough here: the token must be PRESENT, which is the whole point.
+        Assert.Contains("Tally", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same heading UNFLAGGED is still scrubbed in every format — the guard was not simply removed.</summary>
+    [Theory]
+    [InlineData("html")]
+    [InlineData("xml")]
+    [InlineData("json")]
+    [InlineData("xlsx")]
+    public void The_same_heading_unflagged_is_still_debranded_in_every_tabular_format(string format)
+    {
+        var export = TabularSameHeadingUnflagged();
+        string text = format switch
+        {
+            "html" => Utf8(HtmlReportWriter.Write(export)),
+            "xml" => Utf8(XmlReportWriter.Write(export)),
+            "json" => Utf8(JsonReportWriter.Write(export)),
+            _ => WorkbookXml(XlsxWriter.Write(export)),
+        };
+
+        Assert.Equal(0, CountBrand(text));
+        // De-branded, not blanked: the rest of the heading survives.
+        Assert.Contains("Traders Pvt Ltd", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The XLSX worksheet NAME lives in xl/workbook.xml, which is where a title-shaped defect shows up.</summary>
+    private static string WorkbookXml(byte[] xlsx)
+    {
+        using var zip = new ZipArchive(new MemoryStream(xlsx), ZipArchiveMode.Read);
+        using var reader = new StreamReader(zip.GetEntry("xl/workbook.xml")!.Open(), Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>
     /// The de-brander that used to run over cells was newline-aware (<c>TabularDebrand.Cell</c> scrubbed each
     /// physical line and rejoined), so removing it must not disturb a multi-line cell — a party's postal address
     /// is the everyday case. This is the regression guard for deleting that helper.
@@ -251,6 +405,24 @@ public sealed class CounterpartyNameExportTests
         Assert.Contains("\"" + Counterparty + "\r\n42 MG Road\r\nMumbai\"", Utf8(CsvWriter.Write(export)), StringComparison.Ordinal);
         // HTML: the newlines become <br> and the address reads as three lines.
         Assert.Contains(Counterparty + "<br>42 MG Road<br>Mumbai", Utf8(HtmlReportWriter.Write(export)), StringComparison.Ordinal);
+
+        // 🔴 "in_every_format" now means what the name says. TabularDebrand served FIVE writers and was
+        // newline-aware; this guard asserted only two of them, so a newline regression in XLSX, XML or JSON
+        // would have shipped under a test whose name claimed to cover it.
+        //
+        // XLSX: the cell text is XML-escaped with xml:space="preserve", so the newlines survive as raw LF.
+        Assert.Contains(Counterparty + "\r\n42 MG Road\r\nMumbai", SheetXml(XlsxWriter.Write(export)), StringComparison.Ordinal);
+        // XML: a body cell carries the newlines through the element text.
+        Assert.Contains(Counterparty + "\r\n42 MG Road\r\nMumbai", Utf8(XmlReportWriter.Write(export)), StringComparison.Ordinal);
+        // JSON: newlines are the \r\n escapes, not literal breaks that would make the document invalid.
+        Assert.Contains(Counterparty + "\\r\\n42 MG Road\\r\\nMumbai", Utf8(JsonReportWriter.Write(export)), StringComparison.Ordinal);
+    }
+
+    private static string SheetXml(byte[] xlsx)
+    {
+        using var zip = new ZipArchive(new MemoryStream(xlsx), ZipArchiveMode.Read);
+        using var reader = new StreamReader(zip.GetEntry("xl/worksheets/sheet1.xml")!.Open(), Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     // ================================================================ the retail receipt

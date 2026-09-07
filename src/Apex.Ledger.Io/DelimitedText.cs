@@ -8,7 +8,9 @@ namespace Apex.Ledger.Io;
 /// <see cref="AsciiReportWriter"/> (<c>.txt</c>, no BOM). The vendor's File Format list names one delimited
 /// format — <i>ASCII (Comma Delimited)</i> <c>.txt</c> — and our pre-existing <c>Csv</c> member is that format
 /// under a different extension (census 13.6: <i>"renamed, not missing"</i>), so the two must never drift: the
-/// RFC-4180 quoting, the de-branding and the formula-injection guard live here, once.
+/// RFC-4180 quoting and the formula-injection guard live here, once. The only de-brand left here is on the
+/// column-caption row, which is CHROME this product authored; a BODY cell is book data and ships verbatim
+/// (ruling 18).
 ///
 /// <para>Deterministic and byte-stable: no clock, no culture leak. Number cells format invariant at their OWN
 /// natural decimal scale (money at 2dp, a quantity/rate at its real precision).</para>
@@ -67,7 +69,19 @@ internal static class DelimitedText
     private static string Neutralize(string field)
     {
         if (field.Length == 0) return field;
-        char c = field[0];
+
+        // 🔴 The trigger is looked for at the first character that CARRIES the value, not at field[0]. Leading
+        // SPACES do not stop the attack: an importer that trims on the way in (LibreOffice's "Trim spaces",
+        // Google Sheets, downstream tooling) evaluates what follows them. This matters because we indent our
+        // own output — MasterListTabularProjector.ProjectChartOfAccounts prefixes two spaces per level onto
+        // every non-root Name — so testing field[0] alone would leave every nested group and ledger row
+        // unguarded. Only ' ' is skipped; '\t' and '\r' are themselves triggers and must not be skipped past.
+        int i = 0;
+        while (i < field.Length && field[i] == ' ') i++;
+        char c = i < field.Length ? field[i] : field[0];
+
+        // The guard PREFIXES and never rewrites: the field's own bytes (indentation included) survive verbatim
+        // after the quote, so ruling 18's verbatim-book-data property is untouched by the guard.
         return c is '=' or '+' or '-' or '@' or '\t' or '\r' ? "'" + field : field;
     }
 

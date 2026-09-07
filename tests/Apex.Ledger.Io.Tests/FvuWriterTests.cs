@@ -107,7 +107,40 @@ public class FvuWriterTests
         // ...and it is the ONLY place the token appears, so nothing of ours leaked alongside it.
         Assert.Equal(1, CountBrand(text));
         // The record framing still survives a name (the delimiter guard is a file-format property, not a scrub).
+        // NOTE: this fixture name contains a SPACE, not a caret, so this line alone cannot fail whatever the
+        // guard does — the real proof of the guard is the test below, which uses a name that actually carries
+        // the delimiter and a newline.
         Assert.DoesNotContain("Tally^Consultants", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The delimiter/newline guard, proved with a fixture that can actually break it.</b> Ruling 18 stopped
+    /// de-branding a counterparty's name, and the record-framing guard is now the ONLY thing standing between a
+    /// user-typed party name and a corrupt return: the FVU is <c>^</c>-delimited and LF-separated, so a caret in
+    /// a name would invent a field and a newline would invent a whole record, and the department would reject
+    /// the file.
+    ///
+    /// <para>It needed saying with a fixture that contains those characters. The pre-existing assertions looked
+    /// like they covered this and did not — both fixtures ("Tally Consultants", "Tally Traders") contain a
+    /// space where the assertion looks for a caret, so <b>deleting the entire guard left all IO tests green</b>.
+    /// This test reddens when the guard is removed.</para>
+    /// </summary>
+    [Fact]
+    public void A_delimiter_or_newline_inside_a_party_name_cannot_corrupt_the_record_framing()
+    {
+        var dirty = Form26Q.Build(GoldenCompany("Ka^vi\nTraders"), 2025, 1);
+        var clean = Form26Q.Build(GoldenCompany("Ka vi Traders"), 2025, 1);
+
+        string dirtyText = Encoding.UTF8.GetString(FvuWriter.Write(dirty));
+        string cleanText = Encoding.UTF8.GetString(FvuWriter.Write(clean));
+
+        // Neither separator survived into the name: both became a plain space.
+        Assert.Contains("Ka vi Traders", dirtyText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ka^vi", dirtyText, StringComparison.Ordinal);
+
+        // And the framing is byte-for-byte what the same books produce with an already-clean name: the same
+        // number of records, and the same number of fields on every one of them.
+        Assert.Equal(cleanText, dirtyText);
     }
 
     private static int CountBrand(string text)

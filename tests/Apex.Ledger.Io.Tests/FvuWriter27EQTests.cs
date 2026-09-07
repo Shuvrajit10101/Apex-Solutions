@@ -134,7 +134,28 @@ public class FvuWriter27EQTests
 
         Assert.Contains("Tally Traders", text, StringComparison.Ordinal);
         Assert.Equal(1, CountBrand(text));
+        // NOTE: this fixture name contains a SPACE, not a caret, so this line alone cannot fail whatever the
+        // guard does. The guard is actually proved by the test below.
         Assert.DoesNotContain("Tally^Traders", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The 27EQ half of the record-framing proof — see the matching test in <c>FvuWriterTests</c> for why the
+    /// pre-existing assertion could not fail: with ruling 18 the de-brand no longer runs over a collectee's name,
+    /// so this guard is the only thing preventing a caret or a newline in a customer's name from inventing a
+    /// field or a record and getting the whole return rejected.
+    /// </summary>
+    [Fact]
+    public void A_delimiter_or_newline_inside_a_collectee_name_cannot_corrupt_the_record_framing()
+    {
+        var dirty = Form27EQ.Build(GoldenCompany("Ka^vi\nScrap"), 2025, 1);
+        var clean = Form27EQ.Build(GoldenCompany("Ka vi Scrap"), 2025, 1);
+
+        string dirtyText = Encoding.UTF8.GetString(FvuWriter.Write(dirty));
+
+        Assert.Contains("Ka vi Scrap", dirtyText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ka^vi", dirtyText, StringComparison.Ordinal);
+        Assert.Equal(Encoding.UTF8.GetString(FvuWriter.Write(clean)), dirtyText);
     }
 
     private static int CountBrand(string text)

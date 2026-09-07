@@ -64,19 +64,26 @@ public static class PayslipPdf
         // ---- Employee identity (left + right blocks) ----
         double blockTop = y;
         double dy = y;
-        dy = KeyVal(writer, left, dy, "Employee:", slip.EmployeeName, page);
+        // 🔴 RULING 18: the employee's own legal name, on the document issued TO them — and the one they hand to a
+        // bank or a consulate for loan and visa verification, on a page that also carries their PAN, UAN and bank
+        // account. De-branding it named somebody else. Verbatim.
+        dy = KeyVal(writer, left, dy, "Employee:", slip.EmployeeName, page, debrandValue: false);
         dy = KeyVal(writer, left, dy, "Emp No:", slip.EmployeeNumber ?? "-", page);
         dy = KeyVal(writer, left, dy, "Designation:", slip.Designation ?? "-", page);
         dy = KeyVal(writer, left, dy, "Department:", slip.Department ?? "-", page);
         dy = KeyVal(writer, left, dy, "Date of Joining:", slip.DateOfJoining is { } doj ? Date(doj) : "-", page);
 
         double ey = blockTop;
-        ey = KeyVal(writer, dedLabelX, ey, "PAN:", slip.Pan ?? "-", page);
-        ey = KeyVal(writer, dedLabelX, ey, "UAN:", slip.Uan ?? "-", page);
-        ey = KeyVal(writer, dedLabelX, ey, "ESI No:", slip.EsiNumber ?? "-", page);
-        ey = KeyVal(writer, dedLabelX, ey, "Bank:", slip.BankName ?? "-", page);
-        ey = KeyVal(writer, dedLabelX, ey, "A/c No:", slip.BankAccountNumber ?? "-", page);
-        ey = KeyVal(writer, dedLabelX, ey, "IFSC:", slip.BankIfsc ?? "-", page);
+        // 🔴 RULING 18: every field in this block is the employee's own identity or their BANK MASTER'S name — the
+        // exact two categories the ruling names. A PAN is 5 letters + 4 digits + 1 letter and the vendor token is a
+        // structurally valid 5-letter prefix, so the guard could print an invalid PAN; "Bank:" is a bank master
+        // name, which PaymentAdvicePdf already passes verbatim for the identical field. Nothing here is ours.
+        ey = KeyVal(writer, dedLabelX, ey, "PAN:", slip.Pan ?? "-", page, debrandValue: false);
+        ey = KeyVal(writer, dedLabelX, ey, "UAN:", slip.Uan ?? "-", page, debrandValue: false);
+        ey = KeyVal(writer, dedLabelX, ey, "ESI No:", slip.EsiNumber ?? "-", page, debrandValue: false);
+        ey = KeyVal(writer, dedLabelX, ey, "Bank:", slip.BankName ?? "-", page, debrandValue: false);
+        ey = KeyVal(writer, dedLabelX, ey, "A/c No:", slip.BankAccountNumber ?? "-", page, debrandValue: false);
+        ey = KeyVal(writer, dedLabelX, ey, "IFSC:", slip.BankIfsc ?? "-", page, debrandValue: false);
 
         y = Math.Min(dy, ey) - 2;
         writer.Line(left, y, right, y, 0.8);
@@ -97,13 +104,16 @@ public static class PayslipPdf
             if (i < slip.Earnings.Count)
             {
                 var e = slip.Earnings[i];
-                writer.Text(left, y, Debrand.Text(FitLabel(e.Name, earnAmtR - left - 60, page)), page.BodyFontSize, false);
+                // 🔴 RULING 18: a PAY-HEAD MASTER NAME the user created — book data, verbatim, exactly as the
+                // payroll-register export of the same figures already shows it. Fitting stays: layout, not an edit.
+                writer.Text(left, y, FitLabel(e.Name, earnAmtR - left - 60, page), page.BodyFontSize, false);
                 RightText(writer, Rupees(e.Amount), left, earnAmtR, y, page.BodyFontSize, false);
             }
             if (i < slip.Deductions.Count)
             {
                 var d = slip.Deductions[i];
-                writer.Text(dedLabelX, y, Debrand.Text(FitLabel(d.Name, dedAmtR - dedLabelX - 60, page)), page.BodyFontSize, false);
+                // 🔴 RULING 18: pay-head master name — verbatim (see the earnings side above).
+                writer.Text(dedLabelX, y, FitLabel(d.Name, dedAmtR - dedLabelX - 60, page), page.BodyFontSize, false);
                 RightText(writer, Rupees(d.Amount), dedLabelX, dedAmtR, y, page.BodyFontSize, false);
             }
             y -= page.RowHeight;
@@ -139,7 +149,8 @@ public static class PayslipPdf
             y -= page.RowHeight;
             foreach (var ec in slip.EmployerContributions)
             {
-                writer.Text(left, y, Debrand.Text(FitLabel(ec.Name, earnAmtR - left - 60, page)), page.BodyFontSize, false);
+                // 🔴 RULING 18: pay-head master name — verbatim (see the earnings side above).
+                writer.Text(left, y, FitLabel(ec.Name, earnAmtR - left - 60, page), page.BodyFontSize, false);
                 RightText(writer, Rupees(ec.Amount), left, earnAmtR, y, page.BodyFontSize, false);
                 y -= page.RowHeight;
             }

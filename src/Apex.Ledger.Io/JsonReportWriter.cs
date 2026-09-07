@@ -30,7 +30,8 @@ public static class JsonReportWriter
 
         var sb = new StringBuilder();
         sb.Append("{\r\n");
-        sb.Append("  \"title\": \"").Append(Escape(Debrand.Text(export.Title))).Append("\",\r\n");
+        // 🔴 RULING 18: title through the provenance seam (see TabularExport.TitleText), not a bare scrub.
+        sb.Append("  \"title\": \"").Append(Escape(TabularExport.TitleText(export))).Append("\",\r\n");
 
         // ---- column declaration ----
         sb.Append("  \"columns\": [\r\n");

@@ -154,6 +154,67 @@ public sealed class PosReceiptPdfTests
         Assert.DoesNotContain("tally", s.ToLowerInvariant());   // scrubbed from body AND /Title
     }
 
+    /// <summary>
+    /// 🔴 <b>RULING 18 on the receipt physically handed to the customer.</b> The item Description is a STOCK-ITEM
+    /// MASTER NAME the user typed, and it ran through the ER-11 de-brand, so an item named "Metally Coated Sheet"
+    /// printed as "Me Coated Sheet" on the customer's receipt while the CSV export of the same sale showed it
+    /// correctly — one sale, two documents, two different item names.
+    ///
+    /// <para>The pre-existing brand test above could not catch this: its Description is <c>"Widget"</c>, a CLEAN
+    /// name, so the de-brand had nothing to remove. Every fixture below deliberately carries the token, and the
+    /// substring case ("Metally") is the one that shows the guard is not merely dropping a whole word.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("Tally Counter Roll")]
+    [InlineData("Metally Coated Sheet")]
+    public void A_receipt_keeps_the_stock_item_master_name_intact(string itemName)
+    {
+        var receipt = new PosReceiptData
+        {
+            Title = "Retail Receipt",
+            StoreName = "Apex Store",                 // OURS, deliberately clean
+            BillNumber = "1",
+            DateText = "10-Apr-2024",
+            Party = "(cash)",
+            Items = new[] { new PosReceiptItem { Description = itemName, QuantityText = "1", RateText = "100.00", Value = new Money(100m) } },
+            Tenders = new[] { new PosReceiptTender { Label = "Cash", Amount = new Money(100m) } },
+            TotalTaxable = new Money(100m),
+            CashTendered = new Money(100m),
+            Change = Money.Zero,
+        };
+
+        var s = AsLatin1(PosReceiptPdf.Render(receipt, new PageConfig()));
+        Assert.Contains(itemName, s, StringComparison.Ordinal);
+    }
+
+    /// <summary>Both directions on one receipt: the item's master name survives while OUR store block — title and
+    /// store name — is still scrubbed on the same slip.</summary>
+    [Fact]
+    public void A_receipt_keeps_the_item_name_while_still_debranding_our_own_store_block()
+    {
+        var receipt = new PosReceiptData
+        {
+            Title = "Tally Retail Receipt",           // OURS
+            StoreName = "Tally Store",                // OURS
+            BillNumber = "1",
+            DateText = "10-Apr-2024",
+            Party = "(cash)",
+            Items = new[] { new PosReceiptItem { Description = "Tally Counter Roll", QuantityText = "1", RateText = "100.00", Value = new Money(100m) } },
+            Tenders = new[] { new PosReceiptTender { Label = "Cash", Amount = new Money(100m) } },
+            TotalTaxable = new Money(100m),
+            CashTendered = new Money(100m),
+            Change = Money.Zero,
+        };
+
+        var s = AsLatin1(PosReceiptPdf.Render(receipt, new PageConfig()));
+
+        Assert.Contains("Tally Counter Roll", s, StringComparison.Ordinal);
+        // Ours scrubbed, not blanked, on the same slip.
+        Assert.Contains("Retail Receipt", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tally Retail", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tally Store", s, StringComparison.Ordinal);
+    }
+
     // ================================================================ W0-1 follow-up: the bill-of-supply receipt
 
     /// <summary>A §31(3)(c) receipt at an odd value, hostile-loaded: tax figures and a per-rate breakup the document

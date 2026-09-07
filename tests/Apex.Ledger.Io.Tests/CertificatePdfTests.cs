@@ -38,7 +38,7 @@ public sealed class CertificatePdfTests
         return l;
     }
 
-    private static (Company C, Guid DeducteeId) BuildTdsCompany(string vendorName = "Consultant")
+    private static (Company C, Guid DeducteeId) BuildTdsCompany(string vendorName = "Consultant", string? partyPan = null)
     {
         var c = CompanyFactory.CreateSeeded("Return Co", FyStart);
         new TdsTcsService(c).EnableTds(new TdsConfig
@@ -49,7 +49,8 @@ public sealed class CertificatePdfTests
         });
         var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
         var vendor = AddLedger(c, vendorName, "Sundry Creditors", false);
-        vendor.TdsApplicable = true; vendor.TdsNatureOfPaymentId = nop.Id; vendor.DeducteeType = DeducteeType.Firm; vendor.PartyPan = DeducteePan;
+        vendor.TdsApplicable = true; vendor.TdsNatureOfPaymentId = nop.Id; vendor.DeducteeType = DeducteeType.Firm;
+        vendor.PartyPan = partyPan ?? DeducteePan;
 
         var on = new DateOnly(2025, 5, 10);
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
@@ -189,6 +190,28 @@ public sealed class CertificatePdfTests
         // Our own strings still carry no third-party brand: the ONLY occurrence of the token in the whole
         // document is the one inside the deductee's own name. A leak anywhere else raises the count.
         Assert.Equal(1, OccurrencesOfBrand(s));
+        Assert.Contains("/Producer (Apex Solutions)", s);
+        Assert.Contains("For Return Co", s);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The deductee's PAN is theirs too, and the guard was mangling it into an invalid one.</b> The Name
+    /// line was exempted from the ER-11 scrub when ruling 18 landed; the PAN line IMMEDIATELY BELOW IT was not.
+    /// A PAN is 5 letters + 4 digits + 1 letter, and the vendor token is a structurally valid 5-letter prefix
+    /// (4th character L = Local Authority), so a real PAN <c>TALLY1234F</c> was printed on the certificate as
+    /// <c>1234F</c> — not a PAN at all, and not the number filed in the 26Q return for the same row.
+    /// </summary>
+    [Fact]
+    public void Form16A_prints_the_deductees_own_pan_intact_even_when_it_starts_with_the_vendor_token()
+    {
+        var (c, deducteeId) = BuildTdsCompany("Bright Consultants", partyPan: "TALLY1234F");
+        var cert = Form16A.Build(c, 2025, 1, deducteeId);
+        string s = AsLatin1(Form16APdf.Render(cert, new PageConfig()));
+
+        Assert.Contains("TALLY1234F", s, StringComparison.Ordinal);
+        // The party name is CLEAN here, so the PAN is the only possible source of the token — exactly one.
+        Assert.Equal(1, OccurrencesOfBrand(s));
+        // And our own side of the certificate is untouched by the change.
         Assert.Contains("/Producer (Apex Solutions)", s);
         Assert.Contains("For Return Co", s);
     }

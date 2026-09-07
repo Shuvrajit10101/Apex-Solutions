@@ -138,7 +138,10 @@ public static class FvuWriter
         {
             seq++;
             WriteRecord(sb,
-                "DD", Int(seq), Text(row.Pan), Text(row.EmployeeName),
+                // 🔴 RULING 18: the employee is the COUNTERPARTY of this §192 withholding — their legal name and
+                // their PAN are the pair the department matches, so both go through Name() (delimiter-safed,
+                // never de-branded). SectionCode is OUR statutory code, so it keeps Text().
+                "DD", Int(seq), Name(row.Pan), Name(row.EmployeeName),
                 Text(row.SectionCode), Date(row.DeductionDate), Money(row.TdsAmount));
         }
 
@@ -154,7 +157,7 @@ public static class FvuWriter
 
     private static void WriteDeductee(StringBuilder sb, int challanSeq, int seq, Form26QDeducteeRow row) =>
         WriteRecord(sb,
-            "DD", Int(challanSeq), Int(seq), Text(row.DeducteePan), Name(row.DeducteeName),
+            "DD", Int(challanSeq), Int(seq), Name(row.DeducteePan), Name(row.DeducteeName),
             Text(row.SectionCode), Text(row.FvuSectionCode), Date(row.DeductionDate),
             Money(row.AmountPaid), Money(row.TdsAmount), Rate(row.RateBasisPoints),
             row.PanApplied ? "Y" : "N", Text(row.Section197Reason));
@@ -224,7 +227,7 @@ public static class FvuWriter
 
     private static void WriteCollectee(StringBuilder sb, int challanSeq, int seq, Form27EQCollecteeRow row) =>
         WriteRecord(sb,
-            "CL", Int(challanSeq), Int(seq), Text(row.CollecteePan), Name(row.CollecteeName),
+            "CL", Int(challanSeq), Int(seq), Name(row.CollecteePan), Name(row.CollecteeName),
             Text(row.CollectionCode), Text(row.FvuCollectionCode), Date(row.CollectionDate),
             Money(row.AmountReceived), Money(row.TcsAmount), Rate(row.RateBasisPoints),
             row.PanApplied ? "Y" : "N", Text(row.LowerCollectionReason));
@@ -241,12 +244,19 @@ public static class FvuWriter
     }
 
     /// <summary>
-    /// 🔴 <b>RULING 18 — a COUNTERPARTY'S legal name, delimiter-safed but NEVER de-branded.</b> The deductee on a
-    /// 26Q line and the collectee on a 27EQ line are the supplier / customer this return is filed about, and the
-    /// name here is matched against their PAN by the department. <see cref="Text"/> strips a case-insensitive
-    /// vendor token, so a real party carrying that token was filed under a name that is not theirs — a
-    /// name-vs-PAN mismatch in a statutory return, not a cosmetic edit. The record-framing guard stays, because
-    /// that is a property of the FILE FORMAT: a stray delimiter or newline in a name would corrupt the record.
+    /// 🔴 <b>RULING 18 — a COUNTERPARTY'S own identity (legal name or PAN), delimiter-safed but NEVER de-branded.</b>
+    /// The deductee on a 26Q line, the collectee on a 27EQ line and the salaried employee on a 24Q Annexure-I line
+    /// are the parties this return is filed ABOUT, and the department matches the name against the PAN.
+    /// <see cref="Text"/> strips a case-insensitive vendor token, so a real party carrying that token was filed
+    /// under a name that is not theirs — a name-vs-PAN mismatch in a statutory return, not a cosmetic edit. It bit
+    /// the PAN too: a PAN is 5 letters + 4 digits + 1 letter, and the vendor token is a structurally valid
+    /// 5-letter prefix (4th char L = Local Authority), so PAN <c>TALLY1234F</c> was filed as <c>1234F</c>.
+    ///
+    /// <para>The record-framing guard STAYS, because that is a property of the FILE FORMAT: a stray delimiter or
+    /// newline in a name would corrupt the record and the department would reject the whole return. That guard is
+    /// pinned by <c>FvuWriterTests</c> and <c>FvuWriter27EQTests</c> with fixtures that actually contain a caret
+    /// and a newline — an earlier pair of fixtures contained neither, so the assertion could not fail and deleting
+    /// this entire line left all 651 IO tests green.</para>
     /// </summary>
     private static string Name(string? value)
     {

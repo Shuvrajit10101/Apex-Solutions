@@ -15,8 +15,16 @@ namespace Apex.Desktop.Services;
 /// Unicode, so no ASCII folding is needed here (unlike the PDF path).
 ///
 /// <para>The mapping is pure and Avalonia-free apart from reading the VM's already-built rows: it never
-/// touches disk, dialogs, OS-print or the clock (ER-12). No brand text is ever introduced; any user-supplied
-/// label is de-branded inside the writers.</para>
+/// touches disk, dialogs, OS-print or the clock (ER-12). No brand text is ever introduced.</para>
+///
+/// <para>🔴 <b>RULING 18 — a BODY CELL is no longer de-branded by the writers.</b> Every text cell is book data
+/// (a party, bank or item master name, a narration, a bill reference) and is exported VERBATIM, because the
+/// scrub that used to run in the writers rewrote a counterparty's legal name inside the customer's own
+/// spreadsheet. What the writers still guard is CHROME: the column captions, which are compile-time strings
+/// this product authored. The TITLE is the one string that can be either, so it is decided by the producer's
+/// <see cref="ReportsViewModel.TitleCarriesMasterName"/> flag, carried into
+/// <see cref="TabularExport.TitleCarriesMasterName"/> here and resolved once in
+/// <see cref="TabularExport.TitleText"/>.</para>
 /// </summary>
 public static class ReportTabularProjector
 {
@@ -36,7 +44,10 @@ public static class ReportTabularProjector
         foreach (var r in vm.Rows)
             rows.Add(ProjectRow(vm, r, columns.Count));
 
-        return new TabularExport(vm.Title, columns, rows);
+        // 🔴 RULING 18: carry the producer's provenance flag into the export model, do not re-decide it here — the
+        // view model built the heading and is the only party that knows whether a master name is inside it. One
+        // flag then decides HTML, XML, JSON and XLSX identically (TabularExport.TitleText).
+        return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
     }
 
     /// <summary>Projects a wide tabular payroll report from its dynamic matrix: a Number column for each numeric
@@ -90,7 +101,10 @@ public static class ReportTabularProjector
         foreach (var note in vm.PayrollFootnotes)
             rows.Add(TabularRow.Of(TabularCell.Text(note)));
 
-        return new TabularExport(vm.Title, columns, rows);
+        // 🔴 RULING 18: carry the producer's provenance flag into the export model, do not re-decide it here — the
+        // view model built the heading and is the only party that knows whether a master name is inside it. One
+        // flag then decides HTML, XML, JSON and XLSX identically (TabularExport.TitleText).
+        return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
     }
 
     /// <summary>Projects the Payslip as a two-column Particulars | Amount export (earnings, gross, deductions,
@@ -112,7 +126,10 @@ public static class ReportTabularProjector
             rows.Add(TabularRow.Header(TabularCell.Text("Employer Contributions (not part of net pay)"), TabularCell.Empty));
             foreach (var c in vm.PayslipEmployerContributions) rows.Add(TabularRow.Of(TabularCell.Text(c.Name), MoneyCell(c.Amount)));
         }
-        return new TabularExport(vm.Title, columns, rows);
+        // 🔴 RULING 18: carry the producer's provenance flag into the export model, do not re-decide it here — the
+        // view model built the heading and is the only party that knows whether a master name is inside it. One
+        // flag then decides HTML, XML, JSON and XLSX identically (TabularExport.TitleText).
+        return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
     }
 
     /// <summary>

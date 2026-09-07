@@ -28,7 +28,8 @@ public static class XmlReportWriter
 
         var sb = new StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n");
-        sb.Append("<Report title=\"").Append(Escape(Debrand.Text(export.Title))).Append("\">\r\n");
+        // 🔴 RULING 18: title through the provenance seam (see TabularExport.TitleText), not a bare scrub.
+        sb.Append("<Report title=\"").Append(Escape(TabularExport.TitleText(export))).Append("\">\r\n");
 
         // ---- column declaration ----
         sb.Append("  <Columns>\r\n");

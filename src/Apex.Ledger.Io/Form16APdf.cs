@@ -86,7 +86,11 @@ public static class Form16APdf
         // against their PAN. De-branding it printed a supplier's TDS certificate under a name that is not theirs
         // and does not match the return. The DEDUCTOR block above is OUR company and keeps the ER-11 guard.
         ey = KeyVal(writer, mid + 6, ey, "Name:", cert.Deductee.Name, page, debrandValue: false);
-        ey = KeyVal(writer, mid + 6, ey, "PAN:", cert.Deductee.Pan, page);
+        // 🔴 RULING 18: the PAN is the deductee's own statutory identifier and travels with the name above. A PAN
+        // is 5 letters + 4 digits + 1 letter, and the vendor token is a structurally valid 5-letter prefix (4th
+        // char L = Local Authority), so the guard printed PAN TALLY1234F as "1234F" — an invalid PAN that does
+        // not match the return filed for the same row.
+        ey = KeyVal(writer, mid + 6, ey, "PAN:", cert.Deductee.Pan, page, debrandValue: false);
 
         y = Math.Min(dy, ey) - 2;
         writer.Line(left, y, right, y, 0.8);
