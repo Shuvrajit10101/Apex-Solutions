@@ -561,6 +561,37 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public bool ShowChequeDimensions => ShowChequePrinting && EnableChequePrinting;
 
+    /// <summary>
+    /// When the <b>Bank Identity</b> block (account number / branch / IFSC) is on screen. Two audiences, one set
+    /// of columns:
+    /// <list type="bullet">
+    ///   <item>a <b>BANK</b> ledger, whose own account identifies the company on a deposit slip and a payment
+    ///     advice — the pre-existing case, unchanged;</item>
+    ///   <item>a <b>PARTY</b> ledger (Sundry Debtor / Creditor), whose account is the <b>beneficiary's</b> and is
+    ///     what a bank payment-instruction file pays to (census row 8.10).</item>
+    /// </list>
+    ///
+    /// <para>🔴 <b>The party half is what makes row 8.10 reachable at all, and it was measured.</b>
+    /// <c>ledgers.bank_account_number</c> and <c>ledgers.bank_ifsc</c> have existed since v57 on EVERY ledger, but
+    /// the only block that wrote them was nested inside the cheque-dimensions panel — visible solely for a bank
+    /// group with cheque printing switched ON. So no operator could record a supplier's account number, every
+    /// e-payment would have been stuck in "Incomplete/Incorrect Transaction Details" for ever, and the report
+    /// would have been the third dead feature filed on this project. No schema change was needed to fix it: the
+    /// columns were always there, the door was not.</para>
+    ///
+    /// <para>Vendor grounding for the party half: <c>help.tallysolutions.com/e-payments-report/</c>, whose
+    /// exception bucket is <i>"Missing or incorrect party's bank details such as Account No. or IFS Code"</i> —
+    /// the reference product holds these on the party master too.</para>
+    /// </summary>
+    public bool ShowBankIdentity => ShowChequeDimensions || IsPartyGroup;
+
+    /// <summary>The Bank Identity block's heading, which names WHOSE account is being captured. A party ledger's
+    /// account is the beneficiary's; captioning it "Bank Identity" would invite an operator to key the company's
+    /// own account onto a supplier.</summary>
+    public string BankIdentityHeading => IsPartyGroup
+        ? "Beneficiary Bank Details (e-payment instructions)"
+        : "Bank Identity (deposit slip / payment advice)";
+
     // Bank identity — help.tallysolutions.com/deposit-slips/, "Cash Deposit Slip" (Account Number, Bank Name,
     // Branch Name) and help.tallysolutions.com/payment-advice/ (the bank-transfer block's IFSC). These have no
     // derivation anywhere in the books, which is why the Deposit Slip could not be built before they existed.
@@ -667,7 +698,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// avoid (<c>help.tallysolutions.com/cheque-payments-set-up/</c>).</summary>
     [ObservableProperty] private bool _printCompanyNameOnCheque;
 
-    partial void OnEnableChequePrintingChanged(bool value) => OnPropertyChanged(nameof(ShowChequeDimensions));
+    partial void OnEnableChequePrintingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowChequeDimensions));
+        OnPropertyChanged(nameof(ShowBankIdentity));    // it rides on ShowChequeDimensions for a bank ledger
+    }
 
     /// <summary>
     /// Parses one millimetre box into TENTHS OF A MILLIMETRE. Blank ⇒ 0, which is this feature's "not set".
@@ -974,6 +1009,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // v57: the two sub-blocks ride on the same bank-group test, so they follow it.
         OnPropertyChanged(nameof(ShowChequeDimensions));
         OnPropertyChanged(nameof(ShowChequeBooks));
+        // Census 8.10: Bank Identity now also appears for a PARTY group (the beneficiary's account), so it has to
+        // follow a re-pick in BOTH directions — and so does its heading, which names whose account it is.
+        OnPropertyChanged(nameof(ShowBankIdentity));
+        OnPropertyChanged(nameof(BankIdentityHeading));
     }
 
     /// <summary>WI-4: the Mailing Name tracks the ledger Name until the operator edits it by hand ("auto,
@@ -1703,6 +1742,16 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
                 target.PrintCompanyNameOnCheque = PrintCompanyNameOnCheque;
                 target.ChequeLayout = chequeLayout.IsEmpty ? null : chequeLayout;
             }
+        }
+
+        // census 8.10 — the BENEFICIARY's bank details on a party ledger. Same three columns, different owner:
+        // these are what a bank payment-instruction file pays TO. Guarded by the hidden-sub-form rule exactly as
+        // the block above is, so a non-party ledger captured nothing here and keeps whatever it already had.
+        if (IsPartyGroup)
+        {
+            target.BankAccountNumber = Blank(BankAccountNumber);
+            target.BankBranch = Blank(BankBranch);
+            target.BankIfsc = Blank(BankIfsc);
         }
 
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they

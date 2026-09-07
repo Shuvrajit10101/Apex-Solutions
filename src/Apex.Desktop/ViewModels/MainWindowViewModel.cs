@@ -1642,6 +1642,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Slips & Advices"));
         col.Add(new MenuItemViewModel("Deposit Slip", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Payment Advice (Suppliers)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 8.10 — its own section, because an e-payment is neither a reconciliation nor a piece of
+        // stationery: it is money about to leave the account on an instruction file the bank ingests.
+        // help.tallysolutions.com/tally-prime/banking-utilities/e-payments-tally/ keeps e-Payments in this same
+        // Banking Utilities menu. Rows 8.11 (Connected Banking) and 8.12 (Payment Request) are NOT here: both
+        // need a live vendor subscription, which §1.1 rule 4 puts out of scope, and a menu row that leads
+        // nowhere is how a census cell gets graded present when it is absent.
+        col.Add(MenuItemViewModel.Header("Payments"));
+        col.Add(new MenuItemViewModel("e-Payments", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -9631,6 +9639,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BankStatementImport:
                 BankStatementImport?.Import();
                 return;
+
+            // Census 8.10 — Ctrl+A on the e-Payments report writes the payment-instruction file. `when`-guarded
+            // deliberately: an unguarded `case Screen.Report:` would swallow Ctrl+A on EVERY report and silence
+            // the fall-through the rest of them rely on.
+            case Screen.Report when Reports?.Kind == ReportKind.EPayments:
+                Reports.ExportPaymentInstructions();
+                return;
         }
 
         if (IsGatewayCascade)
@@ -10192,6 +10207,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // export, F2 period, F12 config and Alt+K saved views in one move.
             case "Cheque Register": OpenReport(ReportKind.ChequeRegister); break;
             case "Deposit Slip": OpenReport(ReportKind.DepositSlip); break;
+            // Wave K2 — census 8.10. A ReportKind for the same reason as the four above; Ctrl+A on it exports the
+            // payment-instruction file.
+            case "e-Payments": OpenReport(ReportKind.EPayments); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;

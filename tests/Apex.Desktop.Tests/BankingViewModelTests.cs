@@ -272,12 +272,15 @@ public sealed class BankingViewModelTests : IDisposable
         // exactly the two reconciliation pages, which is the shortfall census row 8.9 records. It is still an
         // EXACT assertion, in order — loosening it to Assert.Contains would stop it noticing a row that
         // silently disappears, which is the whole reason this assertion exists.
+        // Extended again in wave K2 for e-Payments (census 8.10). Still EXACT and still in order, for the reason
+        // the note above gives.
         Assert.Equal(
             new[]
             {
                 "Bank Reconciliation", "Import Bank Statement",
                 "Cheque Printing", "Cheque Register",
                 "Deposit Slip", "Payment Advice (Suppliers)",
+                "e-Payments",
             },
             labels);
 

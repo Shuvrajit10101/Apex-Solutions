@@ -155,7 +155,11 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         // "Slips & Advices" since the Deposit Slip (census 8.6) landed with schema v57. It read "Advices" alone
         // before that, deliberately: a section captioned for a document the menu does not carry is how a census
         // cell gets graded present when it is absent. The caption follows the contents, in both directions.
-        Assert.Equal(new[] { "Reconciliation", "Cheque Management", "Slips & Advices" }, headers);
+        // ✅ "Payments" joined them in wave K2, when e-Payments (census 8.10) landed. It is its own section on
+        // the same principle the note above states: an e-payment is neither a reconciliation nor a piece of
+        // stationery, and filing it under one of those captions would misdescribe money about to leave the
+        // account. The caption follows the contents, in both directions — this lock is EXTENDED, never relaxed.
+        Assert.Equal(new[] { "Reconciliation", "Cheque Management", "Slips & Advices", "Payments" }, headers);
 
         var rows = column.Items.Where(i => i.IsSelectable).Select(i => i.Label).ToArray();
         Assert.Equal(
@@ -164,6 +168,7 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
                 "Bank Reconciliation", "Import Bank Statement",
                 "Cheque Printing", "Cheque Register",
                 "Deposit Slip", "Payment Advice (Suppliers)",
+                "e-Payments",
             },
             rows);
 

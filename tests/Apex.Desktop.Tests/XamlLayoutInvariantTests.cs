@@ -464,7 +464,15 @@ public sealed class XamlLayoutInvariantTests
         // 1024 DIP. Locked by StatutoryColumnBudgetLockTests.Forex_ledger_column_survives_*.
         "*,150,150,90,90,110",         // Bill-wise outstandings twins
         "140,110,*,70,140,110",        // Electronic ledger twins
-        "150,90,*,120,110,100",        // ITC reversal twins
+        // "150,90,*,120,110,100" — FIXED (wave K2), and the comment it carried was WRONG: it read "ITC reversal
+        // twins", but on the commit this was deleted from, that spec appeared exactly TWICE in the whole XAML and
+        // both were the IMPORT BANK STATEMENT grid (its header band and its row template). Nothing else used it.
+        // Census 8.13 added the selection tick and the vendor's Ledger Name column to that grid, at which point
+        // the starvation stopped being marginal and became total — the star Description column was arranged to
+        // ZERO px at 1280x720 DIP, measured. The grid now lives in its own horizontal scroller at a MinWidth
+        // floor with a fluid Width, so the star column has room and nothing needs exempting. Kept as a struck
+        // line rather than deleted outright, per this list's own convention, because the mislabel is the
+        // interesting part: an allow-list entry that names the wrong screen protects the wrong screen.
         "*,110,150,80,80,150",         // ITC set-off twins
         "90,*,120,120,120,100",        // Manufacturing/BOM twins
         "90,*,80,80,140,70,90",        // QRMP / IFF twins
