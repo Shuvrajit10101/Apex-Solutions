@@ -218,6 +218,11 @@ public sealed class GstRateHistoryCessSchemaTests
     /// production schema advances.</summary>
     private const string MinimalV37Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
+        -- pt_slab_bands has existed in every real database since v35, so a fixture standing in for a LATER version
+        -- must declare it: v54 is the first migration that READS a table an earlier migration created (it clears the
+        -- unsourced Karnataka February over-charge) rather than only adding DDL of its own. Left empty — the repair
+        -- has nothing to do here, which is the point.
+        CREATE TABLE pt_slab_bands (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, slab_id TEXT NOT NULL, state_code TEXT NOT NULL, gender_scope INTEGER NOT NULL, band_order INTEGER NOT NULL, from_wage_paisa INTEGER NOT NULL, to_wage_paisa INTEGER NULL, monthly_amount_paisa INTEGER NOT NULL, month_overrides TEXT NOT NULL DEFAULT '');
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
