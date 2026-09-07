@@ -1320,9 +1320,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // Dashboard (census row 14.3) — the graphical dashboards (line and bar charts only; pie charts are a
-        // documented deliberate non-feature). The reference product reaches these from F1 > Settings > Startup,
-        // which has NO HOST in this application (there is no Settings screen and no startup preference anywhere
-        // in src/), so they are nested here under Reports, where they are honestly reachable today.
+        // documented deliberate non-feature).
+        // 🔴 THE ROUTE CLAIM THAT USED TO SIT HERE WAS FALSE. It said "the reference product reaches these from
+        // F1 > Settings > Startup", so this row was framed as a fallback we invented. Measured 2026-09-07 at
+        // help.tallysolutions.com/dashboard-in-tallyprime/: the documented route is "Gateway > Dashboard" (or
+        // Alt+G > Dashboard). F1 > Settings > Startup is the separate STARTUP PREFERENCE ("Open Dashboard on
+        // loading a Company"), not the way in. This row IS on the root Gateway column, so it matches the
+        // vendor's route rather than diverging from it; the startup preference is what we do not have, and it
+        // needs a Settings screen that does not exist in src/ yet.
         col.Add(new MenuItemViewModel("Dashboard", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
@@ -2197,11 +2202,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Opens the "Reports → Dashboard" submenu column directly.
+    /// Opens the "Dashboard" submenu column directly.
     ///
     /// <para><b>No caller in <c>src/</c>, and that is stated rather than hedged.</b> The operator's real route is
-    /// the generic group dispatch in <c>ActivateSelected</c> — Gateway → Reports → Dashboard → one of the three —
-    /// which is the route the reachability tests walk. This method exists as the named public door the tests use
+    /// the generic group dispatch in <c>ActivateSelected</c> — <b>Gateway → Dashboard → one of the three</b>.
+    /// ("Reports" is a section HEADER on the root column, not a column of its own, so it is not a step the
+    /// operator takes: the Dashboard row is one keystroke from the root, which is what makes this match the
+    /// vendor's documented "Gateway &gt; Dashboard".) That is the route the reachability tests walk. This method
+    /// exists as the named public door the tests use
     /// to reach the submenu without replaying the whole cascade, and it is the door a future Alt-chord or Go-To
     /// entry for "Dashboard" would bind to. It is honest-but-unused, NOT a dead capability: it opens the same
     /// column the dispatch opens, and nothing in the shell advertises a verb it does not perform.</para>

@@ -409,7 +409,18 @@ public sealed class DashboardReachabilityTests
             Assert.NotNull(Named<TextBlock>(window, "TileConfigTitle"));
             var notice = Named<TextBlock>(window, "TileConfigNotice");
             Assert.NotNull(notice);
-            Assert.Contains("not configurable", notice!.Text ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            var text = notice!.Text ?? string.Empty;
+            Assert.Contains("not configurable", text, StringComparison.OrdinalIgnoreCase);
+
+            // 🔴 THE NOTICE MUST NOT TELL THE OPERATOR THE OPTION SET IS UNKNOWN. It used to say "no option set
+            // has been sourced for it" — false: the reference product's Alt+C options are published
+            // (help.tallysolutions.com/dashboard-in-tallyprime/ — name, value type, display type, graph type,
+            // show percentages, scale factor, sorting method, position of tile). Reporting a KNOWN gap as an
+            // unmeasured unknown is how a row gets graded Complete on a panel that configures nothing, so the
+            // notice must name what is missing and must never again claim it was never sourced.
+            Assert.DoesNotContain("sourced", text, StringComparison.OrdinalIgnoreCase);
+            Assert.All(new[] { "graph type", "scale factor", "sorting", "position" },
+                       o => Assert.Contains(o, text, StringComparison.OrdinalIgnoreCase));
         }
         finally { Close(window, dir); }
     }

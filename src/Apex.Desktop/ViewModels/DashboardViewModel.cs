@@ -194,11 +194,21 @@ public sealed partial class DashboardTileViewModel : ViewModelBase
 ///
 /// <para><b>Vendor scope, and what is deliberately absent.</b> The reference product ships <b>line and bar
 /// charts only</b>, with pie charts a documented deliberate non-feature, and three dashboard types
-/// (Default / Sales / Purchase). All three are here; there is no pie chart and no third mark type. Its own
-/// route in is <c>F1 &gt; Settings &gt; Startup</c>, which has <b>no host in this application</b> — there is no
-/// Settings screen and no startup-screen preference anywhere in <c>src/</c> — so the dashboard is reached from
-/// <b>Reports</b> instead. That is a route we chose; it is honest and complete, and making the dashboard the
-/// STARTUP screen is a separate piece of work behind a Settings screen that does not exist yet.</para>
+/// (Default / Sales / Purchase). All three are here; there is no pie chart and no third mark type.</para>
+///
+/// <para>🔴 <b>THE ROUTE. This comment used to say the reference product reaches the dashboard from
+/// <c>F1 &gt; Settings &gt; Startup</c> and that we therefore diverge. BOTH HALVES WERE WRONG, and the error
+/// ran the wrong way — it invented a divergence we do not actually have.</b> Measured 2026-09-07 against
+/// <c>help.tallysolutions.com/dashboard-in-tallyprime/</c>: the reference product's route in is
+/// <b>"Gateway &gt; Dashboard"</b>, or <b>Alt+G (Go To) &gt; Dashboard</b>. <c>F1 &gt; Settings &gt; Startup</c>
+/// is NOT the route — it is the separate preference that makes the dashboard the screen a company OPENS on
+/// ("Open Dashboard on loading a Company"). Our Dashboard row sits on the ROOT Gateway column (in its Reports
+/// section, one keystroke from the root, beside Balance Sheet and the other report rows), so
+/// <b>Gateway &gt; Dashboard matches the vendor's documented route</b>.</para>
+///
+/// <para><b>What genuinely IS absent is the startup PREFERENCE</b>, which needs a Settings screen this
+/// application does not have — there is no Settings host and no startup-screen preference anywhere in
+/// <c>src/</c>. That is the real, smaller divergence, and it is the one census row 14.3 should carry.</para>
 ///
 /// <para><b>Every figure is read from an already-tested engine.</b> <see cref="VoucherRegister"/> supplies the
 /// monthly rows for all three dashboards; this class re-computes nothing. 🔴 <b>But it does NOT take that
@@ -380,10 +390,24 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
 /// <summary>
 /// The Alt+C tile-configuration panel. It reports what the tile IS — its series, its mark type, its period
-/// coverage and its footing — rather than offering knobs the vendor's own surface has not been measured to
-/// carry. 🔴 <b>Deliberately read-only.</b> Inventing a set of configuration options and shipping controls
-/// that write nowhere would be the dead-capability shape this project has already filed three times; when the
-/// vendor's Alt+C option set is measured, this panel is where it lands.
+/// coverage and its footing — and configures nothing.
+///
+/// <para>🔴 <b>THE VENDOR'S OPTION SET IS NOW SOURCED, AND WE SHIP NONE OF IT. THAT IS THE HONEST STATE OF
+/// THIS PANEL AND IT MUST NOT BE DESCRIBED ANY OTHER WAY.</b> This class previously said the option set "has
+/// not been measured" / "has not been sourced" — a claim that was FALSE from the moment anyone opened the
+/// page, and it was repeated to the operator in <see cref="Notice"/>, a user-visible string. Measured
+/// 2026-09-07 against <c>help.tallysolutions.com/dashboard-in-tallyprime/</c>, the reference product's
+/// Alt+C (Configure Tile) screen carries: <b>Name of Tile</b>, <b>Type of Value</b> (Closing Balance / Nett
+/// Transactions / others), <b>Display type</b> (Data Only / Graph Only / Data &amp; Graph), <b>Graph Type</b>
+/// (offered when a graph is displayed), <b>Show Percentages</b>, <b>Scale Factor</b>, <b>Sorting Method</b>
+/// and <b>Position of Tile</b>, plus per-category tile pickers (stock groups, ledgers, reconciliation
+/// status).</para>
+///
+/// <para><b>None of those eight is implemented here</b>, and this panel is read-only for a reason that
+/// survives the correction: shipping controls that write nowhere is the dead-capability shape this project
+/// has already filed three times. What changes is the JUSTIFICATION — the gap is a known, sourced,
+/// enumerated gap in census row 14.3, not an unmeasured unknown. Naming the eight options here is what makes
+/// the gap checkable and keeps the row from being graded Complete on a panel that configures nothing.</para>
 /// </summary>
 public sealed partial class DashboardTileConfigViewModel : ViewModelBase
 {
@@ -406,8 +430,15 @@ public sealed partial class DashboardTileConfigViewModel : ViewModelBase
         ? "No data points — this tile has nothing to chart for the period."
         : $"{Tile.Series.Points.Count} monthly points.";
 
-    /// <summary>The one honest statement about what is configurable today.</summary>
+    /// <summary>
+    /// The one honest statement about what is configurable today. 🔴 It used to tell the operator that "no
+    /// option set has been sourced", which was false — the option set is published and is listed in this
+    /// class's remarks. The string now says the true thing: the options exist in the reference product and
+    /// are not built here. A panel that misreports WHY it is empty is a smaller lie than a button that does
+    /// nothing, but it is the same kind.
+    /// </summary>
     public string Notice =>
-        "This panel reports what the tile shows. Chart options are not configurable yet — "
-        + "no option set has been sourced for it, and controls that wrote nowhere would be worse than none.";
+        "This panel reports what the tile shows. Tile options — name, value type, display type, graph type, "
+        + "scale factor, sorting and position — are not configurable here yet, and controls that wrote "
+        + "nowhere would be worse than none.";
 }
