@@ -153,6 +153,14 @@ public sealed class LoadBearingCitationContentTests
         // UNFINDABLE, so the guard went dark on the claim it exists to protect rather than going red on it.
         // The phrase is now the line-number-free prose either side of the citation.
         new("docs/full-clone-census.md",
+            // 🔴 W-K3, 2026-09-08, ON MERGE: this branch had ALSO re-pointed the phrase, to `:624`, because
+            // census row 1.7 (the F11 → Accounting group) inserts the three Accounting flags and their three
+            // LoadFromCompany lines ABOVE this one. Both re-points are now moot and the MERGE IS THE PROOF OF
+            // W-K1's argument: v58 moved the `??=` to :612 and 1.7 moved it to :624, so on the merged tree it
+            // is at NEITHER — it is at :653, and a phrase carrying any hard-coded number would have gone
+            // UNFINDABLE for a third time in one wave. W-K1's line-number-free phrase is kept; it still
+            // extracts the `GstConfigViewModel.cs:NN` citation FROM the census line it finds and still demands
+            // "HomeState ??=" on exactly that line, so the guard bites as hard as before and no longer drifts.
             "not a stamp - `GstConfigViewModel.cs:",
             "GstConfigViewModel.cs",
             "HomeState ??="),

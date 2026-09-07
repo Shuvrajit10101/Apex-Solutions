@@ -105,6 +105,33 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>Whether GST is enabled for the company (the "Enable GST" toggle).</summary>
     [ObservableProperty] private bool _gstEnabled;
 
+    // ---- F11 Company Features → ACCOUNTING (census row 1.7) ----------------------------------------------
+    // The vendor's Accounting group, in the vendor's order, with the vendor's captions
+    // (help.tallysolutions.com/company-features-f11-tally/). Three of its four options; "Maintain Accounts"
+    // is deliberately NOT here — see the note on Company.EnableBillWiseEntry for why a switch that could only
+    // ever read Yes is a dead knob rather than a shipped feature.
+
+    /// <summary>
+    /// F11 → Accounting: <b>"Enable Bill-wise entry"</b>. The company-wide gate above the per-ledger
+    /// "Maintain balances bill-by-bill" switch. Applied to the live company the moment it changes by
+    /// <see cref="OnEnableBillWiseEntryChanged"/>; in-memory (no schema column).
+    /// </summary>
+    [ObservableProperty] private bool _enableBillWiseEntry;
+
+    /// <summary>
+    /// F11 → Accounting: <b>"Enable Cost Centres"</b>. The master gate for the Cost Category / Cost Centre
+    /// masters, the Cost Centres report group and the voucher-line cost-allocation panel. Applied by
+    /// <see cref="OnEnableCostCentresChanged"/>; in-memory (no schema column).
+    /// </summary>
+    [ObservableProperty] private bool _enableCostCentres;
+
+    /// <summary>
+    /// F11 → Accounting: <b>"Enable Interest Calculation"</b>. The master gate for the ledger master's
+    /// "Activate Interest Calculation" block and the Interest Calculation report. Applied by
+    /// <see cref="OnEnableInterestCalculationChanged"/>; in-memory (no schema column).
+    /// </summary>
+    [ObservableProperty] private bool _enableInterestCalculation;
+
     /// <summary>
     /// The company feature flag <b>"Maintain Batch-wise details"</b> (F11 Company Features; Phase 6 Cluster 1;
     /// requirements RQ-2/RQ-52). The master gate for the whole batch/expiry feature — the per-item batch
@@ -568,6 +595,20 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var cfg = _company.Gst;
         GstEnabled = cfg is { Enabled: true };
+        // 🔴 SEEDED THROUGH THE BACKING FIELDS, DELIBERATELY UNLIKE THE LINES AROUND THEM. Assigning the
+        // generated property would fire OnEnable…Changed, and those handlers call _storage.Save — so merely
+        // OPENING the Features page would rewrite the company file. That is already latently true on this page
+        // for any company whose payroll/batch flags are on, but these three default to TRUE, which would make a
+        // write-on-open universal: a side effect on a screen the operator only came to LOOK at. Seeding the
+        // field and raising the notification by hand loads the value with no write; the first actual tick still
+        // goes through the handler and still persists. (The rest of the page carries the same latent behaviour
+        // and is left alone — that is a page-wide cleanup, not a one-off to bolt on here.)
+        _enableBillWiseEntry = _company.EnableBillWiseEntry;
+        OnPropertyChanged(nameof(EnableBillWiseEntry));
+        _enableCostCentres = _company.EnableCostCentres;
+        OnPropertyChanged(nameof(EnableCostCentres));
+        _enableInterestCalculation = _company.EnableInterestCalculation;
+        OnPropertyChanged(nameof(EnableInterestCalculation));
         MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
         SetComponentsBom = _company.SetComponentsBom;
         DefineBomComponentType = _company.DefineBomComponentType;
@@ -736,6 +777,84 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             // Reflect the company's real (persisted) state on failure.
             if (MaintainBatchwiseDetails != _company.MaintainBatchwiseDetails)
                 MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the F11 → Accounting <b>"Enable Bill-wise entry"</b> toggle to the live company the moment it
+    /// changes, so the ledger master's "Maintain balances bill-by-bill" switch and the voucher line's
+    /// bill-allocation panel surface (or hide) immediately. Persists, and reverts the toggle to the company's
+    /// real state on a reportable save failure — the same shape as
+    /// <see cref="OnMaintainBatchwiseDetailsChanged"/>.
+    /// </summary>
+    partial void OnEnableBillWiseEntryChanged(bool value)
+    {
+        var previous = _company.EnableBillWiseEntry;
+        try
+        {
+            _company.EnableBillWiseEntry = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.EnableBillWiseEntry = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (EnableBillWiseEntry != _company.EnableBillWiseEntry)
+                EnableBillWiseEntry = _company.EnableBillWiseEntry;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the F11 → Accounting <b>"Enable Cost Centres"</b> toggle to the live company the moment it
+    /// changes, so the Cost Category / Cost Centre masters, the Reports → Statements of Accounts → Cost Centres
+    /// group and the voucher line's cost-allocation panel surface (or hide) immediately. Persists, and reverts
+    /// on a reportable save failure.
+    /// </summary>
+    partial void OnEnableCostCentresChanged(bool value)
+    {
+        var previous = _company.EnableCostCentres;
+        try
+        {
+            _company.EnableCostCentres = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.EnableCostCentres = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (EnableCostCentres != _company.EnableCostCentres)
+                EnableCostCentres = _company.EnableCostCentres;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the F11 → Accounting <b>"Enable Interest Calculation"</b> toggle to the live company the moment
+    /// it changes, so the ledger master's "Activate Interest Calculation" block and the Interest Calculation
+    /// report surface (or hide) immediately. Persists, and reverts on a reportable save failure.
+    /// </summary>
+    partial void OnEnableInterestCalculationChanged(bool value)
+    {
+        var previous = _company.EnableInterestCalculation;
+        try
+        {
+            _company.EnableInterestCalculation = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.EnableInterestCalculation = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (EnableInterestCalculation != _company.EnableInterestCalculation)
+                EnableInterestCalculation = _company.EnableInterestCalculation;
             return;
         }
         _onChanged();

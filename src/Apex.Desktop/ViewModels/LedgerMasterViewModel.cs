@@ -423,6 +423,21 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public bool ShowDefaultPriceLevel => _company.EnableMultiplePriceLevels && IsPartyGroup;
 
+    /// <summary>
+    /// True iff the bill-wise block ("Maintain balances bill-by-bill" + the default credit period) should
+    /// render: the company's F11 → Accounting <b>"Enable Bill-wise entry"</b> feature is on AND the chosen
+    /// group is a party group. Census row 1.7 — before this gate the block answered to the group alone and the
+    /// company feature had no door at all.
+    /// </summary>
+    public bool ShowBillWiseOptions => _company.EnableBillWiseEntry && IsPartyGroup;
+
+    /// <summary>
+    /// True iff the "Activate Interest Calculation" block should render — the company's F11 → Accounting
+    /// <b>"Enable Interest Calculation"</b> feature is on. Unlike the bill-wise block this one is not
+    /// party-only: the vendor offers interest parameters on any ledger, so only the company feature gates it.
+    /// </summary>
+    public bool ShowInterestBlock => _company.EnableInterestCalculation;
+
     // --------------------------------------------------------------- TDS / TCS (Phase 7 slice 1; catalog §13)
 
     /// <summary>True iff TDS is enabled for the company — the ledger-TDS fields are only offered then.</summary>
@@ -965,6 +980,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         OnPropertyChanged(nameof(IsDirectExpensesGroup));
         OnPropertyChanged(nameof(ShowAppropriation));
         OnPropertyChanged(nameof(ShowDefaultPriceLevel));
+        // Census 1.7: the bill-wise block rides on the same party-group test, so it must follow a re-pick just
+        // like ShowPartyGst above — otherwise picking a party group leaves the block hidden until the screen is
+        // reopened, which is the stale-derived-property defect this list exists to prevent.
+        OnPropertyChanged(nameof(ShowBillWiseOptions));
         OnPropertyChanged(nameof(ShowPartyTdsTcs));
         // WI-4: the Mailing Details block appears/disappears with the party-group test (ancestry-walking).
         OnPropertyChanged(nameof(ShowMailingDetails));
