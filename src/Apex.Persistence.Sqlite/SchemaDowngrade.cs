@@ -406,15 +406,22 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
-    /// v54 → v53 (census 10.1): drops the three Credit-Limit columns from <c>ledgers</c> and stamps the marker back
-    /// to 53. Used by the tests to manufacture a genuine v53 database out of a current one, so a migration test runs
-    /// against real rows rather than hand-written DDL.
+    /// Reverses <see cref="Schema.MigrateV53ToV54"/> (census 10.1): drops the three Credit-Limit columns
+    /// (<see cref="Schema.V54CreditLimitColumns"/>) from <c>ledgers</c> and stamps the marker back to 53. Used by
+    /// the tests to manufacture a genuine v53 database out of a current one, so a migration test runs against real
+    /// rows rather than hand-written DDL.
     ///
     /// <para>⚠️ <b>NOT information-preserving, and that is the point of the version.</b> A party carrying a credit
     /// limit comes back with none — the ledger will accept, at v53, an invoice it would have refused at v54. The
     /// two flags come back off. Nothing else on the ledger moves. The same <c>CREATE … AS SELECT</c> constraint-loss
     /// residual documented on <see cref="DropColumns"/> applies; <c>ix_ledgers_company</c> is replayed by that
     /// helper.</para>
+    ///
+    /// <para>🔴 <b>This is no longer the top rung.</b> v55 (the Karnataka PT back-fill) sits above it, so a caller
+    /// manufacturing a v53 book out of a CURRENT one must run <see cref="V55ToV54"/> first and this second. Calling
+    /// this alone on a v55 file stamps the marker to 53 while skipping a rung, and the forward climb would then
+    /// re-run v54 and v55 against a file that had never been un-done — which is exactly the silent hole a downgrade
+    /// chain exists to prevent.</para>
     /// </summary>
     public static void V54ToV53(SqliteConnection connection)
     {
@@ -423,6 +430,35 @@ public static class SchemaDowngrade
         DropColumns(connection, "ledgers", Schema.V54CreditLimitColumns, "ledgers_v53");
 
         Exec(connection, "UPDATE schema_version SET version = 53;");
+    }
+
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV54ToV55"/> — which, because v55 adds no DDL, means stamping
+    /// <c>schema_version</c> back to 54 and <b>nothing else</b>. There is no column to drop and no table to
+    /// remove: a v54 database and a v55 database have byte-identical <c>PRAGMA table_info</c> for every table.
+    ///
+    /// <para>🔴 <b>The corrected Karnataka figure deliberately SURVIVES the downgrade, and that is the whole
+    /// point.</b> v55's forward step is a data repair, so the only "information" it destroys is a ₹300 February
+    /// over-charge with no statutory basis. Restoring it here — putting back a deduction the state never levied,
+    /// in the name of symmetry — would re-introduce the exact wrong-money defect the version exists to close, in
+    /// every book that ever round-trips. A downgrade owes the caller a v54 <i>shape</i>; it does not owe them a
+    /// v54 <i>mistake</i>. A v54 reader opens the corrected book fine: <c>month_overrides = ''</c> is a value v54
+    /// has always been able to store and read (it is what every non-February band has always held).</para>
+    ///
+    /// <para>This asymmetry means <c>down → up</c> is a no-op rather than a re-run: the second forward pass finds
+    /// <c>month_overrides</c> already cleared, fails the <c>'2:30000'</c> predicate and moves nothing, which is
+    /// what makes the forward migration's idempotence testable from here.</para>
+    ///
+    /// <para>Like every method in this file this is test-only — nothing in <c>src/</c> calls
+    /// <see cref="SchemaDowngrade"/>.</para>
+    /// </summary>
+    public static void V55ToV54(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        // Deliberately no DDL and deliberately no data restore. See the summary: v55 adds nothing to un-add, and
+        // putting the unsourced ₹300 February back would re-open the defect on every round-trip.
+        Exec(connection, "UPDATE schema_version SET version = 54;");
     }
 
     /// <summary>
