@@ -147,11 +147,7 @@ namespace Apex.Persistence.Sqlite;
 /// additive, no row rewritten, and every default is 0/NULL so "column absent" and "feature off" coincide — the
 /// opposite of v50's <c>DEFAULT 1</c>. 🔴 <c>company_users.password_hash</c> holds a ONE-WAY PBKDF2-HMAC-SHA256
 /// verifier and nothing else; see <see cref="MigrateV55ToV56"/>.
-/// 🔴 v57 adds <b>Banking documents</b> (census 8.4 / 8.5 / 8.6): three additive tables (<c>cheque_books</c>,
-/// <c>cheque_status_overrides</c>, <c>cheque_layouts</c>) and six additive <c>ledgers</c> columns. Purely
-/// additive and it back-fills NOTHING. Every geometry column is <b>tenths of a millimetre as INTEGER, never
-/// REAL</b>; see <see cref="MigrateV56ToV57"/>.
-/// <b><see cref="CurrentVersion"/> = 57</b>; a fresh DB is always stamped straight to the current version via
+/// <b><see cref="CurrentVersion"/> = 57</b> (v57 = Banking documents, see below); a fresh DB is always stamped to it via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
