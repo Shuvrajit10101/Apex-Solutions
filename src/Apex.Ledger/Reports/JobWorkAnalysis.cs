@@ -1,0 +1,183 @@
+using Apex.Ledger.Domain;
+
+namespace Apex.Ledger.Reports;
+
+/// <summary>
+/// One ledger line inside a <see cref="JobWorkAnalysisRow"/>'s Revenue or Cost section (census 9.6): the
+/// amount allocated to this job's cost centre from one ledger over the period.
+/// </summary>
+public sealed record JobWorkAnalysisLine(Guid LedgerId, string LedgerName, Money Amount);
+
+/// <summary>
+/// One job/project in the <b>Job Work Analysis</b> report (census 9.6) — the vendor's Revenue (Income), Cost
+/// (Expenses) and Nett Profit/Loss for a single job, together with the godowns that carry its materials.
+/// </summary>
+/// <param name="CostCentreId">The cost centre that IS this job. See <see cref="Godown.JobCostCentreId"/>.</param>
+/// <param name="JobName">The cost centre's name — what the vendor calls the job/project.</param>
+/// <param name="GodownNames">The godowns designated for this job, ordered. A job may run across several
+/// sites, which is exactly why the vendor makes godowns mandatory for the feature.</param>
+/// <param name="Revenue">The vendor's <b>Revenue (Income)</b> section lines.</param>
+/// <param name="Cost">The vendor's <b>Cost (Expenses)</b> section lines.</param>
+public sealed record JobWorkAnalysisRow(
+    Guid CostCentreId,
+    string JobName,
+    IReadOnlyList<string> GodownNames,
+    IReadOnlyList<JobWorkAnalysisLine> Revenue,
+    IReadOnlyList<JobWorkAnalysisLine> Cost)
+{
+    /// <summary>Total of the Revenue (Income) section.</summary>
+    public Money TotalRevenue => Sum(Revenue);
+
+    /// <summary>Total of the Cost (Expenses) section.</summary>
+    public Money TotalCost => Sum(Cost);
+
+    /// <summary>The vendor's <b>Nett Profit/Loss</b> — revenue less cost. Negative is a loss.</summary>
+    public Money NettProfit => TotalRevenue - TotalCost;
+
+    private static Money Sum(IReadOnlyList<JobWorkAnalysisLine> lines)
+    {
+        var total = Money.Zero;
+        foreach (var l in lines) total += l.Amount;
+        return total;
+    }
+}
+
+/// <summary>
+/// The <b>Job Work Analysis</b> report (census 9.6) — per job/project, the expenses incurred and the income
+/// generated, and the resulting nett profit or loss.
+/// </summary>
+/// <remarks>
+/// <para>🔴 <b>THIS IS A REPORTING DIMENSION OVER THE COST CENTRES THIS PRODUCT ALREADY HAS. IT IS NOT A NEW
+/// LEDGER AND NOT A NEW COST DIMENSION.</b> The vendor states that enabling Cost Centres is a prerequisite for
+/// job costing, that a job/project <i>is</i> a cost centre, and that a godown names one under <i>"Set
+/// job/project for job costing"</i>. So this report reads the ordinary <see cref="CostAllocation"/> rows that
+/// <see cref="CostReports"/> reads, over the ordinary posted voucher set, and adds nothing to the ledger. A
+/// parallel "job" allocation would have drifted from the cost centres the moment anyone re-allocated a cost,
+/// and no source attests one.</para>
+///
+/// <para><b>A job is a cost centre that at least one godown points at.</b> That is the whole membership rule.
+/// A cost centre nobody has designated is an ordinary cost centre and does not appear here; a cost centre two
+/// godowns point at is one job spread over two sites, which the vendor explicitly supports ("your project or
+/// job is spread across multiple sites"). The godowns are listed on the row so an operator can see which
+/// sites a job's materials sit in, but they do not affect a single figure — the money comes entirely from the
+/// cost allocations.</para>
+///
+/// <para><b>Revenue vs Cost is decided by the LEDGER'S nature, not by the sign of the allocation.</b> An
+/// allocation's amount is a magnitude; classifying by sign would put a credit note against a sales ledger into
+/// the Cost section and misstate both totals. <see cref="ClassificationRules.PrimaryNatureOf"/> resolves the
+/// ledger's group nature, exactly as the Profit &amp; Loss does, so the two reports cannot disagree about what
+/// income is. An allocation against a Balance-Sheet ledger (an asset purchase charged to a job, say) belongs
+/// to neither section and is omitted rather than silently counted as a cost.</para>
+///
+/// <para><b>The voucher filter is the shared one.</b> <see cref="LedgerBalances.CountsAsOf"/> — the same
+/// Cancelled / Optional / not-yet-due-PostDated exclusions every balance report applies — so a job's figures
+/// can never disagree with the P&amp;L about which vouchers exist.</para>
+///
+/// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/job-costing-tally/</c>: the F11 gate <i>"Enable Job
+/// Costing"</i>; <i>"Since your project or job is spread across multiple sites, creating godowns is mandatory
+/// to track the location-wise material movement and finances associated with each project or job"</i>; the
+/// godown field <i>"Set job/project for job costing"</i> taking a cost centre; and the report itself —
+/// <i>"You can view the Job Work Analysis report … to get a crux of all your expenses incurred and incomes
+/// generated by individual projects/jobs and determine the Nett profit or loss"</i>, with its Revenue
+/// (Income), Cost (Expenses) and Nett Profit/Loss sections and the statement that <i>"Cost centres enabled for
+/// job costing will be available for selection in the Job Work Analysis report"</i>.</para>
+///
+/// <para>A <b>pure</b> projection: no UI, no DB, no clock.</para>
+/// </remarks>
+public static class JobWorkAnalysis
+{
+    /// <summary>Builds the Job Work Analysis over <c>[from, to]</c>, one row per job/project.</summary>
+    public static IReadOnlyList<JobWorkAnalysisRow> Build(Company company, DateOnly from, DateOnly to)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        // 🔴 Gated HERE, not by the caller: with Job Costing off the godown master hides the field, so any
+        // link present is stale and an operator has no way to clear the rows it would produce.
+        if (!company.EnableJobCosting) return Array.Empty<JobWorkAnalysisRow>();
+
+        // A job is a cost centre at least one godown designates. Collect the godowns per centre first, in a
+        // deterministic order, so the row's site list is stable across platforms.
+        var godownsByCentre = new Dictionary<Guid, List<string>>();
+        foreach (var g in company.Godowns)
+        {
+            if (g.JobCostCentreId is not { } centreId) continue;
+            if (!godownsByCentre.TryGetValue(centreId, out var names))
+                godownsByCentre[centreId] = names = new List<string>();
+            names.Add(g.Name);
+        }
+        if (godownsByCentre.Count == 0) return Array.Empty<JobWorkAnalysisRow>();
+        foreach (var names in godownsByCentre.Values)
+            names.Sort(static (a, b) => string.CompareOrdinal(a, b));
+
+        // Accumulate per (centre, ledger). Money is a struct, so a missing key reads Money.Zero.
+        var byCentreLedger = new Dictionary<(Guid Centre, Guid Ledger), Money>();
+        foreach (var v in company.Vouchers)
+        {
+            // The SHARED voucher filter — see the class remarks.
+            if (!LedgerBalances.CountsAsOf(v, to)) continue;
+            if (v.Date < from) continue;
+
+            foreach (var line in v.Lines)
+            {
+                foreach (var a in line.CostAllocations)
+                {
+                    if (!godownsByCentre.ContainsKey(a.CentreId)) continue;   // not a job centre
+                    var key = (a.CentreId, line.LedgerId);
+                    byCentreLedger.TryGetValue(key, out var running);
+                    byCentreLedger[key] = running + a.Amount;
+                }
+            }
+        }
+
+        var rows = new List<JobWorkAnalysisRow>();
+        foreach (var (centreId, godownNames) in godownsByCentre)
+        {
+            var centre = company.FindCostCentre(centreId);
+            var revenue = new List<JobWorkAnalysisLine>();
+            var cost = new List<JobWorkAnalysisLine>();
+
+            foreach (var ((c, ledgerId), amount) in byCentreLedger)
+            {
+                if (c != centreId) continue;
+                var ledger = company.FindLedger(ledgerId);
+                if (ledger is null) continue;
+                var group = company.FindGroup(ledger.GroupId);
+                if (group is null) continue;
+                // Only P&L ledgers are income or expense. A Balance-Sheet allocation belongs to neither
+                // section and is dropped rather than silently counted as a cost — see the class remarks.
+                if (!ClassificationRules.IsProfitAndLossGroup(group, company)) continue;
+
+                var line = new JobWorkAnalysisLine(ledgerId, ledger.Name, amount);
+                if (ClassificationRules.PrimaryNatureOf(group, company) == GroupNature.Income)
+                    revenue.Add(line);
+                else
+                    cost.Add(line);
+            }
+
+            SortLines(revenue);
+            SortLines(cost);
+
+            // A job with no postings still appears, showing a zero nett — an operator who has set a site up
+            // and posted nothing to it yet must see the job on the report, not an empty screen that looks
+            // like the feature is broken.
+            rows.Add(new JobWorkAnalysisRow(
+                centreId, centre?.Name ?? "(unknown)", godownNames, revenue, cost));
+        }
+
+        // 🔴 ORDINAL comparison — a culture-sensitive compare orders the same two jobs differently on the
+        // ubuntu, macos and windows legs of the gate.
+        rows.Sort(static (a, b) =>
+        {
+            var byName = string.CompareOrdinal(a.JobName, b.JobName);
+            return byName != 0 ? byName : a.CostCentreId.CompareTo(b.CostCentreId);
+        });
+        return rows;
+    }
+
+    private static void SortLines(List<JobWorkAnalysisLine> lines) =>
+        lines.Sort(static (a, b) =>
+        {
+            var byName = string.CompareOrdinal(a.LedgerName, b.LedgerName);
+            return byName != 0 ? byName : a.LedgerId.CompareTo(b.LedgerId);
+        });
+}

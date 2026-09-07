@@ -15,6 +15,11 @@ public sealed class GodownListRow
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
+
+    /// <summary>The job/project this godown is designated for (census 9.6), or empty. Its own column rather
+    /// than a suffix on <see cref="Kind"/>: a godown can be third-party AND a job at once, and folding the two
+    /// into one cell makes a designated job invisible on every third-party site.</summary>
+    public string JobProject { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -26,6 +31,19 @@ public sealed class ParentGodownOption
     public Godown? Godown { get; init; }
     public string Display { get; init; } = string.Empty;
     public bool IsPrimary => Godown is null;
+}
+
+/// <summary>
+/// One entry in the godown master's <b>"Set job/project for job costing"</b> picker (census 9.6):
+/// "Not a job/project" (<see cref="CostCentre"/> null) or any existing cost centre.
+/// <para>The option list is of COST CENTRES because a job/project IS a cost centre — the vendor's own model,
+/// and the reason this feature adds no cost dimension of its own. See <see cref="Godown.JobCostCentreId"/>.</para>
+/// </summary>
+public sealed class JobCostCentreOption
+{
+    public CostCentre? CostCentre { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => CostCentre is null;
 }
 
 /// <summary>
@@ -47,8 +65,14 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
         "Godowns",
-        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Under"), MasterListColumn.Text("Kind") },
-        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Under, r.Kind }).ToList());
+        new[]
+        {
+            MasterListColumn.Text("Name"), MasterListColumn.Text("Under"), MasterListColumn.Text("Kind"),
+            // census 9.6 — exported too, not just drawn. A master list that shows a column on screen and drops
+            // it from the export is the shape that makes an exported book quietly wrong.
+            MasterListColumn.Text("Job/Project"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Under, r.Kind, r.JobProject }).ToList());
 
     /// <summary>The parent options: "Primary" plus every existing godown (Main Location included).</summary>
     public ObservableCollection<ParentGodownOption> ParentOptions { get; } = new();
@@ -62,6 +86,29 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
     [ObservableProperty] private bool _thirdParty;
     [ObservableProperty] private string? _message;
 
+    /// <summary>
+    /// The vendor's <b>"Set job/project for job costing"</b> picker (census 9.6) — the cost centre this godown
+    /// is, as a job/project. The first option is "◦ Not a job/project", so clearing the link is reachable from
+    /// the keyboard like every other field; selecting it leaves <see cref="Godown.JobCostCentreId"/> null.
+    /// </summary>
+    public ObservableCollection<JobCostCentreOption> JobCostCentreOptions { get; } = new();
+
+    [ObservableProperty] private JobCostCentreOption? _selectedJobCostCentre;
+
+    /// <summary>
+    /// True when the job/project field is shown — the F11 <see cref="Company.EnableJobCosting"/> gate (census
+    /// 9.6). With Job Costing off the vendor hides the field, and so does this master.
+    /// <para>🔴 <b>The gate also decides whether the value is WRITTEN</b>, not merely whether it is drawn: see
+    /// <see cref="Create"/>. A hidden control that still contributes a value is the shape that puts data in a
+    /// book the operator never agreed to.</para>
+    /// </summary>
+    public bool ShowJobCostCentre => _company.EnableJobCosting;
+
+    /// <summary>True when Job Costing is on but the book has no cost centre to point at — the operator needs
+    /// telling that the prerequisite the vendor names ("Enabling Job Costing and Cost Centres are
+    /// prerequisites") is not met, rather than being shown an empty picker.</summary>
+    public bool JobCostingNeedsCostCentres => _company.EnableJobCosting && _company.CostCentres.Count == 0;
+
     public GodownMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -69,6 +116,7 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
 
         RefreshParentOptions();
+        RefreshJobCostCentreOptions();
         RefreshList();
     }
 
@@ -90,10 +138,15 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         var parentId = SelectedParent?.Godown?.Id;
         var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
 
+        // 🔴 The F11 gate decides whether the value is WRITTEN, not just whether the control is drawn. With Job
+        // Costing off the field is hidden, and a stale SelectedJobCostCentre from a session where it was on must
+        // not silently designate this godown a job/project the operator never saw a control for.
+        var jobCostCentreId = _company.EnableJobCosting ? SelectedJobCostCentre?.CostCentre?.Id : null;
+
         try
         {
             var service = new InventoryService(_company);
-            service.CreateGodown(name, parentId, alias, ThirdParty);
+            service.CreateGodown(name, parentId, alias, ThirdParty, jobCostCentreId);
             _storage.Save(_company);
         }
         catch (InvalidOperationException ex)
@@ -104,13 +157,31 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
 
         var underLabel = SelectedParent is { IsPrimary: false } p ? p.Godown!.Name : "Primary";
         RefreshParentOptions();
+        RefreshJobCostCentreOptions();
         RefreshList();
         Message = $"Godown '{name}' created under {underLabel}.";
         Name = string.Empty;
         Alias = string.Empty;
         ThirdParty = false;
+        // Reset to "not a job/project" so the NEXT godown does not inherit this one's job by accident — the
+        // same reason Name/Alias/ThirdParty are cleared.
+        SelectedJobCostCentre = JobCostCentreOptions.FirstOrDefault();
         _onChanged();
         return true;
+    }
+
+    private void RefreshJobCostCentreOptions()
+    {
+        var previousId = SelectedJobCostCentre?.CostCentre?.Id;
+        JobCostCentreOptions.Clear();
+        JobCostCentreOptions.Add(new JobCostCentreOption { CostCentre = null, Display = "◦ Not a job/project" });
+        // OrdinalIgnoreCase, not the current culture — the same ordering must come out on the ubuntu, macos and
+        // windows legs of the gate, and a picker whose order depends on the machine cannot be asserted on.
+        foreach (var c in _company.CostCentres.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            JobCostCentreOptions.Add(new JobCostCentreOption { CostCentre = c, Display = c.Name });
+
+        SelectedJobCostCentre = JobCostCentreOptions.FirstOrDefault(o => o.CostCentre?.Id == previousId)
+                                ?? JobCostCentreOptions.FirstOrDefault();
     }
 
     private void RefreshParentOptions()
@@ -134,7 +205,13 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
                 ? _company.FindGodown(pid)?.Name ?? "—"
                 : "Primary";
             var kind = g.IsMainLocation ? "Main Location" : g.ThirdParty ? "Third-party" : "Own";
-            Existing.Add(new GodownListRow { Name = g.Name, Under = under, Kind = kind });
+            // census 9.6: the job/project, resolved to the cost centre's NAME. A link whose centre has since
+            // been deleted shows "(unknown)" rather than an empty cell — silently blanking it would hide a
+            // godown that is still designated a job and would still produce Job Work Analysis rows.
+            var job = g.JobCostCentreId is { } centreId
+                ? _company.FindCostCentre(centreId)?.Name ?? "(unknown)"
+                : string.Empty;
+            Existing.Add(new GodownListRow { Name = g.Name, Under = under, Kind = kind, JobProject = job });
         }
     }
 }

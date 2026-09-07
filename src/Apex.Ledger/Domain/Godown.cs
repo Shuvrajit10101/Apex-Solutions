@@ -31,6 +31,26 @@ public sealed class Godown
     /// </summary>
     public bool ThirdParty { get; set; }
 
+    /// <summary>
+    /// The godown master's <b>"Set job/project for job costing"</b> — the <see cref="CostCentre"/> this location
+    /// <b>is</b>, as a job or project (census 9.6; schema v58). <c>null</c> ⇒ an ordinary storage location, which
+    /// is every godown created before the feature existed.
+    /// <para>
+    /// 🔴 <b>This is a LINK to the existing cost-centre machinery, not a new dimension.</b> The vendor documents
+    /// job costing as requiring both Cost Centres and godowns — the godown tracks the site's material movement,
+    /// the cost centre it names carries the site's money — and the Job Work Analysis report reads the ordinary
+    /// <see cref="CostAllocation"/> rows posted against that centre. Nothing here duplicates a cost centre; a
+    /// godown merely points at one.
+    /// </para>
+    /// <para>Surfaced on the master only when <see cref="Company.EnableJobCosting"/> is on. R7:
+    /// <c>help.tallysolutions.com/job-costing-tally/</c> — "you can select a cost centre under Set job/project
+    /// for job costing".</para>
+    /// </summary>
+    public Guid? JobCostCentreId { get; set; }
+
+    /// <summary>True when this godown has been designated a job/project for job costing (census 9.6).</summary>
+    public bool IsJobProject => JobCostCentreId is not null;
+
     /// <summary>True for the single seeded default godown ("Main Location"); it cannot be deleted.</summary>
     public bool IsMainLocation { get; }
 

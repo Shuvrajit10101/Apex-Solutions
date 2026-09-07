@@ -8,6 +8,7 @@ public sealed class VoucherType
 {
     private readonly List<VoucherNumberAffix> _prefixes;
     private readonly List<VoucherNumberAffix> _suffixes;
+    private readonly List<VoucherClass> _classes;
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -252,6 +253,26 @@ public sealed class VoucherType
     /// </summary>
     public IReadOnlyList<VoucherNumberAffix> Suffixes => _suffixes;
 
+    /// <summary>
+    /// The named <b>Voucher Classes</b> defined on this type (census 9.9; schema v58). Get-only and ctor-injected,
+    /// exactly like <see cref="Prefixes"/>/<see cref="Suffixes"/>; <see cref="SetClasses"/> is the sole write seam.
+    /// Empty on every type that has none, which is every type created before v58 (ER-13).
+    /// <para>Today the only class this product ships is the Stock Journal <b>transfer</b> class — see
+    /// <see cref="VoucherClass"/> for why that is narrower than census row 2.6 and deliberately so.</para>
+    /// </summary>
+    public IReadOnlyList<VoucherClass> Classes => _classes;
+
+    /// <summary>
+    /// The classes on this type that actually perform an inter-godown transfer (census 9.9). A class only does so
+    /// on a <see cref="VoucherBaseType.StockJournal"/> type: the flag is meaningless anywhere else, and honouring
+    /// it on, say, a Sales type would mirror stock lines onto a voucher that has no destination role at all. The
+    /// base-type guard lives HERE, once, rather than at each call site.
+    /// </summary>
+    public IEnumerable<VoucherClass> InterGodownTransferClasses =>
+        BaseType == VoucherBaseType.StockJournal
+            ? _classes.Where(c => c.UseClassForInterGodownTransfers)
+            : Enumerable.Empty<VoucherClass>();
+
     public VoucherType(
         Guid id,
         string name,
@@ -279,7 +300,8 @@ public sealed class VoucherType
         bool printAfterSaving = false,
         bool provideNarrationForEachLedger = false,
         IEnumerable<VoucherNumberAffix>? prefixes = null,
-        IEnumerable<VoucherNumberAffix>? suffixes = null)
+        IEnumerable<VoucherNumberAffix>? suffixes = null,
+        IEnumerable<VoucherClass>? classes = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -311,6 +333,19 @@ public sealed class VoucherType
         ProvideNarrationForEachLedger = provideNarrationForEachLedger;
         _prefixes = prefixes?.ToList() ?? new List<VoucherNumberAffix>();
         _suffixes = suffixes?.ToList() ?? new List<VoucherNumberAffix>();
+        _classes = classes?.ToList() ?? new List<VoucherClass>();
+    }
+
+    /// <summary>
+    /// Replaces the named <see cref="Classes"/> <b>in place</b> (census 9.9) — the sole write seam, mirroring
+    /// <see cref="SetAffixes"/> for exactly the same reason: the get-only collection stays get-only for the
+    /// persistence read path, and keeping the SAME instance means every reference to this type (and every posted
+    /// voucher that names it) stays valid across an edit. Passing <c>null</c> clears the classes.
+    /// </summary>
+    public void SetClasses(IEnumerable<VoucherClass>? classes)
+    {
+        _classes.Clear();
+        if (classes is not null) _classes.AddRange(classes);
     }
 
     /// <summary>

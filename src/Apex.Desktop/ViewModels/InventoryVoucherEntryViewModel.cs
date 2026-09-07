@@ -13,6 +13,17 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>
+/// One entry in the Stock Journal's transfer-class picker (census 9.9): "◦ No class" (<see cref="Class"/> null,
+/// key both arms by hand) or one of the type's inter-godown transfer classes.
+/// </summary>
+public sealed class TransferClassOption
+{
+    public VoucherClass? Class { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Class is null;
+}
+
+/// <summary>
 /// The reusable stock/order voucher-entry screen — one view model for all eight inventory voucher kinds:
 /// Purchase Order (Ctrl+F9), Sales Order (Ctrl+F8), Receipt Note/GRN (Alt+F9), Delivery Note (Alt+F8),
 /// Rejection In (Ctrl+F6), Rejection Out (Ctrl+F5), Stock Journal (Alt+F7) and Physical Stock (Ctrl+F7). It
@@ -181,6 +192,64 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>True for a Stock Journal (two lists: source consumption + destination production).</summary>
     public bool IsStockJournal => _type.BaseType == VoucherBaseType.StockJournal;
 
+    // ------------------------------------------- W-K1 · census 9.9 — the Stock Journal TRANSFER CLASS
+
+    /// <summary>
+    /// The inter-godown transfer classes defined on this voucher type (census 9.9), preceded by a "◦ No class"
+    /// option so an operator can always get back to keying both arms by hand. Empty of real classes until one is
+    /// created on the Voucher Type master.
+    /// </summary>
+    public ObservableCollection<TransferClassOption> TransferClassOptions { get; } = new();
+
+    /// <summary>The class the operator picked, or the "◦ No class" option.</summary>
+    [ObservableProperty] private TransferClassOption? _selectedTransferClass;
+
+    /// <summary>
+    /// The single <b>destination godown</b> the class transfers to — the vendor's whole promise for this feature:
+    /// <i>"all you have to do is just enter the destination godown … and enter the item details."</i>
+    /// </summary>
+    [ObservableProperty] private Godown? _transferDestinationGodown;
+
+    /// <summary>True when the class picker is shown: a Stock Journal type that actually has a transfer class.
+    /// A type with none shows nothing, so a company that never defines one is byte-identical (ER-13).</summary>
+    public bool ShowTransferClass => IsStockJournal && _type.InterGodownTransferClasses.Any();
+
+    /// <summary>
+    /// True when a transfer class is ACTIVE — the operator has picked one. While it is,
+    /// <see cref="BuildStockJournal"/> derives the destination arm by mirroring the source, so the destination
+    /// grid is hidden and the destination godown picker takes its place.
+    /// </summary>
+    public bool IsTransferClassActive => SelectedTransferClass?.Class is not null;
+
+    partial void OnSelectedTransferClassChanged(TransferClassOption? value)
+    {
+        // 🔴 Both notifications are required. IsTransferClassActive drives the destination godown picker AND the
+        // visibility of the hand-keyed destination grid; ShowsDestinationLines is its inverse. Raising only one
+        // leaves the operator with both the class and the manual grid on screen, keying an arm that
+        // BuildStockJournal is about to overwrite.
+        OnPropertyChanged(nameof(IsTransferClassActive));
+        OnPropertyChanged(nameof(ShowsDestinationLines));
+        Recalculate();
+    }
+
+    partial void OnTransferDestinationGodownChanged(Godown? value) => Recalculate();
+
+    /// <summary>True when the hand-keyed destination (produced/inward) grid is shown — a Stock Journal with NO
+    /// transfer class active. Under a class the destination is derived, so showing the grid would invite the
+    /// operator to key an arm that is then discarded.</summary>
+    public bool ShowsDestinationLines => IsStockJournal && !IsTransferClassActive;
+
+    private void RefreshTransferClassOptions()
+    {
+        TransferClassOptions.Clear();
+        if (!IsStockJournal) return;
+        TransferClassOptions.Add(new TransferClassOption { Class = null, Display = "◦ No class" });
+        // OrdinalIgnoreCase — the same ordering on every platform of the gate. See ReadVoucherTypeClasses.
+        foreach (var c in _type.InterGodownTransferClasses.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            TransferClassOptions.Add(new TransferClassOption { Class = c, Display = c.Name });
+        SelectedTransferClass = TransferClassOptions.FirstOrDefault();
+    }
+
     /// <summary>True for a Physical Stock voucher (counted-quantity lines; no rate/direction).</summary>
     public bool IsPhysicalStock => _type.BaseType == VoucherBaseType.PhysicalStock;
 
@@ -336,6 +405,10 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         VoucherNumber = _service.NextNumber(type.Id);
         Title = $"{type.Name} Voucher";
 
+        // W-K1 (census 9.9): the Stock Journal transfer classes defined on this type. Built BEFORE the first
+        // Recalculate so the destination grid's visibility is right on the first render.
+        RefreshTransferClassOptions();
+
         // Seed a first blank line (two for a Stock Journal — one on each side).
         AddLine();
         if (IsStockJournal) { AddDestinationLine(); AddAdditionalCostRow(); }
@@ -349,6 +422,29 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         VoucherBaseType.PhysicalStock => InventoryLineKind.Counted,
         _ => InventoryLineKind.Movement, // GRN/Delivery/Rejection/Stock-Journal source
     };
+
+    /// <summary>
+    /// True when the <b>Tracking No.</b> column is shown on this voucher's lines (census 9.8).
+    /// <para>Gated on the F11 feature AND on the voucher being one the tracking number means something on: the
+    /// vendor's mechanism links a <b>Receipt Note</b> to its Purchase and a <b>Delivery Note</b> to its Sales,
+    /// so those two — and their Rejection counterparts, which reverse the same movement — are where it belongs.
+    /// A Physical Stock count has no bill to reconcile against, and a Stock Journal moves stock between the
+    /// company's own godowns with no bill at all, so offering the column there would invite a reference that no
+    /// report could ever pair with anything.</para>
+    /// </summary>
+    public bool ShowTrackingNumber =>
+        _company.UseTrackingNumbers
+        && _type.BaseType is VoucherBaseType.ReceiptNote or VoucherBaseType.DeliveryNote
+            or VoucherBaseType.RejectionIn or VoucherBaseType.RejectionOut;
+
+    /// <summary>
+    /// True when the <b>Cost Tracking Number</b> column is shown (census 9.7). Unlike
+    /// <see cref="ShowTrackingNumber"/> this is NOT restricted by base type: the vendor's cost tracking follows
+    /// a lot across its <i>whole</i> lifecycle, and a Stock Journal that consumes a lot into a manufactured item
+    /// is part of that lifecycle. Restricting it would silently break the chain exactly where goods are
+    /// transformed.
+    /// </summary>
+    public bool ShowCostTrackingNumber => _company.EnableCostTracking;
 
     /// <summary>Adds a blank primary line (order / source-movement / counted); recomputes Accept-enabled.</summary>
     public InventoryVoucherLineViewModel AddLine()
@@ -466,8 +562,54 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         foreach (var l in Lines)
             l.WantsBatchAllocation = LineWantsBatchAllocation(l);
 
+        // W-K1 (census 9.8 / 9.7): keep both tracking columns in sync with their F11 gate on EVERY line, source
+        // and destination alike.
+        // 🔴 Doing it HERE rather than once at construction is what makes the columns appear the moment the
+        // operator turns the feature on in F11 without re-entering the voucher — and, more importantly, makes
+        // them DISAPPEAR (and stop posting, via the ShowTrackingNumber guard on the line's Tracking property)
+        // the moment it is turned off. A construction-time-only assignment leaves a line posting a value from a
+        // column that is no longer on screen.
+        foreach (var l in Lines.Concat(DestinationLines))
+        {
+            l.ShowTrackingNumber = ShowTrackingNumber;
+            l.ShowCostTrackingNumber = ShowCostTrackingNumber;
+        }
+
         var completeLines = Lines.Count(l => l.IsComplete);
         var halfFilled = Lines.Any(l => !l.IsBlank && !l.IsComplete);
+
+        if (IsStockJournal && IsTransferClassActive)
+        {
+            // W-K1 (census 9.9) — under a transfer class the destination arm is DERIVED, so there is nothing to
+            // balance and no destination rows to police. It balances BY CONSTRUCTION: InterGodownTransfer.Mirror
+            // reproduces each source line's quantity and unit exactly, so asserting the old source==destination
+            // check here would test the mirroring against itself and could never fail. What CAN be wrong is the
+            // one thing the operator supplies — the destination godown — so that is what is gated.
+            var srcOnly = Lines.Count(l => l.IsComplete);
+            var sourceBase = SumBase(Lines);
+            var sameGodown = TransferDestinationGodown is { } d
+                             && Lines.Any(l => l.IsComplete && l.SelectedGodown?.Id == d.Id);
+
+            IsBalanced = true;
+            BalanceText = TransferDestinationGodown is null
+                ? "Pick the destination godown this transfer class moves the stock to."
+                : sameGodown
+                    ? $"A line already sits in {TransferDestinationGodown.Name} — a transfer cannot move stock "
+                      + "from a godown to itself."
+                    : srcOnly >= 1
+                        ? $"Transfer — {Qty(sourceBase)} (base unit) to {TransferDestinationGodown.Name}; the "
+                          + "destination lines are mirrored from the source."
+                        : "Enter the source (consumed) lines; the destination is mirrored automatically.";
+
+            AdditionalCostTotalText = IndianFormat.AmountAlways(AdditionalCostsTotal());
+            // 🔴 sameGodown is refused HERE as well as in InterGodownTransfer.Mirror. The engine guard is the one
+            // that cannot be bypassed; this one is what stops the operator reaching Accept and being told by an
+            // exception. Both are needed — dropping the engine guard would let a caller other than this screen
+            // post a self-transfer, and dropping this one turns a foreseeable mistake into a thrown error.
+            CanAccept = srcOnly >= 1 && !halfFilled && sourceBase > 0m
+                        && TransferDestinationGodown is not null && !sameGodown;
+            return;
+        }
 
         if (IsStockJournal)
         {
@@ -610,7 +752,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
 
         var allocations = CompleteLines(Lines)
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, direction, RateOf(l), l.Batch, l.UnitId))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, direction, RateOf(l), l.Batch, l.UnitId,
+                // W-K1 (census 9.8 / 9.7): the operator's Tracking No. and Cost Tracking Number. This is the
+                // GOODS half of the tracking mechanism — the Purchase/Sales bill supplies the other half. Both
+                // read null when their column is hidden (see InventoryVoucherLineViewModel.Tracking).
+                l.Tracking, l.CostTracking))
             .ToList();
         if (allocations.Count == 0) throw Blank();
 
@@ -631,12 +777,33 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     {
         var source = CompleteLines(Lines)
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Outward, RateOf(l), l.Batch, l.UnitId))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Outward, RateOf(l), l.Batch, l.UnitId,
+                // W-K1 (census 9.7): the cost tracking number follows a lot through a Stock Journal too — a
+                // transformation is part of the lot's lifecycle. There is no Tracking No. here: a Stock Journal
+                // moves stock between the company's OWN godowns and there is no bill to reconcile against.
+                costTrackingNumber: l.CostTracking))
             .ToList();
-        var dest = CompleteLines(DestinationLines)
-            .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch, l.UnitId))
-            .ToList();
+        // W-K1 (census 9.9): under an inter-godown TRANSFER CLASS the destination arm is DERIVED from the source
+        // rather than keyed. That is the vendor's whole promise for the class — name one destination godown, key
+        // only the source, and every line is mirrored to it including batch, rate and unit. Doing it here, at
+        // the posting boundary, is what makes the two arms unable to disagree; deriving it into the visible
+        // destination grid instead would let a later keystroke edit one arm out of step with the other.
+        List<InventoryAllocation> dest;
+        if (SelectedTransferClass?.Class is not null)
+        {
+            if (TransferDestinationGodown is not { } destination)
+                throw new InvalidValidationException(
+                    "Pick the destination godown this transfer class moves the stock to.");
+            dest = InterGodownTransfer.Mirror(source, destination.Id).ToList();
+        }
+        else
+        {
+            dest = CompleteLines(DestinationLines)
+                .Select(l => new InventoryAllocation(
+                    l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch, l.UnitId,
+                    costTrackingNumber: l.CostTracking))
+                .ToList();
+        }
 
         if (source.Count == 0 || dest.Count == 0)
             throw new InvalidValidationException(

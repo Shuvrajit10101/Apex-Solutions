@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -279,6 +279,19 @@ public sealed class VoucherEditLogSchemaTests
                     "index:ix_cheque_books_ledger",
                     "index:ux_cheque_status_book_number",
                     "index:ux_cheque_layouts_ledger",
+                })
+                // v58 (inventory costing & tracking) adds one table and five indexes, so the chain removes those
+                // too. 🔴 Like v57 and unlike v56, the index names are NOT derivable from the table names: four of
+                // the five hang off tables v58 only ALTERs (inventory_allocations, voucher_inventory_lines), so
+                // computing "ix_<table>_company" would expect indexes that do not exist and pass anyway.
+                .Concat(Schema.V58ClassTables.Select(t => "table:" + t))
+                .Concat(new[]
+                {
+                    "index:ux_voucher_type_classes_type_name",
+                    "index:ix_inventory_allocations_tracking",
+                    "index:ix_inventory_allocations_cost_track",
+                    "index:ix_voucher_inventory_lines_tracking",
+                    "index:ix_voucher_inventory_lines_cost_track",
                 })
                 .Order(StringComparer.Ordinal)
                 .ToArray();

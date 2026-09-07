@@ -147,12 +147,26 @@ namespace Apex.Persistence.Sqlite;
 /// additive, no row rewritten, and every default is 0/NULL so "column absent" and "feature off" coincide — the
 /// opposite of v50's <c>DEFAULT 1</c>. 🔴 <c>company_users.password_hash</c> holds a ONE-WAY PBKDF2-HMAC-SHA256
 /// verifier and nothing else; see <see cref="MigrateV55ToV56"/>.
-/// <b><see cref="CurrentVersion"/> = 57</b> (v57 = Banking documents, see below); a fresh DB is always stamped to it via
-/// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
+/// 🔴 v58 adds <b>Inventory costing &amp; tracking</b> (census 9.6 Job Costing · 9.7 Item Cost Tracking ·
+/// 9.8 Tracking Numbers · 9.9 Stock Journal Voucher Class): three <c>companies</c> feature flags, one
+/// <c>godowns</c> cost-centre link, two tracking columns on each of the two stock-line tables, and one
+/// additive <c>voucher_type_classes</c> table. Purely additive; every default is 0/NULL, so "column absent"
+/// and "feature off" coincide. See <see cref="MigrateV57ToV58"/>.
+/// <b><see cref="CurrentVersion"/> = 58</b> (v58 = Inventory costing &amp; tracking, see below); a fresh DB is always
+/// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v57</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v58</b> is the latest bump
+    /// (<b>Inventory costing &amp; tracking</b>, census 9.6 Job Costing / 9.7 Item Cost Tracking / 9.8 Tracking
+    /// Numbers / 9.9 Stock Journal Voucher Class: the three <c>companies</c> feature flags
+    /// <c>use_tracking_numbers</c> / <c>enable_cost_tracking</c> / <c>enable_job_costing</c>, the
+    /// <c>godowns.job_cost_centre_id</c> link that makes a godown a job/project, the <c>tracking_number</c> +
+    /// <c>cost_tracking_number</c> pair on BOTH <c>inventory_allocations</c> and <c>voucher_inventory_lines</c>
+    /// — the two tables that between them carry every stock line in the product — and the additive
+    /// <c>voucher_type_classes</c> table behind the Stock Journal transfer class. Purely additive and it
+    /// back-fills NOTHING. See <see cref="MigrateV57ToV58"/>).
+    /// v57 was the previous bump
     /// (<b>Banking documents</b>, census 8.4 / 8.5 / 8.6: the three tables <c>cheque_books</c> /
     /// <c>cheque_status_overrides</c> / <c>cheque_layouts</c>, plus six <c>ledgers</c> columns —
     /// <c>bank_account_number</c>, <c>bank_branch</c>, <c>bank_ifsc</c>, <c>cheque_adjust_top_tmm</c>,
@@ -231,7 +245,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 57;
+    public const int CurrentVersion = 58;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -414,7 +428,13 @@ public static class Schema
             -- password_expiry_days is NULLable with NO default because 0 days is not "never expires".
             use_user_access_control        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (F12 "Use User Access Control")
             password_min_length            INTEGER NOT NULL DEFAULT 0,  -- 0 = no minimum
-            password_expiry_days           INTEGER     NULL             -- NULL = never expires
+            password_expiry_days           INTEGER     NULL,            -- NULL = never expires
+            -- v58 (census 9.8 / 9.7 / 9.6): the three F11 feature gates for inventory tracking and costing.
+            -- Declarations byte-identical to MigrateV57ToV58. All default 0 — every pre-v58 company had none of
+            -- these features, so "column absent" and "feature off" coincide.
+            use_tracking_numbers           INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Use tracking numbers (enables delivery and receipt notes)"
+            enable_cost_tracking           INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Enable Cost Tracking"
+            enable_job_costing             INTEGER NOT NULL DEFAULT 0   -- 0/1 F11 "Enable Job Costing"
         );
 
         -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1075,6 +1095,18 @@ public static class Schema
             provide_narration_for_each_ledger INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
+        -- v58 (census 9.9): the named VOUCHER CLASSES on a voucher type. This slice ships exactly ONE class
+        -- capability, the Stock Journal transfer class, so the table carries the type link, the "Name of Class"
+        -- and the one attested flag. Declarations byte-identical to MigrateV57ToV58. See MigrateV57ToV58 for
+        -- why this is deliberately NOT the general Voucher Class machinery census row 2.6 asks for.
+        CREATE TABLE voucher_type_classes (
+            id                                  TEXT    NOT NULL PRIMARY KEY,
+            voucher_type_id                     TEXT    NOT NULL REFERENCES voucher_types(id),
+            name                                TEXT    NOT NULL,
+            use_class_for_inter_godown_transfers INTEGER NOT NULL DEFAULT 0   -- 0/1
+        );
+        CREATE UNIQUE INDEX ux_voucher_type_classes_type_name ON voucher_type_classes(voucher_type_id, name);
+
         -- v47 (voucher-numbering S3; numbering-design-v2 §1.2/§6): the date-effective Prefix / Suffix rows for a
         -- voucher type's numbering. Each is an unbounded list of {applicable_from, particulars} keyed by the type
         -- (following the pos_tender_ledger_defaults child-table precedent). particulars is the ENTIRE affix text,
@@ -1355,7 +1387,12 @@ public static class Schema
             parent_id        TEXT        NULL REFERENCES godowns(id),
             alias            TEXT        NULL,
             third_party      INTEGER NOT NULL DEFAULT 0,   -- "our stock with a third party" (job-work) 0/1
-            is_main_location INTEGER NOT NULL DEFAULT 0    -- the single seeded "Main Location" 0/1
+            is_main_location INTEGER NOT NULL DEFAULT 0,   -- the single seeded "Main Location" 0/1
+            -- v58 (census 9.6 Job Costing): the godown master's "Set job/project for job costing" — the cost
+            -- centre this location IS, as a job/project. NULL = an ordinary godown, which is every pre-v58 row.
+            -- Declaration byte-identical to MigrateV57ToV58. Job Costing reuses the EXISTING cost-centre
+            -- machinery rather than adding a parallel cost dimension; see MigrateV57ToV58.
+            job_cost_centre_id TEXT       NULL REFERENCES cost_centres(id)
         );
 
         CREATE TABLE stock_items (
@@ -1454,8 +1491,16 @@ public static class Schema
             -- NULL ⇒ "not split": actual defaults to quantity_micro, billed defaults to actual. In practice these stay
             -- NULL on the pure-stock table (A/B is Sales/Purchase-only, on voucher_inventory_lines); kept for symmetry.
             actual_qty_micro  INTEGER     NULL,               -- Actual qty × 1,000,000, or NULL = quantity_micro
-            billed_qty_micro  INTEGER     NULL                -- Billed qty × 1,000,000, or NULL = actual
+            billed_qty_micro  INTEGER     NULL,               -- Billed qty × 1,000,000, or NULL = actual
+            -- v58 (census 9.8 / 9.7): the two operator-entered tracking data. tracking_number is the Tracking No.
+            -- that links a Receipt Note to its Purchase and a Delivery Note to its Sales; cost_tracking_number is
+            -- the Item Cost Tracking number. Both NULL on every pre-v58 line (ER-13). Declarations byte-identical
+            -- to MigrateV57ToV58.
+            tracking_number      TEXT     NULL,
+            cost_tracking_number TEXT     NULL
         );
+        CREATE INDEX ix_inventory_allocations_tracking ON inventory_allocations(tracking_number);
+        CREATE INDEX ix_inventory_allocations_cost_track ON inventory_allocations(cost_tracking_number);
 
         CREATE TABLE order_lines (
             id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1501,8 +1546,16 @@ public static class Schema
             -- v46 (WI-10 Gap 2): the unit BOTH quantities and the rate are stated in. NULL ⇒ the item's own base
             -- unit, which is every pre-v46 line, so an unchanged line round-trips byte-identically (ER-13). The
             -- rate is per THIS unit — "2 Doz @ ₹10" stores qty 2 / rate 1000 / unit Doz and is worth ₹20.
-            unit_id           TEXT        NULL REFERENCES units(id)
+            unit_id           TEXT        NULL REFERENCES units(id),
+            -- v58 (census 9.8 / 9.7): the SAME two tracking data as inventory_allocations, on the item-invoice
+            -- side. This symmetry is the whole mechanism of 9.8: the Receipt Note's line (inventory_allocations)
+            -- and the Purchase invoice's line (here) carry the SAME tracking_number, and that shared string is
+            -- what reconciles goods-in against the bill. Both NULL on every pre-v58 line (ER-13).
+            tracking_number      TEXT     NULL,
+            cost_tracking_number TEXT     NULL
         );
+        CREATE INDEX ix_voucher_inventory_lines_tracking ON voucher_inventory_lines(tracking_number);
+        CREATE INDEX ix_voucher_inventory_lines_cost_track ON voucher_inventory_lines(cost_tracking_number);
 
         -- v19 (Phase 6 slice 3; RQ-20): additional-cost lines on a Stock-Journal TRANSFER inventory voucher. Each
         -- row apportions an additional-cost ledger amount across the voucher's destination allocations (raising
@@ -4624,5 +4677,119 @@ public static class Schema
             print_currency_symbol      INTEGER NOT NULL DEFAULT 0
         );
         CREATE UNIQUE INDEX ux_cheque_layouts_ledger ON cheque_layouts(ledger_id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v58 — INVENTORY COSTING & TRACKING (census 9.6 Job Costing · 9.7 Item Cost Tracking · 9.8 Tracking Numbers
+    // · 9.9 Stock Journal Voucher Class). Object names are published here ONCE so the migration, CreateV1, the
+    // downgrade and the tests all speak about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one table v58 adds — the exact set <see cref="MigrateV57ToV58"/> creates and
+    /// <c>SchemaDowngrade.V58ToV57</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V58ClassTables = new[] { "voucher_type_classes" };
+
+    /// <summary>The three <c>companies</c> feature-flag columns v58 adds.</summary>
+    public static readonly IReadOnlyList<string> V58CompanyColumns =
+        new[] { "use_tracking_numbers", "enable_cost_tracking", "enable_job_costing" };
+
+    /// <summary>The one <c>godowns</c> column v58 adds — the job/project cost-centre link.</summary>
+    public static readonly IReadOnlyList<string> V58GodownColumns = new[] { "job_cost_centre_id" };
+
+    /// <summary>The two tracking columns v58 adds to <b>each</b> stock-line table
+    /// (<c>inventory_allocations</c> and <c>voucher_inventory_lines</c>). The same pair on both is the whole
+    /// mechanism of 9.8 — see <see cref="MigrateV57ToV58"/>.</summary>
+    public static readonly IReadOnlyList<string> V58TrackingLineColumns =
+        new[] { "tracking_number", "cost_tracking_number" };
+
+    /// <summary>
+    /// v57 → v58 (census rows 9.6 / 9.7 / 9.8 / 9.9): <b>Inventory costing &amp; tracking</b> — the Tracking
+    /// Number that reconciles goods against the bill, the Item Cost Tracking number, the godown→cost-centre link
+    /// that makes a godown a job/project, and the Stock Journal transfer voucher class.
+    ///
+    /// <para>🔴 <b>9.8 IS THE KEYSTONE AND ITS WHOLE MECHANISM IS THE SHARED STRING.</b> This product keeps stock
+    /// lines in exactly TWO tables: <c>inventory_allocations</c> (pure-inventory vouchers — Receipt Note, Delivery
+    /// Note, Stock Journal…) and <c>voucher_inventory_lines</c> (item-invoice lines on an accounting Purchase or
+    /// Sales voucher). A Receipt Note's goods and the Purchase bill that pays for them therefore live in DIFFERENT
+    /// tables, and before v58 there was no operator-entered datum joining them at all — order fulfilment was
+    /// <i>inferred</i> by a FIFO walk, which cannot tell "these 40 units were billed" from "40 units happened to
+    /// be billed". <c>tracking_number</c> on BOTH tables is that datum. It is deliberately a plain nullable TEXT
+    /// and NOT a foreign key to anything: the vendor's tracking number is free text that defaults to the voucher
+    /// number, one number may span several vouchers on either side, and a note may legitimately be entered before
+    /// its bill exists.</para>
+    ///
+    /// <para><b>R7 — ATTESTED.</b> The feature gate is <c>help.tallysolutions.com/purchase-order-tally/</c> and the
+    /// vendor's F11 Inventory Features caption <i>"Use tracking numbers (enables delivery and receipt notes)"</i>;
+    /// the field itself is that page's Stock Item Allocations screen — <i>"Enter a <b>Tracking No.</b> By default,
+    /// the invoice number appears"</i> — and the report the unreconciled ends surface in is that page's
+    /// <b>"Purchase Bills Pending"</b>, whose two sections it names verbatim as <i>"Goods Recd. but Bills not
+    /// Recd.:"</i> and <i>"Bills Recd. but Goods not Recd.:"</i>. Item Cost Tracking is
+    /// <c>help.tallysolutions.com/tally-prime/inventory/track-item-cost-tally/</c> (F11 <i>"Enable Cost
+    /// Tracking"</i>; the <i>List of Cost Tracking Numbers</i> with its <i>New Number</i> entry; the reports under
+    /// <i>Statements of Inventory → Item Cost Analysis</i>). Job Costing is
+    /// <c>help.tallysolutions.com/job-costing-tally/</c> (F11 <i>"Enable Job Costing"</i>; the godown field <i>"Set
+    /// job/project for job costing"</i>, which takes a <b>cost centre</b>; the <i>Job Work Analysis</i> report with
+    /// its Revenue (Income) / Cost (Expenses) / Nett Profit-Loss sections). The class flag is
+    /// <c>help.tallysolutions.com/voucher-types-tally/</c> — <i>"Name of Class"</i> and <i>"Use Class for
+    /// Inter-Godown Transfers"</i>.</para>
+    ///
+    /// <para>🔴 <b>9.6 REUSES THE COST-CENTRE MACHINERY; IT DOES NOT ADD A COST DIMENSION.</b> The vendor is
+    /// explicit that a job/project IS a cost centre and that the godown names one, so <c>job_cost_centre_id</c> is
+    /// an FK to <c>cost_centres(id)</c> and Job Work Analysis reads the SAME <c>cost_allocations</c> rows every
+    /// other cost report reads. A parallel "job" dimension would have drifted from the cost centres on the first
+    /// re-allocation, and there is nothing in the vendor documentation to ground one.</para>
+    ///
+    /// <para>🔴 <b>9.9 IS DELIBERATELY NARROWER THAN CENSUS ROW 2.6, WHICH IS NOT THIS TRACK'S.</b> The general
+    /// Voucher Class machinery (ledger pre-maps, default accounting allocations, additional-ledger rules,
+    /// rounding) is row 2.6 and remains ABSENT. <c>voucher_type_classes</c> stores ONLY what the Stock Journal
+    /// transfer class needs — the type link, the vendor's "Name of Class", and the one attested flag — because a
+    /// Stock Journal moves stock and posts no ledger, so it needs none of 2.6's accounting apparatus. Building
+    /// 2.6's columns here speculatively would have been inventing a shape no source attests.</para>
+    ///
+    /// <para><b>Purely additive, and it back-fills NOTHING.</b> One empty table plus seven columns whose defaults —
+    /// 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL — are the literal truth about every pre-v58 book: no company
+    /// had these features on, no godown was a job, and no stock line carried either tracking datum. "Column
+    /// absent" and "not set" therefore coincide, deliberately unlike <see cref="MigrateV49ToV50"/>'s
+    /// <c>DEFAULT 1</c>.</para>
+    ///
+    /// <para><b>The two <c>REFERENCES</c> clauses added by <c>ALTER TABLE … ADD COLUMN</c> are legal precisely
+    /// because their default is NULL</b> — SQLite refuses an added FK column with any other default. That is also
+    /// why <c>job_cost_centre_id</c> could not have been <c>NOT NULL</c> even if a job godown were mandatory.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 58. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift.</para>
+    /// </summary>
+    public const string MigrateV57ToV58 = """
+        -- v58 (census 9.6/9.7/9.8/9.9): Inventory costing & tracking.
+        -- Purely additive: seven columns plus one new table, all 0/NULL, nothing back-filled.
+        ALTER TABLE companies ADD COLUMN use_tracking_numbers INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN enable_cost_tracking INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN enable_job_costing   INTEGER NOT NULL DEFAULT 0;
+
+        -- 9.6: a godown IS a job/project when it names a cost centre. NULL default is REQUIRED by SQLite for an
+        -- added column carrying a REFERENCES clause.
+        ALTER TABLE godowns ADD COLUMN job_cost_centre_id TEXT NULL REFERENCES cost_centres(id);
+
+        -- 9.8 + 9.7: the same two operator-entered data on BOTH stock-line tables. See this constant's doc comment.
+        ALTER TABLE inventory_allocations ADD COLUMN tracking_number      TEXT NULL;
+        ALTER TABLE inventory_allocations ADD COLUMN cost_tracking_number TEXT NULL;
+        CREATE INDEX ix_inventory_allocations_tracking ON inventory_allocations(tracking_number);
+        CREATE INDEX ix_inventory_allocations_cost_track ON inventory_allocations(cost_tracking_number);
+
+        ALTER TABLE voucher_inventory_lines ADD COLUMN tracking_number      TEXT NULL;
+        ALTER TABLE voucher_inventory_lines ADD COLUMN cost_tracking_number TEXT NULL;
+        CREATE INDEX ix_voucher_inventory_lines_tracking ON voucher_inventory_lines(tracking_number);
+        CREATE INDEX ix_voucher_inventory_lines_cost_track ON voucher_inventory_lines(cost_tracking_number);
+
+        -- 9.9: the Stock Journal transfer class. NOT the general Voucher Class machinery (census 2.6).
+        CREATE TABLE voucher_type_classes (
+            id                                  TEXT    NOT NULL PRIMARY KEY,
+            voucher_type_id                     TEXT    NOT NULL REFERENCES voucher_types(id),
+            name                                TEXT    NOT NULL,
+            use_class_for_inter_godown_transfers INTEGER NOT NULL DEFAULT 0   -- 0/1
+        );
+        CREATE UNIQUE INDEX ux_voucher_type_classes_type_name ON voucher_type_classes(voucher_type_id, name);
         """;
 }

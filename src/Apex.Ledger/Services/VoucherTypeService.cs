@@ -117,6 +117,52 @@ public sealed class VoucherTypeService
     /// <exception cref="InvalidOperationException">No such type.</exception>
     public void SetActive(Guid id, bool active) => Require(id).IsActive = active;
 
+    /// <summary>
+    /// Adds a named <b>Voucher Class</b> to a type (census 9.9) — the vendor's "Name of Class" plus its one
+    /// attested flag, "Use Class for Inter-Godown Transfers".
+    ///
+    /// <para>🔴 <b>The inter-godown flag is refused on anything but a Stock Journal.</b> A class carrying it on a
+    /// Sales type would advertise a transfer the entry screen cannot perform — the mirroring needs a source and a
+    /// destination ARM, and only a Stock Journal has two. Refusing at the master is the only place an operator
+    /// gets told; refusing later, at entry, would let the class be created, listed and picked before failing.</para>
+    ///
+    /// <para>The name must be non-blank and unique within the type (case-insensitively), matching the schema's
+    /// unique index on (voucher_type_id, name) — enforcing it here turns what would otherwise surface as a raw
+    /// constraint violation at Save time into a clean domain error naming the clash.</para>
+    /// </summary>
+    /// <exception cref="ArgumentException">The name is blank.</exception>
+    /// <exception cref="InvalidOperationException">No such type, the name is taken on that type, or the
+    /// inter-godown flag was asked for on a type that is not a Stock Journal.</exception>
+    public VoucherClass AddClass(Guid typeId, string name, bool useClassForInterGodownTransfers)
+    {
+        var type = Require(typeId);
+        var clean = Clean(name);
+
+        if (useClassForInterGodownTransfers && type.BaseType != VoucherBaseType.StockJournal)
+            throw new InvalidOperationException(
+                "\"Use Class for Inter-Godown Transfers\" applies only to a Stock Journal voucher type.");
+
+        if (type.Classes.Any(c => string.Equals(c.Name, clean, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException(
+                $"Voucher type '{type.Name}' already has a class named '{clean}'.");
+
+        var updated = type.Classes.ToList();
+        updated.Add(new VoucherClass(Guid.NewGuid(), clean, useClassForInterGodownTransfers));
+        type.SetClasses(updated);
+        return updated[^1];
+    }
+
+    /// <summary>Removes a named voucher class from a type (census 9.9). A quiet no-op when the type has no such
+    /// class, so a double-press of the remove gesture cannot throw at the operator.</summary>
+    /// <exception cref="InvalidOperationException">No such type.</exception>
+    public void RemoveClass(Guid typeId, Guid classId)
+    {
+        var type = Require(typeId);
+        var updated = type.Classes.Where(c => c.Id != classId).ToList();
+        if (updated.Count == type.Classes.Count) return;
+        type.SetClasses(updated);
+    }
+
     // ────────────────────────────────────────────────────────────────────────── guards
 
     private VoucherType Require(Guid id)
