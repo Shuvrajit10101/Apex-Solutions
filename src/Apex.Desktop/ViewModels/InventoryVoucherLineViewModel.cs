@@ -131,6 +131,53 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// <summary>True when this line's kind carries a Batch column (Movement / Counted, not Order).</summary>
     public bool ShowsBatch => Kind is InventoryLineKind.Movement or InventoryLineKind.Counted;
 
+    // --------------------------------------------------------------- W-K1 · tracking data (census 9.8 / 9.7)
+
+    /// <summary>
+    /// The operator-keyed <b>Tracking No.</b> on this movement (census 9.8) — the string that links a Receipt
+    /// Note to its Purchase bill and a Delivery Note to its Sales bill. Blank ⇒ untracked.
+    /// <para>Free text and NOT a picker: the vendor's own default is the invoice number, and a note is routinely
+    /// keyed BEFORE the bill that will quote its number exists, so there is nothing to pick from. See
+    /// <see cref="InventoryAllocation.TrackingNumber"/>.</para>
+    /// </summary>
+    [ObservableProperty] private string _trackingNumber = string.Empty;
+
+    /// <summary>
+    /// The operator-keyed <b>Cost Tracking Number</b> on this movement (census 9.7) — the lot whose cost this
+    /// line contributes to, across its purchase-to-sales lifecycle. Blank ⇒ not cost-tracked.
+    /// </summary>
+    [ObservableProperty] private string _costTrackingNumber = string.Empty;
+
+    /// <summary>
+    /// True when the Tracking No. column is shown — the F11 <see cref="Company.UseTrackingNumbers"/> gate, kept
+    /// in sync by the parent entry VM. Off ⇒ the column collapses and <see cref="Tracking"/> reads null, so a
+    /// company that never turns the feature on posts a byte-identical line (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showTrackingNumber;
+
+    /// <summary>True when the Cost Tracking Number column is shown — the F11
+    /// <see cref="Company.EnableCostTracking"/> gate. Same collapse rule as
+    /// <see cref="ShowTrackingNumber"/>.</summary>
+    [ObservableProperty] private bool _showCostTrackingNumber;
+
+    /// <summary>The trimmed Tracking No., or null when blank or the column is hidden.
+    /// <para>🔴 <b>The <see cref="ShowTrackingNumber"/> guard is load-bearing, not decorative.</b> Without it a
+    /// value typed while the feature was on would keep posting after the operator turned it off — from a column
+    /// no longer on screen. That is the same class of defect as a hidden control that still contributes a value,
+    /// and it is why <see cref="Batch"/> carries the identical guard.</para></summary>
+    public string? Tracking =>
+        ShowTrackingNumber && !string.IsNullOrWhiteSpace(TrackingNumber) ? TrackingNumber.Trim() : null;
+
+    /// <summary>The trimmed Cost Tracking Number, or null when blank or the column is hidden. Same guard and
+    /// same reason as <see cref="Tracking"/>.</summary>
+    public string? CostTracking =>
+        ShowCostTrackingNumber && !string.IsNullOrWhiteSpace(CostTrackingNumber)
+            ? CostTrackingNumber.Trim()
+            : null;
+
+    partial void OnTrackingNumberChanged(string value) => _onChanged();
+    partial void OnCostTrackingNumberChanged(string value) => _onChanged();
+
     // --------------------------------------------------------------- line unit (WI-10 slice B)
 
     /// <summary>
@@ -467,7 +514,12 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         && string.IsNullOrWhiteSpace(BilledQuantityText)
         && string.IsNullOrWhiteSpace(RateText)
         && string.IsNullOrWhiteSpace(DiscountText)
-        && string.IsNullOrWhiteSpace(BatchLabel);
+        && string.IsNullOrWhiteSpace(BatchLabel)
+        // W-K1 (census 9.8 / 9.7): a row where the operator has typed ONLY a tracking number is touched, not
+        // blank. Omitting these two would let the parent silently discard that row — the operator would type a
+        // reference, tab on, and find it gone, with no error to explain why.
+        && string.IsNullOrWhiteSpace(TrackingNumber)
+        && string.IsNullOrWhiteSpace(CostTrackingNumber);
 
     /// <summary>
     /// True when the row is fully and validly specified for its kind: an item + a godown picked, and a

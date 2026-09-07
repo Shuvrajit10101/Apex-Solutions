@@ -218,6 +218,15 @@ public sealed class ItemInvoiceRoundTripTests
     private static void DowngradeToV11(string dbPath)
     {
         using var conn = Open(dbPath);
+        // 🔴 v58 (census 9.6/9.7/9.8/9.9) is undone FIRST, through the SHIPPED downgrade rather than by hand.
+        // This helper manufactures an old shape by stripping a CURRENT database, so every v58 object is present
+        // when it starts: without this the reopen re-runs the v57->v58 ALTER on a godowns table that already has
+        // job_cost_centre_id and fails with "duplicate column name". V58ToV57 also drops voucher_type_classes and
+        // the tracking columns, so the shape below is genuinely pre-v58 rather than pre-v58-except-for-four-columns.
+        // 🔴 It runs BEFORE the PRAGMA below, not after: V58ToV57 re-enables foreign keys at the end of its own
+        // drop step, so calling it later would silently switch them back ON for the rest of this helper and the
+        // hand-written DROPs would then fail with "FOREIGN KEY constraint failed".
+        SchemaDowngrade.V58ToV57(conn);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
         // Drop the v52 voucher-edit-log table + its index so the reopen's v51->v52 CREATE TABLE does not
         // collide with an already-present table.

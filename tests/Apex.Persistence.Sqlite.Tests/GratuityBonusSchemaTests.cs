@@ -177,6 +177,15 @@ public sealed class GratuityBonusSchemaTests
         -- has nothing to do here, which is the point.
         CREATE TABLE pt_slab_bands (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, slab_id TEXT NOT NULL, state_code TEXT NOT NULL, gender_scope INTEGER NOT NULL, band_order INTEGER NOT NULL, from_wage_paisa INTEGER NOT NULL, to_wage_paisa INTEGER NULL, monthly_amount_paisa INTEGER NOT NULL, month_overrides TEXT NOT NULL DEFAULT '');
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        -- godowns, cost_centres and inventory_allocations are required because the chain now runs through the
+        -- v57 -> v58 inventory costing & tracking migration (census 9.6/9.7/9.8): it ALTERs godowns (adding the
+        -- job/project link, which REFERENCES cost_centres) and inventory_allocations (adding tracking_number and
+        -- cost_tracking_number). A real database of this vintage always has all three (godowns and
+        -- inventory_allocations at v9/v10, cost_centres at v1); this fixture is a minimal hand-written subset, so
+        -- they are declared here for the ALTERs to land on — exactly as voucher_inventory_lines is.
+        CREATE TABLE cost_centres (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+        CREATE TABLE godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+        CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL DEFAULT '', line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         -- voucher_types + entry_lines are required because the chain now runs through the v38→v39 RCM migration,

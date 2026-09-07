@@ -135,7 +135,7 @@ public sealed class PartyMailingSchemaTests
             {
                 // Step the store down one version at a time — a downgrade reverses exactly one migration, so
                 // reaching v44 from the current version means walking every step in between.
-                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log

@@ -1435,6 +1435,33 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 57;
         }
 
+        // v57 → v58 (census 9.6/9.7/9.8/9.9): Inventory costing & tracking — three companies feature flags
+        // (use_tracking_numbers, enable_cost_tracking, enable_job_costing), the godowns job/project cost-centre
+        // link (job_cost_centre_id), the tracking_number + cost_tracking_number pair on BOTH stock-line tables
+        // (inventory_allocations and voucher_inventory_lines) with their four indexes, and the additive
+        // voucher_type_classes table. Purely additive and it back-fills NOTHING: no pre-v58 company had any of
+        // these features on, no godown was a job/project and no stock line carried either tracking datum, so
+        // every 0 / NULL default is the literal truth about it. See Schema.MigrateV57ToV58.
+        if (version == 57)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV57ToV58;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 58);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 58;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1473,7 +1500,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    warn_on_negative_stock,
                    gst_source_of_hsn_sac, gst_source_of_rate,
                    gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
-                   use_user_access_control, password_min_length, password_expiry_days
+                   use_user_access_control, password_min_length, password_expiry_days,
+                   use_tracking_numbers, enable_cost_tracking, enable_job_costing
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1518,6 +1546,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // verbatim. NOT NULL DEFAULT 0, so "column absent" and "off" coincide and a pre-v56 book comes up
                 // with access control off, which is what it was (ER-13).
                 UseUserAccessControl = r.GetInt64(89) != 0,
+                // v58 (census 9.8 / 9.7 / 9.6): the three inventory tracking/costing F11 gates. All NOT NULL
+                // DEFAULT 0, so "column absent" and "feature off" coincide and a pre-v58 book comes up with all
+                // three off, which is what it was (ER-13).
+                UseTrackingNumbers = r.GetInt64(92) != 0,
+                EnableCostTracking = r.GetInt64(93) != 0,
+                EnableJobCosting = r.GetInt64(94) != 0,
             };
             // v56: the password policy. Both knobs off by default; ExpiryDays NULL = never expires (0 would be
             // ambiguous, which is why the column has no default).
@@ -2509,6 +2543,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // then pass the rows into the ctor in the single construction pass below.
         var prefixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_prefix");
         var suffixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_suffix");
+        // v58 (census 9.9): the named voucher classes. Same constraint as the affixes above — Classes is
+        // ctor-injected, so the rows MUST be in hand before the type is constructed, and this reader is fully
+        // materialised before the voucher_types reader opens (one open reader per connection).
+        var classesByType = ReadVoucherTypeClasses(companyId);
 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
@@ -2562,7 +2600,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 printAfterSaving: r.GetInt64(22) != 0,
                 provideNarrationForEachLedger: r.GetInt64(23) != 0,
                 prefixes: prefixByType.GetValueOrDefault(id),
-                suffixes: suffixByType.GetValueOrDefault(id));
+                suffixes: suffixByType.GetValueOrDefault(id),
+                // v58 (census 9.9): the named voucher classes, ctor-injected like the affixes above.
+                classes: classesByType.GetValueOrDefault(id));
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -2597,6 +2637,36 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             if (!byType.TryGetValue(typeId, out var rows))
                 byType[typeId] = rows = new List<VoucherNumberAffix>();
             rows.Add(affix);
+        }
+        return byType;
+    }
+
+    /// <summary>Pre-queries <c>voucher_type_classes</c> (v58; census 9.9) for a whole company into a
+    /// by-voucher-type dictionary, ordered by <c>(name, id)</c> so a class picker lists them the same way on every
+    /// platform. 🔴 <b>The ordering is <c>ORDER BY</c> in SQL, not a .NET sort</b> — a culture-sensitive
+    /// <c>string.CompareTo</c> would order "Transfer" against "transfer" differently under a Turkish locale on the
+    /// ubuntu leg than under invariant on the windows leg, and the gate runs all three. Fully materialised so the
+    /// caller can open the <c>voucher_types</c> reader afterwards (one open reader per connection).</summary>
+    private Dictionary<Guid, List<VoucherClass>> ReadVoucherTypeClasses(Guid companyId)
+    {
+        var byType = new Dictionary<Guid, List<VoucherClass>>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT vc.voucher_type_id, vc.id, vc.name, vc.use_class_for_inter_godown_transfers
+            FROM voucher_type_classes vc
+            JOIN voucher_types vt ON vt.id = vc.voucher_type_id
+            WHERE vt.company_id = $cid
+            ORDER BY vc.voucher_type_id, vc.name, vc.id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var typeId = Guid.Parse(r.GetString(0));
+            var cls = new VoucherClass(Guid.Parse(r.GetString(1)), r.GetString(2), r.GetInt64(3) != 0);
+            if (!byType.TryGetValue(typeId, out var rows))
+                byType[typeId] = rows = new List<VoucherClass>();
+            rows.Add(cls);
         }
         return byType;
     }
@@ -3824,7 +3894,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, parent_id, alias, third_party, is_main_location
+            SELECT id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id
             FROM godowns WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3838,7 +3908,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
                 alias: r.IsDBNull(3) ? null : r.GetString(3),
                 thirdParty: r.GetInt64(4) != 0,
-                isMainLocation: r.GetInt64(5) != 0));
+                isMainLocation: r.GetInt64(5) != 0)
+            {
+                // v58 (census 9.6): "Set job/project for job costing" — the cost centre this godown IS, as a
+                // job/project. NULL for every ordinary location, which is every pre-v58 godown (ER-13).
+                JobCostCentreId = r.IsDBNull(6) ? (Guid?)null : Guid.Parse(r.GetString(6)),
+            });
         }
         return list;
     }
@@ -4320,7 +4395,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT role, stock_item_id, godown_id, unit_id, quantity_micro, direction, rate_paisa, batch_label
+            SELECT role, stock_item_id, godown_id, unit_id, quantity_micro, direction, rate_paisa, batch_label,
+                   tracking_number, cost_tracking_number
             FROM inventory_allocations WHERE inventory_voucher_id = $vid ORDER BY line_order, id;
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -4336,7 +4412,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (StockDirection)(int)r.GetInt64(5),
                 rate: r.IsDBNull(6) ? null : Paisa.ToMoney(r.GetInt64(6)),
                 batchLabel: r.IsDBNull(7) ? null : r.GetString(7),
-                unitId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)));
+                unitId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                // v58 (census 9.8 / 9.7): the Tracking No. and Cost Tracking Number keyed on this movement.
+                // NULL on every pre-v58 line and on every line entered with the features off (ER-13).
+                trackingNumber: r.IsDBNull(8) ? null : r.GetString(8),
+                costTrackingNumber: r.IsDBNull(9) ? null : r.GetString(9));
             if (r.GetInt64(0) == 1) destination.Add(alloc);
             else source.Add(alloc);
         }
@@ -4545,7 +4625,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
-                   billed_qty_micro, unit_id
+                   billed_qty_micro, unit_id, tracking_number, cost_tracking_number
             FROM voucher_inventory_lines WHERE voucher_id = $vid ORDER BY line_order, id;
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -4567,7 +4647,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 billedQuantity: billed,
                 // v46 (WI-10 Gap 2): the unit BOTH quantities and the rate are stated in; NULL ⇒ the item's own
                 // base unit (every pre-v46 line), so the line reads exactly as it did before (ER-13).
-                unitId: r.IsDBNull(7) ? null : Guid.Parse(r.GetString(7))));
+                unitId: r.IsDBNull(7) ? null : Guid.Parse(r.GetString(7)),
+                // v58 (census 9.8 / 9.7): the Tracking No. quoted on this BILL line — the string that pairs it
+                // with the Receipt/Delivery Note's movement — and the Cost Tracking Number. NULL on every
+                // pre-v58 line and every untracked line (ER-13).
+                trackingNumber: r.IsDBNull(8) ? null : r.GetString(8),
+                costTrackingNumber: r.IsDBNull(9) ? null : r.GetString(9)));
         }
         return list;
     }
@@ -5068,10 +5153,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM voucher_type_suffix WHERE voucher_type_id IN (
                 SELECT id FROM voucher_types WHERE company_id = $cid);
             """, ("$cid", cid));
+        // v58 (census 9.9) class rows FK voucher_types(id) → clear before the voucher_types delete below, for the
+        // same reason as the two affix tables: a second Save of a class-configured company FK-breaks without this.
+        ExecTx(tx, """
+            DELETE FROM voucher_type_classes WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
-        // Cost centres reference cost categories → delete centres first.
-        ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
-        ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
+        // 🔴 v58 (census 9.6): godowns.job_cost_centre_id makes GODOWNS a child of cost_centres, so every godown
+        // must be gone before the centres are. The godowns delete itself stays where it is, far below — it has
+        // its own children (stock openings, BOM headers, batch masters) that must go first — so the CENTRES move
+        // DOWN to just after it instead. Deleting the centres here, as this block did before v58, made the
+        // SECOND Save of a book with a job/project godown fail with "FOREIGN KEY constraint failed" — found by
+        // InventoryCostingTrackingSchemaTests.Job_cost_centre_round_trips_and_survives_a_second_save, which is
+        // exactly why that test saves twice.
         // Inventory: openings FK items+godowns; items FK groups/categories/units → delete child-first.
         ExecTx(tx, "DELETE FROM stock_opening_balances WHERE company_id = $cid;", ("$cid", cid));
         // Bill-of-Materials lines FK the header; the header FKs stock_items + godowns → delete lines, then headers,
@@ -5087,6 +5182,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM stock_categories WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM stock_groups WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM godowns WHERE company_id = $cid;", ("$cid", cid));
+        // Cost centres reference cost categories → delete centres first. Both sit HERE, after godowns, because
+        // v58's job_cost_centre_id makes a godown a child of a cost centre — see the note above the inventory
+        // block. Nothing else in the schema references either table by this point.
+        ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM units WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         // v13 GST rate slabs FK companies → delete before the company row.
@@ -5178,7 +5278,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  warn_on_negative_stock,
                  gst_source_of_hsn_sac, gst_source_of_rate,
                  gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
-                 use_user_access_control, password_min_length, password_expiry_days)
+                 use_user_access_control, password_min_length, password_expiry_days,
+                 use_tracking_numbers, enable_cost_tracking, enable_job_costing)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -5201,7 +5302,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $warnnegstock,
                  $gstsrchsn, $gstsrcrate,
                  $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply,
-                 $useuac, $pwdminlen, $pwdexpiry);
+                 $useuac, $pwdminlen, $pwdexpiry,
+                 $usetrack, $costtrack, $jobcost);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -5353,6 +5455,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$pwdminlen", security.PasswordPolicy.MinimumLength);
         cmd.Parameters.AddWithValue("$pwdexpiry",
             security.PasswordPolicy.ExpiryDays is { } days ? days : (object)DBNull.Value);
+        // v58 (census 9.8 / 9.7 / 9.6): the three inventory tracking/costing F11 gates, written verbatim. All
+        // default 0 so a company that never turns one on is byte-identical to a pre-v58 company (ER-13).
+        cmd.Parameters.AddWithValue("$usetrack", c.UseTrackingNumbers ? 1 : 0);
+        cmd.Parameters.AddWithValue("$costtrack", c.EnableCostTracking ? 1 : 0);
+        cmd.Parameters.AddWithValue("$jobcost", c.EnableJobCosting ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -6116,7 +6223,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         {
             foreach (var p in t.Prefixes) InsertAffixRow(tx, "voucher_type_prefix", t.Id, p);
             foreach (var s in t.Suffixes) InsertAffixRow(tx, "voucher_type_suffix", t.Id, s);
+            // v58 (census 9.9): the named voucher classes. A type with none writes nothing (ER-13).
+            foreach (var vc in t.Classes) InsertVoucherClassRow(tx, t.Id, vc);
         }
+    }
+
+    private void InsertVoucherClassRow(SqliteTransaction tx, Guid voucherTypeId, VoucherClass vc)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO voucher_type_classes
+                (id, voucher_type_id, name, use_class_for_inter_godown_transfers)
+            VALUES ($id, $vt, $name, $inter);
+            """;
+        cmd.Parameters.AddWithValue("$id", vc.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$name", vc.Name);
+        cmd.Parameters.AddWithValue("$inter", vc.UseClassForInterGodownTransfers ? 1 : 0);
+        cmd.ExecuteNonQuery();
     }
 
     private void InsertAffixRow(SqliteTransaction tx, string table, Guid voucherTypeId, VoucherNumberAffix a)
@@ -7059,8 +7184,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO godowns (id, company_id, name, parent_id, alias, third_party, is_main_location)
-                VALUES ($id, $cid, $name, $parent, $alias, $tp, $main);
+                INSERT INTO godowns
+                    (id, company_id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id)
+                VALUES ($id, $cid, $name, $parent, $alias, $tp, $main, $jobcc);
                 """;
             cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7069,6 +7195,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$tp", g.ThirdParty ? 1 : 0);
             cmd.Parameters.AddWithValue("$main", g.IsMainLocation ? 1 : 0);
+            // v58 (census 9.6): the job/project cost-centre link. NULL for an ordinary godown (ER-13).
+            cmd.Parameters.AddWithValue("$jobcc", (object?)g.JobCostCentreId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -7506,8 +7634,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             INSERT INTO inventory_allocations
                 (inventory_voucher_id, line_order, role, stock_item_id, godown_id, unit_id,
-                 quantity_micro, direction, rate_paisa, batch_label, actual_qty_micro, billed_qty_micro)
-            VALUES ($vid, $ord, $role, $item, $godown, $unit, $qty, $dir, $rate, $batch, NULL, NULL);
+                 quantity_micro, direction, rate_paisa, batch_label, actual_qty_micro, billed_qty_micro,
+                 tracking_number, cost_tracking_number)
+            VALUES ($vid, $ord, $role, $item, $godown, $unit, $qty, $dir, $rate, $batch, NULL, NULL,
+                    $track, $costtrack);
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
         cmd.Parameters.AddWithValue("$ord", order);
@@ -7519,6 +7649,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$dir", (int)a.Direction);
         cmd.Parameters.AddWithValue("$rate", a.Rate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$batch", (object?)a.BatchLabel ?? DBNull.Value);
+        // v58 (census 9.8 / 9.7): the two operator-entered tracking data, written verbatim. Both NULL on an
+        // untracked line, so a company that never turns the features on round-trips byte-identically (ER-13).
+        cmd.Parameters.AddWithValue("$track", (object?)a.TrackingNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$costtrack", (object?)a.CostTrackingNumber ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -7829,8 +7963,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_inventory_lines
                     (voucher_id, line_order, stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
-                     actual_qty_micro, billed_qty_micro, unit_id)
-                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch, $aqty, $bqty, $unit);
+                     actual_qty_micro, billed_qty_micro, unit_id, tracking_number, cost_tracking_number)
+                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch, $aqty, $bqty, $unit,
+                        $track, $costtrack);
                 """;
             cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$ord", order++);
@@ -7848,6 +7983,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             // v46 (WI-10 Gap 2): the line unit, written only when the line actually carries one. A base-unit line
             // stays NULL so it is byte-identical to a v45 row (ER-13).
             cmd.Parameters.AddWithValue("$unit", (object?)line.UnitId?.ToString("D") ?? DBNull.Value);
+            // v58 (census 9.8 / 9.7): the two tracking data on the BILL side, written verbatim. Both NULL on an
+            // untracked line, so a feature-off company round-trips byte-identically (ER-13).
+            cmd.Parameters.AddWithValue("$track", (object?)line.TrackingNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$costtrack", (object?)line.CostTrackingNumber ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

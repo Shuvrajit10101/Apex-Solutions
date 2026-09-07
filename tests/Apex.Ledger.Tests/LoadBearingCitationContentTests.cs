@@ -146,12 +146,22 @@ public sealed class LoadBearingCitationContentTests
         // The inheritance is a DISPLAY default, and the `??=` is what makes it one. Turning it into `=` would
         // let a postal field silently overwrite a GST registration — the wrong-tax-head class — and the census
         // sentence describing it would quietly become a lie.
+        // 🔴 W-K1, 2026-09-08: this row's context phrase CONTAINED THE CITED LINE NUMBER, which breaks this
+        // table's own rule ("never by a hard-coded line number, which would itself drift") — the second
+        // occurrence of the exact bug the R12-gate anchor above records. Adding lines to GstConfigViewModel.cs
+        // for the v58 F11 switches re-pointed the census citation to `:612`, and the anchor then became
+        // UNFINDABLE, so the guard went dark on the claim it exists to protect rather than going red on it.
+        // The phrase is now the line-number-free prose either side of the citation.
         new("docs/full-clone-census.md",
-            // 🔴 583 → 613, census row 1.7 (the F11 → Accounting group). The three Accounting flags and their
-            // three lines in LoadFromCompany were inserted ABOVE this one, so the `??=` moved down thirty lines.
-            // The anchor is re-pointed, NOT relaxed: it still names an exact line and still demands
-            // "HomeState ??=" on it, so the guard bites exactly as hard as before.
-            "not a stamp - `GstConfigViewModel.cs:624`",
+            // 🔴 W-K3, 2026-09-08, ON MERGE: this branch had ALSO re-pointed the phrase, to `:624`, because
+            // census row 1.7 (the F11 → Accounting group) inserts the three Accounting flags and their three
+            // LoadFromCompany lines ABOVE this one. Both re-points are now moot and the MERGE IS THE PROOF OF
+            // W-K1's argument: v58 moved the `??=` to :612 and 1.7 moved it to :624, so on the merged tree it
+            // is at NEITHER — it is at :653, and a phrase carrying any hard-coded number would have gone
+            // UNFINDABLE for a third time in one wave. W-K1's line-number-free phrase is kept; it still
+            // extracts the `GstConfigViewModel.cs:NN` citation FROM the census line it finds and still demands
+            // "HomeState ??=" on exactly that line, so the guard bites as hard as before and no longer drifts.
+            "not a stamp - `GstConfigViewModel.cs:",
             "GstConfigViewModel.cs",
             "HomeState ??="),
 

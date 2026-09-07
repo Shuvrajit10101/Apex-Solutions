@@ -197,17 +197,42 @@ public sealed class InventoryService
 
     // ------------------------------------------------------------------ Godowns
 
-    /// <summary>Creates a godown; name unique, parent (if any) must exist and not cycle.</summary>
-    public Godown CreateGodown(string name, Guid? parentId = null, string? alias = null, bool thirdParty = false)
+    /// <summary>Creates a godown; name unique, parent (if any) must exist and not cycle.
+    /// <para><paramref name="jobCostCentreId"/> is the vendor's <b>"Set job/project for job costing"</b>
+    /// (census 9.6): the cost centre this godown IS, as a job/project. It is validated to exist — a link to a
+    /// cost centre that is not in the book would produce a Job Work Analysis row named "(unknown)" carrying real
+    /// money, and would break the schema's foreign key at Save time with a raw persistence error instead of a
+    /// clean domain one.</para></summary>
+    public Godown CreateGodown(
+        string name, Guid? parentId = null, string? alias = null, bool thirdParty = false,
+        Guid? jobCostCentreId = null)
     {
         var trimmed = RequireName(name, "godown");
         if (_company.FindGodownByName(trimmed) is not null)
             throw new InvalidOperationException($"A godown named '{trimmed}' already exists.");
+        if (jobCostCentreId is { } centreId && _company.FindCostCentre(centreId) is null)
+            throw new InvalidOperationException($"Cost centre {centreId} not found.");
 
-        var godown = new Godown(Guid.NewGuid(), trimmed, parentId, alias, thirdParty);
+        var godown = new Godown(Guid.NewGuid(), trimmed, parentId, alias, thirdParty)
+        {
+            JobCostCentreId = jobCostCentreId,
+        };
         EnsureGodownParentValid(godown);
         _company.AddGodown(godown);
         return godown;
+    }
+
+    /// <summary>
+    /// Sets (or clears, with <c>null</c>) a godown's <b>"Set job/project for job costing"</b> cost centre
+    /// (census 9.6). The centre must exist, for the reasons given on <see cref="CreateGodown"/>.
+    /// </summary>
+    public void SetGodownJobCostCentre(Guid godownId, Guid? costCentreId)
+    {
+        var godown = _company.FindGodown(godownId)
+            ?? throw new InvalidOperationException($"Godown {godownId} not found.");
+        if (costCentreId is { } centreId && _company.FindCostCentre(centreId) is null)
+            throw new InvalidOperationException($"Cost centre {centreId} not found.");
+        godown.JobCostCentreId = costCentreId;
     }
 
     /// <summary>Re-parents a godown, rejecting a move that would create a cycle.</summary>

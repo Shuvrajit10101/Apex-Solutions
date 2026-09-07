@@ -189,6 +189,39 @@ public enum ReportKind
     /// help.tallysolutions.com/tally-prime/payroll-income-tax-reports/tax-computation-tally/. Reads the SAME
     /// annual computation that backs Form 16 Part B; it computes no tax of its own.</summary>
     IncomeTaxComputation,
+
+    // ---- W-K1: the inventory costing & tracking reports of census rows 9.8 / 9.7 / 9.6 ----
+    // Every one is a ReportKind rather than a bespoke page Screen ON PURPOSE — a page Screen leaves the report
+    // context null and switches off Ctrl+P, export, F2 period, F12 config, Alt+F12 sort/filter and Alt+K saved
+    // views all at once (docs/full-clone-census.md:612). Reports an operator cannot print or export are the
+    // hollowed-out shape rows 8.1/11.9/11.10/11.11 were caught in.
+
+    /// <summary>Census 9.8 — <b>Purchase Bills Pending</b>: Receipt Notes netted against Purchase invoices by
+    /// Tracking No., in the vendor's two sections "Goods Recd. but Bills not Recd." and "Bills Recd. but Goods
+    /// not Recd.", help.tallysolutions.com/purchase-order-tally/.</summary>
+    PurchaseBillsPending,
+
+    /// <summary>Census 9.8 — <b>Sales Bills Pending</b>: the Delivery Note ↔ Sales twin of
+    /// <see cref="PurchaseBillsPending"/>, help.tallysolutions.com/sales-order-tally/.</summary>
+    SalesBillsPending,
+
+    /// <summary>Census 9.7 — <b>Stock Item Cost Analysis</b>: per item, Cost (Expense) / Revenue (Income) /
+    /// Balance at Cost / Profit-Loss over its cost tracking numbers,
+    /// help.tallysolutions.com/tally-prime/inventory/track-item-cost-tally/.</summary>
+    StockItemCostAnalysis,
+
+    /// <summary>Census 9.7 — <b>Stock Group Cost Analysis</b>: the same four columns rolled up to the stock
+    /// group.</summary>
+    StockGroupCostAnalysis,
+
+    /// <summary>Census 9.7 — <b>Cost Track Break-up</b>: one row per (item, cost tracking number), the finest
+    /// grain the feature has.</summary>
+    CostTrackBreakup,
+
+    /// <summary>Census 9.6 — <b>Job Work Analysis</b>: per job/project (a cost centre a godown designates), the
+    /// Revenue (Income) and Cost (Expenses) lines and the Nett Profit/Loss,
+    /// help.tallysolutions.com/job-costing-tally/.</summary>
+    JobWorkAnalysis,
 }
 
 /// <summary>
@@ -312,7 +345,26 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.ReorderStatus or ReportKind.Batchwise or ReportKind.BatchAgeAnalysis
         or ReportKind.PriceList
         or ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook
-        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister;
+        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister
+        // W-K1 (census 9.8 / 9.7 / 9.6): the six inventory costing & tracking reports. They belong to THIS
+        // family, not the accounting one — omitting them here leaves the accounting Particulars/Dr/Cr grid
+        // showing beside their own grid and the screen renders two tables at once.
+        or ReportKind.PurchaseBillsPending or ReportKind.SalesBillsPending
+        or ReportKind.StockItemCostAnalysis or ReportKind.StockGroupCostAnalysis
+        or ReportKind.CostTrackBreakup or ReportKind.JobWorkAnalysis;
+
+    /// <summary>True for either <b>Bills Pending</b> report (census 9.8) — both use the same six-column grid,
+    /// because the two are the same netting with the goods and bill sides swapped.</summary>
+    public bool IsBillsPending =>
+        Kind is ReportKind.PurchaseBillsPending or ReportKind.SalesBillsPending;
+
+    /// <summary>True for any of the three <b>Item Cost Analysis</b> reports (census 9.7) — they share the
+    /// vendor's four money columns, so one grid serves all three.</summary>
+    public bool IsItemCostAnalysis => Kind is ReportKind.StockItemCostAnalysis
+        or ReportKind.StockGroupCostAnalysis or ReportKind.CostTrackBreakup;
+
+    /// <summary>True for <b>Job Work Analysis</b> (census 9.6).</summary>
+    public bool IsJobWorkAnalysis => Kind == ReportKind.JobWorkAnalysis;
 
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
@@ -1028,6 +1080,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // switch are bound through these, so a viewer that arrives on the Cheque Register from another report
         // would otherwise leave both chords dead until the screen was re-entered.
         OnPropertyChanged(nameof(IsChequeRegister));
+        // W-K1 (census 9.8 / 9.7 / 9.6): the same argument again — an operator who arrives on one of these six
+        // reports FROM another report in the same viewer would otherwise see the previous report's grid, because
+        // Kind changed but nothing told the view its layout flags had.
+        OnPropertyChanged(nameof(IsBillsPending));
+        OnPropertyChanged(nameof(IsItemCostAnalysis));
+        OnPropertyChanged(nameof(IsJobWorkAnalysis));
         OnPropertyChanged(nameof(IsDepositSlip));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
@@ -1107,6 +1165,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.Batchwise: BuildBatchwise(); break;
             case ReportKind.BatchAgeAnalysis: BuildBatchAgeAnalysis(); break;
             case ReportKind.PriceList: BuildPriceList(); break;
+
+            // W-K1 (census 9.8 / 9.7 / 9.6): inventory costing & tracking.
+            case ReportKind.PurchaseBillsPending: BuildBillsPending(purchase: true); break;
+            case ReportKind.SalesBillsPending: BuildBillsPending(purchase: false); break;
+            case ReportKind.StockItemCostAnalysis: BuildItemCostAnalysis(ReportKind.StockItemCostAnalysis); break;
+            case ReportKind.StockGroupCostAnalysis: BuildItemCostAnalysis(ReportKind.StockGroupCostAnalysis); break;
+            case ReportKind.CostTrackBreakup: BuildItemCostAnalysis(ReportKind.CostTrackBreakup); break;
+            case ReportKind.JobWorkAnalysis: BuildJobWorkAnalysis(); break;
 
             case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
             case ReportKind.Gstr1: BuildGstr1(); break;
@@ -1451,6 +1517,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.EmployeePayHeadBreakup] = "EmployeePayHeadBreakup",
         [ReportKind.PayrollStatutorySummary] = "PayrollStatutorySummary",
         [ReportKind.IncomeTaxComputation] = "IncomeTaxComputation",
+        // W-K1 (census 9.8 / 9.7 / 9.6). Frozen tokens — see this map's doc comment: a saved view stores the
+        // STRING, so renaming the enum member must never change what is written here.
+        [ReportKind.PurchaseBillsPending] = "PurchaseBillsPending",
+        [ReportKind.SalesBillsPending] = "SalesBillsPending",
+        [ReportKind.StockItemCostAnalysis] = "StockItemCostAnalysis",
+        [ReportKind.StockGroupCostAnalysis] = "StockGroupCostAnalysis",
+        [ReportKind.CostTrackBreakup] = "CostTrackBreakup",
+        [ReportKind.JobWorkAnalysis] = "JobWorkAnalysis",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -2061,6 +2135,237 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Col4 = IndianFormat.AmountAlways(gs.TotalClosingValue),
             IsTotal = true,
         });
+    }
+
+    // ------------------------------------------ W-K1 · census 9.8 — Bills Pending
+    //   Date | Tracking No. | Stock Item | Party | Received | Billed | Pending
+
+    /// <summary>
+    /// Builds <b>Purchase Bills Pending</b> (<paramref name="purchase"/> true) or <b>Sales Bills Pending</b>
+    /// (false) — census 9.8. The two of the vendor's sections become two headed blocks in one list.
+    /// <para>🔴 <b>A section with no rows still prints its heading, followed by an explicit "(none)".</b>
+    /// Silently dropping an empty section makes "nothing is pending here" indistinguishable from "this report
+    /// forgot to look", and the empty case is the one an operator most needs to be able to trust — it is the
+    /// answer to "have I billed everything I received?".</para>
+    /// </summary>
+    private void BuildBillsPending(bool purchase)
+    {
+        var rows = purchase
+            ? Report.BuildPurchaseBillsPending(_company, _asOf)
+            : Report.BuildSalesBillsPending(_company, _asOf);
+
+        Title = purchase ? "Purchase Bills Pending" : "Sales Bills Pending";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+
+        if (!_company.UseTrackingNumbers)
+        {
+            // The honest empty state. Naming the F11 caption verbatim tells the operator exactly which switch
+            // to turn on rather than leaving them with a blank grid.
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Tracking numbers are not enabled. Turn on F11 → "
+                    + "\"Use tracking numbers (enables delivery and receipt notes)\" to use this report.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        // 🔴 R7 — THE TWO SIDES ARE NOT EQUALLY ATTESTED, AND THE DIFFERENCE IS RECORDED RATHER THAN HIDDEN.
+        // The PURCHASE captions are the vendor's, VERBATIM: help.tallysolutions.com/purchase-order-tally/ prints
+        // "Goods Recd. but Bills not Recd.:" and "Bills Recd. but Goods not Recd.:" as the two section headings.
+        // The SALES page (help.tallysolutions.com/sales-order-tally/) attests the report NAME "Sales Bills
+        // Pending" verbatim but describes its two sections in PROSE ("goods may have been delivered but not
+        // invoiced"; "invoices raised but against which goods have not been delivered") and never gives a caption
+        // pair. So the two sales captions below are OURS, written to mirror the attested purchase pair over the
+        // outward document names. That is a documented divergence, not a quotation — if the vendor caption is
+        // later found, these two strings are what to change.
+        AddBillsPendingSection(rows, BillsPendingSection.GoodsNotBilled,
+            purchase ? "Goods Recd. but Bills not Recd." : "Goods Delivered but Bills not Raised");
+        AddBillsPendingSection(rows, BillsPendingSection.BilledNotReceived,
+            purchase ? "Bills Recd. but Goods not Recd." : "Bills Raised but Goods not Delivered");
+    }
+
+    private void AddBillsPendingSection(
+        IReadOnlyList<BillsPendingRow> all, BillsPendingSection section, string heading)
+    {
+        Rows.Add(new ReportRow { Col1 = heading, IsHeader = true });
+
+        var any = false;
+        var pending = 0m;
+        foreach (var r in all)
+        {
+            if (r.Section != section) continue;
+            any = true;
+            pending += r.PendingQuantity;
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(r.Date),
+                Col2 = r.TrackingNumber,
+                Col3 = r.ItemName,
+                Col4 = r.PartyName ?? string.Empty,
+                Col5 = IndianFormat.Quantity(r.ReceivedQuantity),
+                Col6 = IndianFormat.Quantity(r.BilledQuantity),
+                Col7 = IndianFormat.Quantity(r.PendingQuantity),
+            });
+        }
+
+        if (!any)
+        {
+            Rows.Add(new ReportRow { Col2 = "(none)" });
+            return;
+        }
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total",
+            Col7 = IndianFormat.Quantity(pending),
+            IsTotal = true,
+        });
+    }
+
+    // ------------------------------------------ W-K1 · census 9.7 — Item Cost Analysis
+    //   Name | Cost (Expense) | Revenue (Income) | Balance at Cost | Profit/Loss
+
+    /// <summary>
+    /// Builds one of the three <b>Item Cost Analysis</b> reports (census 9.7). The four money column captions
+    /// are the vendor's, verbatim; see <see cref="ItemCostAnalysis"/> for what each holds.
+    /// </summary>
+    private void BuildItemCostAnalysis(ReportKind kind)
+    {
+        Title = kind switch
+        {
+            ReportKind.StockItemCostAnalysis => "Stock Item Cost Analysis",
+            ReportKind.StockGroupCostAnalysis => "Stock Group Cost Analysis",
+            _ => "Cost Track Break-up",
+        };
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+
+        if (!_company.EnableCostTracking)
+        {
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Cost tracking is not enabled. Turn on F11 → \"Enable Cost Tracking\" to use "
+                    + "this report.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        var rows = kind switch
+        {
+            ReportKind.StockItemCostAnalysis => Report.BuildStockItemCostAnalysis(_company, _asOf),
+            ReportKind.StockGroupCostAnalysis => Report.BuildStockGroupCostAnalysis(_company, _asOf),
+            _ => Report.BuildCostTrackBreakup(_company, _asOf),
+        };
+
+        var cost = Money.Zero;
+        var revenue = Money.Zero;
+        var balance = Money.Zero;
+        var profit = Money.Zero;
+        foreach (var r in rows)
+        {
+            cost += r.Cost;
+            revenue += r.Revenue;
+            balance += r.BalanceAtCost;
+            profit += r.ProfitOrLoss;
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Name,
+                Col2 = IndianFormat.Amount(r.Cost),
+                Col3 = IndianFormat.Amount(r.Revenue),
+                Col4 = IndianFormat.Amount(r.BalanceAtCost),
+                Col5 = IndianFormat.AmountAlways(r.ProfitOrLoss),
+            });
+        }
+
+        if (rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "(no cost-tracked movements)" });
+            return;
+        }
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col2 = IndianFormat.AmountAlways(cost),
+            Col3 = IndianFormat.AmountAlways(revenue),
+            Col4 = IndianFormat.AmountAlways(balance),
+            Col5 = IndianFormat.AmountAlways(profit),
+            IsTotal = true,
+        });
+    }
+
+    // ------------------------------------------ W-K1 · census 9.6 — Job Work Analysis
+    //   Particulars | Amount, in the vendor's Revenue / Cost / Nett Profit sections per job
+
+    /// <summary>
+    /// Builds <b>Job Work Analysis</b> (census 9.6) — per job/project, the vendor's Revenue (Income) and Cost
+    /// (Expenses) sections and the Nett Profit/Loss.
+    /// </summary>
+    private void BuildJobWorkAnalysis()
+    {
+        Title = "Job Work Analysis";
+        var period = _options.Period;
+        Subtitle = period is { } p
+            ? $"{CompanyName}  —  {FormatDate(p.From)} to {FormatDate(p.To)}"
+            : $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+
+        if (!_company.EnableJobCosting)
+        {
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Job costing is not enabled. Turn on F11 → \"Enable Job Costing\", then set a "
+                    + "job/project on a godown, to use this report.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        // The engine takes a window; with no period chosen the window runs from the books-begin date so a job's
+        // whole life is counted. Starting at _asOf instead would report every job as empty, which reads as a
+        // broken feature rather than as an unset period.
+        var from = period?.From ?? _company.BooksBeginFrom;
+        var jobs = Report.BuildJobWorkAnalysis(_company, from, _asOf);
+
+        if (jobs.Count == 0)
+        {
+            Rows.Add(new ReportRow
+            {
+                Particulars = "No godown has been set as a job/project. Set one on the Godown master under "
+                    + "\"Set job/project for job costing\".",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        foreach (var job in jobs)
+        {
+            var sites = job.GodownNames.Count > 0 ? $"  ({string.Join(", ", job.GodownNames)})" : string.Empty;
+            Rows.Add(new ReportRow { Col1 = job.JobName + sites, IsHeader = true });
+
+            Rows.Add(new ReportRow { Col1 = "  Revenue (Income)" });
+            foreach (var l in job.Revenue)
+                Rows.Add(new ReportRow { Col1 = "    " + l.LedgerName, Col2 = IndianFormat.Amount(l.Amount) });
+            if (job.Revenue.Count == 0) Rows.Add(new ReportRow { Col1 = "    (none)" });
+            Rows.Add(new ReportRow
+            {
+                Col1 = "  Total Revenue", Col2 = IndianFormat.AmountAlways(job.TotalRevenue), IsTotal = true,
+            });
+
+            Rows.Add(new ReportRow { Col1 = "  Cost (Expenses)" });
+            foreach (var l in job.Cost)
+                Rows.Add(new ReportRow { Col1 = "    " + l.LedgerName, Col2 = IndianFormat.Amount(l.Amount) });
+            if (job.Cost.Count == 0) Rows.Add(new ReportRow { Col1 = "    (none)" });
+            Rows.Add(new ReportRow
+            {
+                Col1 = "  Total Cost", Col2 = IndianFormat.AmountAlways(job.TotalCost), IsTotal = true,
+            });
+
+            Rows.Add(new ReportRow
+            {
+                Col1 = "  Nett Profit/Loss",
+                Col2 = IndianFormat.AmountAlways(job.NettProfit),
+                IsTotal = true,
+            });
+        }
     }
 
     // --------------------------------------------------------------- Stock Item Movement  (Date | Voucher | In | Out | Balance | Value)

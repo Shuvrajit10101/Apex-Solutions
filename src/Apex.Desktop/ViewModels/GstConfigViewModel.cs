@@ -181,6 +181,28 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     [ObservableProperty] private bool _enableJobOrderProcessing;
 
     /// <summary>
+    /// The company feature flag <b>"Use tracking numbers (enables delivery and receipt notes)"</b> (F11 Company
+    /// Features → Inventory; census 9.8). The master gate for Tracking Numbers: the Tracking No. field on a
+    /// stock line and the two Bills Pending reports are hidden/inert when it is off. A pure user toggle applied
+    /// by <see cref="OnUseTrackingNumbersChanged"/> and persisted.
+    /// </summary>
+    [ObservableProperty] private bool _useTrackingNumbers;
+
+    /// <summary>
+    /// The company feature flag <b>"Enable Cost Tracking"</b> (F11 Company Features; census 9.7). The master
+    /// gate for Item Cost Tracking: the Cost Tracking Number field and the three Item Cost Analysis reports.
+    /// Applied by <see cref="OnEnableCostTrackingChanged"/> and persisted.
+    /// </summary>
+    [ObservableProperty] private bool _enableCostTracking;
+
+    /// <summary>
+    /// The company feature flag <b>"Enable Job Costing"</b> (F11 Company Features; census 9.6). The master gate
+    /// for Job Costing: the godown master's "Set job/project for job costing" field and the Job Work Analysis
+    /// report. Applied by <see cref="OnEnableJobCostingChanged"/> and persisted.
+    /// </summary>
+    [ObservableProperty] private bool _enableJobCosting;
+
+    /// <summary>
     /// The company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). The
     /// master gate for the whole Payroll module — the Payroll Masters section (Employee Category / Group /
     /// Employee, Payroll Unit, Attendance type) and, in later slices, the Attendance/Payroll voucher types and
@@ -592,6 +614,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         DefineBomComponentType = _company.DefineBomComponentType;
         EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
         EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
+        // W-K1 (census 9.8 / 9.7 / 9.6). 🔴 Loading these HERE is what makes the three checkboxes reflect the
+        // saved company rather than showing "off" on every re-entry — an omission here would leave the operator
+        // able to turn a feature ON and find it apparently off the next time they opened F11, and would then
+        // turn it OFF for real on the next toggle.
+        UseTrackingNumbers = _company.UseTrackingNumbers;
+        EnableCostTracking = _company.EnableCostTracking;
+        EnableJobCosting = _company.EnableJobCosting;
         PayrollEnabled = _company.PayrollEnabled;
         PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         LoadPfFromCompany();
@@ -878,6 +907,89 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             Message = ex.Message;
             if (EnableMultiplePriceLevels != _company.EnableMultiplePriceLevels)
                 EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Use tracking numbers" F11 toggle (census 9.8) to the live company the moment it changes, so
+    /// the Tracking No. field and the two Bills Pending menu rows surface (or hide) immediately, and persists the
+    /// company. Errors are surfaced without crashing and the toggle reverts to the company's real state.
+    /// <para>Turning it OFF never erases a tracking number already keyed — hiding a field is not deleting data,
+    /// and an operator who toggles a feature off by accident must be able to toggle it back on and find their
+    /// references intact. The REPORTS return empty while it is off (see <see cref="BillsPending"/>), so no stale
+    /// figure is on screen either way.</para>
+    /// </summary>
+    partial void OnUseTrackingNumbersChanged(bool value)
+    {
+        var previous = _company.UseTrackingNumbers;
+        try
+        {
+            _company.UseTrackingNumbers = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.UseTrackingNumbers = previous;   // restore first — see OnMaintainBatchwiseDetailsChanged
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (UseTrackingNumbers != _company.UseTrackingNumbers)
+                UseTrackingNumbers = _company.UseTrackingNumbers;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Cost Tracking" F11 toggle (census 9.7) to the live company the moment it changes, so
+    /// the Cost Tracking Number field and the three Item Cost Analysis menu rows surface (or hide) immediately.
+    /// Same never-erase rule as <see cref="OnUseTrackingNumbersChanged"/>.
+    /// </summary>
+    partial void OnEnableCostTrackingChanged(bool value)
+    {
+        var previous = _company.EnableCostTracking;
+        try
+        {
+            _company.EnableCostTracking = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.EnableCostTracking = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (EnableCostTracking != _company.EnableCostTracking)
+                EnableCostTracking = _company.EnableCostTracking;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Job Costing" F11 toggle (census 9.6) to the live company the moment it changes, so the
+    /// godown master's "Set job/project for job costing" field and the Job Work Analysis menu row surface (or
+    /// hide) immediately.
+    /// <para>Turning it off does NOT clear any godown's <see cref="Godown.JobCostCentreId"/>, for the same reason
+    /// as the two toggles above: hiding a field is not deleting data. It also could not safely do so — the link
+    /// is the only record that a godown was ever a job, and clearing it would make the toggle destructive in a
+    /// way an operator has no way to undo.</para>
+    /// </summary>
+    partial void OnEnableJobCostingChanged(bool value)
+    {
+        var previous = _company.EnableJobCosting;
+        try
+        {
+            _company.EnableJobCosting = value;
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.EnableJobCosting = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (EnableJobCosting != _company.EnableJobCosting)
+                EnableJobCosting = _company.EnableJobCosting;
             return;
         }
         _onChanged();

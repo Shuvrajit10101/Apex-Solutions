@@ -10,6 +10,20 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A voucher-type row for the existing-types list on the master screen.</summary>
+/// <summary>
+/// One row in the voucher-type master's <b>Voucher Classes</b> list (census 9.9) — the vendor's "Name of Class"
+/// and its "Use Class for Inter-Godown Transfers" setting, for a class already defined on the type being altered.
+/// </summary>
+public sealed class VoucherClassListRow
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>"Yes" / "No" — the operator-facing rendering of
+    /// <see cref="VoucherClass.UseClassForInterGodownTransfers"/>.</summary>
+    public string InterGodownTransfers { get; init; } = string.Empty;
+}
+
 public sealed partial class VoucherTypeListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
@@ -154,6 +168,97 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
 
     partial void OnShowInactiveChanged(bool value) => RefreshList();
 
+    // ------------------------------------------- W-K1 · census 9.9 — Voucher Classes (the Stock Journal transfer class)
+
+    /// <summary>The classes already defined on the type being ALTERED (census 9.9). Empty in Create mode: a class
+    /// hangs off a type, so there is no type to hang one on until the type exists.</summary>
+    public ObservableCollection<VoucherClassListRow> Classes { get; } = new();
+
+    /// <summary>The vendor's <b>"Name of Class"</b> for the class about to be added.</summary>
+    [ObservableProperty] private string _newClassName = string.Empty;
+
+    /// <summary>The vendor's <b>"Use Class for Inter-Godown Transfers"</b> for the class about to be added.</summary>
+    [ObservableProperty] private bool _newClassInterGodownTransfers = true;
+
+    /// <summary>
+    /// True when the Voucher Classes section is shown: an <b>alteration</b> of a <b>Stock Journal</b> type.
+    /// <para>Create mode is excluded because a class is a child of a type that does not exist yet — offering the
+    /// field there would either silently discard what the operator typed or require a second, hidden save. Other
+    /// base kinds are excluded because the only class this product ships is the transfer class, and census row
+    /// <b>2.6</b> — the general Voucher Class machinery — is ABSENT and is not this track's; a "Name of Class"
+    /// box on a Sales type would advertise a feature that does not exist.</para>
+    /// </summary>
+    public bool ShowVoucherClasses =>
+        IsAltering && SelectedBaseType?.Value == VoucherBaseType.StockJournal;
+
+    /// <summary>
+    /// Adds the class named in <see cref="NewClassName"/> to the type under alteration and saves. Domain refusals
+    /// (blank name, duplicate name, the flag on a non-Stock-Journal type) are surfaced to
+    /// <see cref="Message"/> without crashing.
+    /// </summary>
+    public bool AddClass()
+    {
+        Message = null;
+        if (!IsAltering)
+        {
+            Message = "Save the voucher type first, then alter it to add a class.";
+            return false;
+        }
+        try
+        {
+            new VoucherTypeService(_company)
+                .AddClass(_editingId, NewClassName ?? string.Empty, NewClassInterGodownTransfers);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        var added = (NewClassName ?? string.Empty).Trim();
+        RefreshClasses();
+        NewClassName = string.Empty;
+        Message = $"Voucher class '{added}' added.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Removes a class from the type under alteration and saves.</summary>
+    public bool RemoveClass(Guid classId)
+    {
+        Message = null;
+        if (!IsAltering) return false;
+        try
+        {
+            new VoucherTypeService(_company).RemoveClass(_editingId, classId);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+        RefreshClasses();
+        _onChanged();
+        return true;
+    }
+
+    private void RefreshClasses()
+    {
+        Classes.Clear();
+        if (!IsAltering || _company.FindVoucherType(_editingId) is not { } type) return;
+        foreach (var c in type.Classes)
+            Classes.Add(new VoucherClassListRow
+            {
+                Id = c.Id,
+                Name = c.Name,
+                // Spelled out rather than shown as a tick: "Yes/No" under a column captioned with the vendor's
+                // own sentence reads correctly when the list is EXPORTED, where a tick glyph does not.
+                InterGodownTransfers = c.UseClassForInterGodownTransfers ? "Yes" : "No",
+            });
+    }
+
     /// <summary>True while the base-kind picker may be changed — Create mode only. On an alteration the base kind
     /// is fixed (see the class remarks: changing it would re-interpret every voucher already posted).</summary>
     public bool CanChooseBaseType => !IsAltering;
@@ -208,6 +313,11 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
         vm.OnPropertyChanged(nameof(CanChooseBaseType));
+        // W-K1 (census 9.9): fill the class list and tell the view the section is now reachable. ShowVoucherClasses
+        // depends on IsAltering AND the base type, and neither raised a notification of its own — without this
+        // the section stays hidden on a Stock Journal alteration and 9.9 has no user route at all.
+        vm.RefreshClasses();
+        vm.OnPropertyChanged(nameof(ShowVoucherClasses));
         return vm;
     }
 

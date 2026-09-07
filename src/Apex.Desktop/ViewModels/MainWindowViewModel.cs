@@ -1913,6 +1913,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
             col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
+        // W-K1 (census 9.8): the two Bills Pending reports — the unreconciled ends of the Tracking Number
+        // mechanism — nest under their own sub-section, surfaced only when the F11 feature "Use tracking numbers"
+        // is on. With the flag off there is no way to key a tracking number, so the reports would always be empty.
+        if (Company is { UseTrackingNumbers: true })
+        {
+            col.Add(MenuItemViewModel.Header("Bills Pending"));
+            col.Add(new MenuItemViewModel("Purchase Bills Pending", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Sales Bills Pending", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // W-K1 (census 9.7): the vendor's three Item Cost Analysis reports, surfaced only when F11 "Enable Cost
+        // Tracking" is on. The vendor groups them under Statements of Inventory → Item Cost Analysis; this
+        // product's equivalent home is the Inventory Reports column, and they keep the vendor's own heading.
+        if (Company is { EnableCostTracking: true })
+        {
+            col.Add(MenuItemViewModel.Header("Item Cost Analysis"));
+            col.Add(new MenuItemViewModel("Stock Item Cost Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Stock Group Cost Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Cost Track Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // W-K1 (census 9.6): Job Work Analysis, surfaced only when F11 "Enable Job Costing" is on.
+        // 🔴 It sits BESIDE the Job WORK ORDER reports below, not inside them: job COSTING (a cost dimension over
+        // projects) and job WORK ORDER PROCESSING (sending material to a sub-contractor) are different features
+        // with different F11 gates, and folding them into one section would imply one switch drives both.
+        if (Company is { EnableJobCosting: true })
+        {
+            col.Add(MenuItemViewModel.Header("Job Costing"));
+            col.Add(new MenuItemViewModel("Job Work Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
         // Job Work reports (Phase 6 slice 8; RQ-51/RQ-54) nest under their own sub-section — surfaced only when the
         // F11 feature "Enable Job Order Processing" is on (RQ-52), so a non-job-work company is byte-identical (ER-13).
         if (Company is { EnableJobOrderProcessing: true })
@@ -10112,6 +10143,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Rejection Register": OpenReport(ReportKind.RejectionRegister); break;
             case "Physical Stock Register": OpenReport(ReportKind.PhysicalStockRegister); break;
             case "Order Register": OpenReport(ReportKind.OrderRegister); break;
+            // W-K1 (census 9.8 / 9.7 / 9.6) — Reports → Inventory Reports, each under its own heading and each
+            // gated by the F11 feature that surfaces the menu row (see BuildInventoryReportsColumn).
+            case "Purchase Bills Pending": OpenReport(ReportKind.PurchaseBillsPending); break;
+            case "Sales Bills Pending": OpenReport(ReportKind.SalesBillsPending); break;
+            case "Stock Item Cost Analysis": OpenReport(ReportKind.StockItemCostAnalysis); break;
+            case "Stock Group Cost Analysis": OpenReport(ReportKind.StockGroupCostAnalysis); break;
+            case "Cost Track Break-up": OpenReport(ReportKind.CostTrackBreakup); break;
+            case "Job Work Analysis": OpenReport(ReportKind.JobWorkAnalysis); break;
             case "POS Register": OpenReport(ReportKind.PosRegister); break;
             case "Tax Analysis": OpenReport(ReportKind.TaxAnalysis); break;
             case "GSTR-1": OpenReport(ReportKind.Gstr1); break;

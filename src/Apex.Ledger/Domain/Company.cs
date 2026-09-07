@@ -381,6 +381,71 @@ public sealed class Company
     public bool EnableJobOrderProcessing { get; set; }
 
     /// <summary>
+    /// Company feature flag <b>"Use tracking numbers (enables delivery and receipt notes)"</b> (F11 Company
+    /// Features → Inventory; census 9.8; schema v58). Master gate for the whole Tracking Number feature: the
+    /// Tracking No. field on a stock line and the two Bills Pending reports are hidden/inert when it is off.
+    /// <para>
+    /// 🔴 <b>What a tracking number IS.</b> The vendor calls it <i>"the reference to have a link between
+    /// transactions"</i> — an operator-keyed string that ties the goods movement (a Receipt Note / Delivery Note)
+    /// to the bill that accounts for it (a Purchase / Sales invoice). Before this flag existed the product could
+    /// only <b>infer</b> the link with a FIFO walk over candidate movements, which cannot distinguish "these units
+    /// were billed" from "some units happened to be billed".
+    /// </para>
+    /// <para>
+    /// Like <see cref="EnableJobOrderProcessing"/> (and unlike the inferred <see cref="MaintainBatchwiseDetails"/> /
+    /// <see cref="SetComponentsBom"/>), this is a <b>pure user toggle</b> that <b>cannot be inferred</b> — a
+    /// company may enable it before entering any note — so it is a plain persisted <c>get; set;</c> backed by a
+    /// real <c>companies</c> column (v58). Defaults to <c>false</c>, so every existing company is byte-identical
+    /// (ER-13).
+    /// </para>
+    /// <para>R7: <c>help.tallysolutions.com/purchase-order-tally/</c> (Receipt Note ↔ Purchase Bill tracking, the
+    /// "Purchase Bills Pending" report and its two section captions) and
+    /// <c>help.tallysolutions.com/sales-order-tally/</c> (Delivery Note ↔ Sales, the "Sales Bills Pending" report
+    /// name, and the field caption "Enter a <b>Tracking No.</b> By default, the invoice number appears").</para>
+    /// <para>⚠️ <b>ONE PIECE OF THIS IS THINNER EVIDENCE THAN THE REST, AND IS FLAGGED RATHER THAN LEVELLED UP.</b>
+    /// The F11 caption above — <i>"Use tracking numbers (enables delivery and receipt notes)"</i> — is attributed to
+    /// the vendor's F11 &gt; F2 Inventory Features screen, but it reached this slice through a search result over
+    /// <c>help.tallysolutions.com</c> rather than a vendor page read end to end; neither order-processing page
+    /// quotes it. The MECHANISM is fully attested; the exact wording of this one switch is not, to the standard
+    /// the rest of this row meets. If a fetched vendor page later gives a different wording, this caption (and its
+    /// copy in the F11 XAML) is what to change — nothing else depends on the string.</para>
+    /// </summary>
+    public bool UseTrackingNumbers { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable Cost Tracking"</b> (F11 Company Features; census 9.7; schema v58). Master
+    /// gate for Item Cost Tracking: the Cost Tracking Number on a stock line and the Item Cost Analysis reports
+    /// are hidden/inert when it is off.
+    /// <para>
+    /// The vendor defines a cost tracking number as a unique identifier that monitors the expenses attached to a
+    /// specific stock quantity <b>across its whole purchase-to-sales lifecycle</b> — so the same number appears on
+    /// the purchase that brought the units in and on the sale that took them out, and the report subtracts one from
+    /// the other to give that lot's profit. It is orthogonal to <see cref="UseTrackingNumbers"/>: one links a
+    /// movement to its bill, the other follows a cost through time.
+    /// </para>
+    /// <para>A pure persisted user toggle backed by a real <c>companies</c> column (v58); defaults to
+    /// <c>false</c> (ER-13). R7:
+    /// <c>help.tallysolutions.com/tally-prime/inventory/track-item-cost-tally/</c>.</para>
+    /// </summary>
+    public bool EnableCostTracking { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable Job Costing"</b> (F11 Company Features; census 9.6; schema v58). Master gate
+    /// for Job Costing: the godown master's "Set job/project for job costing" field and the Job Work Analysis
+    /// report are hidden when it is off.
+    /// <para>
+    /// 🔴 <b>Job Costing is a REPORTING dimension over the cost centres this product already has — it is not a new
+    /// ledger and not a new cost dimension.</b> The vendor is explicit that enabling Cost Centres is a prerequisite,
+    /// that a job/project <i>is</i> a cost centre, and that a godown names one (<see cref="Godown.JobCostCentreId"/>).
+    /// Job Work Analysis therefore reads the SAME <see cref="CostAllocation"/> rows every other cost report reads.
+    /// A parallel "job" dimension would have drifted from the cost centres on the first re-allocation.
+    /// </para>
+    /// <para>A pure persisted user toggle backed by a real <c>companies</c> column (v58); defaults to
+    /// <c>false</c> (ER-13). R7: <c>help.tallysolutions.com/job-costing-tally/</c>.</para>
+    /// </summary>
+    public bool EnableJobCosting { get; set; }
+
+    /// <summary>
     /// Company configuration <b>"Warn on Negative Stock Balance"</b> (plan.md NS-4; schema v50). When on, a posting
     /// that leaves an (item, godown, batch) on-hand below zero produces an operator WARNING — it never rejects the
     /// posting. Negative stock itself is always permitted: TallyPrime has no built-in block anywhere, and its own
