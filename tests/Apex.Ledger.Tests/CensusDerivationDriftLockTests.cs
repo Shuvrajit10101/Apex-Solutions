@@ -90,8 +90,31 @@ public sealed class CensusDerivationDriftLockTests
     /// The number of capability rows the census is scoped to. This is a USER RULING (ruling 10 brought the former
     /// §3 and §4 in: <c>200 + 9 + 7 = 216</c>), not a derived figure, so it is anchored here deliberately. If a
     /// capability row is genuinely added or removed this test SHOULD stop the suite — see its failure text.
+    ///
+    /// <para>🔴 <b>MOVED <c>216</c> → <c>221</c> ON 2026-09-07 BY USER RULINGS 19 AND 20 (R12,
+    /// <c>plan.md</c> §5, <c>TWO FURTHER USER RULINGS (R12, 2026-09-07)</c>) — <c>216 + 8 − 3 = 221</c>. This is
+    /// the ONE case this constant may move, and it is the case this test's own failure text describes: a
+    /// user-ruled scope change, not an expectation bent to fit a state cell.</b>
+    /// <list type="bullet">
+    ///   <item><b><c>+8</c> — ruling 19.</b> Eight vendor-attested capabilities had <b>no census row at all</b>,
+    ///     each verified twice by name (zero hits in the census, zero in <c>src/</c>), so they were missing rows
+    ///     AND missing features. Area 7 gained <b>7.22–7.26</b> (Attendance Sheet, Pay Head Employee Breakup,
+    ///     Employee Pay Head Breakup, Payroll Statutory Summary, Income Tax Computation report); Area 8 gained
+    ///     <b>8.11–8.13</b> (Connected Banking, Payment Request, auto-create vouchers from a bank statement).
+    ///     All eight are <c>ABSENT</c>, so the old 216 understated us in the numerator and the denominator at
+    ///     once. The honest total is <b>224</b>.</item>
+    ///   <item><b><c>−3</c> — ruling 20, and it is NOT progress.</b> Rows <b>15.3</b>, <b>15.7</b> and
+    ///     <b>15.9</b> (the 2005 four-slab VAT structure, Service Tax + ST-3, Fringe Benefit Tax) were STRUCK
+    ///     as dead law and moved OUT of §1.2a into <b>§1.2d</b>, which is why this lock still sees a consistent
+    ///     document: a struck row leaves the counted region entirely rather than taking a fifth state token,
+    ///     which would have reddened <c>NonBareStateCells</c> and <c>AreasWhereSumDoesNotEqualRows</c> — <i>and
+    ///     would have reddened them correctly.</i> All three were <c>ABSENT</c>, so striking them lowered the
+    ///     denominator and the missing count <b>without shipping anything</b>.</item>
+    /// </list>
+    /// The census's own <c>awk</c> returns <c>TOTAL rows=221 C=52 P=122 A=47 U=0 sum=221</c> after the move; it
+    /// returned <c>… rows=216 … A=42 … sum=216</c> before it. Not one state cell changed.</para>
     /// </summary>
-    private const int ScopedCapabilityRows = 216;
+    private const int ScopedCapabilityRows = 221;
 
     /// <summary>§1.2a's sixteen areas.</summary>
     private const int ScopedAreas = 16;

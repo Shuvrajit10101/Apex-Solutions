@@ -142,6 +142,27 @@
 > company-per-`.db`-named-after-the-company storage layout · **U-10** the nine architecture/scope carry-overs —
 > **plus ruling 13's Q-A and Q-B**, which belong with the same batch.
 >
+> **▶ 🔴 STALE AS OF 2026-09-07 — THE BATCH ABOVE IS NO LONGER THE LIVE LIST, AND IT IS MARKED RATHER THAN
+> REWRITTEN BECAUSE THE POINT OF THE AS-OF DATE IS THAT THE DRIFT IS VISIBLE.** Rulings **15** (the ten-row
+> gate lifted), **17** (`Ctrl+I`), **19** and **20** have closed or narrowed six of the items listed above.
+> **The live, one-sitting version is `plan.md` §5 — search `THE OWED-RULINGS DECISION SHEET`** — thirteen rows
+> **D-1 … D-13**, each one sentence with options, a recommendation and what it blocks. **U-4 is spent and is
+> deliberately off it.** The long-form batch is kept below the sheet as the record of the reasoning.
+>
+> **▶ 🔴 TWO FURTHER STANDING USER RULINGS WERE TAKEN 2026-09-07 (R12) — AND THEY MOVE THE DENOMINATOR, WHICH
+> ONLY RULING 10 HAS EVER DONE.** **Ruling 19:** eight vendor-attested capabilities had **NO CENSUS ROW AT
+> ALL** (Area 8 short three — Connected Banking, Payment Request, auto-create-vouchers-from-a-bank-statement;
+> Area 7 short five — Attendance Sheet, the two pay-head breakups, Payroll Statutory Summary, the Income Tax
+> Computation report). **All eight ABSENT**, so 216 flattered us in numerator **and** denominator; **the honest
+> figure is 224 and the goal is now "all 224".** **Ruling 20:** rows **15.9** (FBT, s.115WM Finance (No.2) Act
+> 2009), **15.7** (Service Tax + ST-3, Chapter V of the Finance Act 1994 displaced entirely 1-Jul-2017) and
+> **15.3** (the 2005 four-slab VAT structure, ~550 per-State schedules with **no live official source**) are
+> **STRUCK** to census **§1.2d** — *"a clone of a dead tax is dead code no user can ever use"* — leaving only
+> what is still levied (liquor and the five petroleum products; excise on tobacco and those petro products).
+> 🔴 **IN SCOPE IS THEREFORE `216 + 8 − 3 = 221`, and STRIKING LOWERS THE DENOMINATOR WITHOUT SHIPPING
+> ANYTHING: nothing was built, `complete` did not move, and as a fraction it FELL from 24.1% to 23.5%.**
+> Recorded beside the other eighteen in **§5** — search **`TWO FURTHER USER RULINGS (R12, 2026-09-07)`**.
+>
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
 ---
@@ -896,6 +917,124 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > "everywhere"**: the fix is **product-wide**, not confined to the two documents already corrected. A customer
 > ledger, a supplier ledger or a bank master named by the user is **the user's data**, and rewriting it is a
 > defect in every report, voucher and printed document that renders it, not only in the two that were caught.
+
+> **▶ 🔴 TWO FURTHER USER RULINGS (R12, 2026-09-07) — SETTLED; DO NOT RE-LITIGATE. THEY MOVE THE DENOMINATOR,
+> WHICH NO PREVIOUS RULING BUT NUMBER 10 HAS DONE.** Recorded **here**, beside the 2026-08-15, 2026-08-16,
+> 2026-08-19, 2026-09-03, 2026-09-04 and 2026-09-06 banners, so all twenty rulings are read in one place.
+> Search string for cross-references: `TWO FURTHER USER RULINGS (R12, 2026-09-07)`. Both amend text outside
+> this paragraph and each says where: **ruling 19** amends `docs/full-clone-census.md` **§1.2** (the table and
+> the TOTAL), **§1.2a** Areas **7** and **8** (five and three new rows, and both headings), the **§7** bottom
+> line, and `tests/Apex.Ledger.Tests/CensusDerivationDriftLockTests.cs`'s `ScopedCapabilityRows`;
+> **ruling 20** amends **§1.2a** Area **15** (nine rows to six) and adds **§1.2d**, and it partly closes
+> owed ruling **U-5**.
+>
+> **19 · THE DENOMINATOR MOVES TO THE HONEST FIGURE. `216 → 224`, BECAUSE EIGHT VENDOR-ATTESTED CAPABILITIES
+> HAD NO CENSUS ROW AT ALL.**
+>
+> **▶ THE MEASUREMENT THAT FORCED IT, recorded first, because this ruling is a response to a fact.** Each of
+> the eight was verified **twice by name** — searched for in `docs/full-clone-census.md` and searched for in
+> `src/` — and **every one returned zero in both**. They are therefore **missing ROWS and missing FEATURES**,
+> not rows filed under another name. 🔴 **This is the one defect none of the census's four derived surfaces
+> can see:** §1.2's table, the area headings, the published `awk` and `CensusDerivationDriftLockTests` all
+> reconcile *against the rows*, so a capability with no row is invisible to all four at once. **And because
+> all eight are ABSENT, the old 216 flattered us in BOTH terms — missing from the numerator and from the
+> denominator.**
+>
+> **▶ THE EIGHT, NAMED.** **Area 8 (Banking) was short THREE:** **Connected Banking** (Get Bank Balance / Get
+> Bank Statement) · **Payment Request** (payment link / QR code) · **auto-creating vouchers from an imported
+> bank statement** — genuinely **not** covered by row **8.3**, which reconciles and never creates a voucher
+> (`BankStatementImport` exposes only `ParseCsv` and `MatchAndReconcile`; `CreateVoucher` / `AddVoucher` /
+> `PostVoucher` / `new Voucher` all return zero in that file, and 8.3's own Gap list never mentions creating
+> one). **Area 7 (Payroll) was short FIVE:** **Attendance Sheet** — 7.15 ships the Attendance **REGISTER** and
+> the vendor publishes **both**, on two pages · **Pay Head Employee Breakup** · **Employee Pay Head Breakup** ·
+> **Payroll Statutory Summary** · the **Income Tax Computation** report. ⚠️ **The user's own precision, kept
+> verbatim so nobody over-reads it:** *"the salary-tax ARITHMETIC exists (`SalaryIncomeTax.cs:310`
+> `SalaryTaxComputation`, which backs Form 16 Part B). What is missing is the vendor per-employee REPORT."*
+> **ALL EIGHT ARE ABSENT.**
+>
+> **▶ WHAT THE USER CHOSE, AND WHY.** Shown the eight, the user **chose to move the total rather than keep a
+> number that flatters us in both numerator and denominator.** Ruling 10 had set 216; **the honest figure is
+> 224, and the goal is now "all 224", not "all 216".** ⚠️ **223** if a reader judges auto-create-vouchers to
+> sit inside 8.3's scope; **the ruling gave it a row of its own** and the measurement above is why.
+> ⚠️ **One scope question rides along and is NOT answered:** the vendor gates **Connected Banking** on a
+> Tally.NET ID and a live subscription, and census §1.1 rule 4 excludes subscription/edition features from the
+> denominator. Ruling 19 counted it in, so it is counted; **if the user later rules it a subscription feature
+> it leaves the denominator, and that is a ruling, not an agent's call.**
+>
+> **20 · STRIKE THE DEAD-LAW ROWS. BUILD ONLY WHAT IS STILL LEVIED.** Offered *strike / historically-scope /
+> build*, the user chose **strike** for three of Area 15's nine:
+> - **15.9 Fringe Benefit Tax** — abolished with effect from **AY 2010-11** by **s.115WM of the Finance (No.2)
+>   Act 2009**; never in the 7.2 baseline either, so there is no reference-product behaviour left to clone.
+> - **15.7 Service Tax + Form ST3** — **Chapter V of the Finance Act 1994 was displaced ENTIRELY on
+>   1-Jul-2017**, with **no surviving class of supply**. There is no live official source stating a current
+>   service-tax rate for anything, because there is none.
+> - **15.3 the 2005 four-slab VAT rate structure** — repealed; **~550 per-State commodity schedules with NO
+>   live official source for any of it**, which is itself the reason it cannot be built to this project's
+>   standard: a build agent would have to take rates from a blog or an undated chart, the exact citation this
+>   project has already had to strip out of shipped code (T0-6).
+>
+> **▶ THE USER'S REASONING, QUOTED, BECAUSE IT DECIDES FUTURE CASES TOO:** *"A clone of a dead tax is dead code
+> no user can ever use."*
+>
+> **▶ WHAT IS STILL IN SCOPE, NAMED BY THE RULING SO THE REMAINING SIX ARE NOT MISREAD AS DEAD TOO: BUILD ONLY
+> WHAT IS STILL LEVIED** — **VAT and CST on alcoholic liquor for human consumption** (Art. 366(12A) puts it
+> permanently outside GST) and on the **five petroleum products** (s.9(2) CGST Act: petroleum crude, HSD,
+> motor spirit, natural gas, ATF), and **central excise on tobacco and those petroleum products** under the
+> **Fourth Schedule** to the Central Excise Act 1944. **Rows 15.1, 15.2, 15.4, 15.5, 15.6 and 15.8 stay, still
+> ABSENT, still build rows under ruling 10** — with that narrower target. **No state was re-graded.**
+>
+> **▶ THE MECHANISM, DECIDED AND STATED EXPLICITLY BECAUSE IT MOVES THE DENOMINATOR.** A struck row **leaves
+> §1.2a and lives in the new §1.2d**, beside §1.1 rule 4's excluded set — so it is **out of the in-scope
+> count** and it is **NOT** given a fifth state token, which would redden
+> `CensusDerivationDriftLockTests` (correctly: a row counted in `rows` and in no state bucket is the ten-row
+> defect PR #69 exists to stop). **The full text, the state it held when struck, and the repeal are kept on
+> each row. Nothing is deleted.**
+>
+> **▶ 🔴 THE ARITHMETIC, AND THE HONEST READING OF IT. `216 + 8 − 3 = 221` IN SCOPE, OUT OF AN HONEST 224.**
+> §1.2a's own `awk` returns `TOTAL rows=221 C=52 P=122 A=47 U=0 sum=221`; it returned
+> `TOTAL rows=216 C=52 P=122 A=42 U=0 sum=216` immediately before. **Not one state cell changed and nothing
+> was built on 2026-09-07.** 🔴 **STRIKING ROWS LOWERS THE DENOMINATOR WITHOUT SHIPPING ANYTHING** — all three
+> struck rows were ABSENT, so *"missing"* falls `50 → 47` and every percentage improves on a day of zero
+> code. **A struck row is not a completed row.** And the one figure that measures delivered work went **DOWN**:
+> complete is **23.5% of 221**, where it was **24.1% of 216**. **That is what an honest denominator move looks
+> like.**
+
+> **▶ 🔴 THE OWED-RULINGS DECISION SHEET — REWRITTEN 2026-09-07 SO IT CAN BE ANSWERED IN ONE SITTING. THIS
+> SUPERSEDES THE STATUS (NOT THE TEXT) OF THE `TEN RULINGS ARE STILL OWED` BATCH IMMEDIATELY BELOW, WHICH IS
+> KEPT AS THE LONG-FORM RECORD.** Rulings 14–20 closed **U-0**, **U-3**, the whole **ten-row gate**, the
+> **`Ctrl+I`** arm of U-6, the **FBT** arm of U-5 and the **denominator half** of U-11. What is left is below,
+> **one sentence each, with the options, a recommendation and its reason, and what stays blocked.** Nothing
+> here may be decided by an agent (R12). **Order is by cost of getting it wrong, not by number.**
+>
+> | # | The decision, in one sentence | Options | Recommendation, and why | Blocked until it lands |
+> |---|---|---|---|---|
+> | **D-1** *(was T0-5)* | The product deducts a **4% Health & Education cess** from real salaries on the default **TY 2026-27** path, and the code's own comment says the rate was never verified — the only URL that ever carried it **404s**. | (a) Re-source it to a live `incometaxindia.gov.in` page and cite that; (b) refuse to compute TY 2026-27 until sourced; (c) ship it as a labelled divergence. | **(a), and it is first on this sheet.** This is the only item that takes money off a real payslip on a figure nobody can stand behind. If (a) fails, **(b)** — a blank with a footnote is honest; a confident wrong deduction is not. | Any payroll slice touching TY 2026-27 salary TDS. The census's own citation test checks paths, **never web citations**, so nothing in the repo would ever notice this again. |
+> | **D-2** *(was T0-6, residual)* | `SeedTdsTcsRates.cs` once cited **cleartax / disytax** for **shipped** TDS/TCS rates; it has since been re-sourced to the bare Act and the Department's charts, but the **[CHART-TDS]** page **contradicts itself about its own vintage** (it claims AY 2026-27 *and* "as amended by Finance Act 2026" in the same document) and carries no Year metadata to resolve it. | (a) Pin every rate to a **bare-Act section at its year slug** and drop the chart as a source; (b) keep the chart with the contradiction recorded; (c) freeze the seed at FY 2025-26 and refuse later years. | **(a).** The bare-Act pages carry a Year discriminator and the chart does not; this project has already been bitten once by treating a page's own claim as settled. **Say plainly that T0-6 is substantially closed** — it is no longer blog-cited — **and that this is the residue**, not the original defect. | Nothing is dispatched into it today; but **T1-21** means a wrong seeded rate has **no in-app remedy** (both master screens are create-only), so it stays on the sheet. |
+> | **D-3** *(was U-6, remaining arms)* | Two attested vendor chords are still occupied by unattested verbs — **`Alt+I`** (vendor: Insert Voucher; ours: the POS tender toggle) and **`Alt+K`** (vendor: Company menu; ours: Saved Views) — and **`Alt+A`**'s attested arm is **third** in arbitration behind two unattested ones. | (a) One ruling over the whole map, releasing both chords and fixing `Alt+A`'s order; (b) release `Alt+I` only; (c) leave both and record the divergence. | **(a).** Ruling 17 settled `Ctrl+I` the same way and it worked; **each answer constrains the others**, and wave 3 showed the pattern is larger than three collisions — all three of the vendor's top-level output menus (`Alt+P`, `Alt+E`, `Alt+M`) are also wrong, which makes this a **navigation-shell** question, not a chord question. | Register rows **T2-14**, **T2-15**, **T2-18**; the nine census rows sitting behind the three `Alt` menus. **T2-17 is closed.** |
+> | **D-4** *(was U-9)* | **TallyVault** (census 16.1) needs a crypto dependency **and** a storage-identity change, because the vendor encrypts the company *"including the company name"* while our companies live in a `.db` **named after the company** — the filename leaks the plaintext the feature exists to hide. | (a) Take SQLCipher **and** move to opaque company ids with a name held inside the encrypted book; (b) defer both; (c) ship a weaker "encrypt contents, leak the name" version. | **(a) or (b), never (c).** A vault that names the company it is hiding is a feature that lies about itself. **Decide the dependency and the storage layout together** — they cannot be sequenced apart. R13 applies. | Census row **16.1** entirely, and any company-rename work, which is out of scope for the same filename reason. |
+> | **D-5** *(was U-5, remaining arm)* | Ruling 20 struck FBT, Service Tax and the 2005 VAT slabs — but census **15.5** still bundles **VAT Computation** (buildable against the live liquor/petroleum surface) with **~30 State return forms**, which have **no single official publisher**. | (a) Build VAT Computation only and split the return forms into their own ABSENT row; (b) strike the return-form half the way 15.3 was struck; (c) build both. | **(a).** It keeps a real capability while refusing to invent ~30 forms from unsourceable material — the same reasoning ruling 20 already accepted for 15.3, one row further on. **(c) is the failure mode this project has the most scar tissue about.** | The return-form half of **15.5**. VAT Computation itself is unblocked either way. |
+> | **D-6** *(was U-10, TEXT CORRECTED)* | The architecture / scope carry-overs from the wave-2 breadth design (**R2–R17**), taken together: multiple GSTIN registrations (6.23) · **Group Company (16.7)** · WhatsApp sharing (14.10) · e-Payments file format (8.10) · GST Classification master (6.25) · Kerala Flood Cess (6.26) · `IntegrateAccountsWithInventory` · charting approach (14.3) · Show-Inactive scope (2.13). | (a) Take them as one batch now; (b) take only those a live track needs; (c) defer. | **(b).** Most are not on any track's path this week. 🔴 **CORRECTION, AND IT CHANGES THE ITEM:** this row used to read *"multi-company shell (14.2 Switch To, 16.7 Group Company)"*. **14.2 was retitled 2026-09-06 (PR #57) and is NOT a multi-company feature** — the vendor gives `Ctrl+G` as *"switch to a different REPORT"*, and company switching is the `F3` / `Alt+F3` / `Ctrl+F3` family. **14.2 is struck from this row; only 16.7 remains multi-company.** ⚠️ `IntegrateAccountsWithInventory` is behaviour-bearing and **needs an oracle harness first** — three negative-stock attempts produced three *different* unbounded Balance-Sheet errors that each passed the full suite. | Whichever of the nine a dispatched slice reaches. |
+> | **D-7** *(was U-1)* | **Which product's voucher-type set does the clone target?** The official Statistics report lists **twenty-two** default kinds, census Area 4 is titled for 7.2's classic **eighteen**, and we seed **twenty-three**. | (a) The vendor's current set; (b) the 7.2 eighteen; (c) our seeded set, recorded as a divergence. | **No recommendation — it is a scope decision.** But it is **upstream of Area 4, not of Area 11**: a Statistics report built to the smaller list would be **wrong against the source while matching our own census**. Cheap to ask now, expensive after Area 11 ships. | Area 11's Statistics work, and any re-grade of Area 4. |
+> | **D-8** *(was U-11, residual)* | Rulings 19/20 moved the denominator, but **U-11's own two rows are still unanswered**: does the census gain a **Migrate-as-an-operator-action** row and an **Extract/Share** row? Neither was among ruling 19's eight. | (a) Add Migrate only; (b) add both; (c) add neither. | **(a).** Migrate is a documented operator-facing capability we do not have and a business would miss; **Extract/Share was already ruled out of scope** and re-opening it is a bigger question. **Trade-off: `221 → 222` in scope, absent `47 → 48`.** ⚠️ If the answer is **no**, **T2-31**'s scope sentence on row 13.9 is the whole record and must not be quietly deleted. | Row **13.9**'s grade, and the next denominator statement. |
+> | **D-9** *(was U-7)* | **What does "print" mean?** Row 12.5 now ships a real Win32 spooler hand-off and a CUPS path, so the original *"Avalonia has no printing API"* framing is spent — the live question is whether **"print means PDF"** remains a recorded product divergence. | (a) Record "print = spooler where available, PDF otherwise"; (b) declare PDF-only and record it; (c) require physical output everywhere. | **(a).** It matches what shipped. The point of the ruling is that it must be a **recorded** divergence rather than an accident — which is exactly how the *"number of copies"* option came to be meaningless. | The residual of **12.4** (documents are copies-only). |
+> | **D-10** *(was U-8)* | **JPEG report export** (inside row 13.6): six of the vendor's seven formats now ship; JPEG alone needs a **rasteriser** — a dependency or a hand-rolled encoder. | (a) Carve JPEG out and record that 13.6 cannot close; (b) take a rasteriser dependency; (c) drop JPEG silently. | **(a), never (c).** The row is already PARTIAL and honest about why; a silent drop turns an honest PARTIAL into a false COMPLETE. | Closing row **13.6**. |
+> | **D-11** *(was ruling 13, Q-A)* | **Does a cess-less ledger block mean NO cess?** `A-QA` shipped an **assumption** — *cess walks independently of the rate* — behind the switch `GstService.CessWalksIndependentlyOfTheRate`, and it is **not an answer**. | (a) Confirm the assumption (one line: leave the switch on); (b) reverse it; (c) escalate to the schema so the three narrow rungs can carry cess. | **(a) now, (c) later.** The shipped behaviour is defensible and pinned by `GstCessIndependentWalkTests`; **the schema escalation stands regardless** — `MasterGstDetails` has four fields and no cess, and reverse charge and §17(5) ITC-eligibility **do not walk at all**. ⚠️ `CessApplicable` is a non-nullable `bool`, so *"cess does not apply"* is **indistinguishable from silence**. | Widening cess to the narrow rungs; any re-grade of 6.4 / 3.13. |
+> | **D-12** *(was ruling 13, Q-B)* | **The document-title flip on an untaxed voucher** — no taxability is stamped on a posted line, so the bill-of-supply predicate re-resolves live and an **issued** document can change its own title. | (a) Accept the flip and record it; (b) escalate to a schema column that stamps taxability at posting. | **(b) eventually, (a) until then.** `A-QB` shipped the assumption *"an issued document must not change its title"*; an issued document changing its legal caption after the fact is a compliance problem, not a cosmetic one — **but the fix is a schema column and must be sequenced, not smuggled into a slice.** | The schema slice that stamps taxability; the next print-engine grade. |
+> | **D-13** *(was U-2)* | **The counting unit for the fidelity figure** — §1.3 has always counted **items**, while the wave-2/3 passes compared ~160 capabilities across ~140 rows and were folded in as **+3** and **+5**. | (a) Keep the item; (b) count capabilities; (c) count rows. | **(a).** Counting capabilities or rows would **overstate the figure against every previous entry**, and two of the three passes refused to propose a number for exactly that reason. **If the user rules otherwise the RULE changes in §1.3 and every item is re-counted under it — no digit is ever edited.** | Nothing. It is cheap and it decides how every future fidelity figure reads. |
+>
+> **▶ 🔴 ONE ITEM IS DELIBERATELY *NOT* ON THIS SHEET, AND SAYING SO IS THE POINT: U-4 (depth vs breadth for
+> wave 2).** It asked how to spend a **2–3-day horizon** against **68 absent rows**; that horizon is spent, the
+> absent figure is now **47** on a different denominator, and waves 4–13 answered it in practice by running
+> read-only verification **alongside** build tracks. **Putting a spent question in front of the user would
+> waste the sitting.** It is left in the long-form batch below as the record of what was asked.
+
+> **▶ 🔴 SUPERSEDED IN STATUS 2026-09-07 BY THE DECISION SHEET ABOVE — KEPT VERBATIM AS THE LONG-FORM RECORD,
+> because each row's trade-off is written out here at a length the sheet deliberately does not repeat. Read the
+> sheet for what is OPEN; read this for the reasoning behind each item. Closed since it was written: U-0 and
+> U-3 (ruling 14) · the ten-row gate (ruling 15) · U-6's `Ctrl+I` arm (ruling 17) · U-5's FBT arm and the two
+> other dead-law rows (ruling 20) · U-11's denominator half (ruling 19 — `216 → 224`, less ruling 20's three,
+> leaving `221` in scope). U-4 is spent. 🔴 THE HEADING'S "TEN" WAS ALREADY WRONG WHEN WRITTEN AND IS LEFT
+> UNTOUCHED ON PURPOSE: two other places search for the literal string.**
 
 > **▶ 🔴 TEN RULINGS ARE STILL OWED TO THE USER AS OF 2026-09-04 — HELD HERE AS ONE BATCH SO THEY CAN BE PUT
 > TOGETHER RATHER THAN DRIBBLED OUT. NOTHING MAY BE DISPATCHED INTO ANY OF THEM (R12).**
