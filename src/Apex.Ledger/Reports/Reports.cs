@@ -164,6 +164,37 @@ public static class Report
         Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
         => AttendanceRegister.Build(c, employeeIds, from, to);
 
+    /// <summary>The Attendance <b>Sheet</b> — the fixed four-figure per-employee summary (days present / days absent
+    /// / units produced / overtime) for a period (census row 7.22). 🔴 <b>Not</b>
+    /// <see cref="BuildAttendanceRegister"/>, which is the wide per-type matrix (row 7.15); the vendor publishes the
+    /// two as separate reports and neither answers for the other.</summary>
+    public static AttendanceSheet BuildAttendanceSheet(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to, bool removeZeroValued = false)
+        => AttendanceSheet.Build(c, employeeIds, from, to, removeZeroValued);
+
+    /// <summary>The Pay Head Employee Breakup (census row 7.23) — <b>one employee</b>, broken up group-wise across
+    /// the pay heads posted for them, with opening / debit / credit / closing balances.</summary>
+    public static PayHeadBreakup BuildPayHeadEmployeeBreakup(Company c, Guid employeeId, DateOnly from, DateOnly to)
+        => PayHeadBreakup.ForEmployee(c, employeeId, from, to);
+
+    /// <summary>The Employee Pay Head Breakup (census row 7.24) — <b>one pay head</b>, broken up across the
+    /// employees it was posted for, with opening / debit / credit / closing balances. The transpose of
+    /// <see cref="BuildPayHeadEmployeeBreakup"/>, over the same engine so the two can never disagree.</summary>
+    public static PayHeadBreakup BuildEmployeePayHeadBreakup(Company c, Guid payHeadId, DateOnly from, DateOnly to)
+        => PayHeadBreakup.ForPayHead(c, payHeadId, from, to);
+
+    /// <summary>The Payroll Statutory Summary (census row 7.25) — the payable/paid roll-up OVER the PF, ESI, PT and
+    /// §192 computations (rows 7.10/7.11/7.12 ship those), with the per-pay-head details beneath each type.</summary>
+    public static PayrollStatutorySummary BuildPayrollStatutorySummary(Company c, DateOnly from, DateOnly to)
+        => PayrollStatutorySummary.Build(c, from, to);
+
+    /// <summary>The per-employee Income Tax Computation (census row 7.26) in Form 16 shape — <c>null</c> when the
+    /// employee has no salary and no §192 deduction posted in the year. Reads
+    /// <see cref="Form24Q.BuildAnnexureII"/>, the same call that backs Form 16 Part B, so the report cannot drift
+    /// from the certificate.</summary>
+    public static IncomeTaxComputationReport? BuildIncomeTaxComputation(Company c, Guid employeeId, int fyStartYear)
+        => IncomeTaxComputationReport.Build(c, employeeId, fyStartYear);
+
     /// <summary>The Payment / Bank Advice — net pay per employee for a bank transfer (Phase 8 slice 8; RQ-16),
     /// projected from the posted Payroll voucher.</summary>
     public static PaymentAdvice BuildPaymentAdvice(Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)

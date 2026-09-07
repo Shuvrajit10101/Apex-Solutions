@@ -581,6 +581,40 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Pay-head picker (W-J1, census 7.24): the Employee Pay Head Breakup is scoped to ONE pay
+                             head — the vendor's "List of Pay Heads". It shares Grid.Row 2 with the pickers above
+                             and is mutually exclusive with them: ShowPayrollPayHeadPicker is true on exactly one
+                             ReportKind, and that kind's own wage-month row carries no employee combo (7.24 is
+                             scoped by pay head, 7.23 by employee — the transposition is the whole point, so the
+                             two scope controls are never both live). -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowPayrollPayHeadPicker}">
+                          <TextBlock Grid.Column="0" Text="Wage Month" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" Width="150" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding PayrollMonths}"
+                                    SelectedItem="{Binding SelectedPayrollMonth, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:PayrollMonthOption">
+                                <TextBlock Text="{Binding Label}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                          <TextBlock Grid.Column="2" Text="Pay Head" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="18,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="3" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding PayrollPayHeads}"
+                                    SelectedItem="{Binding SelectedPayrollPayHead, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:PayrollPayHeadOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Statutory-period picker (W7-D2): PF Forms 3A / 6A run over the 1-Mar…28/29-Feb CURRENCY
                              PERIOD and ESI Forms 5 / 6 over the Apr–Sep / Oct–Mar CONTRIBUTION PERIOD, neither of
                              which is a wage month, so those four forms swap the wage-month picker for this one. Only

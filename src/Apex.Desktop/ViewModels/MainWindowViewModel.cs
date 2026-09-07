@@ -2501,6 +2501,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("ESI Form 6", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Other Payroll Statutory"));
+        // Census 7.25 — the roll-up OVER the PF / ESI / PT computations above, which is why it sits beneath them
+        // rather than in their place. Always surfaced: it reports on whichever statutory heads exist, and an
+        // establishment with none gets a named empty state rather than a missing menu row.
+        col.Add(new MenuItemViewModel("Payroll Statutory Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
         // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
@@ -2515,6 +2519,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Census 7.26 — the per-employee computation in Form 16 shape. It reads the SAME annual computation
+            // Form 16 Part B does, so it sits immediately beside the certificate it reconciles to, and behind the
+            // same "Enable Salary TDS" gate: without §192 there is no computation to report.
+            col.Add(new MenuItemViewModel("Income Tax Computation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             // Form 12BA / 123 is the Form 16 ANNEXURE (statement of perquisites, rule 26A(2)(b)); it is issued to the
             // same employee for the same year off the same data path, so it sits immediately beside its certificate.
             col.Add(new MenuItemViewModel(FormMenuLabel("12BA"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2717,12 +2725,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private GatewayColumn BuildPayrollReportsColumn()
     {
         var col = new GatewayColumn("Payroll Reports");
-        col.Add(MenuItemViewModel.Header("Payroll Reports"));
+
+        // W-J1 — NESTED under three headers, not a flat list of ten. Ten page rows under one heading is exactly
+        // the flat dump the standing UI rule forbids, and the three bands are the vendor's own division:
+        // statements of pay, the attendance side, and the two transposed breakups.
+        col.Add(MenuItemViewModel.Header("Statements of Pay"));
         col.Add(new MenuItemViewModel("Payslip", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Pay Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Payroll Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Attendance Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Payment Advice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // 🔴 The Register and the Sheet are TWO vendor reports on two vendor pages (census 7.15 and 7.22). They
+        // sit side by side, under one heading, precisely so nobody folds one into the other again.
+        col.Add(MenuItemViewModel.Header("Attendance"));
+        col.Add(new MenuItemViewModel("Attendance Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Attendance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Census 7.23 / 7.24 — the same data transposed; each is its own report with its own scope picker.
+        col.Add(MenuItemViewModel.Header("Breakups"));
+        col.Add(new MenuItemViewModel("Pay Head Employee Breakup", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Employee Pay Head Breakup", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -10131,6 +10153,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "ESI Form 3": OpenPayrollStatutoryForm(ReportKind.EsiForm3); break;
             case "ESI Form 5": OpenPayrollStatutoryForm(ReportKind.EsiForm5); break;
             case "ESI Form 6": OpenPayrollStatutoryForm(ReportKind.EsiForm6); break;
+            // W-J1 census 7.25 — the payable/paid roll-up over the PF/ESI/PT heads. Behind the same
+            // PayrollStatutoryEnabled gate as every other row in this column.
+            case "Payroll Statutory Summary": OpenPayrollStatutoryForm(ReportKind.PayrollStatutorySummary); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
             case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
@@ -10141,12 +10166,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Form 12BA / 123 — the same three-way match as its Form 16 parent: FY-gated label, renumbered label, and
             // the dual label the menu shows before a company is loaded.
             case "Form 12BA" or "Form 123" or "Form 12BA / 123": OpenForm12Ba(); break;
+            // W-J1 census 7.26 — the per-employee Income Tax Computation, beside the Form 16 it reconciles to.
+            case "Income Tax Computation": OpenPayrollStatutoryForm(ReportKind.IncomeTaxComputation); break;
             // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
             case "Payslip": OpenReport(ReportKind.Payslip); break;
             case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;
             case "Payroll Register": OpenReport(ReportKind.PayrollRegister); break;
             case "Attendance Register": OpenReport(ReportKind.AttendanceRegister); break;
             case "Payment Advice": OpenReport(ReportKind.PaymentAdvice); break;
+            // W-J1 census 7.22 / 7.23 / 7.24 — under Reports → Payroll Reports. 🔴 "Attendance Sheet" is a
+            // SEPARATE case from "Attendance Register" above: they are two vendor reports, and routing one label
+            // to the other's ReportKind is exactly the fold census row 7.22 exists to prevent.
+            case "Attendance Sheet": OpenReport(ReportKind.AttendanceSheet); break;
+            case "Pay Head Employee Breakup": OpenReport(ReportKind.PayHeadEmployeeBreakup); break;
+            case "Employee Pay Head Breakup": OpenReport(ReportKind.EmployeePayHeadBreakup); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             // Wave 7 D1 — Transactions → Banking (census 8.4 / 8.7). Both are ReportKinds, so they inherit
