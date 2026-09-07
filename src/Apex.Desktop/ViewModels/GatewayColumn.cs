@@ -286,6 +286,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Data → "Restore Company" panel (non-null only for that R-7 carve-out column).</summary>
     public RestoreCompanyViewModel? RestoreCompanyPanel => Page as RestoreCompanyViewModel;
 
+    /// <summary>The hosted Data → Split → "Verify Data" panel (non-null only for that census-16.5 column).</summary>
+    public VerifyDataViewModel? VerifyDataPanel => Page as VerifyDataViewModel;
+
+    /// <summary>The hosted Data → Split → "Split Data" panel (non-null only for that census-16.5 column).</summary>
+    public SplitCompanyViewModel? SplitCompanyPanel => Page as SplitCompanyViewModel;
+
     /// <summary>The hosted M / Ctrl+M "E-Mail" compose panel (non-null only for that RQ-25/26 column).</summary>
     public EmailComposeViewModel? EmailCompose => Page as EmailComposeViewModel;
 

@@ -830,6 +830,15 @@ public sealed class DashboardReachabilityTests
     /// <para>This test is a CHANGE DETECTOR, not a claim that this particular map is right. If a later slice
     /// adds a root row and this reddens, that is the test working: read which letters moved, decide whether the
     /// move is acceptable, and update the map deliberately.</para>
+    ///
+    /// <para>🔴 <b>2026-09-07 — it did exactly that, and it changed a slice's design.</b> Census row 16.5 added a
+    /// root row under Data. Labelled <b>"Split"</b> it cost <b>Create its C</b> (the augmenting pass re-housed
+    /// Create onto 'e' and gave C to Chart of Accounts) — the most-memorised accelerator on the Gateway, and it
+    /// also turned <c>MenuHotKeyAndAcceptTests.The_first_free_letter_wins_and_a_collision_falls_through_to_the_next</c>
+    /// red. The row was therefore labelled with the vendor's own name for the feature, <b>"Split Company
+    /// Data"</b>, whose 'm' (in "Company") is free in pass 1 — so the new row claims a letter <b>nobody had</b>
+    /// and <b>not one incumbent letter moved</b>. The one line added below is the whole diff. Keeping the
+    /// shorter label would have been a silent usability regression that this test, and only this test, caught.</para>
     /// </summary>
     [AvaloniaFact]
     public void The_root_Gateway_column_paints_exactly_these_accelerators()
@@ -845,7 +854,8 @@ public sealed class DashboardReachabilityTests
                 "Create=C | Alter Company=l | Chart of Accounts=h | GST & Taxation=G | Vouchers=V | Banking=n | "
                 + "Day Book=a | Balance Sheet=B | Profit & Loss A/c=P | Trial Balance=T | Account Books=u | "
                 + "Statements=S | Statements of Accounts=e | Inventory Reports=I | GST Reports=R | "
-                + "Exception Reports=x | Dashboard=D | Backup / Restore=k | Quit — Change Company=Q";
+                + "Exception Reports=x | Dashboard=D | Backup / Restore=k | Split Company Data=m | "
+                + "Quit — Change Company=Q";
 
             Assert.Equal(expected, actual);
 
