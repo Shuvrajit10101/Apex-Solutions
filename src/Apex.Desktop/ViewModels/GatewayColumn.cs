@@ -292,6 +292,15 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
     public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
 
+    /// <summary>The hosted W "Share via WhatsApp" panel (non-null only for that census-14.10 column).</summary>
+    public WhatsAppShareViewModel? WhatsAppShare => Page as WhatsAppShareViewModel;
+
+    /// <summary>The hosted graphical dashboard (non-null only for that census-14.3 column).</summary>
+    public DashboardViewModel? Dashboard => Page as DashboardViewModel;
+
+    /// <summary>The hosted Alt+C dashboard tile-configuration panel (non-null only for that column).</summary>
+    public DashboardTileConfigViewModel? DashboardTileConfig => Page as DashboardTileConfigViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 
@@ -415,8 +424,11 @@ public sealed partial class GatewayColumn : ViewModelBase
             return;
         }
 
-        var claimed = new System.Collections.Generic.HashSet<char>(ReservedLetters);
+        var reserved = new System.Collections.Generic.HashSet<char>(ReservedLetters);
+        var owner = new System.Collections.Generic.Dictionary<char, MenuItemViewModel>();
 
+        // Pass 1 — the original greedy claim, in row order. Left exactly as it was, so every column whose
+        // rows already all fit keeps the letters it has always painted.
         foreach (var item in Items)
         {
             item.HotKeyIndex = -1;
@@ -426,12 +438,56 @@ public sealed partial class GatewayColumn : ViewModelBase
             {
                 var candidate = char.ToUpperInvariant(item.Label[i]);
                 if (!char.IsLetter(candidate)) continue;
-                if (!claimed.Add(candidate)) continue;
+                if (reserved.Contains(candidate) || owner.ContainsKey(candidate)) continue;
 
+                owner[candidate] = item;
                 item.HotKeyIndex = i;
                 break;
             }
         }
+
+        // Pass 2 — rescue. Greedy order alone can starve a LATER row of a letter that an EARLIER row took but
+        // did not need, because the earlier row had a free alternative of its own. That is an artefact of the
+        // claim ORDER, not a real exhaustion: "Dashboard" under Reports was left with nothing while every one
+        // of D/A/S/H/B/R sat with a holder that had a spare letter available. This pass walks the standard
+        // augmenting path — take the letter, and recursively re-house whoever held it — so a row goes without
+        // an accelerator ONLY when no valid assignment exists at all, rather than merely because it was added
+        // late. Reserved letters are never entered, and the visited set bounds the walk at 26 steps.
+        foreach (var item in Items)
+        {
+            if (!item.IsSelectable || item.HasHotKey) continue;
+            Rehouse(item, reserved, owner, new System.Collections.Generic.HashSet<char>());
+        }
+    }
+
+    /// <summary>
+    /// Tries to give <paramref name="item"/> one of its own letters, displacing the current holder onto a
+    /// different letter of ITS label if need be. Returns false — leaving every assignment untouched — when no
+    /// such re-housing exists. <paramref name="visited"/> stops the walk revisiting a letter, which both
+    /// terminates the recursion and keeps the displaced holder from taking back the letter it just gave up.
+    /// </summary>
+    private static bool Rehouse(
+        MenuItemViewModel item,
+        System.Collections.Generic.HashSet<char> reserved,
+        System.Collections.Generic.Dictionary<char, MenuItemViewModel> owner,
+        System.Collections.Generic.HashSet<char> visited)
+    {
+        for (var i = 0; i < item.Label.Length; i++)
+        {
+            var candidate = char.ToUpperInvariant(item.Label[i]);
+            if (!char.IsLetter(candidate)) continue;
+            if (reserved.Contains(candidate)) continue;
+            if (!visited.Add(candidate)) continue;
+
+            if (!owner.TryGetValue(candidate, out var holder) || Rehouse(holder, reserved, owner, visited))
+            {
+                owner[candidate] = item;
+                item.HotKeyIndex = i;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

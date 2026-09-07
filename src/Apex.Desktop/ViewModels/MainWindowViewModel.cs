@@ -91,6 +91,24 @@ public enum Screen
     RestoreCompany,
     EmailCompose,
     SmtpSettings,
+
+    /// <summary>
+    /// W / the "WhatsApp" badge (census row 14.10) — the "Share via WhatsApp" panel: save the document, then
+    /// open a prepared <c>wa.me</c> link. It is a SIBLING of <see cref="EmailCompose"/> on the same share
+    /// family and carries the same offline contract: nothing is sent, and (WhatsApp's link scheme carrying
+    /// text only) the file is NOT attached — the operator attaches the saved file themselves.
+    /// </summary>
+    WhatsAppShare,
+
+    /// <summary>
+    /// The graphical dashboard (census row 14.3) — Default / Sales / Purchase, reached from Reports → Dashboard.
+    /// Line and bar marks only; pie charts are a documented deliberate non-feature of the surface being cloned.
+    /// </summary>
+    Dashboard,
+
+    /// <summary>Alt+C over an open dashboard: the tile-configuration column.</summary>
+    DashboardTileConfig,
+
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -253,6 +271,9 @@ public enum GatewayMenu
     GstReports,
     Statements,
     ExceptionReports,
+
+    /// <summary>Reports → Dashboard (census row 14.3): the Default / Sales / Purchase graphical dashboards.</summary>
+    Dashboard,
 
     // Account Books family (catalog §16 / RQ-30): Cash Book / Bank Book / Ledger, each drilling to a
     // ledger picker that opens that ledger's LedgerBook (a pure reuse of the existing RQ-7 drill).
@@ -719,6 +740,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
     [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
+
+    /// <summary>The W "Share via WhatsApp" panel (census row 14.10), non-null only while that column is open.</summary>
+    [ObservableProperty] private WhatsAppShareViewModel? _whatsAppShare;
+
+    /// <summary>The graphical dashboard (census row 14.3), non-null only while that column is open.</summary>
+    [ObservableProperty] private DashboardViewModel? _dashboard;
 
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
@@ -1302,6 +1329,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Dashboard (census row 14.3) — the graphical dashboards (line and bar charts only; pie charts are a
+        // documented deliberate non-feature).
+        // 🔴 THE ROUTE CLAIM THAT USED TO SIT HERE WAS FALSE. It said "the reference product reaches these from
+        // F1 > Settings > Startup", so this row was framed as a fallback we invented. Measured 2026-09-07 at
+        // help.tallysolutions.com/dashboard-in-tallyprime/: the documented route is "Gateway > Dashboard" (or
+        // Alt+G > Dashboard). F1 > Settings > Startup is the separate STARTUP PREFERENCE ("Open Dashboard on
+        // loading a Company"), not the way in. This row IS on the root Gateway column, so it matches the
+        // vendor's route rather than diverging from it; the startup preference is what we do not have, and it
+        // needs a Settings screen that does not exist in src/ yet.
+        col.Add(new MenuItemViewModel("Dashboard", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
         // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
@@ -2153,6 +2190,104 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind, Guid?)"/>; Negative Stock
     /// and Negative Cash / Bank honour the F2 as-of, the two registers honour the F2/Alt+F2 period.
     /// </summary>
+    /// <summary>
+    /// Builds the "Dashboard" submenu column (Reports → Dashboard; census row 14.3): the three dashboard types
+    /// the reference product ships — <b>Default</b>, <b>Sales</b> and <b>Purchase</b>. Each is a page item
+    /// opening <see cref="Screen.Dashboard"/> through <see cref="OpenDashboard(DashboardKind)"/>.
+    ///
+    /// <para>🔴 <b>The vendor's own route in is not cloned, and this comment is the record of why.</b> There it
+    /// is reached from <c>F1 &gt; Settings &gt; Startup</c> — measured against this tree, there is no Settings
+    /// screen, no Startup preference and no startup-screen mechanism anywhere in <c>src/</c>, so that route has
+    /// no host to hang from. Nesting the dashboards under Reports makes them reachable today; making one of them
+    /// the STARTUP screen is separate work that needs a Settings screen first, and is not claimed here.</para>
+    /// </summary>
+    private GatewayColumn BuildDashboardColumn()
+    {
+        var col = new GatewayColumn("Dashboard");
+        col.Add(MenuItemViewModel.Header("Dashboard"));
+        col.Add(new MenuItemViewModel("Default Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Sales Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Purchase Dashboard", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Dashboard" submenu column directly.
+    ///
+    /// <para><b>No caller in <c>src/</c>, and that is stated rather than hedged.</b> The operator's real route is
+    /// the generic group dispatch in <c>ActivateSelected</c> — <b>Gateway → Dashboard → one of the three</b>.
+    /// ("Reports" is a section HEADER on the root column, not a column of its own, so it is not a step the
+    /// operator takes: the Dashboard row is one keystroke from the root, which is what makes this match the
+    /// vendor's documented "Gateway &gt; Dashboard".) That is the route the reachability tests walk. This method
+    /// exists as the named public door the tests use
+    /// to reach the submenu without replaying the whole cascade, and it is the door a future Alt-chord or Go-To
+    /// entry for "Dashboard" would bind to. It is honest-but-unused, NOT a dead capability: it opens the same
+    /// column the dispatch opens, and nothing in the shell advertises a verb it does not perform.</para>
+    /// </summary>
+    public void ShowDashboardMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Dashboard");
+        OpenSubmenuColumn(BuildDashboardColumn(), GatewayMenu.Dashboard,
+            "Gateway of Apex Solutions — Dashboard");
+    }
+
+    /// <summary>
+    /// Opens a graphical dashboard as its own cascading column to the RIGHT of the Dashboard submenu.
+    ///
+    /// <para><b>The period is the WHOLE financial year</b>, not "up to the last posted voucher" the way an
+    /// as-of report like an Account Book is. A dashboard is a period overview: its x-axis must be the year, so
+    /// the quiet months at the end of it are visible as the real zeros they are, and so the axis does not
+    /// silently change shape every time a voucher is posted. It is derived purely from the company's own
+    /// financial-year start — no clock reads anywhere in this path, so two runs produce identical charts.</para>
+    /// </summary>
+    public void OpenDashboard(DashboardKind kind)
+    {
+        if (Company is not { } company) { ShowCompanySelect(); return; }
+
+        var panel = new DashboardViewModel(company, kind,
+                                           company.FinancialYearStart,
+                                           company.FinancialYearStart.AddYears(1).AddDays(-1));
+        Dashboard = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Dashboard;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Alt+C over an open dashboard — opens the tile-configuration column for the highlighted tile, as a further
+    /// cascading column, never a stacked overlay.
+    ///
+    /// <para>🔴 <b>THAT SECOND CLAUSE IS ONLY TRUE BECAUSE OF THE BINDING IN THE VIEW, AND IT WAS FALSE WHEN
+    /// FIRST WRITTEN.</b> Pushing the column here is not sufficient: the page templates are evaluated once per
+    /// GatewayColumn, so a template bound to <c>Dashboard.TileConfig</c> matched on the DASHBOARD column and
+    /// painted the panel over the chart while the pushed column came up blank. It is bound to the pushed
+    /// column's own <c>DashboardTileConfig</c> projection instead, and
+    /// <c>Alt_C_renders_the_config_panel_INSIDE_the_column_it_pushed</c> is what keeps this sentence honest —
+    /// it asserts the panel's nearest GatewayColumn ancestor, not merely that the panel exists somewhere in
+    /// the window (which is what the original test asserted, and why the defect shipped green).</para>
+    ///
+    /// <para>The tile it configures is <c>SelectedTileIndex</c>, which the Up/Down arrows move (see
+    /// <c>StepActive</c>) and the tile's own title row paints.</para>
+    /// </summary>
+    public void OpenDashboardTileConfig()
+    {
+        if (Dashboard is not { } dash || dash.Tiles.Count == 0) return;
+        if (dash.TileConfig is not null) return;    // already open — don't stack a second one
+
+        dash.OpenTileConfig();
+        var cfg = dash.TileConfig!;
+        Columns.Add(new GatewayColumn(cfg.Title, cfg));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.DashboardTileConfig;
+        ScreenTitle = cfg.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
     private GatewayColumn BuildExceptionReportsColumn()
     {
         var col = new GatewayColumn("Exception Reports");
@@ -3922,6 +4057,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else
             return;                                      // nothing to e-mail
 
+        panel.Launcher = Launcher;      // the OS hand-off seam (a test substitutes a recording double)
         EmailCompose = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -3935,6 +4071,67 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// attachment) to <paramref name="path"/>. The composer never touches disk — this is the only write. A no-op
     /// when no compose panel is open. Returns whether the file was written. Nothing is sent.</summary>
     public bool SaveEmail(string path) => EmailCompose?.SaveEml(path) ?? false;
+
+    /// <summary>
+    /// The OS hand-off seam shared by every panel that opens something outside the application (the e-mail
+    /// panel's <c>mailto:</c>, the WhatsApp share panel's <c>wa.me</c> link). Settable so a test can supply a
+    /// recording double — no CI runner has a mail client, a browser or an <c>xdg-open</c>.
+    /// </summary>
+    public Apex.Desktop.Services.IExternalLauncher Launcher { get; set; }
+        = Apex.Desktop.Services.ShellExternalLauncher.Default;
+
+    /// <summary>
+    /// Alt+O / the "Open in Mail Client" button on the compose panel: hand the composed <c>mailto:</c> to the
+    /// OS default mail client. A no-op returning false when no compose panel is open. Nothing is sent — the
+    /// mail client opens a DRAFT, and (RFC 6068) no attachment can ride a mailto.
+    /// </summary>
+    public bool OpenMailtoInMailClient() => EmailCompose?.OpenInMailClient() ?? false;
+
+    // ================================================== screen: share via WhatsApp (census row 14.10)
+
+    /// <summary>
+    /// W / the "WhatsApp" badge — opens the "Share via WhatsApp" panel for the CURRENT report or the drilled
+    /// voucher / tax invoice, as its own cascading column to the RIGHT of the page, never a stacked overlay.
+    /// It is the SECOND CHANNEL on the same share seam as <see cref="OpenEmailCompose"/> and carries the same
+    /// guard (<see cref="IsPrintablePage"/>), the same "no-op if already open" rule, and the same offline
+    /// contract.
+    ///
+    /// <para>🔴 <b>What it deliberately is NOT.</b> The reference product's WhatsApp feature is a WhatsApp
+    /// Business API integration through a commercial BSP: a WABA is mandatory, a personal number cannot be
+    /// used, and there is no account-free path. We have no WABA and no credentials, and an outbound call to a
+    /// third-party commercial API would break this application's offline-by-construction posture. So this
+    /// panel SAVES the document and hands over a prepared <c>wa.me</c> link — see
+    /// <see cref="WhatsAppShareViewModel"/> for the full reasoning and the operator-facing notice.</para>
+    /// </summary>
+    public void OpenWhatsAppShare()
+    {
+        if (WhatsAppShare is not null) return;   // panel already open — don't stack a second one
+
+        WhatsAppShareViewModel panel;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            panel = new WhatsAppShareViewModel(vd);      // share the drilled voucher / tax invoice
+        else if (IsReportContext && Reports is { } r)
+            panel = new WhatsAppShareViewModel(r);       // share the open report
+        else
+            return;                                      // nothing to share
+
+        panel.Launcher = Launcher;
+        WhatsAppShare = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.WhatsAppShare;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the share panel: write the rendered document to
+    /// <paramref name="path"/>. This is step ONE — <see cref="ShareViaWhatsApp"/> refuses until it succeeds.</summary>
+    public bool SaveWhatsAppDocument(string path) => WhatsAppShare?.SaveDocument(path) ?? false;
+
+    /// <summary>Alt+O / the "Open in WhatsApp" button: hand the prepared <c>wa.me</c> link to the OS. Sends
+    /// nothing, and attaches nothing — the panel's status line says so.</summary>
+    public bool ShareViaWhatsApp() => WhatsAppShare?.Share() ?? false;
 
     // =============================================================== screen: SMTP settings (RQ-27)
 
@@ -4124,6 +4321,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 SafePathStem(email.DocumentTitle) + ".eml",
                 new FilePathFileType("E-mail message", new[] { "*.eml" })),
 
+        Screen.WhatsAppShare when WhatsAppShare is { } share =>
+            FilePathPickRequest.SaveFile("Save the document to share as", string.Empty,
+                share.SuggestedFileName,
+                new FilePathFileType("PDF document", new[] { "*.pdf" })),
+
         Screen.PrintPreview when PrintPreview is { } preview =>
             FilePathPickRequest.SaveFile("Save the PDF as", string.Empty,
                 SafePathStem(preview.ReportTitle) + ".pdf",
@@ -4200,6 +4402,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             case Screen.EmailCompose:
                 return SaveEmail(path);
+
+            // Alt+B on the share panel: the operator says WHERE the shared document goes. Writing it is step ONE
+            // of the two-step share; the wa.me hand-off refuses until this has succeeded.
+            case Screen.WhatsAppShare:
+                return SaveWhatsAppDocument(path);
 
             case Screen.PrintPreview:
                 return SavePrintPreview(path);
@@ -6315,6 +6522,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         RestoreCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
+        WhatsAppShare = null;
+        Dashboard = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }
@@ -8693,6 +8902,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On an open graphical dashboard (census 14.3) the arrows move the TILE highlight — the tile Alt+C
+        // configures. This arm is what makes DashboardViewModel.SelectedTileIndex a real knob: it had no mover
+        // and no painted indicator, so Alt+C could only ever configure tile zero while its own doc comment
+        // claimed the column was keyboard-navigable. Routed through StepActive rather than a new arm in the key
+        // tunnel for the same reason every other row-selecting page above is: one door, so Up and Down cannot
+        // come to mean different things on different pages.
+        if (CurrentScreen == Screen.Dashboard && Dashboard is { } dashboard)
+        {
+            if (direction < 0) dashboard.MoveTileUp(); else dashboard.MoveTileDown();
+            return;
+        }
+
         // On the GSTR-2B Reconciliation report the arrows move the bucket-row highlight (keeps a live selection).
         if (IsGstr2bReconScreen)
         {
@@ -9250,6 +9471,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Group Vouchers"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
+            // Census 14.3 — the three graphical dashboards.
+            "Dashboard" => (BuildDashboardColumn(), GatewayMenu.Dashboard,
+                "Gateway of Apex Solutions — Dashboard"),
             "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
                 "Gateway of Apex Solutions — Statutory Reports"),
             "TDS Reports" => (BuildTdsReportsColumn(), GatewayMenu.TdsReports,
@@ -9601,6 +9825,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
+            // Census 14.3 — the three graphical dashboards, under Reports → Dashboard.
+            case "Default Dashboard": OpenDashboard(DashboardKind.Default); break;
+            case "Sales Dashboard": OpenDashboard(DashboardKind.Sales); break;
+            case "Purchase Dashboard": OpenDashboard(DashboardKind.Purchase); break;
             case "Sales Register": OpenReport(ReportKind.SalesRegister); break;
             case "Purchase Register": OpenReport(ReportKind.PurchaseRegister); break;
             case "Journal Register": OpenReport(ReportKind.JournalRegister); break;
@@ -9791,6 +10019,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
                 return Screen.VoucherDetail;
+            // A dashboard column survives beneath a just-popped Alt+C tile-configuration column (census 14.3).
+            // 🔴 CloseTileConfig() is load-bearing, not tidying: OpenDashboardTileConfig REFUSES while
+            // `dash.TileConfig` is non-null ("already open — don't stack a second one"), so leaving it set after
+            // its own column has been popped would make Alt+C permanently inert for the rest of that dashboard's
+            // life — the operator escapes out of the panel once and can never open it again.
+            // (It used to be load-bearing for a second reason as well: the panel was bound through
+            // `Dashboard.TileConfig` and rendered as a stacked overlay ON the dashboard column. That defect is
+            // fixed — MainWindow.axaml now binds `DashboardTileConfig`, the pushed column's own projection — so
+            // the reopen guard is the only thing this call now protects. It still must be called.)
+            case DashboardViewModel d:
+                Dashboard = d;
+                d.CloseTileConfig();
+                return Screen.Dashboard;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
@@ -9907,6 +10148,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Dashboard" => GatewayMenu.Dashboard,
                     "Statutory Reports" => GatewayMenu.StatutoryReports,
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
@@ -10234,8 +10476,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // still through the non-destructive route, so clicking it mid-voucher no longer discards the entry.
         // DEFECT 3: it is DISABLED while a create column is already open, where Alt+C is inert by design — an
         // enabled button captioned "Create Ledger" that does nothing is worse than an honestly dimmed one.
-        ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
-            hasCompany && !IsCreateOnTheFlyOpen));
+        // 🔴 ON A DASHBOARD Alt+C IS "CONFIGURE TILE", AND THE BADGE MUST SAY SO. The key tunnel routes Alt+C on
+        // Screen.Dashboard to OpenDashboardTileConfig (MainWindow.axaml.cs), and this row had no Dashboard arm —
+        // so the operator read an ENABLED badge saying "Alt+C  Create Ledger", pressed Alt+C and got the tile
+        // configuration, then CLICKED the same badge and got the Ledger-creation master. Two doors for one
+        // advertised chord doing two different things is register row IV-1's exact shape, and this file already
+        // records the identical defect being fixed once before ("key and button advertised one shortcut and did
+        // two different things", the WI-1 note below). The click now runs the SAME method the key runs, and the
+        // enable predicate is the SAME condition that method enforces, so the two cannot drift.
+        // ONE Alt+C row only — the shell's Fire()/hint lookup takes the first key match, so this is an if/else
+        // and never two Adds. Locked by The_Alt_C_badge_on_a_dashboard_says_what_the_Alt_C_key_does.
+        if (CurrentScreen == Screen.Dashboard)
+            ButtonBar.Add(new ButtonBarItem("Alt+C", "Configure Tile", OpenDashboardTileConfig,
+                Dashboard is { Tiles.Count: > 0, TileConfig: null }));   // the EXACT pair OpenDashboardTileConfig returns on
+        else
+            ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
+                hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
 
         // W2-13a (census 14.5) — Ctrl+B BASIS OF VALUES. This is the row the Alt+A note below says was
@@ -10275,6 +10531,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
         // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
+        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, with the
+        // same printable-page gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
+        // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point) —
+        // recorded in docs/invented-vs-cloned.md as IV-64. This note used to add "and our M is already spent";
+        // that was false — the vendor's chord is Alt+M and Alt+M is unclaimed here (the M arm in the key tunnel
+        // excludes Alt), so W was chosen, not forced. See the corrected IV-64 row.
+        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
 
