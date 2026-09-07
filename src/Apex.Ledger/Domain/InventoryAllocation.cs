@@ -42,6 +42,34 @@ public sealed class InventoryAllocation
     /// </summary>
     public Guid? UnitId { get; }
 
+    /// <summary>
+    /// The operator-entered <b>Tracking No.</b> that links this goods movement to the bill that accounts for it
+    /// (census 9.8; schema v58) — a Receipt Note line to its Purchase invoice, a Delivery Note line to its Sales
+    /// invoice. <c>null</c> ⇒ untracked, which is every line entered before the feature and every line entered
+    /// while <see cref="Company.UseTrackingNumbers"/> is off.
+    /// <para>
+    /// 🔴 <b>It is free text, deliberately not a foreign key.</b> The vendor defaults it to the voucher number but
+    /// lets the operator key anything; one number may legitimately span several vouchers on either side; and a
+    /// note is routinely entered <i>before</i> the bill that will quote its number exists. A reference to a row
+    /// that does not exist yet cannot be an FK. The reconciliation is therefore a string match — see
+    /// <c>BillsPending</c>, which is the report that reads it.
+    /// </para>
+    /// <para>Blank/whitespace is normalised to <c>null</c> so "  " and "not entered" cannot become two different
+    /// buckets in a report that groups by this string. R7:
+    /// <c>help.tallysolutions.com/purchase-order-tally/</c> — "Enter a <b>Tracking No.</b> By default, the
+    /// invoice number appears".</para>
+    /// </summary>
+    public string? TrackingNumber { get; }
+
+    /// <summary>
+    /// The operator-entered <b>Cost Tracking Number</b> that follows this quantity's cost across its
+    /// purchase-to-sales lifecycle (census 9.7; schema v58). <c>null</c> ⇒ not cost-tracked. Normalised the same
+    /// way as <see cref="TrackingNumber"/>, and orthogonal to it: one links a movement to its bill, the other
+    /// accumulates cost and revenue for one lot over time. R7:
+    /// <c>help.tallysolutions.com/tally-prime/inventory/track-item-cost-tally/</c>.
+    /// </summary>
+    public string? CostTrackingNumber { get; }
+
     public InventoryAllocation(
         Guid stockItemId,
         Guid godownId,
@@ -49,7 +77,9 @@ public sealed class InventoryAllocation
         StockDirection direction,
         Money? rate = null,
         string? batchLabel = null,
-        Guid? unitId = null)
+        Guid? unitId = null,
+        string? trackingNumber = null,
+        string? costTrackingNumber = null)
     {
         if (quantity <= 0m)
             throw new ArgumentException("An inventory allocation quantity must be > 0.", nameof(quantity));
@@ -72,5 +102,8 @@ public sealed class InventoryAllocation
         Rate = rate;
         BatchLabel = string.IsNullOrWhiteSpace(batchLabel) ? null : batchLabel.Trim();
         UnitId = unitId;
+        // v58 (9.8/9.7): normalise blank → null so "  " and "not entered" cannot become two report buckets.
+        TrackingNumber = string.IsNullOrWhiteSpace(trackingNumber) ? null : trackingNumber.Trim();
+        CostTrackingNumber = string.IsNullOrWhiteSpace(costTrackingNumber) ? null : costTrackingNumber.Trim();
     }
 }

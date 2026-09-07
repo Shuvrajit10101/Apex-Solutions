@@ -5287,6 +5287,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         RecalculateItemInvoice();
     }
 
+    /// <summary>
+    /// True when the item-invoice grid shows the <b>Tracking No.</b> column (census 9.8) — the F11 feature AND a
+    /// voucher that can carry item lines whose goods a note may have moved.
+    /// <para>The bill half of the tracking mechanism lives on a <b>Purchase</b> or <b>Sales</b> invoice, which
+    /// are exactly the two <see cref="CanBeItemInvoice"/> covers here; a Credit/Debit Note reverses a bill rather
+    /// than raising one, and offering the column there would let one tracking number be billed twice and net to
+    /// zero in <c>BillsPending</c> — a reversal reading as a reconciliation.</para>
+    /// </summary>
+    public bool ShowItemTrackingNumber =>
+        _company.UseTrackingNumbers && CanBeItemInvoice
+        && _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+
+    /// <summary>True when the item-invoice grid shows the <b>Cost Tracking Number</b> column (census 9.7). Not
+    /// restricted by base type beyond being an item invoice — a lot's cost lifecycle spans every document that
+    /// touches it. See <c>InventoryVoucherEntryViewModel.ShowCostTrackingNumber</c>.</summary>
+    public bool ShowItemCostTrackingNumber => _company.EnableCostTracking && CanBeItemInvoice;
+
     /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
     public InventoryVoucherLineViewModel AddInventoryLine()
     {
@@ -5299,6 +5316,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
             ShowDiscount = ShowPriceLevelSelector,
+            // W-K1 (census 9.8 / 9.7). Set at construction so a freshly added line shows the columns
+            // immediately; RecalculateItemInvoice re-syncs them on every change (which is what keeps them
+            // correct after an F11 toggle).
+            ShowTrackingNumber = ShowItemTrackingNumber,
+            ShowCostTrackingNumber = ShowItemCostTrackingNumber,
         };
         InventoryLines.Add(line);
         RecalculateItemInvoice();
@@ -5506,7 +5528,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // Billed ≡ Actual here, and the foot-to-LineValue guard above has already PROVED that Σ of these
                 // rows is precisely LineValue — the figure the screen showed and GST taxed (ER-4).
                 billedQuantity: a.Quantity,
-                unitId: line.UnitId));
+                unitId: line.UnitId,
+                // W-K1 (census 9.8 / 9.7): a batch-split line is still ONE bill line as far as the operator is
+                // concerned, so every row it splits into carries the SAME tracking data. Omitting them here is
+                // the exact shape of a silent data loss: the unsplit path (below) would carry them and the split
+                // path would not, so whether a bill reconciled against its Receipt Note would depend on whether
+                // its item happened to be batch-tracked.
+                trackingNumber: line.Tracking,
+                costTrackingNumber: line.CostTracking));
 
         return true;
     }
@@ -6164,6 +6193,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         foreach (var l in InventoryLines)
             l.WantsBatchAllocation = LineWantsBatchAllocation(l);
 
+        // W-K1 (census 9.8 / 9.7): keep the two tracking columns in sync with their F11 gates on every item
+        // line, for the same reason as the batch affordance above — a construction-time-only assignment leaves a
+        // line posting a value from a column the operator has since switched off.
+        foreach (var l in InventoryLines)
+        {
+            l.ShowTrackingNumber = ShowItemTrackingNumber;
+            l.ShowCostTrackingNumber = ShowItemCostTrackingNumber;
+        }
+
         var total = ItemsTotal;
         ItemsTotalText = IndianFormat.AmountAlways(total);
 
@@ -6473,7 +6511,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // picker can never stamp a unit onto the line (the hidden-sub-form discipline). The quantity is
                 // posted AS TYPED (2), not base-normalised: Value = 2 × ₹10 = ₹20 must foot against the Sales
                 // leg, and the engine converts to 24 Nos for stock on its own side.
-                unitId: l.UnitId));
+                unitId: l.UnitId,
+                // W-K1 (census 9.8 / 9.7): the BILL half of the tracking mechanism. This string and the one on
+                // the Receipt/Delivery Note's allocation are what BillsPending nets against each other — a bill
+                // that drops it leaves its goods pending for ever, which is the exact failure the report exists
+                // to make visible. Both read null when their column is hidden.
+                trackingNumber: l.Tracking,
+                costTrackingNumber: l.CostTracking));
         }
 
         // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant

@@ -554,7 +554,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > next is **51**~~ — and a slice that does not need a column still must not take one.
 > **▶ 🔴 BOTH STRUCK FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb`, AND THE CORRECTION IS MADE IN PLACE BECAUSE
 > RULING 8 BELOW QUOTES THIS NUMBER.** The rule this banner quotes is still there verbatim, but it now lives at
-> **`src/Apex.Persistence.Sqlite/Schema.cs:232-233`** — **re-pointed 2026-09-07 from ~~`:207-208`~~ (schema v56, Security Control, added lines above it), itself re-pointed the same day from ~~`:187-188`~~ (schema v55, the Karnataka PT back-fill, added lines above it), itself re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
+> **`src/Apex.Persistence.Sqlite/Schema.cs:245-246`** — **re-pointed 2026-09-08 from ~~`:232-233`~~ (schema **v58**, W-K1 inventory costing & tracking, added lines above it), itself re-pointed 2026-09-07 from ~~`:207-208`~~ (schema v56, Security Control, added lines above it), itself re-pointed the same day from ~~`:187-188`~~ (schema v55, the Karnataka PT back-fill, added lines above it), itself re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment added lines above it), itself re-pointed 2026-08-19 from ~~`:157-158`~~** (the voucher edit log added lines above it, so it drifted exactly as `:144-145` had, and stayed green for exactly the same reason) — a **content drift, not a dangling citation**: `:144-145`
 > is still a valid line in a 3,880-line file and stayed green under the reach check, which is the exact blind
 > spot `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` exists to cover — **and this citation is now IN that table**, so its next drift goes red instead of staying green. And
 > **`Schema.CurrentVersion` is now `53`** — and it is **deliberately NOT re-pointed to a line**: the constant has
@@ -2742,16 +2742,20 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
-     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:4115`** (re-pointed 2026-09-07 from
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:4168`** (re-pointed 2026-09-08 from
+     ~~`:4115`~~ — schema **v58**, W-K1 inventory costing & tracking, added lines above it; itself re-pointed
+     2026-09-07 from
      ~~`:3958`~~ — schema **v56**, Security Control, added lines above it; itself re-pointed the same day from
      ~~`:3938`~~ — schema v55, the Karnataka PT back-fill).
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5338`**
-     (re-pointed 2026-09-07 from ~~`:5065`~~ — the v56 Security Control writer added lines above it; itself
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5440`**
+     (re-pointed 2026-09-08 from ~~`:5338`~~ — schema **v58**, W-K1, added lines above it; itself re-pointed
+     2026-09-07 from ~~`:5065`~~ — the v56 Security Control writer added lines above it; itself
      re-pointed the same day from ~~`:5031`~~ — the v54→v55 ladder step),
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**
-     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:691`** (re-pointed 2026-09-07 from
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:747`** (re-pointed 2026-09-08 from
+     ~~`:691`~~ — the new `V58ToV57` downgrade was added above it; itself re-pointed 2026-09-07 from
      ~~`:499`~~ — the new `V56ToV55` downgrade **and its `RebuildPreservingShape` helper**, which has an index
      replay of its own, were added above it; itself re-pointed the same day from ~~`:463`~~ — the `V55ToV54`
      downgrade), inside **`DropColumns`** — note there are now TWO index replays in this file and this citation
@@ -5735,7 +5739,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (~~`Schema.cs:144-145`~~), **recorded in this file**. ~~`Schema.CurrentVersion` is **50** (`Schema.cs:146`), so
   the next is **51**.~~ **▶ 🔴 BOTH FIGURES RE-MEASURED 2026-08-16 AT `3a4fcdb` AND CORRECTED IN PLACE (the
   same correction is made on ruling 2 itself in §5).** The migration-equivalence rule now lives at
-  `src/Apex.Persistence.Sqlite/Schema.cs:232-233` — **re-pointed 2026-09-07 from ~~`:207-208`~~ (schema v56, Security Control, added lines above it), itself re-pointed the same day from ~~`:187-188`~~ (schema v55, the Karnataka PT back-fill), itself re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
+  `src/Apex.Persistence.Sqlite/Schema.cs:245-246` — **re-pointed 2026-09-08 from ~~`:232-233`~~ (schema **v58**, W-K1), itself re-pointed 2026-09-07 from ~~`:207-208`~~ (schema v56, Security Control, added lines above it), itself re-pointed the same day from ~~`:187-188`~~ (schema v55, the Karnataka PT back-fill), itself re-pointed 2026-09-05 from ~~`:166-167`~~ (W2-03's v53 doc comment), itself re-pointed 2026-08-19 from ~~`:157-158`~~, and guarded from here on by `LoadBearingCitationContentTests`** — and **`Schema.CurrentVersion` is `53`**,
   **cited by TEXT and never by line: grep `public const int CurrentVersion` in that file.** **WF-1 took v51 in `e49b88e`; the voucher edit log took v52 on 2026-08-19; W2-03 (the Voucher Type master) took v53 on 2026-09-05** — two additive `voucher_types` columns, `MigrateV52ToV53`, `SchemaDowngrade.V53ToV52`, round-trip + migration-parity tests. **The next free version is v54**, so *"the next is 51"* must not be re-read as *"the next is 52"*: consult
   **W0-2b's `▶ SCHEMA` note** before any slice takes a number.
   **"NONE expected" still stands as the expectation** — the wave's items are UI over persisted
