@@ -298,6 +298,17 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
     public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
 
+    /// <summary>The hosted "Users for Company" panel — Alt+K &gt; Users and Passwords (non-null only for that
+    /// census-16.2 column). 🔴 Without this accessor the page template's compiled binding does not resolve:
+    /// the whole PAGE region of <c>MainWindow.axaml</c> sits inside the <c>x:DataType="vm:GatewayColumn"</c>
+    /// cascade item template, so a page view model that is only on <c>MainWindowViewModel</c> fails the XAML
+    /// compile with <c>AVLN2000 … on type GatewayColumn</c>. It did, on a clean build.</summary>
+    public SecurityUsersViewModel? SecurityUsers => Page as SecurityUsersViewModel;
+
+    /// <summary>The hosted "Password Policy" panel — Alt+K &gt; Password Policy (non-null only for that
+    /// census-16.2 column). See <see cref="SecurityUsers"/> for why this accessor is required.</summary>
+    public PasswordPolicyViewModel? PasswordPolicy => Page as PasswordPolicyViewModel;
+
     /// <summary>The hosted W "Share via WhatsApp" panel (non-null only for that census-14.10 column).</summary>
     public WhatsAppShareViewModel? WhatsAppShare => Page as WhatsAppShareViewModel;
 

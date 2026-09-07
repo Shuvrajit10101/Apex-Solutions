@@ -18289,6 +18289,228 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: "Users for Company" — Alt+K (Company) > Users and Passwords (census 16.2).
+                         🔴 R13: this screen SETS passwords and can never SHOW one. The password box is
+                         PasswordChar-masked, it is cleared the moment the verb runs, and the list column says
+                         only "Set"/"Not set". The two notices are load-bearing, not decoration — see
+                         SecurityUsersViewModel. -->
+                    <ContentControl IsVisible="{Binding SecurityUsers, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SecurityUsers}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SecurityUsersViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding CompanyName}"/>
+
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                              <Border Background="White"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="16" VerticalAlignment="Top">
+                                <StackPanel Spacing="12" MinWidth="420">
+
+                                  <!-- 🔴 The architectural limit. A local file cannot be defended from whoever
+                                       can read it, and the operator is told so before they rely on this. -->
+                                  <Border Background="#FFF3CD" BorderBrush="#E0C97F" BorderThickness="1"
+                                          Padding="10" CornerRadius="2">
+                                    <TextBlock Text="{Binding LimitNotice}" FontSize="11" TextWrapping="Wrap"
+                                               Foreground="#5C4813"/>
+                                  </Border>
+
+                                  <!-- 🔴 The irrecoverable-lockout warning. -->
+                                  <Border Background="#FDECEA" BorderBrush="#E0A6A0" BorderThickness="1"
+                                          Padding="10" CornerRadius="2">
+                                    <TextBlock Text="{Binding LockoutNotice}" FontSize="11" TextWrapping="Wrap"
+                                               Foreground="#6B2018"/>
+                                  </Border>
+
+                                  <!-- 🔴 The scope limit: these rules are RECORDED, not yet ENFORCED. An
+                                       operator who restricted a report here and was not told would believe it
+                                       was restricted. -->
+                                  <Border Background="#E8F1FA" BorderBrush="#9EC0DF" BorderThickness="1"
+                                          Padding="10" CornerRadius="2">
+                                    <TextBlock Text="{Binding EnforcementNotice}" FontSize="11" TextWrapping="Wrap"
+                                               Foreground="#1C3D57"/>
+                                  </Border>
+
+                                  <CheckBox Content="Use User Access Control"
+                                            IsChecked="{Binding UseUserAccessControl, Mode=TwoWay}"
+                                            Foreground="{StaticResource BrandNavy}"/>
+
+                                  <!-- Security levels -->
+                                  <TextBlock Text="Security Levels" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                  <ItemsControl ItemsSource="{Binding Levels}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:SecurityLevelRow">
+                                        <Grid ColumnDefinitions="*,80,60,50" Margin="0,1">
+                                          <TextBlock Grid.Column="0" Text="{Binding LevelName}"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     ToolTip.Tip="{Binding LevelName}"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding OwnerState}"
+                                                     Foreground="#8A6D1F" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding BackDatedDays}"
+                                                     HorizontalAlignment="Right"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding UserCount}"
+                                                     HorizontalAlignment="Right"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+
+                                  <Grid ColumnDefinitions="*,90,Auto">
+                                    <TextBox Grid.Column="0" Text="{Binding NewLevelName, Mode=TwoWay}"
+                                             PlaceholderText="New security level name"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewLevelBackDatedDays, Mode=TwoWay}"
+                                             Margin="6,0" ToolTip.Tip="Days Allowed for Back Dated Vouchers"
+                                             PlaceholderText="Days"/>
+                                    <Button Grid.Column="2" Content="Add Level" Padding="12,6"
+                                            Click="OnAddSecurityLevelClick"/>
+                                  </Grid>
+
+                                  <!-- Users -->
+                                  <TextBlock Text="Users" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" Margin="0,8,0,0"/>
+                                  <ListBox ItemsSource="{Binding Users}"
+                                           SelectedItem="{Binding SelectedUser, Mode=TwoWay}"
+                                           MaxHeight="160">
+                                    <ListBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:SecurityUserRow">
+                                        <Grid ColumnDefinitions="*,*,70,50">
+                                          <TextBlock Grid.Column="0" Text="{Binding UserName}"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     ToolTip.Tip="{Binding UserName}"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding LevelName}"
+                                                     TextTrimming="CharacterEllipsis"
+                                                     ToolTip.Tip="{Binding LevelName}"/>
+                                          <!-- 🔴 "Set" / "Not set". Never the password, never its length. -->
+                                          <TextBlock Grid.Column="2" Text="{Binding PasswordState}"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding ActiveState}"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                  </ListBox>
+
+                                  <Grid ColumnDefinitions="110,*">
+                                    <TextBlock Grid.Column="0" Text="Level" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Levels}"
+                                              SelectedItem="{Binding SelectedLevel, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:SecurityLevelRow">
+                                          <TextBlock Text="{Binding LevelName}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="110,*">
+                                    <TextBlock Grid.Column="0" Text="User name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewUserName, Mode=TwoWay}"
+                                             PlaceholderText="user name"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="110,*">
+                                    <TextBlock Grid.Column="0" Text="Password" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <!-- 🔴 Masked, and cleared by the view model the instant the verb runs. -->
+                                    <TextBox Grid.Column="1" Name="SecurityNewPasswordBox"
+                                             Text="{Binding NewPassword, Mode=TwoWay}"
+                                             PasswordChar="•"
+                                             PlaceholderText="password (may be left blank)"/>
+                                  </Grid>
+
+                                  <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Add User" Padding="12,6" Margin="0,0,6,0"
+                                            Click="OnAddSecurityUserClick"/>
+                                    <Button Grid.Column="2" Content="Set Password" Padding="12,6" Margin="0,0,6,0"
+                                            Click="OnSetSecurityUserPasswordClick"/>
+                                    <Button Grid.Column="3" Content="Save (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnSaveSecurityUsersClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: "Password Policy" — Alt+K (Company) > Password Policy (census 16.2). The route and
+                         the two capabilities are the vendor's; the two SETTINGS are ours, and the screen says so
+                         in SourceNotice rather than presenting them as cloned captions. -->
+                    <ContentControl IsVisible="{Binding PasswordPolicy, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PasswordPolicy}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PasswordPolicyViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding CompanyName}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <TextBlock Text="{Binding SourceNotice}" FontSize="11" Foreground="#8A8A8A"
+                                           TextWrapping="Wrap"/>
+
+                                <Border Background="#FDECEA" BorderBrush="#E0A6A0" BorderThickness="1"
+                                        Padding="10" CornerRadius="2">
+                                  <TextBlock Text="{Binding LockoutNotice}" FontSize="11" TextWrapping="Wrap"
+                                             Foreground="#6B2018"/>
+                                </Border>
+
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="Minimum length" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding MinimumLength, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="0 = no minimum"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="Expire after (days)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ExpiryDays, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="0 = never expires"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Save (Ctrl+A)" Padding="14,6"
+                                          IsEnabled="{Binding CanSave}"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnSavePasswordPolicyClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
                     <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportSortFilter}">

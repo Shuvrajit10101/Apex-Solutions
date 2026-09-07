@@ -76,7 +76,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
             // Reopen through the production store — the v53 → v54 → v55 migration chain runs.
             using var reopened = new SqliteCompanyStore(path);
             Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
-            Assert.Equal(55, Schema.CurrentVersion);
+            Assert.Equal(56, Schema.CurrentVersion);
 
             var ka = KarnatakaSlab(reopened.Load(companyId)!);
             var top = ka.Bands[^1];
@@ -351,7 +351,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
                     UPDATE pt_slab_bands SET monthly_amount_paisa = 25000
                     WHERE state_code = '{Karnataka}' AND band_order = 1 AND company_id = '{edited.Id:D}';
                     """);
-                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -387,7 +387,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
 
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -418,6 +418,14 @@ public sealed class KarnatakaPtBackfillSchemaTests
             var companyId = MakePreFixV53Book(path, "KA Downgrade Co");
             using (new SqliteCompanyStore(path)) { }
             Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+
+            // 🔴 THE FINGERPRINT IS TAKEN AT A GENUINE v55, NOT AT CurrentVersion. It used to be the same file,
+            // because v55 WAS the top rung; v56 (Security Control) now sits above it and DOES add DDL — three
+            // tables and three indexes — so snapshotting before stepping down would compare a v56 shape with a
+            // v54 one and prove nothing about v55. Step to v55 first, THEN fingerprint: the claim this test
+            // makes is "v55 adds no DDL", and that is exactly what the v55 → v54 step below now measures.
+            using (var conn = Open(path)) { SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
+            Assert.Equal(55L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
 
             var schemaAtV55 = SchemaFingerprint(path);
             var bandsAtV55 = AllPtBands(path);
@@ -476,10 +484,14 @@ public sealed class KarnatakaPtBackfillSchemaTests
             Assert.Equal(1L, ReadScalar(path,
                 $"SELECT COUNT(*) FROM pt_slab_bands WHERE state_code = '{Karnataka}' AND month_overrides = '{BadFebruary}';"));
 
-            // 53 → 54 → 55, through the production store's own ladder.
+            // 53 → 54 → 55 → …, through the production store's own ladder. The end of the ladder is asserted as
+            // Schema.CurrentVersion rather than a literal 55: v56 (Security Control) now sits above it, and the
+            // fact this test guards is that BOTH v54's and v55's effects survive the climb — not that 55 is the
+            // top rung, which it no longer is.
             using (var reopened = new SqliteCompanyStore(path))
             {
-                Assert.Equal(55L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+                Assert.Equal((long)Schema.CurrentVersion,
+                    ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
 
                 // v54's effect: the three credit-limit columns exist, and read as "no limit / both flags off".
                 var atV55 = ColumnNames(path, "ledgers");
@@ -498,7 +510,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
             // … and back DOWN both rungs, one at a time, to a genuine v53 shape again.
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);
                 Assert.Equal(54L, ScalarOn(conn, "SELECT version FROM schema_version LIMIT 1;"));
                 SchemaDowngrade.V54ToV53(conn);
                 Assert.Equal(53L, ScalarOn(conn, "SELECT version FROM schema_version LIMIT 1;"));
@@ -541,7 +553,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(company);
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V55ToV54(conn);
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -578,7 +590,7 @@ public sealed class KarnatakaPtBackfillSchemaTests
             if (operatorEdit is not null) Exec(conn, operatorEdit);
             // The FULL chain down. v55 first (it is the top rung), then v54 — skipping either would stamp the
             // marker past a rung the forward climb then re-runs against a file that was never un-done.
-            SchemaDowngrade.V55ToV54(conn);
+            SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);
             SchemaDowngrade.V54ToV53(conn);
             SqliteConnection.ClearPool(conn);
         }

@@ -61,6 +61,15 @@ public enum Screen
     // screen id exists so the shell can tell "the company menu is the active pane" from "the Gateway is".
     CompanyMenu,
 
+    /// <summary>Census 16.2 — Alt+K (Company) &gt; <b>Users and Passwords</b>: the vendor's "Users for Company"
+    /// screen (security levels, users, and the one-way password verifiers). Its own screen id, pushed as a
+    /// cascade column over the company menu that opened it.</summary>
+    SecurityUsers,
+
+    /// <summary>Census 16.2 — Alt+K (Company) &gt; <b>Password Policy</b>: the minimum-length and expiry knobs.
+    /// A sibling of <see cref="SecurityUsers"/> on the same Alt+K family.</summary>
+    PasswordPolicy,
+
     // 14.4 — More Details (Ctrl+I): the vendor's per-instance optional-field panel, pushed as a cascade column
     // OVER the live voucher exactly like the F12 report-config column sits over its report. The voucher
     // underneath stays bound (BindPageColumn re-hydrates it on Escape), because More Details edits THAT
@@ -761,6 +770,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
     [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
 
+    /// <summary>Census 16.2 — the "Users for Company" panel (Alt+K &gt; Users and Passwords), non-null only
+    /// while that column is open.</summary>
+    [ObservableProperty] private SecurityUsersViewModel? _securityUsers;
+
+    /// <summary>Census 16.2 — the "Password Policy" panel (Alt+K &gt; Password Policy), non-null only while
+    /// that column is open.</summary>
+    [ObservableProperty] private PasswordPolicyViewModel? _passwordPolicy;
+
     /// <summary>The W "Share via WhatsApp" panel (census row 14.10), non-null only while that column is open.</summary>
     [ObservableProperty] private WhatsAppShareViewModel? _whatsAppShare;
 
@@ -822,6 +839,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && VerifyDataPanel is null && SplitCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
+        && SecurityUsers is null && PasswordPolicy is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -931,6 +949,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSplitCompanyPanelChanged(SplitCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSecurityUsersChanged(SecurityUsersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPasswordPolicyChanged(PasswordPolicyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -3729,7 +3749,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             create: ShowCreateCompany,
             alter: ShowAlterCompany,
             select: ShowCompanySelect,
-            shut: ShutCompany);
+            shut: ShutCompany,
+            // Census 16.2 — the vendor reaches both of these from exactly here.
+            usersAndPasswords: OpenSecurityUsers,
+            passwordPolicy: OpenPasswordPolicy);
 
         Columns.Add(column);
         column.SelectFirstSelectable();
@@ -4232,6 +4255,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Ctrl+A / the Save button on the SMTP settings panel: upsert the captured profile. Returns success.</summary>
     public bool SaveSmtpSettings() => SmtpSettings?.Save() ?? false;
+
+    // =============================================================== screens: Security Control (census 16.2)
+
+    /// <summary>
+    /// <b>Alt+K (Company) &gt; Users and Passwords</b> — the vendor's "Users for Company" screen (census row
+    /// 16.2). Vendor, verbatim (help.tallysolutions.com/manage-users-in-tallyprime/): <i>"Press Alt+K (Company)
+    /// &gt; Users and Passwords. The Users for Company screen will appear."</i>
+    ///
+    /// <para>Pushed as its own cascade column over the Alt+K menu that opened it, exactly like
+    /// <see cref="OpenSmtpSettings"/> — so it is arrow-reachable, Escape pops back to the menu, and no new
+    /// navigation mechanism is introduced that could quietly fail to render.</para>
+    ///
+    /// <para>🔴 <b>R13.</b> This screen sets passwords; it can never show one. See
+    /// <see cref="SecurityUsersViewModel"/> for the storage contract and for the two notices it is obliged to
+    /// put in front of the operator.</para>
+    /// </summary>
+    public void OpenSecurityUsers()
+    {
+        if (SecurityUsers is not null) return;   // already open — don't stack a second
+        if (Company is null) return;
+
+        var panel = new SecurityUsersViewModel(_storage, Company);
+        SecurityUsers = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SecurityUsers;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// <b>Alt+K (Company) &gt; Password Policy</b> (census row 16.2). Vendor, verbatim: <i>"Press Alt+K
+    /// (Company) &gt; Password Policy"</i>. A sibling of <see cref="OpenSecurityUsers"/> on the same Alt+K family
+    /// and the same cascade-column shape.
+    /// </summary>
+    public void OpenPasswordPolicy()
+    {
+        if (PasswordPolicy is not null) return;
+        if (Company is null) return;
+
+        var panel = new PasswordPolicyViewModel(_storage, Company);
+        PasswordPolicy = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PasswordPolicy;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A on the Users for Company screen: persist the company. Returns success.</summary>
+    public bool SaveSecurityUsers() => SecurityUsers?.Save() ?? false;
+
+    /// <summary>Ctrl+A on the Password Policy screen: write the policy and persist. Returns success.</summary>
+    public bool SavePasswordPolicy() => PasswordPolicy?.Save() ?? false;
 
     // =============================================================== screen: export data (canonical backup)
 
@@ -6645,6 +6724,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SplitCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
+        // Census 16.2 — the two Security Control panels. Cleared like every other sub-screen so a re-open
+        // re-reads the aggregate rather than showing a stale user list.
+        SecurityUsers = null;
+        PasswordPolicy = null;
         WhatsAppShare = null;
         Dashboard = null;
         LedgerVouchers = null;
