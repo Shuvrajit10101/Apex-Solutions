@@ -94,12 +94,57 @@ public class Fvu24QWriterTests
         Assert.DoesNotContain(lines, l => l.StartsWith("CD^"));
     }
 
+    /// <summary>
+    /// 🔴 <b>INVERTED BY RULING 18 — the old assertion locked in a statutory defect.</b> It read "a salaried
+    /// employee's name must never carry the forbidden brand into the file", and enforced that by running the
+    /// ER-11 de-brand over <c>row.EmployeeName</c>. But the employee on a 24Q Annexure-I line is the
+    /// COUNTERPARTY of the §192 withholding, and the department matches that name against the PAN on the same
+    /// record. Scrubbing it filed a real employee under a name that is not theirs, mismatched against their own
+    /// PAN, and disagreeing with the Form 16 issued for the same row.
+    ///
+    /// <para>The 26Q and 27EQ equivalents were inverted when ruling 18 landed; this one was missed, and the same
+    /// file kept both treatments — <c>Name()</c> on the deductee/collectee, <c>Text()</c> on the salaried
+    /// employee — one line apart. The DEDUCTOR half of the file (our TAN, our responsible person) is ours and
+    /// stays de-branded, which is what the second assertion holds.</para>
+    /// </summary>
     [Fact]
-    public void File_never_contains_the_third_party_brand_even_from_an_employee_name()
+    public void An_employees_own_name_reaches_the_24Q_file_intact_while_our_own_fields_stay_debranded()
     {
         var q1 = Form24Q.Build(SalaryCompany(employeeName: "Tally Kumar"), 2025, 1);
         var text = Encoding.UTF8.GetString(FvuWriter.Write(q1));
-        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+
+        // The employee's legal name is filed exactly as it stands in the books...
+        Assert.Contains("Tally Kumar", text, StringComparison.Ordinal);
+
+        // ...and it is the ONLY place the token appears, so nothing of OURS leaked alongside it. Three salary DD
+        // rows are written for this fixture, one per month, each naming the same employee.
+        Assert.Equal(3, CountBrand(text));
+    }
+
+    /// <summary>The record-framing guard is now the only protection left on a 24Q employee name: a caret would
+    /// invent a field and a newline a whole record, and the department would reject the return.</summary>
+    [Fact]
+    public void A_delimiter_or_newline_inside_an_employee_name_cannot_corrupt_the_24Q_record_framing()
+    {
+        var dirty = Form24Q.Build(SalaryCompany(employeeName: "Ka^vi\nRao"), 2025, 1);
+        var clean = Form24Q.Build(SalaryCompany(employeeName: "Ka vi Rao"), 2025, 1);
+
+        string dirtyText = Encoding.UTF8.GetString(FvuWriter.Write(dirty));
+
+        Assert.Contains("Ka vi Rao", dirtyText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ka^vi", dirtyText, StringComparison.Ordinal);
+        Assert.Equal(Encoding.UTF8.GetString(FvuWriter.Write(clean)), dirtyText);
+    }
+
+    private static int CountBrand(string text)
+    {
+        int n = 0;
+        for (int i = text.IndexOf("tally", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf("tally", i + 5, StringComparison.OrdinalIgnoreCase))
+        {
+            n++;
+        }
+        return n;
     }
 
     /// <summary>

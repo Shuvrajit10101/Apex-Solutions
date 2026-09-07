@@ -274,7 +274,8 @@ pass before each PR gate.
   `GstReportSupport.PostedGstVouchers` filtered to TDS payable direction) — deductor block + challan
   block + deductee-wise rows (PAN, section code, date, amount paid, TDS, rate, §197 reason code); Alt+B
   save-return; **new `FvuWriter`** flat-file (fixed-width/caret-delimited .txt, mirror deterministic
-  `CsvWriter`/`TabularExport`, TabularDebrand-clean, no clock/RNG). **Fold ALL Phase-7 masters into
+  `CsvWriter`/`TabularExport`, de-brand-clean on the CHROME only — see ruling 18: `TabularDebrand` is deleted and
+  a body cell is now exported verbatim, no clock/RNG). **Fold ALL Phase-7 masters into
   `Apex.Ledger.Io` CanonicalModel + CanonicalMapper NOW** (new DTOs mirroring
   `GstConfigDto`/`GstRateSlabDto`/`PartyGstDto`/`StockItemGstDto`/`GstLineTaxDto`) so JSON+XML
   export→import is lossless — **this is the exact Phase-6 carry-forward defect; built in, not deferred.**
@@ -342,7 +343,9 @@ return .txt before FVU validation.
 **(2) Statutory return files → NSDL FVU flat-file** (S4/S6). Form **26Q** (quarterly TDS) and **27EQ**
 (quarterly TCS) export as the **FVU-compatible NSDL text format** (fixed-width / caret-delimited .txt) via
 a **new `FvuWriter`** mirroring the deterministic, byte-stable `CsvWriter`/`TabularExport` writers (no
-clock/RNG, TabularDebrand-clean). The 26Q/27EQ line-item data is a **pure projection** (mirror
+clock/RNG, de-brand-clean on the CHROME only — `TabularDebrand` is deleted under ruling 18 and a body cell,
+including a deductee's or collectee's legal name, is exported verbatim). The 26Q/27EQ line-item data is a
+**pure projection** (mirror
 `Gstr1.Build` / `GstReportSupport.PostedGstVouchers` filtered to TDS/TCS payable directions). The clone
 **emulates the FVU control-total checks** (record counts, challan tallies) and emits an error/warning
 report — it produces the FVU-compatible upload file offline (no online TRACES/portal per project Q4). CSV

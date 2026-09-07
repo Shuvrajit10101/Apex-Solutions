@@ -39,6 +39,9 @@ public static class ReportPrintProjector
         return new PrintReport
         {
             Title = Ascii(vm.Title),
+            // 🔴 RULING 18: carry the producer's provenance, do not re-decide it here. The view model built the
+            // heading and is the only party that knows whether a master name is inside it.
+            TitleCarriesMasterName = vm.TitleCarriesMasterName,
             Subtitle = Ascii(vm.Subtitle),
             Columns = columns,
             Rows = rows,
@@ -89,7 +92,14 @@ public static class ReportPrintProjector
         foreach (var note in vm.PayrollFootnotes)
             rows.Add(new PrintRow(Ascii(note)));
 
-        return new PrintReport { Title = Ascii(vm.Title), Subtitle = Ascii(vm.Subtitle), Columns = columns, Rows = rows };
+        return new PrintReport
+        {
+            Title = Ascii(vm.Title),
+            TitleCarriesMasterName = vm.TitleCarriesMasterName, // 🔴 RULING 18 — carry, never re-decide.
+            Subtitle = Ascii(vm.Subtitle),
+            Columns = columns,
+            Rows = rows,
+        };
     }
 
     /// <summary>Projects the Payslip as a two-column Particulars | Amount report (earnings, gross, deductions, net,
@@ -114,6 +124,7 @@ public static class ReportPrintProjector
         return new PrintReport
         {
             Title = Ascii(vm.Title),
+            TitleCarriesMasterName = vm.TitleCarriesMasterName, // 🔴 RULING 18 — carry, never re-decide.
             Subtitle = Ascii(vm.Subtitle),
             Columns = new[]
             {

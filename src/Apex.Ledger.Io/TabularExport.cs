@@ -111,10 +111,40 @@ public sealed class TabularExport
     public IReadOnlyList<TabularColumn> Columns { get; }
     public IReadOnlyList<TabularRow> Rows { get; }
 
-    public TabularExport(string title, IReadOnlyList<TabularColumn> columns, IReadOnlyList<TabularRow> rows)
+    /// <summary>
+    /// 🔴 <b>RULING 18 provenance seam — the tabular twin of <see cref="PrintReport.TitleCarriesMasterName"/>.</b>
+    /// A <see cref="string"/> carries no record of who wrote it, so a writer handed <see cref="Title"/> cannot tell
+    /// this product's own heading ("Trial Balance") from a heading the producer built by concatenating a label with
+    /// a COUNTERPARTY'S legal name ("Ledger Monthly Summary — Tally Traders Pvt Ltd"). Only the producer knows,
+    /// so the producer states it here and the writers read it — see <see cref="TitleText"/>.
+    ///
+    /// <para>Defaults to <see langword="false"/>, so every existing producer keeps the ER-11 guard on its title and
+    /// is byte-identical.</para>
+    /// </summary>
+    public bool TitleCarriesMasterName { get; }
+
+    /// <summary>
+    /// 🔴 The ONE place the four title-writing formats (<see cref="HtmlReportWriter"/>, <see cref="XmlReportWriter"/>,
+    /// <see cref="JsonReportWriter"/>, <see cref="XlsxWriter"/>) decide what a title says, so they cannot drift from
+    /// each other or from the PDF. A product-authored title keeps the ER-11 scrub; a title the producer flagged as
+    /// carrying a master name is emitted VERBATIM, because rewriting a real customer's, supplier's or bank's legal
+    /// name inside the customer's own spreadsheet is exactly what ruling 18 forbids.
+    /// </summary>
+    public static string TitleText(TabularExport export)
+    {
+        System.ArgumentNullException.ThrowIfNull(export);
+        return export.TitleCarriesMasterName ? export.Title : Debrand.Text(export.Title);
+    }
+
+    public TabularExport(
+        string title,
+        IReadOnlyList<TabularColumn> columns,
+        IReadOnlyList<TabularRow> rows,
+        bool titleCarriesMasterName = false)
     {
         Title = title ?? string.Empty;
         Columns = columns ?? System.Array.Empty<TabularColumn>();
         Rows = rows ?? System.Array.Empty<TabularRow>();
+        TitleCarriesMasterName = titleCarriesMasterName;
     }
 }

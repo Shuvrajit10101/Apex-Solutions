@@ -274,13 +274,21 @@ public sealed class ReportExportFormatTests
         Assert.Equal(AsciiReportWriter.Write(SampleModel()), AsciiReportWriter.Write(SampleModel()));
     }
 
+    /// <summary>
+    /// 🔴 <b>Narrowed by RULING 18, and the narrowing is the point.</b> This test used to put the brand in the
+    /// title, the column caption AND a body cell, and demand that all three vanish. The body cell was
+    /// <c>"Paid to Tally Ltd"</c> — a SUPPLIER'S NAME — so what the assertion actually locked in was the product
+    /// silently rewriting a counterparty's legal identity inside the customer's own exported file. The chrome
+    /// half is real and stays: a title and a caption are strings this product authored. The body half moved to
+    /// <c>CounterpartyNameExportTests</c>, which asserts the opposite.
+    /// </summary>
     [Fact]
-    public void No_new_writer_emits_the_forbidden_brand()
+    public void No_new_writer_emits_the_forbidden_brand_in_a_string_this_product_authored()
     {
         var branded = new TabularExport(
             title: "Tally Trial Balance",
             columns: new[] { new TabularColumn("Tally Particulars", CellType.Text) },
-            rows: new[] { TabularRow.Of(TabularCell.Text("Paid to Tally Ltd")) });
+            rows: new[] { TabularRow.Of(TabularCell.Text("Cash-in-Hand")) });
 
         foreach (byte[] bytes in new[]
         {
@@ -292,6 +300,8 @@ public sealed class ReportExportFormatTests
         {
             string text = Utf8(bytes);
             Assert.DoesNotContain("tally", text, System.StringComparison.OrdinalIgnoreCase);
+            // De-branding is not blanking: the rest of the caption must still be there.
+            Assert.Contains("Particulars", text, System.StringComparison.Ordinal);
         }
     }
 }

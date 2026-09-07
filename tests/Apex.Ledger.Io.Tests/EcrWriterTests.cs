@@ -50,6 +50,59 @@ public sealed class EcrWriterTests
         Assert.Equal(EcrWriter.Write(ecr), EcrWriter.Write(ecr));
     }
 
+    // ---------------------------------------------------------------- 🔴 RULING 18: the member's own identity
+
+    /// <summary>
+    /// 🔴 <b>An EPF member's legal name and UAN are theirs, not ours.</b> Both used to run through the ER-11
+    /// de-brand, so a real member whose name carries the vendor token was filed against their UAN under a name
+    /// that is not theirs — a name-vs-UAN mismatch EPFO would bounce, in the same file as their contributions.
+    /// The fixture name deliberately CARRIES the token; a clean one proves nothing here.
+    /// </summary>
+    [Fact]
+    public void A_members_own_name_reaches_the_ecr_file_intact()
+    {
+        var member = new PfEcrMember(
+            Uan: "100123456789", Name: "TALLY MURUGAN",
+            GrossWages: 20000, EpfWages: 15000, EpsWages: 15000, EdliWages: 15000,
+            EmployeeShareEpf: 1800, EpsContribution: 1250, EmployerShareEpf: 550,
+            NcpDays: 0, RefundOfAdvances: 0);
+        var ecr = new PfEcrReturn("MHBAN0000000000", To, new[] { member },
+            new PfChallanTotals(Account1: 2350, Account2: 500, Account10: 1250, Account21: 75, Account22: 0));
+
+        var text = Encoding.UTF8.GetString(EcrWriter.Write(ecr));
+
+        Assert.Contains("TALLY MURUGAN", text, StringComparison.Ordinal);
+        // The whole line is still exactly 11 delimited fields — the name did not lose or invent one.
+        Assert.Equal("100123456789#~#TALLY MURUGAN#~#20000#~#15000#~#15000#~#15000#~#1800#~#1250#~#550#~#0#~#0",
+            text.TrimEnd('\n'));
+    }
+
+    /// <summary>
+    /// The record-framing guard is what remains after the de-brand stopped running, and it is the only thing
+    /// stopping a <c>#~#</c> or a newline in a user-typed name from inventing a field or a whole member line and
+    /// getting the upload rejected by EPFO's per-line validation. The fixture actually contains both.
+    /// </summary>
+    [Fact]
+    public void A_delimiter_or_newline_inside_a_member_name_cannot_corrupt_the_record_framing()
+    {
+        var member = new PfEcrMember(
+            Uan: "100123456789", Name: "A#~#B\nC",
+            GrossWages: 20000, EpfWages: 15000, EpsWages: 15000, EdliWages: 15000,
+            EmployeeShareEpf: 1800, EpsContribution: 1250, EmployerShareEpf: 550,
+            NcpDays: 0, RefundOfAdvances: 0);
+        var ecr = new PfEcrReturn("MHBAN0000000000", To, new[] { member },
+            new PfChallanTotals(Account1: 2350, Account2: 500, Account10: 1250, Account21: 75, Account22: 0));
+
+        var text = Encoding.UTF8.GetString(EcrWriter.Write(ecr));
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        // Still ONE member line (the newline did not invent a second)...
+        var line = Assert.Single(lines);
+        // ...with exactly 11 fields (the delimiter did not invent a twelfth).
+        Assert.Equal(11, line.Split("#~#").Length);
+        Assert.DoesNotContain("A#~#B", line, StringComparison.Ordinal);
+    }
+
     // ---------------------------------------------------------------- finding-1 regression: no CHALLAN trailer
 
     [Fact]
