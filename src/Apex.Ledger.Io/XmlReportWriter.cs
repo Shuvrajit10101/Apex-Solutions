@@ -28,7 +28,8 @@ public static class XmlReportWriter
 
         var sb = new StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n");
-        sb.Append("<Report title=\"").Append(Escape(Debrand.Text(export.Title))).Append("\">\r\n");
+        // 🔴 RULING 18: title through the provenance seam (see TabularExport.TitleText), not a bare scrub.
+        sb.Append("<Report title=\"").Append(Escape(TabularExport.TitleText(export))).Append("\">\r\n");
 
         // ---- column declaration ----
         sb.Append("  <Columns>\r\n");
@@ -57,7 +58,9 @@ public static class XmlReportWriter
                 }
                 else
                 {
-                    string text = Escape(TabularDebrand.Cell(cell.TextValue));
+                    // 🔴 Ruling 18: book data is emitted verbatim (escaped, not de-branded). The COLUMN attribute
+                    // above is a product-authored caption and keeps its scrub.
+                    string text = Escape(cell.TextValue ?? string.Empty);
                     if (text.Length == 0)
                         sb.Append("      <Cell column=\"").Append(column).Append("\" type=\"Text\" />\r\n");
                     else

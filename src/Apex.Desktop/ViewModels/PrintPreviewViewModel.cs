@@ -619,13 +619,16 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         // comments name as the thing to avoid, and a mirror still offering "DUPLICATE FOR TRANSPORTER" over a page
         // that carries none would have the operator approving a statutory copy marking the paper does not bear.
         if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel) && inv.StatesOurDeclarationAndSignature)
-            rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
+            // 🔴 RULING 18 + the mirror contract: the copy-marking label is OUR configured string and InvoicePdf
+            // de-brands it, so the mirror does too — see OurText.
+            rows.Add(PrintRow.Header(OurText(cfg.CopyMarkingLabel), string.Empty, string.Empty));
         // W0-1: CGST Rule 5(1)(f) puts the composition declaration at the TOP of the bill of supply — so it is the
         // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title. W0-1 follow-up
         // (finding #6): gated on the structural flag, in lockstep with InvoicePdf.TopDeclarationLines — if the mirror
         // showed a declaration the bytes suppress, the operator would approve one document and issue another.
         if (inv.IsBillOfSupply && !string.IsNullOrWhiteSpace(inv.TopDeclaration))
-            rows.Add(PrintRow.Header(inv.TopDeclaration, string.Empty, string.Empty));
+            // 🔴 RULING 18 + the mirror contract: the composition declaration is OURS and InvoicePdf de-brands it.
+            rows.Add(PrintRow.Header(OurText(inv.TopDeclaration), string.Empty, string.Empty));
         // T0-11 slice S2: the mirror re-derives the record's three suppressions from the SAME structural flag
         // InvoicePdf reads — the number caption (RQ-11a forbids "Invoice No." over OUR number on HIS document), the
         // counterparty the operator is being shown, and the place of supply (CGST Rule 46(n), a supplier particular).
@@ -828,9 +831,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             rows.Add(new PrintRow(new[] { "  Cash Tendered", string.Empty, IndianFormat.AmountAlways(r.CashTendered) }));
             rows.Add(new PrintRow(new[] { "  Change", string.Empty, IndianFormat.AmountAlways(r.Change) }));
         }
-        if (!string.IsNullOrWhiteSpace(r.Message1)) rows.Add(PrintRow.Header(r.Message1, string.Empty, string.Empty));
-        if (!string.IsNullOrWhiteSpace(r.Message2)) rows.Add(PrintRow.Header(r.Message2, string.Empty, string.Empty));
-        if (!string.IsNullOrWhiteSpace(r.Declaration)) rows.Add(PrintRow.Header(r.Declaration, string.Empty, string.Empty));
+        // 🔴 RULING 18 + the mirror contract: the two store messages and the declaration are OURS, and
+        // PosReceiptPdf.Note de-brands each of them before printing. A body cell is drawn verbatim now, so the
+        // mirror scrubs them itself rather than showing the operator a slip the printer will not produce.
+        if (!string.IsNullOrWhiteSpace(r.Message1)) rows.Add(PrintRow.Header(OurText(r.Message1), string.Empty, string.Empty));
+        if (!string.IsNullOrWhiteSpace(r.Message2)) rows.Add(PrintRow.Header(OurText(r.Message2), string.Empty, string.Empty));
+        if (!string.IsNullOrWhiteSpace(r.Declaration)) rows.Add(PrintRow.Header(OurText(r.Declaration), string.Empty, string.Empty));
 
         // W0-1b: derived structurally, mirroring PosReceiptPdf.Render — the POS config's DefaultTitle is a print
         // preference and may not re-title a §31(3)(c) bill of supply.
@@ -924,6 +930,33 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 🔴 <b>RULING 18, the mirror side.</b> A string this PRODUCT authored — our company name on a cheque, our two
+    /// configured salutations, our copy-marking label, our composition declaration, our two POS store messages —
+    /// rendered exactly as the corresponding renderer will ink it.
+    ///
+    /// <para><b>Why the mirror has to do this itself.</b> These strings travel to the preview inside
+    /// <see cref="PrintRow"/> body cells, and ruling 18 made <c>ReportPdf</c> draw a body cell VERBATIM, because
+    /// the overwhelming majority of them are book data (a counterparty's name) that must never be rewritten. The
+    /// renderers that produce the real bytes — <c>ChequePdf.SignLine</c>, <c>PosReceiptPdf.Note</c>,
+    /// <c>InvoicePdf.TopDeclarationLines</c> — still de-brand these particular strings, and rightly so: they are
+    /// ours. So without this the mirror and the paper disagree, and the operator approves a cheque preview signed
+    /// "Tally Solutions Retail" while the leaf the bank receives is inked "Solutions Retail".
+    ///
+    /// <para>This file already states that invariant for itself in two places — the cheque mirror's contract note
+    /// and the bill-of-supply note — as "the mirror shows exactly what the renderer inks, no more". This is what
+    /// keeps it true for TEXT, not merely for which rows appear. Counterparty data on these documents (the payee,
+    /// the customer, the item names) is NOT routed through here and stays verbatim.</para>
+    ///
+    /// <para><b>The scrub here is UNCONDITIONAL on purpose, unlike <c>ReportPdf</c>'s and
+    /// <c>MultiAccountPrintProjector.SignatoryLine</c>'s.</b> Those two are conditional to keep a clean document's
+    /// BYTES from moving (ER-13). This is a mirror, not a byte stream: its only job is to equal what the renderer
+    /// produces, and all three renderers call <see cref="Debrand.Text"/> unconditionally — which also collapses
+    /// whitespace and trims. Making this conditional would re-open the divergence for any of these strings that
+    /// carries a doubled space.</para>
+    /// </summary>
+    private static string OurText(string? text) => Debrand.Text(ReportPrintProjector.Ascii(text));
+
+    /// <summary>
     /// A lightweight on-screen mirror of the cheque (the authoritative bytes come from <c>ChequePdf</c>).
     ///
     /// <para><b>🔴 THE MIRROR SHOWS EXACTLY WHAT THE RENDERER INKS — NO MORE.</b> Every line below is gated on the
@@ -960,12 +993,17 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
         if (ChequeLayout.ChequeElementIsSet(l.SignTopTmm, l.SignLeftTmm))
         {
+            // 🔴 RULING 18 + the mirror contract above. These three are OURS — our company name and our two
+            // configured salutations — and ChequePdf.SignLine de-brands every one of them before inking the leaf.
+            // A body cell is drawn verbatim now, so the mirror must apply the SAME scrub itself or the operator
+            // approves a cheque preview signed "Tally Solutions Retail" and the bank receives one inked
+            // "Solutions Retail". Same predicate, same text, same document.
             if (c.PrintCompanyName && !string.IsNullOrWhiteSpace(c.CompanyName))
-                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(c.CompanyName)));
+                rows.Add(new PrintRow("Signatory", OurText(c.CompanyName)));
             if (!string.IsNullOrWhiteSpace(l.Salutation1))
-                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation1!)));
+                rows.Add(new PrintRow("Signatory", OurText(l.Salutation1!)));
             if (!string.IsNullOrWhiteSpace(l.Salutation2))
-                rows.Add(new PrintRow("Signatory", ReportPrintProjector.Ascii(l.Salutation2!)));
+                rows.Add(new PrintRow("Signatory", OurText(l.Salutation2!)));
         }
 
         return new PrintReport

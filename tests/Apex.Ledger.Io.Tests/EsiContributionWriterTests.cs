@@ -21,6 +21,44 @@ public sealed class EsiContributionWriterTests
     private static readonly DateOnly To = new(2025, 4, 30);
     private const string Ip = "3100123456";
 
+    // ---------------------------------------------------------------- 🔴 RULING 18: the IP's own identity
+
+    private static EsiContributionReturn ReturnWith(string ipNumber, string ipName) =>
+        new("31000123456789", To, new[] { new EsiContributionRow(ipNumber, ipName, 30, 20000, null, null) });
+
+    /// <summary>
+    /// 🔴 <b>An Insured Person's legal name and IP number are theirs, not ours.</b> Both used to run through the
+    /// ER-11 de-brand, so a real IP whose name carries the vendor token was filed against their IP number under a
+    /// name that is not theirs. The fixture name deliberately CARRIES the token; a clean one proves nothing.
+    /// </summary>
+    [Fact]
+    public void An_insured_persons_own_name_reaches_the_contribution_file_intact()
+    {
+        var text = Encoding.UTF8.GetString(EsiContributionWriter.Write(ReturnWith(Ip, "TALLY MURUGAN")));
+
+        Assert.Contains("TALLY MURUGAN", text, StringComparison.Ordinal);
+        Assert.Equal(Ip + ",TALLY MURUGAN,30,20000,,", text.TrimEnd('\n'));
+    }
+
+    /// <summary>
+    /// With the de-brand gone, the record-framing guard is the only thing stopping a comma or a newline in a
+    /// user-typed IP name from shifting every later field on the line, or inventing a whole extra IP row. The
+    /// fixture actually contains both.
+    /// </summary>
+    [Fact]
+    public void A_delimiter_or_newline_inside_an_ip_name_cannot_corrupt_the_record_framing()
+    {
+        var text = Encoding.UTF8.GetString(EsiContributionWriter.Write(ReturnWith(Ip, "Rao, S.\nKumar")));
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        // One row (the newline invented none)...
+        var line = Assert.Single(lines);
+        // ...with exactly six fields (the comma invented none), so Days/Wages are still read in the right column.
+        Assert.Equal(6, line.Split(',').Length);
+        // The comma became a space (beside the one already there, hence two) and the newline became a single one.
+        Assert.Equal(Ip + ",Rao  S. Kumar,30,20000,,", line);
+    }
+
     [Fact]
     public void A_covered_ip_row_matches_the_esic_field_order()
     {
