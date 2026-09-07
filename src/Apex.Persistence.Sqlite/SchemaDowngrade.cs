@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Data.Sqlite;
 
 namespace Apex.Persistence.Sqlite;
@@ -449,6 +450,9 @@ public static class SchemaDowngrade
     /// <c>month_overrides</c> already cleared, fails the <c>'2:30000'</c> predicate and moves nothing, which is
     /// what makes the forward migration's idempotence testable from here.</para>
     ///
+    /// <para>🔴 <b>This is no longer the top rung.</b> v56 (Security Control) sits above it, so a caller
+    /// manufacturing a v54 book out of a CURRENT one must run <see cref="V56ToV55"/> first and this second.</para>
+    ///
     /// <para>Like every method in this file this is test-only — nothing in <c>src/</c> calls
     /// <see cref="SchemaDowngrade"/>.</para>
     /// </summary>
@@ -459,6 +463,151 @@ public static class SchemaDowngrade
         // Deliberately no DDL and deliberately no data restore. See the summary: v55 adds nothing to un-add, and
         // putting the unsourced ₹300 February back would re-open the defect on every round-trip.
         Exec(connection, "UPDATE schema_version SET version = 54;");
+    }
+
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV55ToV56"/> (census 16.2 Security Control): drops the three v56 tables
+    /// (<see cref="Schema.V56SecurityTables"/>) and the three v56 <c>companies</c> columns
+    /// (<see cref="Schema.V56SecurityCompanyColumns"/>), then stamps the marker back to 55. Used by the tests to
+    /// manufacture a genuine v55 database out of a current one, so the migration test runs against real rows
+    /// rather than hand-written DDL.
+    ///
+    /// <para>🔴 <b>THE DROP ORDER IS LOAD-BEARING.</b> <c>company_users</c> and <c>security_level_rules</c> both
+    /// FK <c>security_levels</c>, so the level table must go LAST.
+    /// <see cref="Schema.V56SecurityTables"/> is declared in exactly that order and this method walks it as
+    /// given — do not sort it.</para>
+    ///
+    /// <para>⚠️ <b>NOT information-preserving, and that is the point of the version.</b> Every user, every
+    /// security level, every facility rule and the password policy are DESTROYED — including the one-way password
+    /// verifiers, which is the only correct thing to do with them: there is nothing to migrate them into at v55,
+    /// and a v55 book has no access control to enforce. A company that had access control ON comes back with it
+    /// off.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS USES <see cref="RebuildPreservingShape"/> AND NOT <see cref="DropColumns"/>, which
+    /// every downgrade above it uses — a MEASURED defect, not a preference.</b> <c>companies</c> is the FK
+    /// <b>parent</b> of ~40 child tables. <see cref="DropColumns"/>'s <c>CREATE … AS SELECT</c> rebuild produces
+    /// a table with <b>no PRIMARY KEY</b> (the documented constraint-loss residual), and SQLite requires a
+    /// parent key to be a PRIMARY KEY or UNIQUE — so the first child insert afterwards dies with
+    /// <c>SQLite Error 1: 'foreign key mismatch - "pt_slab_bands" referencing "companies"'</c>. That is exactly
+    /// what happened on the first run of this method, in a Karnataka PT test that has nothing to do with
+    /// security. Every downgrade above this one drops columns from a CHILD table (<c>ledgers</c>,
+    /// <c>voucher_types</c>, <c>groups</c>, <c>stock_groups</c>), where the residual is harmless; this is the
+    /// first to touch the parent. <see cref="RebuildPreservingShape"/> reconstructs the declaration from
+    /// <c>PRAGMA table_info</c> + <c>PRAGMA foreign_key_list</c>, so the primary key, the NOT NULLs, the DEFAULTs
+    /// and the outgoing foreign keys all survive.</para>
+    ///
+    /// <para>🔴 <b>This is the top rung.</b> A caller manufacturing an older book out of a CURRENT one must run
+    /// this FIRST and the lower rungs after it. Calling <see cref="V55ToV54"/> alone on a v56 file stamps the
+    /// marker to 54 while skipping a rung, and the forward climb would then re-run v55 and v56 against a file
+    /// that had never been un-done — <c>CREATE TABLE security_levels</c> would fail on the second pass.</para>
+    /// </summary>
+    public static void V56ToV55(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        // FK order: children first, the referenced level table last. V56SecurityTables is declared that way.
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        foreach (var table in Schema.V56SecurityTables)
+            Exec(connection, $"DROP TABLE IF EXISTS \"{table}\";");
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+
+        RebuildPreservingShape(connection, "companies", Schema.V56SecurityCompanyColumns, "companies_v55");
+
+        Exec(connection, "UPDATE schema_version SET version = 55;");
+    }
+
+    /// <summary>
+    /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
+    /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
+    /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the
+    /// <b>NOT NULL</b>s, the column <b>DEFAULT</b>s and the table's own outgoing <b>foreign keys</b>.
+    ///
+    /// <para>🔴 <b>Use this, not <see cref="DropColumns"/>, whenever the table is the PARENT of a foreign key.</b>
+    /// SQLite requires a referenced key to be a PRIMARY KEY or UNIQUE; a rebuild that loses the PK leaves every
+    /// child table's FK dangling and the next child insert fails with <c>foreign key mismatch</c> — see
+    /// <see cref="V56ToV55"/> for the measured instance. <see cref="DropColumns"/> is kept as-is for the child
+    /// tables the earlier downgrades use it on, where the residual is documented and harmless.</para>
+    ///
+    /// <para>Indexes are read back from <c>sqlite_master</c> before the swap and replayed after it, exactly as
+    /// <see cref="DropColumns"/> does, skipping implicit (UNIQUE/PK) indexes and any index naming a dropped
+    /// column. CHECK constraints and multi-column primary keys are NOT reconstructed — this schema has neither on
+    /// any table this method is used for, and a silent partial reconstruction would be worse than a loud gap, so
+    /// a composite PK is refused rather than quietly flattened.</para>
+    /// </summary>
+    private static void RebuildPreservingShape(
+        SqliteConnection connection, string table, IReadOnlyList<string> drop, string scratchName)
+    {
+        var columns = ColumnDefinitions(connection, table);
+        var keep = columns
+            .Where(c => !drop.Contains(c.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (keep.Count == 0 || keep.Count == columns.Count) return;
+
+        if (columns.Count(c => c.PrimaryKey > 0) > 1)
+            throw new NotSupportedException(
+                $"Table \"{table}\" has a composite primary key, which this rebuild does not reconstruct. "
+                + "Reconstructing it partially would silently change the table's shape.");
+
+        var foreignKeys = ForeignKeys(connection, table)
+            .Where(fk => !drop.Contains(fk.From, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        var declarations = keep.Select(c =>
+        {
+            var sb = new StringBuilder();
+            sb.Append('"').Append(c.Name).Append("\" ").Append(c.Type);
+            if (c.PrimaryKey > 0) sb.Append(" PRIMARY KEY");
+            if (c.NotNull) sb.Append(" NOT NULL");
+            if (c.Default is not null) sb.Append(" DEFAULT ").Append(c.Default);
+            var fk = foreignKeys.FirstOrDefault(f =>
+                string.Equals(f.From, c.Name, StringComparison.OrdinalIgnoreCase));
+            if (fk is not null) sb.Append(" REFERENCES \"").Append(fk.Table).Append("\"(\"").Append(fk.To).Append("\")");
+            return sb.ToString();
+        }).ToList();
+
+        var columnList = string.Join(", ", keep.Select(c => $"\"{c.Name}\""));
+        var indexes = IndexDefinitions(connection, table)
+            .Where(sql => !drop.Any(d => sql.Contains(d, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        Exec(connection, $"CREATE TABLE {scratchName} (\n  {string.Join(",\n  ", declarations)}\n);");
+        Exec(connection, $"INSERT INTO {scratchName} ({columnList}) SELECT {columnList} FROM \"{table}\";");
+        Exec(connection, $"DROP TABLE \"{table}\";");
+        Exec(connection, $"ALTER TABLE {scratchName} RENAME TO \"{table}\";");
+        foreach (var sql in indexes) Exec(connection, sql + ";");
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+    }
+
+    private sealed record ColumnDefinition(string Name, string Type, bool NotNull, string? Default, long PrimaryKey);
+
+    private static List<ColumnDefinition> ColumnDefinitions(SqliteConnection connection, string table)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info(\"{table}\");";
+        var list = new List<ColumnDefinition>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new ColumnDefinition(
+                r.GetString(1),
+                r.GetString(2),
+                r.GetInt64(3) != 0,
+                r.IsDBNull(4) ? null : r.GetString(4),
+                r.GetInt64(5)));
+        return list;
+    }
+
+    private sealed record ForeignKeyDefinition(string Table, string From, string To);
+
+    private static List<ForeignKeyDefinition> ForeignKeys(SqliteConnection connection, string table)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA foreign_key_list(\"{table}\");";
+        var list = new List<ForeignKeyDefinition>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new ForeignKeyDefinition(r.GetString(2), r.GetString(3), r.GetString(4)));
+        return list;
     }
 
     /// <summary>

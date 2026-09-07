@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -261,8 +261,18 @@ public sealed class VoucherEditLogSchemaTests
             }
 
             var atV51 = SchemaObjects(dbPath);
+            // 🔴 The expectation now DERIVES the v56 half instead of restating it. Until v56 every rung above
+            // v52 added only COLUMNS, so the whole chain removed exactly the edit-log's two objects. v56
+            // (Security Control) adds three tables and their three indexes, so climbing down through it removes
+            // those too — that is the chain doing its job, not a leak. The edit-log's own two objects are still
+            // named literally, because they are what THIS file is about.
+            var expected = new[] { "index:ix_voucher_edit_log_company", "table:voucher_edit_log" }
+                .Concat(Schema.V56SecurityTables.Select(t => "table:" + t))
+                .Concat(Schema.V56SecurityTables.Select(t => "index:ix_" + t + "_company"))
+                .Order(StringComparer.Ordinal)
+                .ToArray();
             Assert.Equal(
-                new[] { "index:ix_voucher_edit_log_company", "table:voucher_edit_log" },
+                expected,
                 atV52.Except(atV51, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray());
             Assert.Empty(atV51.Except(atV52, StringComparer.Ordinal));
 

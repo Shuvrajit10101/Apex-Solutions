@@ -1375,6 +1375,36 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 55;
         }
 
+        // v55 → v56 (census 16.2): Security Control — the three tables (security_levels, security_level_rules,
+        // company_users) and the three companies columns (use_user_access_control, password_min_length,
+        // password_expiry_days), then bump the marker. Purely additive and it back-fills NOTHING: a pre-v56
+        // company had no access control, no users and no policy, so every default of 0 / NULL is the literal
+        // truth about it, and "column absent" == "feature off" here (unlike v50's DEFAULT 1).
+        // 🔴 R13 — company_users.password_hash holds a ONE-WAY PBKDF2-HMAC-SHA256 verifier and NOTHING ELSE.
+        // There is no reversible copy of a password anywhere in this schema, no pepper and no reset path; a
+        // forgotten Owner password locks the company irrecoverably, exactly as the reference product's does.
+        // Do NOT pattern-match this to SqliteNicCredentialStore's AES-under-a-hard-coded-pepper: that protects a
+        // credential the app must REPLAY and is the wrong shape for a login password. See Schema.MigrateV55ToV56.
+        if (version == 55)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV55ToV56;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 56);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 56;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1412,7 +1442,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    recon_value_tolerance_paisa, recon_date_window_days,
                    warn_on_negative_stock,
                    gst_source_of_hsn_sac, gst_source_of_rate,
-                   gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type
+                   gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
+                   use_user_access_control, password_min_length, password_expiry_days
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1453,6 +1484,17 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // that the migration back-filled reads 1 here and comes up with warnings ON. Reading it as
                 // "!= 0" is only safe BECAUSE the column can never be NULL — do not relax that NOT NULL.
                 WarnOnNegativeStock = r.GetInt64(82) != 0,
+                // v56 (census 16.2): the F11/F12 "Use User Access Control" gate — a plain persisted toggle read
+                // verbatim. NOT NULL DEFAULT 0, so "column absent" and "off" coincide and a pre-v56 book comes up
+                // with access control off, which is what it was (ER-13).
+                UseUserAccessControl = r.GetInt64(89) != 0,
+            };
+            // v56: the password policy. Both knobs off by default; ExpiryDays NULL = never expires (0 would be
+            // ambiguous, which is why the column has no default).
+            company.Security.PasswordPolicy = new PasswordPolicy
+            {
+                MinimumLength = (int)r.GetInt64(90),
+                ExpiryDays = r.IsDBNull(91) ? null : (int)r.GetInt64(91),
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -1627,6 +1669,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v36 per-employee §192 income-tax declarations (empty for a company with no declarations — ER-13).
         foreach (var declaration in ReadTaxDeclarations(companyId))
             company.AddTaxDeclaration(declaration);
+
+        // v56 (census 16.2) Security Control: levels (with their facility rules) then users. Empty on every
+        // company that never enabled access control — ER-13. 🔴 The password verifiers come back through
+        // CompanyUser.RestorePasswordVerifier, which REFUSES a malformed value rather than silently producing a
+        // user that either nothing or everything can sign in as.
+        ReadSecurityControl(companyId, company);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -2974,6 +3022,91 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (Table4bBucket)(int)r.GetInt64(14),
                 ParseDateTimeOffset(r.GetString(15))));
         return list;
+    }
+
+    /// <summary>
+    /// v56 (census 16.2): hydrates <see cref="Company.Security"/> — the security levels in
+    /// <c>level_order</c>, each level's Disallow/Allow facility rules in <c>rule_order</c>, then the users in
+    /// <c>user_order</c>. A company that never enabled access control has no rows and comes back with an empty
+    /// <see cref="SecurityControl"/>, byte-identical to a pre-v56 company (ER-13).
+    ///
+    /// <para>🔴 <b>R13.</b> <c>password_hash</c> is read straight into
+    /// <see cref="CompanyUser.RestorePasswordVerifier"/>, which parses it as a one-way
+    /// <c>PBKDF2-SHA256$…</c> record and <b>throws on anything malformed</b>. That refusal is deliberate: a
+    /// corrupted verifier must not become a user that nothing can sign in as (silent lockout) NOR one that
+    /// anything can (silent bypass). Nothing here can produce a password.</para>
+    ///
+    /// <para>A user row whose <c>level_id</c> names a level that is not present is SKIPPED rather than attached
+    /// to an arbitrary level — an orphan is a corrupt row, and guessing a level for it would be inventing a
+    /// permission set.</para>
+    /// </summary>
+    private void ReadSecurityControl(Guid companyId, Company company)
+    {
+        var cid = companyId.ToString("D");
+
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, name, is_owner, use_basic_facilities_of,
+                       days_allowed_back_dated, cut_off_date_back_dated
+                FROM security_levels WHERE company_id = $cid ORDER BY level_order, rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", cid);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                company.Security.Levels.Add(new SecurityLevel
+                {
+                    Id = Guid.Parse(r.GetString(0)),
+                    Name = r.GetString(1),
+                    IsOwner = r.GetInt64(2) != 0,
+                    UseBasicFacilitiesOf = r.IsDBNull(3) ? null : r.GetString(3),
+                    DaysAllowedForBackDatedVouchers = (int)r.GetInt64(4),
+                    CutOffDateForBackDatedVouchers = r.IsDBNull(5) ? null : ParseDate(r.GetString(5)),
+                });
+        }
+
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT level_id, facility, access_type, disallowed
+                FROM security_level_rules WHERE company_id = $cid ORDER BY rule_order, rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", cid);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var level = company.Security.LevelById(Guid.Parse(r.GetString(0)));
+                if (level is null) continue;   // orphan rule — see the summary
+                level.Rules.Add(new SecurityAccessRule(
+                    r.GetString(1), (SecurityAccessType)(int)r.GetInt64(2), r.GetInt64(3) != 0));
+            }
+        }
+
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, level_id, user_name, password_hash, password_set_on, is_active
+                FROM company_users WHERE company_id = $cid ORDER BY user_order, rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", cid);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var levelId = Guid.Parse(r.GetString(1));
+                if (company.Security.LevelById(levelId) is null) continue;   // orphan user — see the summary
+
+                var user = new CompanyUser(r.GetString(2), levelId)
+                {
+                    Id = Guid.Parse(r.GetString(0)),
+                    IsActive = r.GetInt64(5) != 0,
+                };
+                // 🔴 Throws on a malformed verifier. See the summary for why that is the right behaviour.
+                user.RestorePasswordVerifier(
+                    r.IsDBNull(3) ? null : r.GetString(3),
+                    r.IsDBNull(4) ? null : ParseDateTimeOffset(r.GetString(4)));
+                company.Security.Users.Add(user);
+            }
+        }
     }
 
     /// <summary>v35: reads the PT slab bands for a company and groups them (by <c>slab_id</c>, ordered by
@@ -4830,6 +4963,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM gst_cess_rates WHERE company_id = $cid;", ("$cid", cid));
         // v39 RCM category master FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM rcm_categories WHERE company_id = $cid;", ("$cid", cid));
+        // v56 Security Control FK companies → delete before the company row. 🔴 ORDER: company_users and
+        // security_level_rules both FK security_levels, so the level table goes LAST of the three.
+        ExecTx(tx, "DELETE FROM company_users WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM security_level_rules WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM security_levels WHERE company_id = $cid;", ("$cid", cid));
         // v35 PT slab bands FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
         // v36 §192 tax declarations FK companies → delete before the company row.
@@ -4906,7 +5044,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  recon_value_tolerance_paisa, recon_date_window_days,
                  warn_on_negative_stock,
                  gst_source_of_hsn_sac, gst_source_of_rate,
-                 gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type)
+                 gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
+                 use_user_access_control, password_min_length, password_expiry_days)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -4928,7 +5067,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $reconval, $recondays,
                  $warnnegstock,
                  $gstsrchsn, $gstsrcrate,
-                 $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply);
+                 $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply,
+                 $useuac, $pwdminlen, $pwdexpiry);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -5071,6 +5211,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$gstdefrate",
             defaultGst?.RateBasisPoints is { } dbp ? dbp : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$gstdefsupply", defaultGst is null ? DBNull.Value : (int)defaultGst.SupplyType);
+
+        // v56 (census 16.2): the Security Control gate + the two password-policy knobs. All three are OFF for a
+        // company that never enables access control, which is exactly what every pre-v56 company was (ER-13).
+        // 🔴 NO PASSWORD IS WRITTEN HERE. The per-user one-way verifiers go to company_users, below.
+        var security = c.Security;
+        cmd.Parameters.AddWithValue("$useuac", c.UseUserAccessControl ? 1 : 0);
+        cmd.Parameters.AddWithValue("$pwdminlen", security.PasswordPolicy.MinimumLength);
+        cmd.Parameters.AddWithValue("$pwdexpiry",
+            security.PasswordPolicy.ExpiryDays is { } days ? days : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -5148,6 +5297,87 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     s.ExecuteNonQuery();
                 }
             }
+
+        // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+        // v56 (census 16.2) — SECURITY CONTROL: levels first (the rules and the users both FK them), then the
+        // facility rules, then the users. Empty on every company that has never enabled access control, which is
+        // why this addition moves no figure anywhere (ER-13).
+        //
+        // 🔴 R13 — WHAT IS WRITTEN INTO company_users.password_hash IS A ONE-WAY VERIFIER, NOTHING ELSE:
+        // "PBKDF2-SHA256$<iterations>$<salt-b64>$<hash-b64>" produced by Apex.Ledger.Security.PasswordHash
+        // (PBKDF2-HMAC-SHA256, per-user 128-bit random salt, 600,000 iterations stored alongside so the work
+        // factor can be raised later, 256-bit derived key, verified with FixedTimeEquals). CompanyUser has no
+        // member that returns a password and there is nothing here that could reverse one. NULL = no password
+        // set, which is a real state and is NOT "anything matches".
+        // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+        var securityToWrite = c.Security;
+        var levelOrder = 0;
+        foreach (var level in securityToWrite.Levels)
+        {
+            using var s = _connection.CreateCommand();
+            s.Transaction = tx;
+            s.CommandText = """
+                INSERT INTO security_levels
+                    (id, company_id, name, is_owner, use_basic_facilities_of,
+                     days_allowed_back_dated, cut_off_date_back_dated, level_order)
+                VALUES ($id, $cid, $name, $owner, $basic, $days, $cutoff, $ord);
+                """;
+            s.Parameters.AddWithValue("$id", level.Id.ToString("D"));
+            s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            s.Parameters.AddWithValue("$name", level.Name);
+            s.Parameters.AddWithValue("$owner", level.IsOwner ? 1 : 0);
+            s.Parameters.AddWithValue("$basic", (object?)level.UseBasicFacilitiesOf ?? DBNull.Value);
+            s.Parameters.AddWithValue("$days", level.DaysAllowedForBackDatedVouchers);
+            s.Parameters.AddWithValue("$cutoff",
+                level.CutOffDateForBackDatedVouchers is { } cd ? FormatDate(cd) : (object)DBNull.Value);
+            s.Parameters.AddWithValue("$ord", levelOrder++);
+            s.ExecuteNonQuery();
+
+            var ruleOrder = 0;
+            foreach (var rule in level.Rules)
+            {
+                using var rs = _connection.CreateCommand();
+                rs.Transaction = tx;
+                rs.CommandText = """
+                    INSERT INTO security_level_rules
+                        (id, company_id, level_id, facility, access_type, disallowed, rule_order)
+                    VALUES ($id, $cid, $lid, $fac, $acc, $dis, $ord);
+                    """;
+                rs.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                rs.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                rs.Parameters.AddWithValue("$lid", level.Id.ToString("D"));
+                rs.Parameters.AddWithValue("$fac", rule.Facility);
+                rs.Parameters.AddWithValue("$acc", (int)rule.Access);
+                rs.Parameters.AddWithValue("$dis", rule.Disallowed ? 1 : 0);
+                rs.Parameters.AddWithValue("$ord", ruleOrder++);
+                rs.ExecuteNonQuery();
+            }
+        }
+
+        var userOrder = 0;
+        foreach (var user in securityToWrite.Users)
+        {
+            using var s = _connection.CreateCommand();
+            s.Transaction = tx;
+            s.CommandText = """
+                INSERT INTO company_users
+                    (id, company_id, level_id, user_name, password_hash, password_set_on, is_active, user_order)
+                VALUES ($id, $cid, $lid, $name, $hash, $seton, $active, $ord);
+                """;
+            s.Parameters.AddWithValue("$id", user.Id.ToString("D"));
+            s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            s.Parameters.AddWithValue("$lid", user.SecurityLevelId.ToString("D"));
+            s.Parameters.AddWithValue("$name", user.Name);
+            // 🔴 The ONE-WAY verifier, verbatim. NULL when no password is set.
+            s.Parameters.AddWithValue("$hash", (object?)user.StoredPasswordVerifier ?? DBNull.Value);
+            s.Parameters.AddWithValue("$seton",
+                user.PasswordSetOn is { } so
+                    ? so.ToString("o", System.Globalization.CultureInfo.InvariantCulture)
+                    : (object)DBNull.Value);
+            s.Parameters.AddWithValue("$active", user.IsActive ? 1 : 0);
+            s.Parameters.AddWithValue("$ord", userOrder++);
+            s.ExecuteNonQuery();
+        }
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
         if (gst is not null)

@@ -142,12 +142,25 @@ namespace Apex.Persistence.Sqlite;
 /// cannot share one — so the back-fill was renumbered to v55 on merge. Nothing about the back-fill itself changed.
 /// 🔴 The ladder order is load-bearing: a v53 book runs <b>53 → 54 (credit limits) → 55 (Karnataka back-fill)</b>,
 /// in that order, and both effects must be present at the end. <c>KarnatakaPtBackfillSchemaTests</c> proves it.
-/// <b><see cref="CurrentVersion"/> = 55</b>; a fresh DB is always stamped straight to the current version via
+/// 🔴 v56 adds <b>Security Control</b> (census 16.2): three additive tables (<c>security_levels</c>,
+/// <c>security_level_rules</c>, <c>company_users</c>) and three additive <c>companies</c> columns. Purely
+/// additive, no row rewritten, and every default is 0/NULL so "column absent" and "feature off" coincide — the
+/// opposite of v50's <c>DEFAULT 1</c>. 🔴 <c>company_users.password_hash</c> holds a ONE-WAY PBKDF2-HMAC-SHA256
+/// verifier and nothing else; see <see cref="MigrateV55ToV56"/>.
+/// <b><see cref="CurrentVersion"/> = 56</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v55</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v56</b> is the latest bump
+    /// (<b>Security Control</b>, census 16.2: the three tables <c>security_levels</c> / <c>security_level_rules</c>
+    /// / <c>company_users</c>, plus <c>use_user_access_control</c>, <c>password_min_length</c> and
+    /// <c>password_expiry_days</c> on <c>companies</c>. Purely additive and it back-fills NOTHING — every default
+    /// is <c>0</c> or NULL, which is the literal truth about every pre-v56 company: none had access control, none
+    /// had a user, none had a policy. 🔴 <c>company_users.password_hash</c> stores a ONE-WAY
+    /// PBKDF2-HMAC-SHA256 verifier — never a password, never anything reversible.
+    /// See <see cref="MigrateV55ToV56"/>).
+    /// v55 was the previous bump
     /// (the <b>Karnataka Professional-Tax February back-fill</b> — the first version here that adds NO DDL and
     /// exists only to correct WRONG MONEY already sitting in existing books. It clears the unsourced ₹300 February
     /// over-charge off the seeded Karnataka PT top band, and it is FINGERPRINT-GATED because those rows are
@@ -206,7 +219,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 55;
+    public const int CurrentVersion = 56;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -381,8 +394,60 @@ public static class Schema
             gst_default_hsn_sac            TEXT        NULL,            -- company default HSN/SAC (4/6/8 digits)
             gst_default_taxability         INTEGER     NULL,            -- GstTaxability ordinal (NULL = no block)
             gst_default_rate_bp            INTEGER     NULL,            -- company default rate in basis points
-            gst_default_supply_type        INTEGER     NULL             -- GstSupplyType ordinal (Goods/Services)
+            gst_default_supply_type        INTEGER     NULL,            -- GstSupplyType ordinal (Goods/Services)
+            -- v56 (census 16.2): Security Control. The company gate is the vendor's F12 "Use User Access Control";
+            -- the two policy columns are the Alt+K > Password Policy settings. ALL THREE default OFF, so "column
+            -- absent" and "feature off" coincide — the opposite of warn_on_negative_stock above, and deliberately
+            -- so: a pre-v56 company had no access control, no users and no policy, and that is what these say.
+            -- password_expiry_days is NULLable with NO default because 0 days is not "never expires".
+            use_user_access_control        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (F12 "Use User Access Control")
+            password_min_length            INTEGER NOT NULL DEFAULT 0,  -- 0 = no minimum
+            password_expiry_days           INTEGER     NULL             -- NULL = never expires
         );
+
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+        -- v56 (census 16.2) — SECURITY CONTROL. Three additive tables. 🔴 R13: company_users.password_hash is a
+        -- ONE-WAY PBKDF2-HMAC-SHA256 verifier and there is NO reversible copy of a password anywhere in this
+        -- schema. See Schema.MigrateV55ToV56 and Apex.Ledger.Security.PasswordHash for the full specification.
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+        CREATE TABLE security_levels (
+            id                       TEXT    NOT NULL PRIMARY KEY,
+            company_id               TEXT    NOT NULL REFERENCES companies(id),
+            name                     TEXT    NOT NULL,   -- "Owner", "Data Entry Operator", or an operator's own
+            is_owner                 INTEGER NOT NULL DEFAULT 0,  -- 0/1; an owner level reaches everything
+            use_basic_facilities_of  TEXT        NULL,   -- vendor caption "Use Basic Facilities of"; NULL = none
+            days_allowed_back_dated  INTEGER NOT NULL DEFAULT 0,  -- "Days Allowed for Back Dated Vouchers"
+            cut_off_date_back_dated  TEXT        NULL,   -- "Cut-off date for Backdated vouchers", ISO yyyy-MM-dd
+            level_order              INTEGER NOT NULL DEFAULT 0   -- creation order, so the screen is deterministic
+        );
+        CREATE INDEX ix_security_levels_company ON security_levels(company_id);
+
+        CREATE TABLE security_level_rules (
+            id          TEXT    NOT NULL PRIMARY KEY,
+            company_id  TEXT    NOT NULL REFERENCES companies(id),
+            level_id    TEXT    NOT NULL REFERENCES security_levels(id),
+            facility    TEXT    NOT NULL,   -- the report/master name the row grades (free text — see the domain)
+            access_type INTEGER NOT NULL,   -- SecurityAccessType ordinal (0 FullAccess … 5 Preview)
+            disallowed  INTEGER NOT NULL DEFAULT 0,  -- 0/1; 1 = a DISALLOW row. Deny beats allow.
+            rule_order  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_security_level_rules_company ON security_level_rules(company_id);
+
+        CREATE TABLE company_users (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            level_id        TEXT    NOT NULL REFERENCES security_levels(id),
+            user_name       TEXT    NOT NULL,
+            -- 🔴 ONE-WAY VERIFIER ONLY: "PBKDF2-SHA256$<iterations>$<salt-b64>$<hash-b64>". NULL = no password
+            -- set (a real state). NEVER a password, never encrypted-and-recoverable, never a bare SHA. Do NOT
+            -- copy SqliteNicCredentialStore's AES-under-a-hard-coded-pepper pattern here: that is reversible
+            -- protection of a credential the app must replay, and it is categorically wrong for a login password.
+            password_hash   TEXT        NULL,
+            password_set_on TEXT        NULL,   -- ISO-8601 round-trip ("o") with offset; NULL when no password
+            is_active       INTEGER NOT NULL DEFAULT 1,
+            user_order      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_company_users_company ON company_users(company_id);
 
         CREATE TABLE nature_of_payment (
             id                         TEXT    NOT NULL PRIMARY KEY,
@@ -4213,5 +4278,122 @@ public static class Schema
                          AND nil.to_wage_paisa        = 2499900
                          AND nil.monthly_amount_paisa = 0
                          AND nil.month_overrides      = '');
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v56 — SECURITY CONTROL (census 16.2). Fingerprint constants first, so the migration SQL, the downgrade and
+    // the tests all speak about the SAME set of objects and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The three tables v56 adds — the exact set <see cref="MigrateV55ToV56"/> creates and
+    /// <c>SchemaDowngrade.V56ToV55</c> drops. Named once so the two can never disagree.
+    /// <b>Order matters on the way down:</b> <c>company_users</c> and <c>security_level_rules</c> both FK
+    /// <c>security_levels</c>, so the level table is dropped LAST.</summary>
+    public static readonly IReadOnlyList<string> V56SecurityTables =
+        new[] { "company_users", "security_level_rules", "security_levels" };
+
+    /// <summary>The three <c>companies</c> columns v56 adds — the exact set <see cref="MigrateV55ToV56"/> creates
+    /// and <c>SchemaDowngrade.V56ToV55</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V56SecurityCompanyColumns =
+        new[] { "use_user_access_control", "password_min_length", "password_expiry_days" };
+
+    /// <summary>
+    /// v55 → v56 (census row 16.2 slice S3): <b>Security Control</b> — users, security levels, the Disallow/Allow
+    /// facility rules, and the password policy.
+    ///
+    /// <para><b>R7 — ATTESTED</b> (help.tallysolutions.com/manage-users-in-tallyprime/, fetched 2026-09-07):
+    /// <i>"Press Alt+K (Company) &gt; Users and Passwords. The Users for Company screen will appear."</i>;
+    /// <i>"TallyPrime provides two default security levels: owner and data entry operator."</i>; the level
+    /// captions <i>"Use Basic Facilities of"</i>, <i>"Days Allowed for Back Dated Vouchers"</i>, <i>"Cut-off date
+    /// for Backdated vouchers"</i> and <i>"Disallow/Allow the following facilities"</i> over the six access types
+    /// <b>Full Access · Create · Alter · Display · Print · Preview</b>; and <i>"Press Alt+K (Company) &gt;
+    /// Password Policy"</i>. The company gate is <i>"press F12 (Configure) &gt; set … Use User Access Control …
+    /// to Yes"</i> (help.tallysolutions.com/tallyvault-for-company-tally/). <b>The column names are ours</b>, as
+    /// are the two password-policy KNOBS: the vendor names the capabilities (<i>"enhancing password strength and
+    /// setting password expiration intervals"</i>) but publishes no field captions, so a minimum length and a day
+    /// count are our concretisation and are recorded as a divergence.</para>
+    ///
+    /// <para>🔴 <b>R13 — HOW A PASSWORD IS STORED, and it is the whole risk of this version.</b>
+    /// <c>company_users.password_hash</c> holds ONE thing: the storage string of a
+    /// <c>Apex.Ledger.Security.PasswordHash</c> —
+    /// <c>PBKDF2-SHA256$&lt;iterations&gt;$&lt;salt-base64&gt;$&lt;hash-base64&gt;</c> — being
+    /// <b>PBKDF2-HMAC-SHA256</b>, a <b>per-user 128-bit random salt</b>, <b>600,000 iterations</b> (stored
+    /// alongside so the work factor can be raised later without invalidating a row) and a <b>256-bit</b> derived
+    /// key, verified with <c>CryptographicOperations.FixedTimeEquals</c>. There is <b>no reversible copy of a
+    /// password anywhere in this schema</b>, no pepper (a pepper in the repo is a secret in the repo), no hint,
+    /// no length, no plaintext in any log. 🔴 <b>Do NOT copy <c>SqliteNicCredentialStore</c></b>, which
+    /// AES-encrypts a portal credential under a hard-coded application pepper: that is reversible protection of a
+    /// secret the application must replay, correct there and categorically wrong here.</para>
+    ///
+    /// <para>🔴 <b>THE PRODUCT CONSEQUENCE.</b> A forgotten Owner password cannot be recovered by anyone — there
+    /// is no reset, no master key, no back door, because each would be the recoverable storage this refuses. The
+    /// reference product is in the same position and says so
+    /// (help.tallysolutions.com/tally-prime/access-control-data-security/data-security-faq/: restore a backup
+    /// taken before the password was set). The Users screen states it before a password is ever typed.</para>
+    ///
+    /// <para><b>Purely additive, and it back-fills NOTHING.</b> Three new tables (so no existing row is even
+    /// touched) and three <c>companies</c> columns whose defaults — <c>0</c>, <c>0</c>, NULL — are the literal
+    /// truth about every pre-v56 company: none had access control, none had a policy. "Column absent" and
+    /// "feature off" therefore coincide, deliberately unlike <see cref="MigrateV49ToV50"/>'s <c>DEFAULT 1</c>,
+    /// whose non-coincidence is the trap the schema doc already records.</para>
+    ///
+    /// <para>⚠️ <b><c>password_expiry_days</c> is NULLable with NO default on purpose.</b> <c>NOT NULL DEFAULT
+    /// 0</c> would have to mean "expires after zero days" or "never expires" and cannot mean both; NULL = never
+    /// expires is unambiguous and is what every pre-v56 company was. Same reasoning as
+    /// <c>credit_limit_paisa</c> at v54.</para>
+    ///
+    /// <para><b>No UNIQUE constraint on <c>user_name</c>, and that is deliberate.</b> Uniqueness is per COMPANY
+    /// and case-insensitive; SQLite would need a partial expression index to say that, which
+    /// <c>SchemaDowngrade.DropColumns</c>'s rebuild cannot replay. The domain
+    /// (<c>SecurityControl.AddUser</c>) enforces it, with a test.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 56. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift.</para>
+    /// </summary>
+    public const string MigrateV55ToV56 = """
+        -- v56 (census 16.2): Security Control — users, security levels, facility rules, password policy.
+        -- Purely additive: three new tables plus three companies columns, all defaulting OFF, nothing back-filled.
+        -- 🔴 company_users.password_hash is a ONE-WAY PBKDF2-HMAC-SHA256 verifier. Never a password, never
+        -- reversible, never a bare SHA. See this constant's doc comment for the full R13 specification.
+        ALTER TABLE companies ADD COLUMN use_user_access_control INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN password_min_length     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN password_expiry_days    INTEGER     NULL;
+
+        CREATE TABLE security_levels (
+            id                       TEXT    NOT NULL PRIMARY KEY,
+            company_id               TEXT    NOT NULL REFERENCES companies(id),
+            name                     TEXT    NOT NULL,
+            is_owner                 INTEGER NOT NULL DEFAULT 0,
+            use_basic_facilities_of  TEXT        NULL,
+            days_allowed_back_dated  INTEGER NOT NULL DEFAULT 0,
+            cut_off_date_back_dated  TEXT        NULL,
+            level_order              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_security_levels_company ON security_levels(company_id);
+
+        CREATE TABLE security_level_rules (
+            id          TEXT    NOT NULL PRIMARY KEY,
+            company_id  TEXT    NOT NULL REFERENCES companies(id),
+            level_id    TEXT    NOT NULL REFERENCES security_levels(id),
+            facility    TEXT    NOT NULL,
+            access_type INTEGER NOT NULL,
+            disallowed  INTEGER NOT NULL DEFAULT 0,
+            rule_order  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_security_level_rules_company ON security_level_rules(company_id);
+
+        CREATE TABLE company_users (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            level_id        TEXT    NOT NULL REFERENCES security_levels(id),
+            user_name       TEXT    NOT NULL,
+            password_hash   TEXT        NULL,
+            password_set_on TEXT        NULL,
+            is_active       INTEGER NOT NULL DEFAULT 1,
+            user_order      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_company_users_company ON company_users(company_id);
         """;
 }

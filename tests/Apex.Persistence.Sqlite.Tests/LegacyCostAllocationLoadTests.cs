@@ -198,6 +198,10 @@ public sealed class LegacyCostAllocationLoadTests
         // that adds NO DDL AT ALL. It only clears the unsourced ₹300 February over-charge off the seeded Karnataka
         // PT top band in books that already carry it. It touches `pt_slab_bands` and nothing else, so again nothing
         // in cost_allocations, and the G-2 contract this test guards remains storage-free.
-        Assert.Equal(55, Schema.CurrentVersion);
+        // **v56 is owned by SECURITY CONTROL (census 16.2)** — three new tables (`security_levels`,
+        // `security_level_rules`, `company_users`) and three `companies` columns (`use_user_access_control`,
+        // `password_min_length`, `password_expiry_days`). Purely additive, nothing back-filled, and it touches
+        // nothing in `cost_allocations` either, so the G-2 contract this test guards remains storage-free.
+        Assert.Equal(56, Schema.CurrentVersion);
     }
 }

@@ -474,6 +474,12 @@ public partial class MainWindow : Window
                 SaveWhatsAppDocumentToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
                 vm.SaveSmtpSettings();
+            // Census 16.2 — Ctrl+A on either Security Control screen persists the company, the same accelerator
+            // both screens advertise on their Save buttons. No dead shortcut.
+            else if (vm.CurrentScreen == Screen.SecurityUsers)
+                vm.SaveSecurityUsers();
+            else if (vm.CurrentScreen == Screen.PasswordPolicy)
+                vm.SavePasswordPolicy();
             // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
             // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
             else if (vm.CurrentScreen == Screen.Form16A)
@@ -2444,6 +2450,24 @@ public partial class MainWindow : Window
 
     private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveSmtpSettings();
+
+    // Census 16.2 — the Security Control screens' buttons. Each is a one-line hand-off to the view model, which
+    // holds every rule; nothing about a password is decided in the view. 🔴 None of these ever reads a password
+    // back out of a control — the view model clears NewPassword itself the moment a verb succeeds.
+    private void OnAddSecurityLevelClick(object? sender, RoutedEventArgs e)
+        => Vm?.SecurityUsers?.CreateLevel();
+
+    private void OnAddSecurityUserClick(object? sender, RoutedEventArgs e)
+        => Vm?.SecurityUsers?.CreateUser();
+
+    private void OnSetSecurityUserPasswordClick(object? sender, RoutedEventArgs e)
+        => Vm?.SecurityUsers?.SetPasswordForSelectedUser();
+
+    private void OnSaveSecurityUsersClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveSecurityUsers();
+
+    private void OnSavePasswordPolicyClick(object? sender, RoutedEventArgs e)
+        => Vm?.SavePasswordPolicy();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

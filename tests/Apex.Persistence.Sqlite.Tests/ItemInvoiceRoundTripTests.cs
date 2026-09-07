@@ -223,6 +223,14 @@ public sealed class ItemInvoiceRoundTripTests
         // collide with an already-present table.
         Exec(conn, "DROP INDEX IF EXISTS ix_voucher_edit_log_company;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_edit_log;");
+        // Drop the v56 Security Control tables + their indexes so the reopen's v55->v56 CREATE TABLE does not
+        // collide with already-present tables. FK order: the two children before security_levels.
+        Exec(conn, "DROP INDEX IF EXISTS ix_company_users_company;");
+        Exec(conn, "DROP TABLE IF EXISTS company_users;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_security_level_rules_company;");
+        Exec(conn, "DROP TABLE IF EXISTS security_level_rules;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_security_levels_company;");
+        Exec(conn, "DROP TABLE IF EXISTS security_levels;");
         // Drop the v47 numbering affix child tables so the reopen's v46→v47 CREATE TABLE does not collide (the
         // voucher_types rebuild below strips the v47 prevent_duplicate/number_width/prefill_with_zero columns too).
         Exec(conn, "DROP TABLE IF EXISTS voucher_type_prefix;");

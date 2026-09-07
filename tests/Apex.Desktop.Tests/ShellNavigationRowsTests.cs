@@ -435,7 +435,12 @@ public sealed class ShellNavigationRowsTests : IDisposable
             var column = vm.Columns.Last();
             Assert.True(column.IsMenu, "The company menu was built as a page column, not a menu column.");
             Assert.Equal(CompanyMenu.ColumnTitle, column.Title);
-            Assert.Equal(new[] { "Create", "Alter", "Select", "Shut" }, CompanyMenu.VerbsOf(column));
+            // W-I1 / census 16.2: the vendor's two user-management rows joined this menu, which is exactly
+            // where the vendor reaches them ("Press Alt+K (Company) > Users and Passwords" / "> Password
+            // Policy"). Both open a real screen — see SecurityControlScreenTests.
+            Assert.Equal(
+                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy" },
+                CompanyMenu.VerbsOf(column));
 
             // The keyboard cursor lands on a selectable row, not on a header.
             Assert.True(column.Selected?.IsSelectable == true);
@@ -499,6 +504,14 @@ public sealed class ShellNavigationRowsTests : IDisposable
     /// that stops it reaching a screen. Naming the reference product in a test file is correct; shipping it
     /// in a rendered string is not.
     /// </summary>
+    /// <summary>
+    /// The vendor rows this menu still withholds. 🔴 <b>The list SHRANK on 2026-09-07 (census 16.2, W-I1)</b>:
+    /// "Users and Passwords" and "Password Policy" are now built and now offered, so keeping them here would
+    /// assert the opposite of what shipped. What remains withheld is the data-vault row (census 16.1, whose
+    /// page-encryption half needs a new native dependency and a user ruling), "Change User" (which needs a
+    /// signed-in session, deferred with the actor work) and "Edit Log" (census 16.4, reachable elsewhere).
+    /// Naming the reference product is correct HERE, in the test file, and nowhere in <c>src/</c>.
+    /// </summary>
     private static readonly string[] WithheldVendorRows = { "TallyVault", "Change User", "Edit Log" };
 
     /// <summary>
@@ -523,7 +536,8 @@ public sealed class ShellNavigationRowsTests : IDisposable
 
             // The disclosure is ON SCREEN. The cascade draws header rows through an uppercasing converter, so
             // the comparison is case-insensitive by necessity, not by laziness — the shipped glyphs really are
-            // "SECURITY & AUDIT ACTIONS ARE NOT IN THIS BUILD".
+            // "COMPANY DATA ENCRYPTION IS NOT IN THIS BUILD" (narrowed from the security-and-audit wording when
+            // census 16.2 shipped and made the broader claim false).
             Assert.Contains(
                 VisibleText(window),
                 t => t.Contains(CompanyMenu.Disclosure, StringComparison.OrdinalIgnoreCase));
