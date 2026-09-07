@@ -331,10 +331,27 @@ public sealed partial class ProfessionalTaxRegisterViewModel : ViewModelBase
     private static long ParseRupees(string grouped) =>
         long.TryParse(grouped.Replace(",", string.Empty), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0L;
 
+    /// <summary>
+    /// Emits one CSV field: the field is first put through the shared spreadsheet-formula-injection guard
+    /// (<see cref="Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize"/>) — the SAME rule the engine's own delimited
+    /// exports use, not a private copy of it — and only then quoted, and only when it needs quoting.
+    ///
+    /// <para>🔴 <b>Order is load-bearing, and so is the conditional branch.</b> Neutralise FIRST so the guard's
+    /// <c>'</c> prefix lands inside any quotes; then decide quoting on the NEUTRALISED field. The guard only ever
+    /// PREPENDS <c>'</c>, so it can never change that decision — but the prefix must survive the branch that
+    /// returns the field unquoted, which is the common case for an employee name. This exporter writes user-typed
+    /// text — the company name, the PT enrolment number, and every employee number and NAME — into a file an
+    /// accounts clerk opens in a spreadsheet, where a value beginning <c>= + - @</c> is EXECUTED on open.</para>
+    ///
+    /// <para>Every field goes through the one helper deliberately: the money cells this register emits are
+    /// whole-rupee Indian-grouped strings ("1,20,000"), already text to a spreadsheet, so guarding them costs
+    /// nothing and leaves no call site that can be forgotten.</para>
+    /// </summary>
     private static string Csv(string value)
     {
-        if (value.IndexOfAny(new[] { ',', '"', '\n' }) < 0) return value;
-        return "\"" + value.Replace("\"", "\"\"") + "\"";
+        var field = Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize(value);
+        if (field.IndexOfAny(new[] { ',', '"', '\n' }) < 0) return field;
+        return "\"" + field.Replace("\"", "\"\"") + "\"";
     }
 
     /// <summary>Whole-rupee Indian-grouped display of a PT integer figure (always rendered, even zero).</summary>

@@ -300,6 +300,20 @@ public sealed partial class KeralaFloodCessReturnViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Quotes a CSV field. Everything is quoted, so a comma or a quote in a company name cannot shift a column.</summary>
-    private static string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+    /// <summary>
+    /// Emits one CSV field. Everything is quoted, so a comma or a quote in a company name cannot shift a column,
+    /// and the field is first put through the shared spreadsheet-formula-injection guard
+    /// (<see cref="Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize"/>) — the SAME rule the engine's own delimited
+    /// exports use, not a private copy of it.
+    ///
+    /// <para>🔴 <b>Order is load-bearing: neutralise FIRST, then quote.</b> The guard's <c>'</c> prefix has to land
+    /// INSIDE the quotes (<c>"'=cmd…"</c>); prefixing after the quoting would produce <c>'"=cmd…"</c>, which is not
+    /// a valid RFC-4180 field. This mattered here because this exporter writes user-typed text — the company name
+    /// and the GSTIN — into a file an accounts clerk opens in a spreadsheet, where a value beginning <c>= + - @</c>
+    /// is EXECUTED on open. Every field goes through the one helper deliberately: the money cells this report emits
+    /// are Indian-grouped strings ("1,00,000.00"), already text to a spreadsheet, so guarding them costs nothing and
+    /// leaves no call site that can be forgotten.</para>
+    /// </summary>
+    private static string Csv(string value)
+        => "\"" + Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize(value).Replace("\"", "\"\"") + "\"";
 }
