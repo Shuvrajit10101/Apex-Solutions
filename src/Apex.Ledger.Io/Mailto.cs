@@ -44,6 +44,17 @@ public static class Mailto
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The SAME query-field percent-encoding this class uses for <c>cc</c>/<c>subject</c>/<c>body</c>, exposed
+    /// so a second URI builder does not grow a second encoder beside it.
+    ///
+    /// <para>Added for the <c>wa.me</c> share link, whose <c>?text=</c> field needs exactly this rule: encode
+    /// everything outside the unreserved set (ALPHA / DIGIT / "-" / "." / "_" / "~"), UTF-8 first. Two
+    /// hand-rolled encoders in one codebase is how one of them ends up subtly wrong about a rupee sign or a
+    /// newline, and only one of them has the byte-locked tests.</para>
+    /// </summary>
+    public static string EncodeQueryValue(string value) => Encode(value ?? string.Empty);
+
     // Query-field encoding (cc/subject/body): percent-encode everything outside the RFC-6068 "unreserved"
     // set (ALPHA / DIGIT / "-" / "." / "_" / "~"). Reserved characters — '@', '&', '/', ',', space and
     // control bytes — are encoded so the query cannot be mis-parsed.
