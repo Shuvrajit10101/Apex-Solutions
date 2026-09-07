@@ -192,7 +192,12 @@ public sealed class LegacyCostAllocationLoadTests
         // nothing in cost_allocations either, and the G-2 contract this test guards is still storage-free;
         // **v54 is owned by W-F2 (Credit Limits, census 10.1)**, which adds exactly three columns to `ledgers`
         // (`credit_limit_paisa`, `check_credit_days_on_entry`, `override_credit_limit_post_dated`) — again nothing
-        // in cost_allocations, so the G-2 contract this test guards remains storage-free.
-        Assert.Equal(54, Schema.CurrentVersion);
+        // in cost_allocations;
+        // **v55 is owned by the KARNATAKA PROFESSIONAL-TAX BACK-FILL** (user Ruling 16, 2026-09-06, renumbered from
+        // the v54 the ruling named because PR #62 had already landed Credit Limits there) — the first version here
+        // that adds NO DDL AT ALL. It only clears the unsourced ₹300 February over-charge off the seeded Karnataka
+        // PT top band in books that already carry it. It touches `pt_slab_bands` and nothing else, so again nothing
+        // in cost_allocations, and the G-2 contract this test guards remains storage-free.
+        Assert.Equal(55, Schema.CurrentVersion);
     }
 }

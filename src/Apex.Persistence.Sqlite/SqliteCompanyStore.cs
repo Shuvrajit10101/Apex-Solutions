@@ -1341,6 +1341,40 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 54;
         }
 
+        // v54 → v55: the Karnataka Professional-Tax February back-fill, then bump the marker. 🔴 This one is unlike
+        // every migration above it: it adds NO table, NO column and NO index, and its whole purpose is to rewrite
+        // rows that are already there. It clears the unsourced ₹300 February over-charge off the seeded Karnataka PT
+        // top band so an existing Karnataka employee stops being deducted ₹2,500 a year against a statutory ₹2,400.
+        // The seeding code was fixed separately, but PT slab tables are seeded ONCE at enrolment and thereafter
+        // persisted and user-editable, so the code fix reaches only companies enrolled after it.
+        // ⚠️ Because those rows ARE user-editable and carry no provenance column, the UPDATE is FINGERPRINT-GATED:
+        // it fires only on a Karnataka table still matching the shipped two-band seed exactly. Do not "simplify" it
+        // into an unconditional UPDATE — that would overwrite deliberate operator edits, which is a wrong-money
+        // defect in the opposite direction. Maharashtra's identical override is statutory and is excluded by
+        // state_code. See Schema.MigrateV54ToV55 for the full reasoning and the citation.
+        // 🔴 THIS STEP IS SEPARATE FROM, AND RUNS AFTER, THE v53 → v54 STEP ABOVE — never folded into it. A v53 book
+        // must climb 53 → 54 → 55 and arrive carrying BOTH the credit-limit columns AND the corrected Karnataka
+        // figure. Ruling 16 named this migration v54; PR #62 had already landed v54 on main, so it is v55.
+        if (version == 54)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV54ToV55;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 55);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 55;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
