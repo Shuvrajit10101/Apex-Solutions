@@ -265,8 +265,27 @@ public sealed class PayrollReportsViewModelTests : IDisposable
         Assert.Equal(GatewayMenu.PayrollReports, f.Vm.CurrentGatewayMenu);
         var submenu = f.Vm.Columns[^1];
         Assert.True(submenu.IsMenu);
+        // W-J1 (census 7.22 / 7.23 / 7.24) added the Attendance SHEET and the two pay-head breakups to this
+        // column and, because eight rows under one header would be the flat dump the standing UI rule forbids,
+        // split it into three named sections. The membership below is updated DELIBERATELY — it is the shipped
+        // test that wave named in advance as the one it would break — and it must never be "fixed" by loosening
+        // Assert.Equal to Assert.Contains, which would stop it noticing a row going missing.
+        //
+        // 🔴 "Attendance Register" and "Attendance Sheet" are BOTH here, adjacent, on purpose: the vendor
+        // publishes them as two reports and folding them is the trap census row 7.22 exists to close.
         var labels = submenu.Items.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Payslip", "Pay Sheet", "Payroll Register", "Attendance Register", "Payment Advice" }, labels);
+        Assert.Equal(
+            new[]
+            {
+                "Payslip", "Pay Sheet", "Payroll Register", "Payment Advice",
+                "Attendance Register", "Attendance Sheet",
+                "Pay Head Employee Breakup", "Employee Pay Head Breakup",
+            },
+            labels);
+
+        // Never a flat dump — the rows nest under three named headers.
+        var headers = submenu.Items.Where(m => m.IsHeader).Select(m => m.Label).ToArray();
+        Assert.Equal(new[] { "Statements of Pay", "Attendance", "Breakups" }, headers);
 
         // A non-payroll company never surfaces the group (ER-13) and the open path is a no-op.
         var plain = new MainWindowViewModel(_storage);

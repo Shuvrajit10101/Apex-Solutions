@@ -144,6 +144,36 @@ public enum ReportKind
     EsiForm3,
     EsiForm5,
     EsiForm6,
+
+    // ---- W-J1: the five payroll reports of census rows 7.22–7.26 (added by user ruling 19 because they had no
+    // census row at all). Every one is a REPORT over payroll data this product already computes — none needs
+    // storage and none computes a new figure. ----
+
+    /// <summary>Census 7.22 — the Attendance <b>Sheet</b>: the fixed four-figure per-employee summary (days
+    /// present / days absent / units produced / overtime),
+    /// help.tallysolutions.com/tally-prime/payroll-reports/attendance-sheet-payroll/.
+    /// 🔴 <b>NOT <see cref="AttendanceRegister"/> (row 7.15)</b>, which is the wide per-type matrix. The vendor
+    /// publishes the two on separate pages and folding them is the trap row 7.22 exists to close.</summary>
+    AttendanceSheet,
+
+    /// <summary>Census 7.23 — Pay Head Employee Breakup: ONE employee, group-wise across their pay heads,
+    /// help.tallysolutions.com/tally-prime/payroll-reports/pay-head-employee-breakup-tally/.</summary>
+    PayHeadEmployeeBreakup,
+
+    /// <summary>Census 7.24 — Employee Pay Head Breakup: ONE pay head, across all employees,
+    /// help.tallysolutions.com/tally-prime/payroll-reports/payroll-employee-pay-head-breakup-tally/. The transpose
+    /// of <see cref="PayHeadEmployeeBreakup"/>, over the same engine so neither can answer for the other.</summary>
+    EmployeePayHeadBreakup,
+
+    /// <summary>Census 7.25 — Payroll Statutory Summary: the payable/paid roll-up OVER the PF/ESI/PT computations
+    /// (rows 7.10/7.11/7.12 ship those),
+    /// help.tallysolutions.com/tally-prime/payroll-statutory-reports/payroll-statutory-summary-tally/.</summary>
+    PayrollStatutorySummary,
+
+    /// <summary>Census 7.26 — the per-employee Income Tax Computation in Form 16 shape,
+    /// help.tallysolutions.com/tally-prime/payroll-income-tax-reports/tax-computation-tally/. Reads the SAME
+    /// annual computation that backs Form 16 Part B; it computes no tax of its own.</summary>
+    IncomeTaxComputation,
 }
 
 /// <summary>
@@ -384,7 +414,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// accounting / inventory / GST / statutory grids, and carry the wage-month picker.</summary>
     public bool IsPayrollReport => Kind is ReportKind.Payslip or ReportKind.PaySheet
         or ReportKind.PayrollRegister or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice
-        || IsPayrollStatutoryForm;
+        || IsPayrollStatutoryForm || IsPayrollBreakupReport;
+
+    /// <summary>True for the five W-J1 payroll reports of census rows 7.22–7.26 (Attendance Sheet · Pay Head
+    /// Employee Breakup · Employee Pay Head Breakup · Payroll Statutory Summary · Income Tax Computation). They
+    /// render through the same payroll matrix as everything else in this family and are scoped to a wage month;
+    /// three of them additionally carry a scope picker (employee or pay head).</summary>
+    public bool IsPayrollBreakupReport => Kind is ReportKind.AttendanceSheet
+        or ReportKind.PayHeadEmployeeBreakup or ReportKind.EmployeePayHeadBreakup
+        or ReportKind.PayrollStatutorySummary or ReportKind.IncomeTaxComputation;
 
     /// <summary>True for the eight W7-D2 payroll statutory forms (PF 3A/5/6A/10/12A — census 7.20; ESI 3/5/6 —
     /// census 7.21). They render through the same payroll matrix as the four presentation reports, so one
@@ -408,17 +446,41 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <see cref="PayrollRows"/> matrix so one DataTemplate serves every payroll grid.</summary>
     public bool IsPayrollMatrix => Kind is ReportKind.PaySheet or ReportKind.PayrollRegister
         or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice
-        || IsPayrollStatutoryForm;
+        || IsPayrollStatutoryForm || IsPayrollBreakupReport;
 
     /// <summary>Show the wage-month picker — every payroll report is scoped to one wage month, EXCEPT the four
-    /// statutory forms that run over a multi-month statutory period (see <see cref="IsStatutoryPeriodForm"/>).</summary>
-    public bool ShowPayrollMonthPicker => IsPayrollReport && !IsStatutoryPeriodForm;
+    /// statutory forms that run over a multi-month statutory period (see <see cref="IsStatutoryPeriodForm"/>).
+    /// <para>🔴 Also excluded: the one report that carries <see cref="ShowPayrollPayHeadPicker"/>. That picker's
+    /// row carries its OWN wage-month combo, and both rows live in the same grid cell — leaving this true would
+    /// stack two pickers on top of each other in the same space.</para></summary>
+    public bool ShowPayrollMonthPicker =>
+        IsPayrollReport && !IsStatutoryPeriodForm && !ShowPayrollPayHeadPicker;
 
     /// <summary>Show the statutory-period picker (PF currency period / ESI contribution period).</summary>
     public bool ShowStatutoryPeriodPicker => IsStatutoryPeriodForm;
 
-    /// <summary>Show the employee picker — only the Payslip is scoped to a single employee.</summary>
-    public bool ShowPayrollEmployeePicker => IsPayslipReport;
+    /// <summary>Show the employee picker — the Payslip, the Pay Head Employee Breakup (census 7.23, whose vendor
+    /// page opens on a <i>List of Employees</i>) and the Income Tax Computation (census 7.26, whose vendor page
+    /// switches employee with F4) are each scoped to a single employee.</summary>
+    public bool ShowPayrollEmployeePicker => IsPayslipReport
+        || Kind is ReportKind.PayHeadEmployeeBreakup or ReportKind.IncomeTaxComputation;
+
+    /// <summary>Show the pay-head picker — only the Employee Pay Head Breakup (census 7.24) is scoped to a single
+    /// pay head, and its vendor page opens on a <i>List of Pay Heads</i>. It is a separate picker from the
+    /// employee one on purpose: 7.23 and 7.24 transpose the same data, and a shared picker would let one silently
+    /// answer for the other.</summary>
+    public bool ShowPayrollPayHeadPicker => Kind == ReportKind.EmployeePayHeadBreakup;
+
+    /// <summary>The company's pay heads, for the census-7.24 pay-head picker (ordered by display label).</summary>
+    public ObservableCollection<PayrollPayHeadOption> PayrollPayHeads { get; } = new();
+
+    /// <summary>The selected pay head; changing it re-projects the Employee Pay Head Breakup.</summary>
+    [ObservableProperty] private PayrollPayHeadOption? _selectedPayrollPayHead;
+
+    partial void OnSelectedPayrollPayHeadChanged(PayrollPayHeadOption? value)
+    {
+        if (Kind == ReportKind.EmployeePayHeadBreakup) Show(Kind);
+    }
 
     /// <summary>The selectable wage months of the report's financial year (Apr … Mar), driving the payroll period.</summary>
     public ObservableCollection<PayrollMonthOption> PayrollMonths { get; } = new();
@@ -714,6 +776,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
             PayrollEmployees.Add(new PayrollEmployeeOption { EmployeeId = e.Id, Display = label });
         }
         SelectedPayrollEmployee = PayrollEmployees.FirstOrDefault();
+
+        // W-J1 (census 7.24) — the vendor's "List of Pay Heads". Ordered by the SAME display label the reports
+        // print, so the picker entry and the report title cannot read differently for the same head.
+        foreach (var ph in _company.PayHeads
+            .OrderBy(p => string.IsNullOrWhiteSpace(p.DisplayName) ? p.Name : p.DisplayName!.Trim(), StringComparer.Ordinal)
+            .ThenBy(p => p.Id))
+        {
+            var label = string.IsNullOrWhiteSpace(ph.DisplayName) ? ph.Name : ph.DisplayName!.Trim();
+            PayrollPayHeads.Add(new PayrollPayHeadOption { PayHeadId = ph.Id, Display = label });
+        }
+        SelectedPayrollPayHead = PayrollPayHeads.FirstOrDefault();
     }
 
     /// <summary>
@@ -966,6 +1039,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPayrollStatutoryForm));
         OnPropertyChanged(nameof(IsStatutoryPeriodForm));
         OnPropertyChanged(nameof(ShowStatutoryPeriodPicker));
+        // W-J1 (census 7.22–7.26) + the pay-head picker census 7.24 is scoped by. Without these the picker keeps
+        // whatever visibility the PREVIOUS report left it with, which is how a scope control ends up on a report
+        // it does not scope.
+        OnPropertyChanged(nameof(IsPayrollBreakupReport));
+        OnPropertyChanged(nameof(ShowPayrollPayHeadPicker));
         PayrollFootnotes.Clear();
         HasPayrollFootnotes = false;
         PayrollColumns2.Clear();
@@ -1070,6 +1148,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.EsiForm3: RunStatutoryForm(BuildEsiForm3); break;
             case ReportKind.EsiForm5: RunStatutoryForm(BuildEsiForm5); break;
             case ReportKind.EsiForm6: RunStatutoryForm(BuildEsiForm6); break;
+
+            // W-J1 — census rows 7.22–7.26. Wrapped in RunStatutoryForm for the same reason the forms above are:
+            // these reach engines that THROW on a half-set-up payroll (a missing employee/pay head master), and
+            // Show() still has no handler of its own, so an unguarded throw takes the shell down on menu activation.
+            case ReportKind.AttendanceSheet: RunStatutoryForm(BuildAttendanceSheet); break;
+            case ReportKind.PayHeadEmployeeBreakup: RunStatutoryForm(BuildPayHeadEmployeeBreakup); break;
+            case ReportKind.EmployeePayHeadBreakup: RunStatutoryForm(BuildEmployeePayHeadBreakup); break;
+            case ReportKind.PayrollStatutorySummary: RunStatutoryForm(BuildPayrollStatutorySummary); break;
+            case ReportKind.IncomeTaxComputation: RunStatutoryForm(BuildIncomeTaxComputation); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -1324,6 +1411,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.EsiForm3] = "EsiForm3",
         [ReportKind.EsiForm5] = "EsiForm5",
         [ReportKind.EsiForm6] = "EsiForm6",
+        // W-J1 — census rows 7.22–7.26. Same rule as the block above: a kind with no token here throws
+        // KeyNotFoundException the moment an operator presses Alt+K on it. The tokens are PERSISTED, so frozen.
+        [ReportKind.AttendanceSheet] = "AttendanceSheet",
+        [ReportKind.PayHeadEmployeeBreakup] = "PayHeadEmployeeBreakup",
+        [ReportKind.EmployeePayHeadBreakup] = "EmployeePayHeadBreakup",
+        [ReportKind.PayrollStatutorySummary] = "PayrollStatutorySummary",
+        [ReportKind.IncomeTaxComputation] = "IncomeTaxComputation",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -4235,6 +4329,355 @@ public sealed partial class ReportsViewModel : ViewModelBase
         MarkPayrollEmpty(advice.Rows.Count == 0);
     }
 
+    // ================================================== W-J1: census rows 7.22 – 7.26 (user ruling 19)
+    //
+    // Five REPORTS over payroll data this product already computes. Not one of them computes a new figure, and
+    // not one of them touches storage. Each is grounded in the vendor page named on its ReportKind.
+
+    private const double BreakupNameWidth = 240;
+    private const double BreakupNumWidth = 130;
+
+    /// <summary>The Income Tax Computation's value column. 🔴 Sized for its longest VALUE, not its longest
+    /// figure: the snapshot rows carry the regime label <c>"New regime (u/s 115BAC)"</c> (23 characters), which
+    /// at <see cref="BreakupNumWidth"/> was cut to "New regime (u/s" — leaving a report whose two regimes, the
+    /// one thing that changes which deductions apply, read almost identically.</summary>
+    private const double IncomeTaxValueWidth = 240;
+
+    /// <summary>The Income Tax Computation's particulars column, sized for
+    /// <c>"Less: Standard Deduction u/s 16(ia)"</c> with room to spare.</summary>
+    private const double IncomeTaxLabelWidth = 380;
+
+    // The shipped grid is monospace, so a column fits its heading exactly when
+    // (characters × advance) ≤ (width − padding). These two numbers are the measured metrics of the shipped face
+    // and are the same pair PayrollStatutoryFormLegibilityTests asserts against; they live here so a column whose
+    // heading is DATA-DRIVEN can size itself rather than hoping a hand-picked constant is still big enough.
+    private const double ColumnHeaderAdvance = 6.5977;   // TextBlock.colHdr, FontSize 12
+    private const double ColumnHeaderPadding = 16;       // colHdr Padding="8,4"
+
+    /// <summary>A column width guaranteed to show <paramref name="header"/> in full, never narrower than
+    /// <paramref name="minimum"/>. Used where the heading embeds a master's own text (a payroll unit symbol), so
+    /// no hand-picked constant can be known to be wide enough for every company's data.</summary>
+    private static double PayColWidthFor(string header, double minimum)
+        => Math.Max(minimum, header.Length * ColumnHeaderAdvance + ColumnHeaderPadding);
+
+    /// <summary>A signed, debit-positive balance as the breakup reports print it: the magnitude followed by
+    /// <c>Dr</c> or <c>Cr</c>, blank at exactly zero. A bare negative number on a balance column is ambiguous —
+    /// the reader cannot tell a credit balance from a data-entry sign — so the side is spelled out.
+    /// <para>Delegates to <see cref="IndianFormat.Signed(decimal, DrCr)"/>, which is where this codebase's
+    /// blank-at-zero + side-suffix convention already lives (and which is careful not to leave a dangling
+    /// "Dr" behind a blank cell). Re-implementing it here would be a second place for that convention to
+    /// drift.</para></summary>
+    private static string Signed(decimal v)
+        => IndianFormat.Signed(Math.Abs(v), v >= 0m ? DrCr.Debit : DrCr.Credit);
+
+    // --------------------------------------------------------------- 7.22 Attendance Sheet
+    // 🔴 NOT the Attendance Register (7.15). That one is the wide per-type MATRIX; this is the fixed four-figure
+    // SUMMARY the vendor's page names. Both ship, and neither answers for the other.
+    private void BuildAttendanceSheet()
+    {
+        var (from, to) = BeginPayrollReport("Attendance Sheet");
+        var ids = _company.Employees.Select(e => e.Id).ToList();
+        // The vendor's F12 "Remove zero-valued transactions" (…/payroll-reports/attendance-sheet-payroll/) is this
+        // book's existing F12 "hide zero balances" — the same operator intent through the same key, rather than a
+        // second configuration switch nobody would find. An engine flag with no keystroke behind it would be a
+        // parameter, not a feature.
+        var sheet = Report.BuildAttendanceSheet(_company, ids, from, to, _options.HideZeroBalances);
+
+        var producedHeader = sheet.ProductionUnits.Count == 1
+            ? $"Units Produced ({sheet.ProductionUnits[0]})"
+            : "Units Produced";
+        var overtimeHeader = sheet.OvertimeUnits.Count == 1
+            ? $"Overtime ({sheet.OvertimeUnits[0]})"
+            : "Overtime";
+
+        // 🔴 The two production headings embed a payroll-unit SYMBOL the operator chose, so their width cannot be
+        // a hand-picked constant: "Units Produced (Nos)" already overflows PayrollNumWidth, and a company using
+        // "Pieces" would overflow anything guessed here. They size themselves to their own text.
+        var producedWidth = PayColWidthFor(producedHeader, PayrollNumWidth);
+        var overtimeWidth = PayColWidthFor(overtimeHeader, PayrollNumWidth);
+
+        PayrollColumns.Add(PayCol("Employee", PayrollLabelWidth, false));
+        PayrollColumns.Add(PayCol("Emp. No.", PayrollDayWidth, false));
+        PayrollColumns.Add(PayCol("Days Present", PayrollDayWidth, true));
+        PayrollColumns.Add(PayCol("Days Absent", PayrollDayWidth, true));
+        PayrollColumns.Add(PayCol(producedHeader, producedWidth, true));
+        PayrollColumns.Add(PayCol(overtimeHeader, overtimeWidth, true));
+
+        foreach (var r in sheet.Rows)
+            PayrollRows.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    PayCell(r.EmployeeName, PayrollLabelWidth, false),
+                    PayCell(Or(r.EmployeeNumber), PayrollDayWidth, false),
+                    PayCell(Days(r.DaysPresent), PayrollDayWidth, true),
+                    PayCell(Days(r.DaysAbsent), PayrollDayWidth, true),
+                    PayCell(Days(r.UnitsProduced), producedWidth, true),
+                    PayCell(Days(r.OvertimeWorked), overtimeWidth, true),
+                },
+            });
+
+        PayrollRows.Add(new PayrollMatrixRowVm
+        {
+            IsTotal = true,
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                PayCell("Total", PayrollLabelWidth, false),
+                PayCell(string.Empty, PayrollDayWidth, false),
+                PayCell(DaysAlways(sheet.TotalDaysPresent), PayrollDayWidth, true),
+                PayCell(DaysAlways(sheet.TotalDaysAbsent), PayrollDayWidth, true),
+                PayCell(DaysAlways(sheet.TotalUnitsProduced), producedWidth, true),
+                PayCell(DaysAlways(sheet.TotalOvertimeWorked), overtimeWidth, true),
+            },
+        });
+
+        Footnote("Overtime is the production recorded against an attendance/production type that an overtime pay "
+               + "head is calculated on. This book carries no overtime flag on the type itself, so nothing is "
+               + "inferred from a type's name.");
+        if (sheet.ProductionUnits.Count > 1)
+            Footnote("Units Produced spans more than one payroll unit (" + string.Join(", ", sheet.ProductionUnits)
+                   + "); the figures are summed as recorded and nothing is converted between units.");
+        if (sheet.OvertimeUnits.Count > 1)
+            Footnote("Overtime spans more than one payroll unit (" + string.Join(", ", sheet.OvertimeUnits)
+                   + "); the figures are summed as recorded and nothing is converted between units.");
+        if (sheet.UncountedTypeNames.Count > 0)
+            Footnote("These user-defined attendance types were recorded in the period and are NOT part of any "
+                   + "column above: " + string.Join(", ", sheet.UncountedTypeNames)
+                   + ". The Attendance Register (Reports > Payroll Reports > Attendance Register) shows them.");
+
+        MarkStatutoryFormEmpty(sheet.Rows.Count == 0,
+            "No employee is on the roster, so there is no attendance to summarise.");
+    }
+
+    // --------------------------------------------------------------- 7.23 Pay Head Employee Breakup
+    private void BuildPayHeadEmployeeBreakup()
+    {
+        var (from, to) = BeginPayrollReport("Pay Head Employee Breakup");
+        if (SelectedPayrollEmployee is not { } chosen)
+        {
+            MarkStatutoryFormEmpty(true, "No employee master exists, so there is no breakup to show.");
+            return;
+        }
+
+        var breakup = Report.BuildPayHeadEmployeeBreakup(_company, chosen.EmployeeId, from, to);
+        Subtitle = $"{CompanyName}  —  {breakup.ScopeName}  —  "
+                 + $"Wage month {from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)}";
+        RenderBreakup(breakup, "Pay Head");
+
+        MarkStatutoryFormEmpty(breakup.IsEmpty,
+            $"Nothing has been posted for {breakup.ScopeName} on or before the end of this wage month.");
+    }
+
+    // --------------------------------------------------------------- 7.24 Employee Pay Head Breakup
+    // 🔴 The TRANSPOSE of 7.23, not a second name for it — one pay head across every employee. Shared engine so
+    // the two can never disagree; separate report + separate picker so neither silently answers for the other.
+    private void BuildEmployeePayHeadBreakup()
+    {
+        var (from, to) = BeginPayrollReport("Employee Pay Head Breakup");
+        if (SelectedPayrollPayHead is not { } chosen)
+        {
+            MarkStatutoryFormEmpty(true, "No pay head master exists, so there is no breakup to show.");
+            return;
+        }
+
+        var breakup = Report.BuildEmployeePayHeadBreakup(_company, chosen.PayHeadId, from, to);
+        Subtitle = $"{CompanyName}  —  {breakup.ScopeName}  —  "
+                 + $"Wage month {from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)}";
+        RenderBreakup(breakup, "Employee");
+
+        MarkStatutoryFormEmpty(breakup.IsEmpty,
+            $"Nothing has been posted to {breakup.ScopeName} on or before the end of this wage month.");
+    }
+
+    /// <summary>Renders a <see cref="PayHeadBreakup"/> into the shared payroll matrix: a group band, its lines,
+    /// a group subtotal, then the grand total. Both 7.23 and 7.24 go through here, which is what keeps the two
+    /// transpositions visually and arithmetically identical.</summary>
+    private void RenderBreakup(PayHeadBreakup breakup, string nameHeader)
+    {
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            (nameHeader, BreakupNameWidth, false),
+            ("Opening Balance", BreakupNumWidth, true),
+            ("Debit", BreakupNumWidth, true),
+            ("Credit", BreakupNumWidth, true),
+            ("Closing Balance", BreakupNumWidth, true),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var group in breakup.Groups)
+        {
+            // The group heading row. The professional-hierarchy rule: lines nest UNDER a named parent band, never
+            // a flat dump of every pay head in the company.
+            PayrollRows.Add(StatRow(false,
+                (group.GroupName, BreakupNameWidth, false),
+                (string.Empty, BreakupNumWidth, true),
+                (string.Empty, BreakupNumWidth, true),
+                (string.Empty, BreakupNumWidth, true),
+                (string.Empty, BreakupNumWidth, true)));
+
+            foreach (var line in group.Lines)
+                PayrollRows.Add(StatRow(false,
+                    ("    " + line.Name, BreakupNameWidth, false),
+                    (Signed(line.Opening), BreakupNumWidth, true),
+                    (IndianFormat.Amount(line.Debit), BreakupNumWidth, true),
+                    (IndianFormat.Amount(line.Credit), BreakupNumWidth, true),
+                    (Signed(line.Closing), BreakupNumWidth, true)));
+
+            PayrollRows.Add(StatRow(true,
+                ($"Total — {group.GroupName}", BreakupNameWidth, false),
+                (Signed(group.Opening), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(group.Debit), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(group.Credit), BreakupNumWidth, true),
+                (Signed(group.Closing), BreakupNumWidth, true)));
+        }
+
+        if (breakup.Groups.Count > 0)
+            PayrollRows.Add(StatRow(true,
+                ("Grand Total", BreakupNameWidth, false),
+                (Signed(breakup.TotalOpening), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(breakup.TotalDebit), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(breakup.TotalCredit), BreakupNumWidth, true),
+                (Signed(breakup.TotalClosing), BreakupNumWidth, true)));
+
+        Footnote(PayHeadBreakup.ExcludedLegNote);
+        Footnote("Opening Balance is the cumulative posting before this wage month; this book keeps no separate "
+               + "opening-balance master for an employee-and-pay-head pair, so none is read from one.");
+    }
+
+    // --------------------------------------------------------------- 7.25 Payroll Statutory Summary
+    private void BuildPayrollStatutorySummary()
+    {
+        var (from, to) = BeginPayrollReport("Payroll Statutory Summary");
+        var summary = Report.BuildPayrollStatutorySummary(_company, from, to);
+
+        foreach (var (header, width, numeric) in new (string, double, bool)[]
+        {
+            ("Pay Head Type", BreakupNameWidth, false),
+            ("Payable", BreakupNumWidth, true),
+            ("Paid", BreakupNumWidth, true),
+            ("Balance", BreakupNumWidth, true),
+        })
+            PayrollColumns.Add(PayCol(header, width, numeric));
+
+        foreach (var row in summary.Rows)
+            PayrollRows.Add(StatRow(false,
+                (row.Caption, BreakupNameWidth, false),
+                (IndianFormat.Amount(row.Payable.Amount), BreakupNumWidth, true),
+                (IndianFormat.Amount(row.Paid.Amount), BreakupNumWidth, true),
+                (IndianFormat.Amount(row.Balance.Amount), BreakupNumWidth, true)));
+
+        if (summary.Rows.Count > 0)
+            PayrollRows.Add(StatRow(true,
+                ("Total", BreakupNameWidth, false),
+                (IndianFormat.AmountAlways(summary.TotalPayable.Amount), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(summary.TotalPaid.Amount), BreakupNumWidth, true),
+                (IndianFormat.AmountAlways(summary.TotalBalance.Amount), BreakupNumWidth, true)));
+
+        // The vendor opens the "Statutory Pay Head Details" on Enter. This book carries no drill stack on the
+        // payroll matrix, so the detail level is rendered as its own band UNDER the summary rather than being
+        // dropped — a documented divergence in shape, not in content: every figure the drill would show is here.
+        if (summary.Rows.Count > 0)
+        {
+            PayrollSection2Title = "Statutory Pay Head Details";
+            foreach (var (header, width, numeric) in new (string, double, bool)[]
+            {
+                ("Pay Head Type", BreakupNameWidth, false),
+                ("Pay Head", BreakupNameWidth, false),
+                ("Ledger", BreakupNameWidth, false),
+                ("Payable", BreakupNumWidth, true),
+                ("Paid", BreakupNumWidth, true),
+                ("Balance", BreakupNumWidth, true),
+            })
+                PayrollColumns2.Add(PayCol(header, width, numeric));
+
+            foreach (var row in summary.Rows)
+                foreach (var detail in row.Details)
+                    PayrollRows2.Add(StatRow(false,
+                        (row.Caption, BreakupNameWidth, false),
+                        (detail.PayHeadName, BreakupNameWidth, false),
+                        (Or(detail.LedgerName), BreakupNameWidth, false),
+                        (IndianFormat.Amount(detail.Payable.Amount), BreakupNumWidth, true),
+                        (IndianFormat.Amount(detail.Paid.Amount), BreakupNumWidth, true),
+                        (IndianFormat.Amount(detail.Balance.Amount), BreakupNumWidth, true)));
+
+            HasPayrollSection2 = PayrollRows2.Count > 0;
+        }
+
+        Footnote(PayrollStatutorySummary.PaidDerivationNote);
+        Footnote(PayrollStatutorySummary.UnsupportedTypeNote);
+        Footnote("This is the roll-up OVER the PF, ESI and Professional-Tax computations, not a replacement for "
+               + "them; those reports live under Reports > Statutory Reports > Payroll.");
+
+        MarkStatutoryFormEmpty(summary.IsEmpty,
+            "No pay head is configured as a PF, ESI, Professional-Tax or Income-Tax statutory head, so there is "
+            + "nothing to summarise.");
+    }
+
+    // --------------------------------------------------------------- 7.26 Income Tax Computation
+    // 🔴 REUSES the annual computation that backs Form 16 Part B (Form24Q.BuildAnnexureII → ComputeAnnual). A
+    // second computation here would drift from the certificate the employee is handed.
+    private void BuildIncomeTaxComputation()
+    {
+        var (from, to) = BeginPayrollReport("Income Tax Computation");
+        if (SelectedPayrollEmployee is not { } chosen)
+        {
+            MarkStatutoryFormEmpty(true, "No employee master exists, so there is no computation to show.");
+            return;
+        }
+
+        var fyStartYear = IncomeTaxComputationReport.FinancialYearStartYearFor(from);
+        var report = Report.BuildIncomeTaxComputation(_company, chosen.EmployeeId, fyStartYear);
+
+        PayrollColumns.Add(PayCol("Particulars", IncomeTaxLabelWidth, false));
+        PayrollColumns.Add(PayCol("Amount", IncomeTaxValueWidth, true));
+
+        if (report is null)
+        {
+            Subtitle = $"{CompanyName}  —  {chosen.Display}  —  Financial year "
+                     + $"{fyStartYear}-{(fyStartYear + 1) % 100:00}";
+            MarkStatutoryFormEmpty(true,
+                $"{chosen.Display} has no taxable salary and no salary-TDS posted in financial year "
+                + $"{fyStartYear}-{(fyStartYear + 1) % 100:00}, so there is no computation for this year.");
+            return;
+        }
+
+        Subtitle = $"{CompanyName}  —  {report.EmployeeName}  —  Financial year {report.FinancialYearLabel}";
+
+        // The vendor's "overall tax deduction snapshot": who this is for, under which regime, and where the
+        // year's withholding stands. Carried as leading rows because this matrix has no header panel of its own.
+        PayrollRows.Add(StatRow(false, ("PAN", IncomeTaxLabelWidth, false), (Or(report.Pan), IncomeTaxValueWidth, false)));
+        PayrollRows.Add(StatRow(false, ("Tax Regime", IncomeTaxLabelWidth, false), (report.RegimeLabel, IncomeTaxValueWidth, false)));
+        PayrollRows.Add(StatRow(false,
+            ("Tax deducted so far", IncomeTaxLabelWidth, false),
+            (IndianFormat.AmountAlways(report.TaxDeductedSoFar.Amount), IncomeTaxValueWidth, true)));
+        PayrollRows.Add(StatRow(false,
+            ("Balance tax payable", IncomeTaxLabelWidth, false),
+            (IndianFormat.AmountAlways(report.BalanceTaxPayable.Amount), IncomeTaxValueWidth, true)));
+
+        foreach (var line in report.Lines)
+            PayrollRows.Add(StatRow(line.IsSubtotal,
+                (line.Caption, IncomeTaxLabelWidth, false),
+                (line.Amount is { } m ? IndianFormat.AmountAlways(m.Amount) : string.Empty, IncomeTaxValueWidth, true)));
+
+        // The vendor drills into an italic component on Enter. This matrix carries no drill stack, so each
+        // component's breakdown is rendered as its own band rather than being dropped.
+        PayrollSection2Title = "Component details";
+        PayrollColumns2.Add(PayCol("Component", 260, false));
+        PayrollColumns2.Add(PayCol("Particulars", IncomeTaxLabelWidth, false));
+        PayrollColumns2.Add(PayCol("Amount", IncomeTaxValueWidth, true));
+        foreach (var detail in report.Details)
+            foreach (var line in detail.Lines)
+                PayrollRows2.Add(StatRow(line.IsSubtotal,
+                    (detail.Caption, 260, false),
+                    (line.Caption, IncomeTaxLabelWidth, false),
+                    (line.Amount is { } m ? IndianFormat.AmountAlways(m.Amount) : string.Empty, IncomeTaxValueWidth, true)));
+        HasPayrollSection2 = PayrollRows2.Count > 0;
+
+        Footnote("Every figure is the same annual computation that backs Form 16 Part B and Form 24Q Annexure II; "
+               + "this report computes no tax of its own.");
+        Footnote(IncomeTaxComputationReport.RateVintageNote);
+    }
+
     // --------------------------------------------------------------- Payslip (single-employee detail + PDF)
     private void BuildPayslip()
     {
@@ -4683,6 +5126,17 @@ public sealed class StatutoryPeriodOption
 public sealed class PayrollEmployeeOption
 {
     public Guid EmployeeId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+}
+
+/// <summary>
+/// One entry of the Employee Pay Head Breakup's pay-head scope (census 7.24) — the vendor's "List of Pay Heads"
+/// (<c>help.tallysolutions.com/tally-prime/payroll-reports/payroll-employee-pay-head-breakup-tally/</c>).
+/// </summary>
+public sealed class PayrollPayHeadOption
+{
+    public Guid PayHeadId { get; init; }
     public string Display { get; init; } = string.Empty;
     public override string ToString() => Display;
 }

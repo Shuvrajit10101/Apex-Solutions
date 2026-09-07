@@ -349,6 +349,10 @@ public sealed class GratuityBonusConfigReportViewModelTests : IDisposable
             {
                 "PF ECR / Challan", "PF Form 3A", "PF Form 5", "PF Form 6A", "PF Form 10", "PF Form 12A",
                 "ESI Monthly Contribution", "ESI Form 3", "ESI Form 5", "ESI Form 6",
+                // W-J1 (census 7.25) — the payable/paid roll-up OVER the PF / ESI / PT rows above, which is why
+                // it leads "Other Payroll Statutory" rather than replacing anything. Updated deliberately, on the
+                // same terms as the W7-D2 note above: never loosened to Assert.Contains.
+                "Payroll Statutory Summary",
                 "PT Deduction Register", "Gratuity Provision", "Bonus Register",
             },
             items);
