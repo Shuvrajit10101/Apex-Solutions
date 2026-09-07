@@ -3497,6 +3497,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// got census 14.4 graded unreachable in the first place (the old Ctrl+I arm consumed the key on ~156
     /// screens and did nothing on all of them). The panel opens and SAYS there is nothing to reveal — see
     /// <see cref="MoreDetailsViewModel.Status"/>. An honest empty answer beats a dead key.</para>
+    ///
+    /// <para><b>This ALSO is what refuses a re-press</b>, and it is the only thing that does. While the panel is
+    /// up <see cref="CurrentScreen"/> is <see cref="Screen.MoreDetails"/>, so a second Ctrl+I is refused right
+    /// here and the cascade cannot grow a column per keystroke. See <see cref="OpenMoreDetails"/> for the dead
+    /// second guard that used to claim this job, and the mutation that proved it never did it.</para>
     /// </summary>
     public bool CanOpenMoreDetails => CurrentScreen == Screen.VoucherEntry && VoucherEntry is not null;
 
@@ -3511,8 +3516,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenMoreDetails()
     {
+        // 🔴 ONE GATE, AND IT IS THIS ONE. A second line reading `if (MoreDetails is not null) return;` stood
+        // here, commented "a re-press must not stack a second column". IT COULD NEVER FIRE, and deleting it and
+        // re-running the file's own twelve tests — all twelve still green — is what proved it: OpenMoreDetails
+        // sets MoreDetails and CurrentScreen = Screen.MoreDetails together, and BackFromPage's ClearSubScreens
+        // nulls MoreDetails on the same pop that rebinds CurrentScreen to VoucherEntry, so the two move in
+        // lockstep and `MoreDetails is not null` implies `CurrentScreen != Screen.VoucherEntry`, which
+        // CanOpenMoreDetails has already refused on the line above. The re-press IS still refused — that
+        // behaviour is real and is locked by PressingTheChordTwice... — but it is refused HERE, by the screen
+        // test, and a dead second guard only advertised a protection the shell was not getting from it.
         if (!CanOpenMoreDetails || VoucherEntry is not { } entry) return;
-        if (MoreDetails is not null) return;   // a re-press must not stack a second column
 
         var panel = new MoreDetailsViewModel(entry);
         MoreDetails = panel;
@@ -7814,9 +7827,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <c>BuildAdvanceLines</c> against TODAY's masters, mints a fresh <see cref="Guid"/> and posts a SECOND
     /// voucher beside the original (design §6.6a.6). Its refusal on an altering screen is a designed guard, not an
     /// oversight, and this branch is what stops an operator ever meeting it.</para>
+    ///
+    /// <para>🔴 <b>AND IT ALSO ENFORCES THE SCREEN PRECONDITION, because until census 14.4 only ONE of the two
+    /// routes had it.</b> Ctrl+A reaches this through <see cref="ActivateSelected"/>'s
+    /// <c>switch (CurrentScreen)</c>, so the key is inert the moment an overlay column owns the screen. The
+    /// on-screen button had no such test: the cascade DRAWS the voucher column beneath an overlay (that is what
+    /// makes Escape hand the half-keyed voucher back intact), so with More Details open over the voucher its
+    /// "Accept (Ctrl+A)" button was still visible, still enabled — <c>CanAccept</c> is the voucher's own
+    /// readiness and knows nothing about the shell — and clicking it POSTED THE VOUCHER. An operator reading
+    /// optional fields could commit the document by clicking a button that looks like it belongs to the panel
+    /// they are standing in, and the button's caption even names the key that is inert there. The guard is
+    /// written here rather than on the button's <c>IsEnabled</c> so that it holds for EVERY overlay that can sit
+    /// over a voucher, present and future, and so that it is testable without a click.</para>
     /// </summary>
     public bool AcceptVoucherEntryOrAlteration() =>
-        VoucherEntry is { } entry && (entry.IsAltering ? entry.AcceptAlteration() : entry.Accept());
+        CurrentScreen == Screen.VoucherEntry
+        && VoucherEntry is { } entry && (entry.IsAltering ? entry.AcceptAlteration() : entry.Accept());
 
     // =============================================================== WI-11: the Accept? (Y/N) confirmation
 

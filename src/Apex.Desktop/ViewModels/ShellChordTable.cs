@@ -202,6 +202,34 @@ public static class ShellChordTable
         // The gate is CanOpenMoreDetails (a live voucher-entry screen), NOT IsReportContext: the vendor's
         // "master or voucher" wording does not extend to reports, and this build has no option-gated field
         // group on a master screen to offer either. Where we have nothing, we claim nothing.
+        //
+        // ── 🔴 WHAT THE RE-HOMING COST, DISCLOSED RATHER THAN LEFT TO BE REDISCOVERED ───────────────────
+        // The measurement above ("they are different verbs") did not stop being true when the ruling landed —
+        // it stopped being a reason to WAIT. The price is real and it is this, exactly:
+        //
+        //   THERE IS NO LONGER A ONE-PRESS KEYBOARD ROUTE FROM ITEM INVOICE BACK TO AS VOUCHER.
+        //   It now takes TWO presses of Ctrl+H, ON EVERY VOUCHER THAT HAS ITEM-INVOICE MODE AT ALL.
+        //
+        // VoucherEntryViewModel.ChangeMode cycles AsVoucher -> ItemInvoice -> AccountingInvoice -> AsVoucher, so
+        // the next stop out of Item Invoice is Accounting Invoice, not As Voucher. The retired
+        // Ctrl+I -> ToggleItemInvoice was a TWO-WAY toggle and did that return in one keystroke.
+        //
+        // 🔴 AND THE SCOPE IS WIDER THAN "SALES", WHICH IS WORTH STATING BECAUSE THE OBVIOUS READING IS WRONG.
+        // ChangeMode's ItemInvoice arm falls through to `_ => AsVoucher` only when CanBeAccountingInvoice is
+        // false, which invites the conclusion that Purchase keeps its one-press return. It does not:
+        // CanBeItemInvoice (:67) and CanBeAccountingInvoice (:85) are the SAME predicate — `Sales or Purchase`
+        // — so wherever the ItemInvoice arm is reachable the third mode exists, and that `_` arm is UNREACHABLE
+        // FROM ITEM INVOICE. The cost applies to Purchase exactly as it does to Sales; there is no exempt
+        // family. (CtrlH_on_a_purchase_cycles_all_three_modes already pins the Purchase cycle's period at 3.)
+        //
+        // This is a CONSEQUENCE OF USER RULING 17, not a defect to be fixed behind the ruling's back: the user
+        // was asked for the chord and declined a Ctrl+I alias explicitly. It is legitimate, it is one direction
+        // only, and it costs a keystroke rather than a capability — every mode including As Voucher remains
+        // keyboard-reachable, and the mouse checkbox (MainWindow.axaml, "Item Invoice (Ctrl+H)") still flips it
+        // directly. It is written down HERE, and pinned by ServiceAccountingInvoiceKeyboardTests, so that it is
+        // a KNOWN divergence with a named cause rather than a silent regression an operator meets first. Should
+        // the user later want the one-press return back, the honest fix is a NEW chord for ToggleItemInvoice —
+        // not a Ctrl+I alias, which the ruling closed.
         new("Ctrl+I", Key.I, KeyModifiers.Control,
             vm => vm.CanOpenMoreDetails,
             vm => vm.OpenMoreDetails()),

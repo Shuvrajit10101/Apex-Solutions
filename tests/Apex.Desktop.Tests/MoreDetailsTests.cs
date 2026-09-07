@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
@@ -192,6 +193,49 @@ public sealed class MoreDetailsTests : IDisposable
         Assert.True(entry.LineWantsBatchAllocation(line));
         Assert.False(entry.UseBatchWiseDetails,
             "More Details turned the batch knob back on instead of overriding it for this voucher.");
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE BATCH ROW IS NOT OFFERED OUTSIDE AN ITEM INVOICE — both sides asserted.</b>
+    ///
+    /// <para><b>The defect this closes.</b> The row's gate was <c>CanUseBatchWiseDetails &amp;&amp;
+    /// !UseBatchWiseDetails</c>, and <c>CanUseBatchWiseDetails</c> keys on <c>CanBeItemInvoice</c> — "this
+    /// voucher COULD be keyed as an item invoice". The batch sub-screen's own gate,
+    /// <see cref="VoucherEntryViewModel.LineWantsBatchAllocation"/>, requires <c>IsItemInvoice</c> — "it IS being
+    /// keyed as one". On a Sales voucher left in As Voucher mode the two disagreed, so the panel offered a
+    /// "Batch / Lot Details" row whose Reveal set the override flag and changed NOTHING: a row that answers and
+    /// does not act.</para>
+    ///
+    /// <para><b>Why the negative alone would not be enough.</b> Asserting only the absence would also pass if the
+    /// row were deleted outright, so the same voucher is switched INTO item-invoice mode and the row must appear
+    /// — the gate must be the mode, not the feature.</para>
+    /// </summary>
+    [Fact]
+    public void The_batch_row_is_not_offered_outside_an_item_invoice()
+    {
+        var k = NewKit("More Details Batch Mode Co");
+        k.Vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = k.Vm.VoucherEntry!;
+        entry.UseBatchWiseDetails = false;      // the knob is off, so the row would otherwise be offered
+
+        // ── As Voucher: "could be" an item invoice, but is not one. No row. ───────────────────────────
+        Assert.True(entry.IsAsVoucherMode);
+        Assert.False(entry.IsItemInvoice);
+        Assert.True(entry.CanUseBatchWiseDetails);   // the gate that USED to be sufficient, still true
+
+        Assert.DoesNotContain(new MoreDetailsViewModel(entry).Rows, r => r.Label == "Batch / Lot Details");
+
+        // And the reason it must not be offered: revealing it there could not have shown anything anyway.
+        entry.MoreDetailsBatchRequested = true;
+        var line = entry.InventoryLines.Count > 0 ? entry.InventoryLines[0] : null;
+        if (line is not null)
+            Assert.False(entry.LineWantsBatchAllocation(line),
+                "The batch sub-screen opened outside item-invoice mode — then the row was never the defect.");
+
+        // ── Item Invoice: the row is back. The gate is the MODE, not the feature. ─────────────────────
+        entry.ToggleItemInvoice();
+        Assert.True(entry.IsItemInvoice);
+        Assert.Contains(new MoreDetailsViewModel(entry).Rows, r => r.Label == "Batch / Lot Details");
     }
 
     // ============================================================ (2) which rows are offered
@@ -426,8 +470,22 @@ public sealed class MoreDetailsTests : IDisposable
     }
 
     /// <summary>
-    /// A re-press must not stack a second column. Without the guard the cascade grows a column per keystroke
+    /// A re-press must not stack a second column. Without the refusal the cascade grows a column per keystroke
     /// and Escape then takes as many presses to get out as the operator made getting in.
+    ///
+    /// <para>🔴 <b>THIS TEST WAS VACUOUS AND IS NOT ANY MORE — the two extra assertions are the whole point.</b>
+    /// It pressed the chord twice and checked the column count, which the KEY ARBITRATION alone satisfies:
+    /// <see cref="ShellChordTable"/> only fires Ctrl+I when <c>CanOpenMoreDetails</c> holds, so the second
+    /// keystroke never reached <c>OpenMoreDetails</c> at all. It therefore said nothing about the verb, and
+    /// deleting the <c>if (MoreDetails is not null) return;</c> line that used to sit in
+    /// <see cref="MainWindowViewModel.OpenMoreDetails"/> left this file's whole suite GREEN — which is how that
+    /// guard was proved dead (<c>MoreDetails</c> and <c>CurrentScreen</c> move in lockstep, so the screen test
+    /// on the line above had already refused).</para>
+    ///
+    /// <para>So the verb is now called DIRECTLY, bypassing key arbitration entirely. That call is the assertion
+    /// that bites: it is the only one here that reddens if <c>CanOpenMoreDetails</c> is ever loosened to admit
+    /// the panel's own screen, which is the single condition now standing between the operator and a stacked
+    /// cascade.</para>
     /// </summary>
     [AvaloniaFact]
     public void Pressing_the_chord_twice_does_not_stack_a_second_panel()
@@ -446,6 +504,72 @@ public sealed class MoreDetailsTests : IDisposable
 
             Assert.Equal(columns, k.Vm.Columns.Count);
             Assert.Same(panel, k.Vm.MoreDetails);
+
+            // 🔴 THE NON-VACUOUS HALF. Name the one condition doing the work...
+            Assert.False(k.Vm.CanOpenMoreDetails,
+                "CanOpenMoreDetails is true while the panel is open — nothing now refuses a re-press.");
+
+            // ...and drive the verb itself, which the keystroke above never reaches.
+            k.Vm.OpenMoreDetails();
+
+            Assert.Equal(columns, k.Vm.Columns.Count);
+            Assert.Same(panel, k.Vm.MoreDetails);
+            Assert.Equal(Screen.MoreDetails, k.Vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE VOUCHER'S OWN "Accept (Ctrl+A)" BUTTON MUST NOT POST WHILE MORE DETAILS IS OPEN OVER IT.</b>
+    ///
+    /// <para><b>The defect this closes, and why the sibling Ctrl+A test did not catch it.</b> The keystroke is
+    /// safe because <c>ActivateSelected</c> switches on <see cref="MainWindowViewModel.CurrentScreen"/> and never
+    /// reaches the voucher's accept arm from <see cref="Screen.MoreDetails"/>. The MOUSE route had no such test:
+    /// the cascade DRAWS the voucher column beneath the panel — that is what makes Escape hand the half-keyed
+    /// voucher back intact — so its Accept button stayed visible and stayed ENABLED (<c>CanAccept</c> is the
+    /// voucher's own readiness and knows nothing about the shell), and <c>OnAcceptVoucherClick</c> called
+    /// <see cref="MainWindowViewModel.AcceptVoucherEntryOrAlteration"/> unconditionally. An operator reading
+    /// optional fields could COMMIT THE DOCUMENT by clicking a button that looks like it belongs to the panel
+    /// they are standing in — and whose caption names a key that is inert there.</para>
+    ///
+    /// <para>This asserts the click handler's TARGET, not a re-implementation of it, and it asserts the button is
+    /// genuinely still on screen first — otherwise the test would pass for the wrong reason the day the button is
+    /// hidden instead.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_voucher_Accept_button_does_not_post_while_More_Details_is_open()
+    {
+        var k = NewKit("More Details Accept Button Co");
+        var entry = OpenSalesInvoice(k, k.CustomerId);
+        var window = new MainWindow { DataContext = k.Vm, Width = 1280, Height = 720 };
+        window.Show();
+        try
+        {
+            Assert.True(entry.CanAccept);                       // the voucher WOULD post
+            var postedBefore = k.Vm.Company!.Vouchers.Count;
+
+            window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
+            Assert.Equal(Screen.MoreDetails, k.Vm.CurrentScreen);
+
+            // The button really is still reachable underneath — the premise of the defect, not an assumption.
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Contains(
+                window.GetVisualDescendants().OfType<Avalonia.Controls.Button>(),
+                b => b.IsEffectivelyVisible && b.Content as string == "Accept (Ctrl+A)");
+
+            // The click handler's target, called exactly as MainWindow.OnAcceptVoucherClick calls it.
+            Assert.False(k.Vm.AcceptVoucherEntryOrAlteration());
+
+            Assert.Equal(postedBefore, k.Vm.Company!.Vouchers.Count);
+            Assert.Equal(Screen.MoreDetails, k.Vm.CurrentScreen);   // and it did not navigate away either
+            Assert.Same(entry, k.Vm.VoucherEntry);                  // the half-keyed voucher is still there
+
+            // ...and the refusal is SCOPED: back on the voucher itself the same call posts normally.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Assert.Equal(Screen.VoucherEntry, k.Vm.CurrentScreen);
+            Assert.True(k.Vm.AcceptVoucherEntryOrAlteration());
+            Assert.Equal(postedBefore + 1, k.Vm.Company!.Vouchers.Count);
         }
         finally { window.Close(); }
     }

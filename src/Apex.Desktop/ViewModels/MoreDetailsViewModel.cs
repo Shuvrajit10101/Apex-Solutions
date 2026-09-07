@@ -130,7 +130,16 @@ public sealed partial class MoreDetailsViewModel : ViewModelBase
         // ── Batch / Lot Details ──────────────────────────────────────────────────────────────────────────
         // Same shape, opposite default: UseBatchWiseDetails ships ON, so this row appears only once the
         // operator has turned it off on this screen.
-        if (entry.CanUseBatchWiseDetails && !entry.UseBatchWiseDetails)
+        //
+        // 🔴 IsItemInvoice IS LOAD-BEARING AND IS NOT IMPLIED BY THE LINE ABOVE. CanUseBatchWiseDetails keys on
+        // CanBeItemInvoice — "this voucher COULD be keyed as an item invoice" — but the batch sub-screen's own
+        // gate, VoucherEntryViewModel.LineWantsBatchAllocation, requires IsItemInvoice: the voucher is BEING
+        // keyed as one right now. Without this conjunct a Sales voucher sitting in As Voucher mode (CanBe true,
+        // Is false) with the knob off offered a "Batch / Lot Details" row whose Reveal set the override flag and
+        // changed NOTHING on screen — a row that answers and does not act, which is the dead-capability class
+        // this project keeps filing. Batch and lot detail is a property of an item line, so outside an item
+        // invoice there is no line for it to attach to and the honest answer is not to offer it.
+        if (entry.CanUseBatchWiseDetails && entry.IsItemInvoice && !entry.UseBatchWiseDetails)
         {
             Rows.Add(new MoreDetailsRowViewModel(
                 "Batch / Lot Details",

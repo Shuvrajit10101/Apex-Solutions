@@ -328,4 +328,49 @@ public sealed class ServiceAccountingInvoiceKeyboardTests
         Assert.Equal(before - 1, entry.AccountingInvoiceLines.Count);
         Assert.DoesNotContain(target, entry.AccountingInvoiceLines);
     }
+
+    /// <summary>
+    /// 🔴 <b>THE DISCLOSED COST OF THE RULING-17 RE-HOMING, PINNED SO IT CANNOT BE MET BY SURPRISE.</b>
+    ///
+    /// <para>The retired <c>Ctrl+I → ToggleItemInvoice</c> was a TWO-WAY toggle, so Item Invoice → As Voucher was
+    /// ONE keystroke. Ctrl+H is a three-way cycle, so the next stop out of Item Invoice is Accounting Invoice:
+    /// <b>the return to As Voucher now costs TWO presses.</b> That is a consequence of the user's own ruling (a
+    /// Ctrl+I alias was declined explicitly), not a defect to be quietly patched — so it is asserted here as
+    /// intended behaviour with a named cause. The argument, and what an honest reversal would have to look like,
+    /// are recorded at <c>ShellChordTable.Table</c>.</para>
+    ///
+    /// <para>🔴 <b>BOTH invoiceable families are asserted, because the scope is wider than it looks.</b>
+    /// <c>ChangeMode</c> leaves Item Invoice for As Voucher via its <c>_</c> arm only when
+    /// <c>CanBeAccountingInvoice</c> is false, which reads as though Purchase keeps the one-press return.
+    /// It does not: <c>CanBeItemInvoice</c> and <c>CanBeAccountingInvoice</c> are the SAME predicate
+    /// (<c>Sales or Purchase</c>), so that arm is unreachable from Item Invoice and Purchase pays the same
+    /// price. Asserting only Sales would have documented the cost as narrower than it is.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlH_costs_a_second_press_returning_from_item_invoice_on_every_invoiceable_voucher()
+    {
+        var (window, vm, _) = NewWindow();
+
+        foreach (var baseType in new[] { VoucherBaseType.Sales, VoucherBaseType.Purchase })
+        {
+            vm.OpenVoucher(baseType);
+            var entry = vm.VoucherEntry!;
+            // The two predicates that make the `_ => AsVoucher` arm unreachable from Item Invoice.
+            Assert.True(entry.CanBeItemInvoice);
+            Assert.True(entry.CanBeAccountingInvoice);
+            Assert.True(entry.IsAsVoucherMode);
+
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Assert.True(entry.IsItemInvoice);
+
+            // ONE press does NOT come back — it lands on the third mode. This is the lost keystroke.
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Assert.False(entry.IsAsVoucherMode);
+            Assert.True(entry.IsAccountingInvoice);
+
+            // The SECOND one does. Every mode stays keyboard-reachable; only the keystroke count moved.
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Assert.True(entry.IsAsVoucherMode);
+        }
+    }
 }
