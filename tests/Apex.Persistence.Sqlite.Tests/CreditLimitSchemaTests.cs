@@ -11,8 +11,10 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// Schema v53 → v54 (W-F2; census 10.1) — <b>Credit Limits</b> on a party ledger
 /// (<c>credit_limit_paisa</c>, <c>check_credit_days_on_entry</c>, <c>override_credit_limit_post_dated</c>).
 ///
-/// <para>The "genuine v53 database" is manufactured with <see cref="SchemaDowngrade.V54ToV53"/> rather than
-/// hand-written DDL, so the migration is exercised against real rows — the idiom every schema test here uses.</para>
+/// <para>The "genuine v53 database" is manufactured with <see cref="SchemaDowngrade.V55ToV54"/> followed by
+/// <see cref="SchemaDowngrade.V54ToV53"/> rather than hand-written DDL, so the migration is exercised against real
+/// rows — the idiom every schema test here uses. The v55 step comes first because v55 (the Karnataka PT back-fill)
+/// is now the top rung; skipping it would stamp the marker down two versions in one move.</para>
 ///
 /// <para>🔴 <b>The load-bearing test in this file is
 /// <see cref="Credit_limit_round_trips_including_a_limit_of_ZERO"/>.</b> A limit of zero is a real, blocking value
@@ -45,6 +47,7 @@ public sealed class CreditLimitSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -88,7 +91,7 @@ public sealed class CreditLimitSchemaTests
             AddDebtor(legacy, "Acme Ltd");
             AddDebtor(legacy, "Beta Traders");
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -260,7 +263,7 @@ public sealed class CreditLimitSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
             Assert.Equal((long)ledgerCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM ledgers;"));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(53L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal((long)ledgerCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM ledgers;"));
