@@ -276,8 +276,8 @@ public sealed class BankingViewModelTests : IDisposable
             new[]
             {
                 "Bank Reconciliation", "Import Bank Statement",
-                "Cheque Printing",
-                "Payment Advice (Suppliers)",
+                "Cheque Printing", "Cheque Register",
+                "Deposit Slip", "Payment Advice (Suppliers)",
             },
             labels);
 

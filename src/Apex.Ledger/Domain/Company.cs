@@ -33,6 +33,8 @@ public sealed class Company
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<ChequeBook> _chequeBooks = new();
+    private readonly List<ChequeStatusOverride> _chequeStatusOverrides = new();
     private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
     private readonly List<EWayBillRecord> _eWayBillRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
@@ -568,6 +570,17 @@ public sealed class Company
     /// Empty when reverse charge is unused (ER-13).</summary>
     public IReadOnlyList<RcmDocument> RcmDocuments => _rcmDocuments;
 
+    /// <summary>The cheque books held against this company's bank ledgers (catalog §8; census row 8.5). Empty for
+    /// a company that has not recorded any, which is what every book was before schema v57 (ER-13).
+    /// <b>These are facts about paper, not about postings</b> — no projection can supply them, which is why the
+    /// Cheque Register needed storage at all.</summary>
+    public IReadOnlyList<ChequeBook> ChequeBooks => _chequeBooks;
+
+    /// <summary>The operator-set Blank / Cancelled statuses (and the printed flag) against individual cheque
+    /// leaves (census row 8.5). A leaf with no entry here is <see cref="ChequeStatus.Available"/>, so a fresh
+    /// cheque book stores nothing.</summary>
+    public IReadOnlyList<ChequeStatusOverride> ChequeStatusOverrides => _chequeStatusOverrides;
+
     /// <summary>e-Invoice IRP artefacts (Phase 9 slice 4a; RQ-5): one per covered outward document. Empty when
     /// e-invoicing is unused (ER-13).</summary>
     public IReadOnlyList<EInvoiceRecord> EInvoiceRecords => _eInvoiceRecords;
@@ -780,6 +793,68 @@ public sealed class Company
 
     // ---- RCM / §34-CDN / advance records (Phase 9 slice 2; guards live in RcmService / CreditDebitNoteService /
     //      AdvanceReceiptService). The CDN + advance collections land here but stay empty until S2b. ----
+
+    // ---- Cheque books and leaf statuses (census 8.5; schema v57). ----
+
+    /// <summary>Adds a cheque book (also used by the store rehydration). Refuses a duplicate id and a book whose
+    /// bank ledger is not in this company — an orphan book would bucket cheques against a bank that is not
+    /// there.</summary>
+    public void AddChequeBook(ChequeBook book)
+    {
+        ArgumentNullException.ThrowIfNull(book);
+        if (_chequeBooks.Any(b => b.Id == book.Id))
+            throw new InvalidOperationException($"Cheque book {book.Id} is already recorded.");
+        if (FindLedger(book.LedgerId) is null)
+            throw new InvalidOperationException("A cheque book must belong to a ledger of this company.");
+        _chequeBooks.Add(book);
+    }
+
+    /// <summary>Removes a cheque book AND every leaf status recorded against it — a status whose book is gone
+    /// would be an unreachable row that the next Save writes back against a missing parent.</summary>
+    public bool RemoveChequeBook(ChequeBook book)
+    {
+        ArgumentNullException.ThrowIfNull(book);
+        if (!_chequeBooks.Remove(book)) return false;
+        _chequeStatusOverrides.RemoveAll(o => o.ChequeBookId == book.Id);
+        return true;
+    }
+
+    /// <summary>Finds a cheque book by id, or <c>null</c>.</summary>
+    public ChequeBook? FindChequeBook(Guid id) => _chequeBooks.FirstOrDefault(b => b.Id == id);
+
+    /// <summary>The cheque books held against one bank ledger, in the order they were recorded.</summary>
+    public IEnumerable<ChequeBook> ChequeBooksOf(Guid ledgerId) => _chequeBooks.Where(b => b.LedgerId == ledgerId);
+
+    /// <summary>
+    /// Sets one leaf's operator status, replacing any existing entry for that (book, leaf) pair.
+    /// <see cref="ChequeStatus.Available"/> with <paramref name="printed"/> false REMOVES the row instead of
+    /// storing one, because absence IS Available and a table full of "Available" rows is a table that has to be
+    /// kept in step with a range it does not own.
+    /// </summary>
+    public void SetChequeStatus(Guid chequeBookId, string chequeNumber, ChequeStatus status, bool printed = false)
+    {
+        if (FindChequeBook(chequeBookId) is null)
+            throw new InvalidOperationException("A cheque status must belong to a cheque book of this company.");
+        var leaf = (chequeNumber ?? string.Empty).Trim();
+        if (leaf.Length == 0) throw new ArgumentException("A cheque status needs a leaf number.", nameof(chequeNumber));
+
+        _chequeStatusOverrides.RemoveAll(
+            o => o.ChequeBookId == chequeBookId && string.Equals(o.ChequeNumber, leaf, StringComparison.Ordinal));
+        if (status == ChequeStatus.Available && !printed) return;
+        _chequeStatusOverrides.Add(new ChequeStatusOverride(Guid.NewGuid(), chequeBookId, leaf, status, printed));
+    }
+
+    /// <summary>Adds a leaf status verbatim — the store's rehydration path, which must not re-derive ids.</summary>
+    public void AddChequeStatusOverride(ChequeStatusOverride entry)
+        => _chequeStatusOverrides.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+
+    /// <summary>The stored status of one leaf, or <c>null</c> when the operator has never set one.</summary>
+    public ChequeStatusOverride? FindChequeStatus(Guid chequeBookId, string chequeNumber)
+    {
+        var leaf = (chequeNumber ?? string.Empty).Trim();
+        return _chequeStatusOverrides.FirstOrDefault(
+            o => o.ChequeBookId == chequeBookId && string.Equals(o.ChequeNumber, leaf, StringComparison.Ordinal));
+    }
 
     /// <summary>Adds an RCM generated document (Phase 9 slice 2; also used by the store/import rehydration).</summary>
     public void AddRcmDocument(RcmDocument document) => _rcmDocuments.Add(document ?? throw new ArgumentNullException(nameof(document)));

@@ -257,6 +257,15 @@ public sealed class InventoryVoucherRoundTripTests
         // collide with an already-present table.
         Exec(conn, "DROP INDEX IF EXISTS ix_voucher_edit_log_company;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_edit_log;");
+        // Drop the v57 banking-document tables + their indexes so the reopen's v56->v57 CREATE TABLE does not
+        // collide with already-present tables. FK order: the status child before cheque_books, and both of the
+        // ledgers children before the ledgers rebuild further down.
+        Exec(conn, "DROP INDEX IF EXISTS ux_cheque_status_book_number;");
+        Exec(conn, "DROP TABLE IF EXISTS cheque_status_overrides;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_cheque_books_ledger;");
+        Exec(conn, "DROP TABLE IF EXISTS cheque_books;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_cheque_layouts_ledger;");
+        Exec(conn, "DROP TABLE IF EXISTS cheque_layouts;");
         // Drop the v56 Security Control tables + their indexes so the reopen's v55->v56 CREATE TABLE does not
         // collide with already-present tables. FK order: the two children before security_levels.
         Exec(conn, "DROP INDEX IF EXISTS ix_company_users_company;");

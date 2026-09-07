@@ -202,6 +202,11 @@ public sealed class LegacyCostAllocationLoadTests
         // `security_level_rules`, `company_users`) and three `companies` columns (`use_user_access_control`,
         // `password_min_length`, `password_expiry_days`). Purely additive, nothing back-filled, and it touches
         // nothing in `cost_allocations` either, so the G-2 contract this test guards remains storage-free.
-        Assert.Equal(56, Schema.CurrentVersion);
+        // 🔴 A FLOOR, NOT AN EQUALITY. What this test guards is that the G-2 cost-allocation contract stays
+        // storage-free; an equality here turns red on every unrelated schema bump, which teaches a reader to
+        // update the number rather than to check the claim.
+        // **v57 is owned by BANKING DOCUMENTS (census 8.4/8.5/8.6)** — cheque_books, cheque_status_overrides and
+        // cheque_layouts, plus six ledgers columns. It touches nothing in cost_allocations either.
+        Assert.True(Schema.CurrentVersion >= 56);
     }
 }

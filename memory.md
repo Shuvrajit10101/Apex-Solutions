@@ -2305,7 +2305,7 @@ pushed to origin, main untouched. **Next = S6 (Form 27EQ quarterly TCS return + 
 - **`85f82dd` — W0-15 / W0-16, schema-clean.** GSTR-1 was filing **the supplier's own State** on an IGST voucher, and **no test had ever read a `.md` file**. That commit fixed the first and added `DocumentCodeAgreementTests`' content-checking companion, `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` — a small table of citations that are the *sole evidence* for a design ruling or a user gate, matched **by content**, not merely by reach.
 - **`e49b88e` — TWO SLICES IN ONE COMMIT, DELIBERATELY.** 61 files, +3216/−121. The commit body argues the split at length and the argument holds: the two slices are coupled **through line numbers in both directions** (W0-2a's own new content-anchor asserts a `plan.md` citation of `ImportPlan.cs:1198-1199`, which is 1183 + WF-1's +15 shift), so **each ordering would ship a falsehood in the intermediate commit**. Gate measured on the quiesced tree: build **0W/0E** · Ledger **1660** · Io **405** · Sqlite **223** · Desktop **2133**.
 
-**▶ (1) WF-1 (`plan.md` slice S4) — SCHEMA v50 → 51, AND NOTHING READS IT.** `Schema.MigrateV50ToV51` (`src/Apex.Persistence.Sqlite/Schema.cs:4001` — re-pointed 2026-09-07 from ~~`:3936`~~, schema v56 (Security Control) added lines above it; itself re-pointed the same day from ~~`:3916`~~, schema v55) — anchored on the bump's own migration constant rather than on `Schema.CurrentVersion`, which has since moved past 51 (the voucher edit log took it to 52, and the ladder now runs to 55) and could therefore no longer evidence this sentence. Fourteen columns: six on `companies` (two source-order options + a four-field company default block) and four apiece on `groups` and `stock_groups`. New domain: `src/Apex.Ledger/Domain/MasterGstDetails.cs` (HSN/SAC, taxability, rate bp, supply type) + `GstDetailSource`, hung on `Group`, `StockGroup` and `GstConfig.DefaultGst`. Full canonical XML/JSON parity and `ImportPlan` pre-flight validation. **The `StockItemFirst` back-fill is an explicit `UPDATE`, NOT a column default** — the default must stay `0` on both sides or the migration-equivalence test fails on `PRAGMA table_info`, so a **fresh** company gets `LedgerFirst` and an **upgraded** one gets `StockItemFirst`. That asymmetry is the whole point of the slice's test file. 🔴 **IT IS INERT: `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs` are UNTOUCHED, the two source-order fields have no reader outside persistence and Io, every rate still resolves item-first, IV-1 is NOT fixed and census T0-4 STAYS OPEN.** The resolver plus its four item-first call sites is the unshipped **second half of S4** — **not** WF-2, which is the §194Q carve and ~~owns v52~~ holds NO version: v52 was taken 2026-08-19 by the voucher edit log.
+**▶ (1) WF-1 (`plan.md` slice S4) — SCHEMA v50 → 51, AND NOTHING READS IT.** `Schema.MigrateV50ToV51` (`src/Apex.Persistence.Sqlite/Schema.cs:4093` — re-pointed 2026-09-07 from ~~`:3936`~~, schema v56 (Security Control) added lines above it; itself re-pointed the same day from ~~`:3916`~~, schema v55) — anchored on the bump's own migration constant rather than on `Schema.CurrentVersion`, which has since moved past 51 (the voucher edit log took it to 52, and the ladder now runs to 55) and could therefore no longer evidence this sentence. Fourteen columns: six on `companies` (two source-order options + a four-field company default block) and four apiece on `groups` and `stock_groups`. New domain: `src/Apex.Ledger/Domain/MasterGstDetails.cs` (HSN/SAC, taxability, rate bp, supply type) + `GstDetailSource`, hung on `Group`, `StockGroup` and `GstConfig.DefaultGst`. Full canonical XML/JSON parity and `ImportPlan` pre-flight validation. **The `StockItemFirst` back-fill is an explicit `UPDATE`, NOT a column default** — the default must stay `0` on both sides or the migration-equivalence test fails on `PRAGMA table_info`, so a **fresh** company gets `LedgerFirst` and an **upgraded** one gets `StockItemFirst`. That asymmetry is the whole point of the slice's test file. 🔴 **IT IS INERT: `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs` are UNTOUCHED, the two source-order fields have no reader outside persistence and Io, every rate still resolves item-first, IV-1 is NOT fixed and census T0-4 STAYS OPEN.** The resolver plus its four item-first call sites is the unshipped **second half of S4** — **not** WF-2, which is the §194Q carve and ~~owns v52~~ holds NO version: v52 was taken 2026-08-19 by the voucher edit log.
 
 **▶ (2) THE R6 DEVIATION, AND ITS CAUSE.** This slice ran with **no design of record**. The workflow was scoped "W0-2 (Company Create/Alter)"; **its design agent died mid-response and returned nothing**, and the empty result was interpolated into the build prompt as an empty design block. The build agent **refused to invent a design**, said so explicitly, reconstructed scope from `plan.md` + `docs/invented-vs-cloned.md` IV-1 + the corpus, and built **WF-1** instead of the row it had been handed. So the work was planned — a `plan.md` row existed, unlike W0-11, which had none; what is missing is the **design gate**, and the phase's A10 three-lens review covered **W0-2a**, not this. It was recorded rather than reverted because what landed is additive, schema-equivalent and defaults to "no GST block" on every existing master. **A dead agent's empty output must FAIL the step, not be interpolated as an empty block** — this is the second time an agent death has silently changed what got built.
 
@@ -2913,3 +2913,92 @@ The census gap-register row **T0-11** read *"a Purchase item-invoice prints as a
   `CensusFidelityDerivationTests` re-derives §1.3's four figures from the grade tokens, so **adding item 15 without
   re-deriving the anchor block would have gone RED**. Every `file.cs:NN` I wrote was resolved by content first.
   Figures are in the closing report of this pass.
+
+---
+
+## 2026-09-07 — WAVE J2 (A5): BANKING STORAGE. SCHEMA **v57**. Rows 8.5, 8.6 and the cheque LEAF half of 8.4.
+
+**Branch `claude/apex-j2-banking-storage`, worktree `C:/Users/dkpho/apexj2`, cut from `origin/main` `c940078`
+(schema 56). Left DIRTY and UNCOMMITTED for A12.**
+
+**▶ (1) WHY THIS TRACK EXISTED: ~625 LINES OF SHIPPED, TESTED, DETERMINISTIC, COMPLETELY DEAD CODE.** Row 8.4
+landed PARTIAL with its own confession — `ChequeLayout.cs`, `ChequePdf.cs`, `ChequePrintData.cs` and
+`ChequePrintProjector.cs` were correct and covered, and `Ledger.ChequeLayout` had **zero writers anywhere in
+`src/`** (the only two assignments in the repo were inside a test file). There was no `cheque_layouts` table, so
+the layout was `null` on every loaded company, `ChequePdf.Validate` refused every render with *"Cheque
+dimensions are not set for this bank"*, and **no operator could ever print a cheque leaf.** That is closed.
+
+**▶ (2) SCHEMA v57 — WHAT IT ADDS.** Six `ledgers` columns (`bank_account_number`, `bank_branch`, `bank_ifsc`
+TEXT NULL; `cheque_adjust_top_tmm`, `cheque_adjust_left_tmm`, `print_company_name_on_cheque` INTEGER NOT NULL
+DEFAULT 0) and three tables with three indexes (`cheque_books` + `ix_cheque_books_ledger`,
+`cheque_status_overrides` + `ux_cheque_status_book_number`, `cheque_layouts` + `ux_cheque_layouts_ledger`).
+Byte-identical twins in `CreateV1`; `Schema.V57ChequeTables` / `Schema.V57BankingLedgerColumns` published so the
+migration, `CreateV1`, the downgrade and the tests name one set; `SchemaDowngrade.V57ToV56` drops exactly that.
+🔴 **UNITS: tenths of a millimetre as INTEGER, never REAL** — a `double` millimetre renders two byte streams on
+two machines and breaks every PDF determinism test here. Asserted by
+`Every_geometry_column_is_an_INTEGER_of_tenths_of_a_millimetre`.
+
+**▶ (3) THE DOWNGRADE USES `RebuildPreservingShape`, NOT `DropColumns`, ON `ledgers`.** `ledgers` is the parent
+of foreign keys; a `CREATE … AS SELECT` rebuild loses its PRIMARY KEY and the next child insert fails with
+`foreign key mismatch` — the measured failure `V56ToV55` records for `companies`. `V54ToV53` predates that
+finding and still uses `DropColumns` on this same table; it was left alone rather than changed under this slice.
+
+**▶ (4) 🔴 THE DOWNGRADE-CHAIN COUNT: 38 EXISTING CALL SITES ACROSS 13 TEST FILES got `SchemaDowngrade.V57ToV56(conn);`
+prefixed** (the new `BankingDocumentsSchemaTests` adds 2 more of its own, so `V57ToV56(conn)` now appears
+**40 times in 14 files**). A chain that stops at 56 silently does not exercise the new migration. Plus **two** legacy fixtures
+(`InventoryVoucherRoundTripTests.DowngradeToV9`, `ItemInvoiceRoundTripTests`) needed DROPs for the three v57
+tables, or the reopen's `CREATE TABLE cheque_books` collided with an already-present table.
+
+**▶ (5) 🔴 FOUR REAL DEFECTS THE EXISTING SUITE CAUGHT, AND THEY ARE WHY THE SUITE IS WORTH ITS RUNTIME.**
+  (a) `MasterDeletionForeignKeyCoverageTests` refused the new FKs until each was bucketed: `cheque_books.ledger_id`
+      is **GUARDED** (a top-level row written from `Company.ChequeBooks`, so deleting the bank leaves a dangling
+      row and *every later Save on the open company throws*), while `cheque_layouts.ledger_id` **dies with its
+      parent** (a block on the ledger object, like the mailing details). Both buckets now say why in prose.
+  (b) The legacy-v9/v11 fixtures above.
+  (c) `VoucherEditLogSchemaTests` derives the objects a full downgrade removes — its v57 index names are **not**
+      derivable from the table names (two are `ux_*`, one is on a column pair), so they are listed, not computed.
+  (d) `LoadBearingCitationContentTests` — my inserted lines drifted **five** load-bearing citations. Re-pointed by
+      CONTENT (line numbers written here WITHOUT the `file.ext:NN` shape on purpose, so this log entry does not
+      itself become a sixth citation the scanner has to keep true): in `plan.md`, `Schema.cs` moved from lines
+      220-221 to 232-233 and from 4023 to 4115, `SqliteCompanyStore.cs` from 5205 to 5338, `SchemaDowngrade.cs`
+      from 648 to 691; in `memory.md`, `Schema.cs` from 4001 to 4093.
+
+**▶ (6) THREE VERSION PINS WERE STALE-BY-CONSTRUCTION AND ARE NOW FLOORS.** `Assert.Equal(56, Schema.CurrentVersion)`
+in `SecurityControlSchemaTests`, `KarnatakaPtBackfillSchemaTests` and `LegacyCostAllocationLoadTests` was true the
+day each landed and false the moment v57 did — a test failing for a reason unrelated to what it guards, which
+teaches the next author to edit the expectation instead of checking the claim. All three now assert `>= 56`.
+
+**▶ (7) 🔴 THE DEAD-CAPABILITY TRAP ALMOST REPRODUCED ITSELF, ONE SLICE LATER.** `cheque_status_overrides` had
+storage, `ChequeRegister` had three buckets that read it, and **nothing an operator could press wrote one**.
+Fixed by **Alt+A "Alter Status"** on the register's leaf list (`MainWindow.axaml.cs`, exact `== KeyModifiers.Alt`
+match beside the Alt+X arm) → `MainWindowViewModel.ReportAlterChequeStatus` →
+`ReportsViewModel.AlterHighlightedChequeStatus`, which cycles Available → Blank → Cancelled and **refuses on a
+leaf that has already been paid out**. Same shape for cheque BOOKS: the only creator is the bank ledger master's
+Cheque Books block (`ShowChequeBooks`, alteration-only because a book carries the ledger id).
+
+**▶ (8) WHAT IS STILL DEAD, SAID PLAINLY RATHER THAN LEFT FOR THE NEXT READER TO FIND.**
+  · `ChequePdf.RenderCalibrationSheet` **still has no UI route** — the bootstrap from an all-zero layout is
+    measure-by-hand. It was dead before this track and is dead after it.
+  · `cheque_status_overrides.printed` has storage and **no writer**, so `F8 Include Printed` on the Cheque
+    Printing report still reads every cheque as unprinted.
+  · The **canonical export/import** (`CanonicalModel`/`CanonicalXml`) does **not** carry the layout or the bank
+    identity trio — a company exported to JSON/XML and re-imported comes back without its cheque dimensions. The
+    SQLite store (Save/Load, Backup/Restore) carries all of it. Recorded in `Ledger.cs` as a divergence.
+
+**▶ (9) SOURCE SILENCE, REFUSED RATHER THAN INVENTED (ruling 14).** One cheque format only, "User Defined" — the
+vendor's per-bank predefined dimension table is served from its own subscription service and not one millimetre
+is publishable. No A/C-payee crossing (the vendor's field list has no such element). No company telephone number
+and no cash-denomination block on the Deposit Slip — no column exists for the first and the second is not in the
+books — and **neither is captioned**, because a caption over permanent blank is the dead-field defect itself.
+
+**▶ (10) MUTATION EVIDENCE — five mutations, each reddened with the expected assertion, each restored exactly
+(CR counts re-measured and unchanged).** (i) drop `ReadChequeLayouts` → the schema round-trip and the desktop
+leaf-print test redden on `Assert.NotNull(layout)`; (ii) let a stored status outrank a spent leaf → "Expected
+Unreconciled, Actual Blank"; (iii) drop the deposit slip's debit-only rule → the pay-in slip carries a payment
+out; (iv) stop writing `target.ChequeLayout` in the ledger master → both master tests redden; (v) drop Alt+A's
+spent-leaf refusal → a paid cheque is marked Blank.
+
+**▶ (11) LINE ENDINGS.** No `sed`, no mingw `awk` for writing. Bulk edits went through .NET
+`File.ReadAllText`/`WriteAllText`, which do not translate newlines; **one insertion introduced 9 LF-only lines
+into two CRLF files and was caught by counting CR before and after, then normalised.** Repo-wide survey after
+the pass: **1117 CRLF, 0 LF-only, 0 mixed** across `src/` and `tests/` `.cs`/`.axaml`.

@@ -1623,13 +1623,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <c>help.tallysolutions.com/payment-advice/</c> the supplier advice. The column carried exactly two rows
     /// before this wave, which is the shortfall census row 8.9 records.</para>
     ///
-    /// <para><b>🔴 The third header is "Advices", NOT "Slips &amp; Advices".</b> The Deposit Slip (census row
-    /// 8.6) is not built: its four header fields — account number, branch, account-holder name, bank name — have
-    /// no source on <c>ledgers</c>, and the migration that would add them could not be taken on this branch (see
-    /// the note in <c>Ledger.cs</c>). A section captioned for a document the menu does not carry is exactly how a
-    /// census cell gets graded present when it is absent, so the caption names only what is there. When the
-    /// Deposit Slip lands, rename this to "Slips &amp; Advices" and update
-    /// <c>BankingDocumentsReachabilityTests</c> in the same commit.</para>
+    /// <para>✅ <b>The third header is now "Slips &amp; Advices", because the Deposit Slip has landed.</b> It used
+    /// to read "Advices" alone, deliberately, because row 8.6's four header fields — account number, branch,
+    /// account-holder name, bank name — had no source on <c>ledgers</c> and a section captioned for a document
+    /// the menu does not carry is how a census cell gets graded present when it is absent. Schema v57 added the
+    /// three bank identity columns (the fourth, the account holder, is the company's mailing name), so the
+    /// document exists and the caption is honest again.</para>
     /// </summary>
     private GatewayColumn BuildBankingColumn()
     {
@@ -1639,7 +1638,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(MenuItemViewModel.Header("Cheque Management"));
         col.Add(new MenuItemViewModel("Cheque Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(MenuItemViewModel.Header("Advices"));
+        col.Add(new MenuItemViewModel("Cheque Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(MenuItemViewModel.Header("Slips & Advices"));
+        col.Add(new MenuItemViewModel("Deposit Slip", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Payment Advice (Suppliers)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -3285,6 +3286,47 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void ReportToggleAdviceReconciledOnly()
     {
         if (Reports is { IsSupplierPaymentAdvice: true } r) r.ToggleAdviceReconciledOnly();
+    }
+
+    /// <summary>True while the open report is either half of the <b>Cheque Register</b> (census 8.5) — the guard
+    /// the window's report-scoped F8 arm tests.</summary>
+    public bool IsChequeRegisterReport => IsReportContext && Reports is { IsChequeRegister: true };
+
+    /// <summary>F8 on the Cheque Register — the vendor's Cheque Status Filter
+    /// (<c>help.tallysolutions.com/cheque-register/</c>). A no-op on every other report.</summary>
+    public void ReportCycleChequeStatusFilter()
+    {
+        if (Reports is { IsChequeRegister: true } r) r.CycleChequeStatusFilter();
+    }
+
+    /// <summary>True while the open report is the Cheque Register's LEAF LIST — the guard the window's Alt+A arm
+    /// tests. The summary has no leaf to alter, so Alt+A is deliberately dead there rather than acting on a row
+    /// that stands for a whole cheque book.</summary>
+    public bool IsChequeRegisterDetailReport =>
+        IsReportContext && Reports is { Kind: ReportKind.ChequeRegisterDetail };
+
+    /// <summary>Alt+A on the Cheque Register's leaf list — the vendor's "Alter Status"
+    /// (<c>help.tallysolutions.com/cheque-register/</c>). Cycles the highlighted leaf's operator status and
+    /// persists. A no-op on every other report.</summary>
+    public void ReportAlterChequeStatus()
+    {
+        if (Company is null) return;
+        if (Reports is not { Kind: ReportKind.ChequeRegisterDetail } r) return;
+        if (!r.AlterHighlightedChequeStatus(out var message)) { Notice = message; return; }
+        _storage.Save(Company);
+        Notice = message;
+    }
+
+    /// <summary>True while the open report is the <b>Deposit Slip</b> (census 8.6) — the guard the window's
+    /// report-scoped F5 arm tests. 🔴 It must be report-scoped: the GLOBAL F5 opens a Payment voucher, and an
+    /// unscoped arm would open one on top of the slip.</summary>
+    public bool IsDepositSlipReport => IsReportContext && Reports is { IsDepositSlip: true };
+
+    /// <summary>F5 on the Deposit Slip — switches between the Cash and the Cheque slip
+    /// (<c>help.tallysolutions.com/deposit-slips/</c>). A no-op on every other report.</summary>
+    public void ReportToggleDepositSlipKind()
+    {
+        if (Reports is { IsDepositSlip: true } r) r.ToggleDepositSlipKind();
     }
 
     /// <summary>
@@ -10112,6 +10154,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // switched all of those off at once.
             case "Cheque Printing": OpenReport(ReportKind.ChequePrinting); break;
             case "Payment Advice (Suppliers)": OpenReport(ReportKind.SupplierPaymentAdvice); break;
+            // Wave J2 — the rest of Transactions → Banking (census 8.5 / 8.6). ReportKinds for the same reason
+            // the two above are: a bespoke page Screen leaves the report context null and switches off Ctrl+P,
+            // export, F2 period, F12 config and Alt+K saved views in one move.
+            case "Cheque Register": OpenReport(ReportKind.ChequeRegister); break;
+            case "Deposit Slip": OpenReport(ReportKind.DepositSlip); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;

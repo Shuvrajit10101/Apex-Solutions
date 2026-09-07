@@ -26,6 +26,17 @@ public sealed class LedgerListRow
     public string Currency { get; init; } = string.Empty;
 }
 
+/// <summary>One cheque book in the bank ledger master's Cheque Books list (census 8.5; schema v57). The id is
+/// carried so Remove acts on the book itself rather than on a display string that two books could share.</summary>
+public sealed class ChequeBookListItem
+{
+    /// <summary>The stored cheque book's id.</summary>
+    public Guid Id { get; init; }
+
+    /// <summary>"Name — from to to (N leaves)", the one-line summary the list shows.</summary>
+    public string Display { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// A combo option wrapping one of the interest enums (Per / On balance / Applicability / Style) with a
 /// human display label, so the interest sub-form can bind a friendly list yet write the enum value.
@@ -530,6 +541,302 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// is used. Captured only when <see cref="EnableChequePrinting"/> is on.</summary>
     [ObservableProperty] private string _chequePrintingBankName = string.Empty;
 
+    // ------------------------------------------------------------- Cheque Dimensions + bank identity (v57)
+
+    /// <summary>
+    /// True iff the <b>Cheque Dimensions</b> sub-block should render: a bank ledger with cheque printing enabled.
+    ///
+    /// <para><b>🔴 THIS BLOCK IS THE ONLY WRITER OF <c>Ledger.ChequeLayout</c> IN THE ENTIRE PRODUCT, AND THAT IS
+    /// WHY IT EXISTS.</b> <c>ChequeLayout</c>, <c>ChequePrintData</c>, <c>ChequePdf</c> and
+    /// <c>ChequePrintProjector</c> shipped correct, tested and deterministic — and completely DEAD: nothing
+    /// assigned a layout, nothing persisted one, so <c>ChequePdf.Validate</c> refused every render with "Cheque
+    /// dimensions are not set for this bank" and no operator could ever print a cheque leaf. Deleting this block
+    /// would make ~625 lines of shipped code unreachable again.</para>
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Specify User
+    /// Defined Cheque Format" (<b>Alt+L</b>) — the dimensions are captured on the BANK LEDGER master. The field
+    /// list is
+    /// <c>help.tallysolutions.com/docs/te9rel51/Advanced_Features/Advanced_Accounting_Features/Creation_Mode.htm</c>,
+    /// "Cheque Dimensions".</para>
+    /// </summary>
+    public bool ShowChequeDimensions => ShowChequePrinting && EnableChequePrinting;
+
+    // Bank identity — help.tallysolutions.com/deposit-slips/, "Cash Deposit Slip" (Account Number, Bank Name,
+    // Branch Name) and help.tallysolutions.com/payment-advice/ (the bank-transfer block's IFSC). These have no
+    // derivation anywhere in the books, which is why the Deposit Slip could not be built before they existed.
+
+    /// <summary>"Account Number" as printed on a deposit slip. Blank ⇒ not captured.</summary>
+    [ObservableProperty] private string _bankAccountNumber = string.Empty;
+
+    /// <summary>"Branch Name" as printed on a deposit slip. Blank ⇒ not captured.</summary>
+    [ObservableProperty] private string _bankBranch = string.Empty;
+
+    /// <summary>The bank's IFSC, printed in the payment advice's bank-transfer block. Blank ⇒ not captured.</summary>
+    [ObservableProperty] private string _bankIfsc = string.Empty;
+
+    // The geometry. 🔴 EVERY ONE OF THESE IS TYPED AND DISPLAYED IN MILLIMETRES, because the vendor's screen is in
+    // millimetres — and STORED as tenths of a millimetre in an int, because a double millimetre would render two
+    // different byte streams on two machines (see Domain/ChequeLayout.cs). The conversion happens exactly twice,
+    // in TryReadTmm and FormatTmm below, and nowhere else.
+
+    /// <summary>Physical leaf width, mm. 0/blank ⇒ not set, and printing is refused rather than guessed.</summary>
+    [ObservableProperty] private string _chequeLeafWidthMm = string.Empty;
+
+    /// <summary>Physical leaf height, mm. 0/blank ⇒ not set, and printing is refused rather than guessed.</summary>
+    [ObservableProperty] private string _chequeLeafHeightMm = string.Empty;
+
+    /// <summary>Cheque Date — "Distance of Line from Top Edge", mm.</summary>
+    [ObservableProperty] private string _chequeDateTopMm = string.Empty;
+
+    /// <summary>Cheque Date — "Starting location from left Edge", mm.</summary>
+    [ObservableProperty] private string _chequeDateLeftMm = string.Empty;
+
+    /// <summary>Cheque Date — "Distance between Characters", mm: the pitch of the NPCI boxed date field.</summary>
+    [ObservableProperty] private string _chequeDateCharPitchMm = string.Empty;
+
+    /// <summary>Party's Payee Name — "Distance of Line from Top Edge", mm.</summary>
+    [ObservableProperty] private string _chequePayeeTopMm = string.Empty;
+
+    /// <summary>Party's Payee Name — "Starting Location from Left Edge", mm.</summary>
+    [ObservableProperty] private string _chequePayeeLeftMm = string.Empty;
+
+    /// <summary>Party's Payee Name — "Width area", mm (vendor default 135).</summary>
+    [ObservableProperty] private string _chequePayeeWidthMm = string.Empty;
+
+    /// <summary>Amount in Words — distance of the FIRST line from the top edge, mm.</summary>
+    [ObservableProperty] private string _chequeWordsLine1TopMm = string.Empty;
+
+    /// <summary>Amount in Words — starting location of the first line from the left edge, mm.</summary>
+    [ObservableProperty] private string _chequeWordsLine1LeftMm = string.Empty;
+
+    /// <summary>Amount in Words — "Distance of 2nd Line from Top Edge", mm.</summary>
+    [ObservableProperty] private string _chequeWordsLine2TopMm = string.Empty;
+
+    /// <summary>Amount in Words — starting location of the second line from the left edge, mm.</summary>
+    [ObservableProperty] private string _chequeWordsLine2LeftMm = string.Empty;
+
+    /// <summary>Amount in Words — "Width area" each line wraps within, mm.</summary>
+    [ObservableProperty] private string _chequeWordsWidthMm = string.Empty;
+
+    /// <summary>Amount in Figures — "Distance from Top Edge", mm.</summary>
+    [ObservableProperty] private string _chequeFiguresTopMm = string.Empty;
+
+    /// <summary>Amount in Figures — "Starting Location from Left Edge", mm.</summary>
+    [ObservableProperty] private string _chequeFiguresLeftMm = string.Empty;
+
+    /// <summary>Amount in Figures — "Width area", mm.</summary>
+    [ObservableProperty] private string _chequeFiguresWidthMm = string.Empty;
+
+    /// <summary>Signatory Details — "Distance from Top Edge", mm.</summary>
+    [ObservableProperty] private string _chequeSignTopMm = string.Empty;
+
+    /// <summary>Signatory Details — "Starting Location from Left Edge", mm.</summary>
+    [ObservableProperty] private string _chequeSignLeftMm = string.Empty;
+
+    /// <summary>Signatory Details — width of the signature area, mm.</summary>
+    [ObservableProperty] private string _chequeSignWidthMm = string.Empty;
+
+    /// <summary>Signatory Details — height of the signature area, mm.</summary>
+    [ObservableProperty] private string _chequeSignHeightMm = string.Empty;
+
+    /// <summary>"Salutation of 1st Signatory" (e.g. "For Apex Solutions"). Blank ⇒ nothing printed.</summary>
+    [ObservableProperty] private string _chequeSalutation1 = string.Empty;
+
+    /// <summary>"Salutation of 2nd Signatory". Blank ⇒ nothing printed.</summary>
+    [ObservableProperty] private string _chequeSalutation2 = string.Empty;
+
+    /// <summary>"Print Currency Formal Name" on the amount in words.</summary>
+    [ObservableProperty] private bool _chequePrintCurrencyFormalName;
+
+    /// <summary>"Print Currency Symbol" on the amount in figures.</summary>
+    [ObservableProperty] private bool _chequePrintCurrencySymbol;
+
+    /// <summary>
+    /// "Adjust Distance From Top Edge (in mm)" —
+    /// <c>help.tallysolutions.com/docs/te9rel53/Banking/Cheque_Printing.htm</c>. A render-time addend applied to
+    /// every element, deliberately kept OUT of the layout itself because that page states the adjustment "does
+    /// not affect the settings of cheque dimensions pre-configured for the selected cheque format".
+    /// </summary>
+    [ObservableProperty] private string _chequeAdjustTopMm = string.Empty;
+
+    /// <summary>"Adjust Distance From Left Edge (in mm)" — the horizontal half of the same nudge.</summary>
+    [ObservableProperty] private string _chequeAdjustLeftMm = string.Empty;
+
+    /// <summary>"Disable Company Name in the Pre-printed Cheques" inverted: OFF by default, because a bank's leaf
+    /// normally already carries the drawer's name and printing it twice is the defect that toggle exists to
+    /// avoid (<c>help.tallysolutions.com/cheque-payments-set-up/</c>).</summary>
+    [ObservableProperty] private bool _printCompanyNameOnCheque;
+
+    partial void OnEnableChequePrintingChanged(bool value) => OnPropertyChanged(nameof(ShowChequeDimensions));
+
+    /// <summary>
+    /// Parses one millimetre box into TENTHS OF A MILLIMETRE. Blank ⇒ 0, which is this feature's "not set".
+    ///
+    /// <para>🔴 Invariant culture, exactly like the opening-balance and credit-limit parses above: the gate runs
+    /// on ubuntu and macos as well as Windows, and a comma-decimal runner must read "12.5" the same way. Refusals
+    /// mirror those boxes — a typo must not silently become 0 (which would move the element to the corner of a
+    /// negotiable instrument), a negative offset is meaningless on a leaf, and the store is INTEGER tenths so
+    /// anything finer than 0.1 mm cannot round-trip.</para>
+    /// </summary>
+    private bool TryReadTmm(string? text, string caption, out int tmm)
+    {
+        tmm = 0;
+        var t = (text ?? string.Empty).Trim();
+        if (t.Length == 0) return true;
+
+        if (!decimal.TryParse(t, System.Globalization.NumberStyles.Number,
+                              System.Globalization.CultureInfo.InvariantCulture, out var mm))
+        {
+            Message = $"{caption} must be a measurement in millimetres (e.g. 12.5), or blank.";
+            return false;
+        }
+        if (mm < 0m)
+        {
+            Message = $"{caption} cannot be negative — every cheque measurement is taken from an edge of the leaf.";
+            return false;
+        }
+        if (decimal.Round(mm, 1) != mm)
+        {
+            Message = $"{caption} cannot be finer than a tenth of a millimetre.";
+            return false;
+        }
+        tmm = (int)(mm * 10m);
+        return true;
+    }
+
+    // ------------------------------------------------------------- Cheque books (census 8.5; schema v57)
+
+    /// <summary>
+    /// True iff the <b>Cheque Books</b> sub-block should render: a bank ledger that already EXISTS.
+    ///
+    /// <para>🔴 <b>Scoped to alteration on purpose, and the reason is a foreign key.</b> A cheque book carries its
+    /// bank ledger's id, and during Create there is no saved ledger to carry — <c>Company.AddChequeBook</c>
+    /// refuses a book whose ledger is not on the company, precisely so an orphan book can never be built. So the
+    /// bank is created first and its books are recorded on the next open, which is also the order an operator
+    /// works in: you open the account, then the bank sends you a cheque book.</para>
+    ///
+    /// <para><b>🔴 WITHOUT THIS BLOCK THE CHEQUE REGISTER WOULD BE PERMANENTLY EMPTY.</b> The register buckets
+    /// leaves against a cheque book's number range, and nothing else in the product creates one. A report whose
+    /// only possible content has no route in is the "capability no user can reach" shape this project has already
+    /// filed three times; this block is the route.</para>
+    ///
+    /// <para><b>Vendor grounding.</b> <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Specify Cheque
+    /// Range and Format in Bank Ledger" — <i>Name of Cheque Book</i>, <i>From Number</i>, <i>To Number</i> and an
+    /// auto-calculated <i>Number of Cheques</i>, captured on the bank ledger master.</para>
+    /// </summary>
+    public bool ShowChequeBooks => ShowChequePrinting && IsAltering;
+
+    /// <summary>The cheque books already recorded against the ledger being altered, newest last.</summary>
+    public ObservableCollection<ChequeBookListItem> ChequeBooks { get; } = new();
+
+    /// <summary>The row the Remove button acts on.</summary>
+    [ObservableProperty] private ChequeBookListItem? _selectedChequeBook;
+
+    /// <summary>"Name of Cheque Book" for the book being added.</summary>
+    [ObservableProperty] private string _newChequeBookName = string.Empty;
+
+    /// <summary>"From Number" for the book being added — keyed exactly as printed, leading zeros and all.</summary>
+    [ObservableProperty] private string _newChequeBookFrom = string.Empty;
+
+    /// <summary>"To Number" for the book being added.</summary>
+    [ObservableProperty] private string _newChequeBookTo = string.Empty;
+
+    /// <summary>
+    /// Records a cheque book against the bank ledger being altered and persists immediately — the book is a row
+    /// of its own, not a field of the ledger form, so it is not waiting on Ctrl+A.
+    ///
+    /// <para>Refusals, each of which would otherwise produce a register that lies: a book needs a name and both
+    /// ends of its range; a range whose ends cannot be counted (a lettered series) would enumerate no leaves at
+    /// all and is refused with that reason rather than silently stored; and a To below the From is a transposition
+    /// that would report a book of zero cheques.</para>
+    /// </summary>
+    public bool AddChequeBook()
+    {
+        Message = null;
+        if (!IsAltering || _company.FindLedger(_editingId) is null)
+        {
+            Message = "Save the bank ledger first — a cheque book is recorded against a bank that already exists.";
+            return false;
+        }
+
+        var name = (NewChequeBookName ?? string.Empty).Trim();
+        var from = (NewChequeBookFrom ?? string.Empty).Trim();
+        var to = (NewChequeBookTo ?? string.Empty).Trim();
+        if (name.Length == 0 || from.Length == 0 || to.Length == 0)
+        {
+            Message = "A cheque book needs a name and both ends of its number range (e.g. 000101 to 000200).";
+            return false;
+        }
+
+        var candidate = new ChequeBook(Guid.NewGuid(), _editingId, name, from, to);
+        if (candidate.Count == 0)
+        {
+            Message = $"'{from}' to '{to}' is not a countable range of cheque numbers. Both ends must be digits, "
+                    + "and the To number must not be below the From number.";
+            return false;
+        }
+
+        _company.AddChequeBook(candidate);
+        _storage.Save(_company);
+        RefreshChequeBooks();
+        Message = $"Cheque book '{name}' recorded: {candidate.Count} leaves, {from} to {to}.";
+        NewChequeBookName = string.Empty;
+        NewChequeBookFrom = string.Empty;
+        NewChequeBookTo = string.Empty;
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Removes the selected cheque book and every leaf status recorded against it, and persists.
+    ///
+    /// <para><b>The leaf statuses go with it, by construction</b> — <c>Company.RemoveChequeBook</c> takes them —
+    /// because a status row whose book is gone is an orphan the next Save would try to write against a missing
+    /// foreign key, which fails the whole Save and leaves the open company unwritable.</para>
+    /// </summary>
+    public bool RemoveChequeBook()
+    {
+        Message = null;
+        if (SelectedChequeBook is not { } row || _company.FindChequeBook(row.Id) is not { } book)
+        {
+            Message = "Select a cheque book to remove.";
+            return false;
+        }
+
+        _company.RemoveChequeBook(book);
+        _storage.Save(_company);
+        RefreshChequeBooks();
+        Message = $"Cheque book '{book.Name}' removed.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Re-reads the cheque books of the ledger being altered into the list.</summary>
+    private void RefreshChequeBooks()
+    {
+        ChequeBooks.Clear();
+        SelectedChequeBook = null;
+        if (!IsAltering) return;
+        foreach (var b in _company.ChequeBooksOf(_editingId))
+            ChequeBooks.Add(new ChequeBookListItem
+            {
+                Id = b.Id,
+                Display = $"{b.Name}  —  {b.FromNumber} to {b.ToNumber}  ({b.Count} leaves)",
+            });
+    }
+
+    /// <summary>Trims a text box, mapping a blank one to <c>null</c> — "not captured" rather than an empty
+    /// string, so the stored column reads the same as it did before the field existed.</summary>
+    private static string? Blank(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    /// <summary>Renders stored tenths-mm back into the millimetre box. 0 shows as blank, because 0 IS "not set"
+    /// here and a box reading "0" invites an operator to believe an element is placed at the corner.</summary>
+    private static string FormatTmm(int tmm) =>
+        tmm == 0
+            ? string.Empty
+            : (tmm / 10m).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
     /// <summary>True once the operator has edited the Mailing Name by hand; after that it stops tracking Name.</summary>
     private bool _mailingNameTouched;
 
@@ -563,6 +870,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         vm._editingId = ledgerId;
         vm.LoadFrom(ledger);
         vm.OnPropertyChanged(nameof(IsAltering));
+        // v57 (census 8.5): the Cheque Books list is only meaningful over a ledger that exists, so it is filled
+        // here rather than in LoadFrom — and ShowChequeBooks is raised with it, or the block would stay hidden
+        // until some unrelated property happened to notify.
+        vm.RefreshChequeBooks();
+        vm.OnPropertyChanged(nameof(ShowChequeBooks));
         return vm;
     }
 
@@ -659,6 +971,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // Census 8.4: the Cheque Printing block appears/disappears with the bank-group test (ancestry-walking),
         // so picking "Bank Accounts" reveals it without leaving and re-entering the screen.
         OnPropertyChanged(nameof(ShowChequePrinting));
+        // v57: the two sub-blocks ride on the same bank-group test, so they follow it.
+        OnPropertyChanged(nameof(ShowChequeDimensions));
+        OnPropertyChanged(nameof(ShowChequeBooks));
     }
 
     /// <summary>WI-4: the Mailing Name tracks the ledger Name until the operator edits it by hand ("auto,
@@ -914,6 +1229,47 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // bank groups keeps its stored flag, and pre-filling it means re-opening the master shows the truth.
         EnableChequePrinting = ledger.EnableChequePrinting;
         ChequePrintingBankName = ledger.ChequePrintingBankName ?? string.Empty;
+
+        // v57 (census 8.4/8.6): the bank identity trio and the Cheque Dimensions. Loaded for EVERY ledger for the
+        // same reason the two above are — re-opening the master must show what is actually stored.
+        BankAccountNumber = ledger.BankAccountNumber ?? string.Empty;
+        BankBranch = ledger.BankBranch ?? string.Empty;
+        BankIfsc = ledger.BankIfsc ?? string.Empty;
+        ChequeAdjustTopMm = FormatTmm(ledger.ChequeAdjustTopTmm);
+        ChequeAdjustLeftMm = FormatTmm(ledger.ChequeAdjustLeftTmm);
+        PrintCompanyNameOnCheque = ledger.PrintCompanyNameOnCheque;
+        LoadChequeLayout(ledger.ChequeLayout);
+    }
+
+    /// <summary>Fills the twenty millimetre boxes and the four switches from a stored layout, or clears them when
+    /// the ledger has none. The payee width shows the vendor's 135 mm default only when a layout exists — a
+    /// ledger that never captured dimensions shows an empty block, not a half-filled one.</summary>
+    private void LoadChequeLayout(ChequeLayout? layout)
+    {
+        ChequeLeafWidthMm = FormatTmm(layout?.LeafWidthTmm ?? 0);
+        ChequeLeafHeightMm = FormatTmm(layout?.LeafHeightTmm ?? 0);
+        ChequeDateTopMm = FormatTmm(layout?.DateTopTmm ?? 0);
+        ChequeDateLeftMm = FormatTmm(layout?.DateLeftTmm ?? 0);
+        ChequeDateCharPitchMm = FormatTmm(layout?.DateCharPitchTmm ?? 0);
+        ChequePayeeTopMm = FormatTmm(layout?.PayeeTopTmm ?? 0);
+        ChequePayeeLeftMm = FormatTmm(layout?.PayeeLeftTmm ?? 0);
+        ChequePayeeWidthMm = FormatTmm(layout?.PayeeWidthTmm ?? 0);
+        ChequeWordsLine1TopMm = FormatTmm(layout?.WordsLine1TopTmm ?? 0);
+        ChequeWordsLine1LeftMm = FormatTmm(layout?.WordsLine1LeftTmm ?? 0);
+        ChequeWordsLine2TopMm = FormatTmm(layout?.WordsLine2TopTmm ?? 0);
+        ChequeWordsLine2LeftMm = FormatTmm(layout?.WordsLine2LeftTmm ?? 0);
+        ChequeWordsWidthMm = FormatTmm(layout?.WordsWidthTmm ?? 0);
+        ChequeFiguresTopMm = FormatTmm(layout?.FiguresTopTmm ?? 0);
+        ChequeFiguresLeftMm = FormatTmm(layout?.FiguresLeftTmm ?? 0);
+        ChequeFiguresWidthMm = FormatTmm(layout?.FiguresWidthTmm ?? 0);
+        ChequeSignTopMm = FormatTmm(layout?.SignTopTmm ?? 0);
+        ChequeSignLeftMm = FormatTmm(layout?.SignLeftTmm ?? 0);
+        ChequeSignWidthMm = FormatTmm(layout?.SignWidthTmm ?? 0);
+        ChequeSignHeightMm = FormatTmm(layout?.SignHeightTmm ?? 0);
+        ChequeSalutation1 = layout?.Salutation1 ?? string.Empty;
+        ChequeSalutation2 = layout?.Salutation2 ?? string.Empty;
+        ChequePrintCurrencyFormalName = layout?.PrintCurrencyFormalName ?? false;
+        ChequePrintCurrencySymbol = layout?.PrintCurrencySymbol ?? false;
     }
 
     /// <summary>
@@ -987,6 +1343,80 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
                 return false;
             }
             creditLimit = new Money(limitAmount);
+        }
+
+        // Census 8.4 (v57) — the Cheque Dimensions. 🔴 PARSED HERE, IN THE VALIDATION PHASE, not beside the write
+        // below: this method's contract is "validate everything first, write nothing on a refusal", and by the
+        // time the cheque block is written several other fields already are. Twenty millimetre boxes, each of
+        // which refuses a typo rather than silently reading 0 — and 0 on this screen means "element not placed",
+        // which the renderer honours by SKIPPING that element. A typo that became 0 would quietly drop the payee
+        // name off a negotiable instrument.
+        var chequeLayout = new ChequeLayout();
+        int chequeAdjustTopTmm = 0, chequeAdjustLeftTmm = 0;
+        if (ShowChequePrinting && EnableChequePrinting)
+        {
+            if (!TryReadTmm(ChequeLeafWidthMm, "Cheque leaf width", out var leafW)) return false;
+            if (!TryReadTmm(ChequeLeafHeightMm, "Cheque leaf height", out var leafH)) return false;
+            if (!TryReadTmm(ChequeDateTopMm, "Date — distance from top edge", out var dTop)) return false;
+            if (!TryReadTmm(ChequeDateLeftMm, "Date — distance from left edge", out var dLeft)) return false;
+            if (!TryReadTmm(ChequeDateCharPitchMm, "Date — distance between characters", out var dPitch)) return false;
+            if (!TryReadTmm(ChequePayeeTopMm, "Payee name — distance from top edge", out var pTop)) return false;
+            if (!TryReadTmm(ChequePayeeLeftMm, "Payee name — distance from left edge", out var pLeft)) return false;
+            if (!TryReadTmm(ChequePayeeWidthMm, "Payee name — width area", out var pWidth)) return false;
+            if (!TryReadTmm(ChequeWordsLine1TopMm, "Amount in words — 1st line from top edge", out var w1Top)) return false;
+            if (!TryReadTmm(ChequeWordsLine1LeftMm, "Amount in words — 1st line from left edge", out var w1Left)) return false;
+            if (!TryReadTmm(ChequeWordsLine2TopMm, "Amount in words — 2nd line from top edge", out var w2Top)) return false;
+            if (!TryReadTmm(ChequeWordsLine2LeftMm, "Amount in words — 2nd line from left edge", out var w2Left)) return false;
+            if (!TryReadTmm(ChequeWordsWidthMm, "Amount in words — width area", out var wWidth)) return false;
+            if (!TryReadTmm(ChequeFiguresTopMm, "Amount in figures — distance from top edge", out var fTop)) return false;
+            if (!TryReadTmm(ChequeFiguresLeftMm, "Amount in figures — distance from left edge", out var fLeft)) return false;
+            if (!TryReadTmm(ChequeFiguresWidthMm, "Amount in figures — width area", out var fWidth)) return false;
+            if (!TryReadTmm(ChequeSignTopMm, "Signatory — distance from top edge", out var sTop)) return false;
+            if (!TryReadTmm(ChequeSignLeftMm, "Signatory — distance from left edge", out var sLeft)) return false;
+            if (!TryReadTmm(ChequeSignWidthMm, "Signatory — width of signature area", out var sWidth)) return false;
+            if (!TryReadTmm(ChequeSignHeightMm, "Signatory — height of signature area", out var sHeight)) return false;
+            if (!TryReadTmm(ChequeAdjustTopMm, "Adjust distance from top edge", out chequeAdjustTopTmm)) return false;
+            if (!TryReadTmm(ChequeAdjustLeftMm, "Adjust distance from left edge", out chequeAdjustLeftTmm)) return false;
+
+            // 🔴 A leaf with only ONE of width/height is refused outright. The renderer needs both to open the
+            // page, and half a leaf size is far more likely to be a half-finished entry than an intention.
+            if ((leafW > 0) != (leafH > 0))
+            {
+                Message = "A cheque leaf needs BOTH a width and a height, in millimetres — measure the leaf you "
+                        + "actually hold. Leave both blank until you have.";
+                return false;
+            }
+
+            chequeLayout = new ChequeLayout
+            {
+                LeafWidthTmm = leafW,
+                LeafHeightTmm = leafH,
+                DateTopTmm = dTop,
+                DateLeftTmm = dLeft,
+                DateCharPitchTmm = dPitch,
+                PayeeTopTmm = pTop,
+                PayeeLeftTmm = pLeft,
+                // Blank keeps the vendor's documented 135 mm default rather than collapsing to 0, which would
+                // mean "no width area" and let a long payee name run off the leaf.
+                PayeeWidthTmm = pWidth == 0 ? ChequeLayout.DefaultPayeeWidthTmm : pWidth,
+                WordsLine1TopTmm = w1Top,
+                WordsLine1LeftTmm = w1Left,
+                WordsLine2TopTmm = w2Top,
+                WordsLine2LeftTmm = w2Left,
+                WordsWidthTmm = wWidth,
+                FiguresTopTmm = fTop,
+                FiguresLeftTmm = fLeft,
+                FiguresWidthTmm = fWidth,
+                SignTopTmm = sTop,
+                SignLeftTmm = sLeft,
+                SignWidthTmm = sWidth,
+                SignHeightTmm = sHeight,
+                Salutation1 = ChequeSalutation1,
+                Salutation2 = ChequeSalutation2,
+                PrintCurrencyFormalName = ChequePrintCurrencyFormalName,
+                PrintCurrencySymbol = ChequePrintCurrencySymbol,
+            };
+            chequeLayout.Normalize();
         }
 
         // Opening Balance (Study Guide pp.65–66) — blank ⇒ nil, which is the norm and must stay byte-identical to
@@ -1256,8 +1686,23 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         {
             target.EnableChequePrinting = EnableChequePrinting;
             if (EnableChequePrinting)
+            {
                 target.ChequePrintingBankName =
                     string.IsNullOrWhiteSpace(ChequePrintingBankName) ? null : ChequePrintingBankName.Trim();
+
+                // v57 — the bank identity trio and the Cheque Dimensions. 🔴 THIS ASSIGNMENT IS THE ONE THAT MAKES
+                // THE CHEQUE LEAF PRINTABLE: it is the only writer of Ledger.ChequeLayout in src/, and without it
+                // ChequePdf.Validate refuses every render on every loaded company. An EMPTY layout stores as null
+                // rather than as a row of zeros, so a bank that enabled cheque printing without measuring a leaf
+                // persists exactly what it did before v57 (ER-13) and the refusal message stays truthful.
+                target.BankAccountNumber = Blank(BankAccountNumber);
+                target.BankBranch = Blank(BankBranch);
+                target.BankIfsc = Blank(BankIfsc);
+                target.ChequeAdjustTopTmm = chequeAdjustTopTmm;
+                target.ChequeAdjustLeftTmm = chequeAdjustLeftTmm;
+                target.PrintCompanyNameOnCheque = PrintCompanyNameOnCheque;
+                target.ChequeLayout = chequeLayout.IsEmpty ? null : chequeLayout;
+            }
         }
 
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they
@@ -1311,6 +1756,15 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // the following bank the previous one's cheque stationery without the operator ever saying so.
         EnableChequePrinting = false;
         ChequePrintingBankName = string.Empty;
+        // v57: the bank identity and the cheque DIMENSIONS must not carry either. Handing the next bank the
+        // previous bank's account number, or its leaf geometry, would put the wrong ink on real stationery.
+        BankAccountNumber = string.Empty;
+        BankBranch = string.Empty;
+        BankIfsc = string.Empty;
+        ChequeAdjustTopMm = string.Empty;
+        ChequeAdjustLeftMm = string.Empty;
+        PrintCompanyNameOnCheque = false;
+        LoadChequeLayout(null);
     }
 
     /// <summary>A short human summary of a ledger's interest block ("18% p.a. Simple"), or blank.</summary>

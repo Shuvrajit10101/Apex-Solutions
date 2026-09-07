@@ -152,7 +152,19 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v56</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v57</b> is the latest bump
+    /// (<b>Banking documents</b>, census 8.4 / 8.5 / 8.6: the three tables <c>cheque_books</c> /
+    /// <c>cheque_status_overrides</c> / <c>cheque_layouts</c>, plus six <c>ledgers</c> columns —
+    /// <c>bank_account_number</c>, <c>bank_branch</c>, <c>bank_ifsc</c>, <c>cheque_adjust_top_tmm</c>,
+    /// <c>cheque_adjust_left_tmm</c> and <c>print_company_name_on_cheque</c>. 🔴 <b>This version exists to make a
+    /// shipped-but-DEAD feature reachable:</b> <c>Ledger.ChequeLayout</c> had ZERO writers in <c>src/</c> because
+    /// nothing persisted it, so <c>ChequePdf.Validate</c> refused on every loaded book and the cheque LEAF could
+    /// never print. 🔴 <b>Every geometry column is TENTHS OF A MILLIMETRE as INTEGER, never REAL</b> — the same
+    /// rule <c>Paisa</c> exists for; a floating-point millimetre renders two different byte streams on two
+    /// machines and breaks every PDF determinism assertion in this repository. Purely additive and it back-fills
+    /// NOTHING: three empty tables plus six columns whose defaults (NULL / 0) are the literal truth about every
+    /// pre-v57 ledger. See <see cref="MigrateV56ToV57"/>).
+    /// v56 was the previous bump
     /// (<b>Security Control</b>, census 16.2: the three tables <c>security_levels</c> / <c>security_level_rules</c>
     /// / <c>company_users</c>, plus <c>use_user_access_control</c>, <c>password_min_length</c> and
     /// <c>password_expiry_days</c> on <c>companies</c>. Purely additive and it back-fills NOTHING — every default
@@ -219,7 +231,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 56;
+    public const int CurrentVersion = 57;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -968,7 +980,23 @@ public static class Schema
             -- and why there is deliberately no second credit-period column here.
             credit_limit_paisa               INTEGER     NULL,            -- NULL = no limit; 0 IS a real, blocking limit
             check_credit_days_on_entry       INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Check for credit days during voucher entry"
-            override_credit_limit_post_dated INTEGER NOT NULL DEFAULT 0   -- 0/1 "Override credit limit using post-dated transactions"
+            override_credit_limit_post_dated INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Override credit limit using post-dated transactions"
+            -- v57 (census 8.4/8.5/8.6) banking documents. Declarations byte-identical to MigrateV56ToV57.
+            -- Bank identity, printed on the deposit slip and the supplier payment advice
+            -- (help.tallysolutions.com/deposit-slips/, "Cash Deposit Slip"). NULL for every non-bank ledger and
+            -- for every bank ledger created before v57.
+            bank_account_number      TEXT        NULL,
+            bank_branch              TEXT        NULL,
+            bank_ifsc                TEXT        NULL,
+            -- The per-print calibration nudge, in TENTHS OF A MILLIMETRE (never REAL - see Paisa.cs for why).
+            -- help.tallysolutions.com/docs/te9rel53/Banking/Cheque_Printing.htm, "Adjust Distance From Top Edge
+            -- (in mm)". Applied to every element at render time; NEVER written back into cheque_layouts, because
+            -- that page states the adjustment "does not affect the settings of cheque dimensions pre-configured
+            -- for the selected cheque format".
+            cheque_adjust_top_tmm    INTEGER NOT NULL DEFAULT 0,
+            cheque_adjust_left_tmm   INTEGER NOT NULL DEFAULT 0,
+            -- help.tallysolutions.com/cheque-payments-set-up/, "Disable Company Name in the Pre-printed Cheques".
+            print_company_name_on_cheque INTEGER NOT NULL DEFAULT 0   -- 0/1
         );
 
         CREATE TABLE currencies (
@@ -1990,6 +2018,70 @@ public static class Schema
         );
 
         CREATE INDEX ix_voucher_edit_log_company ON voucher_edit_log(company_id);
+
+        -- v57 (census 8.5 Cheque Register): the cheque BOOKS an operator holds. Declarations byte-identical to
+        -- MigrateV56ToV57. help.tallysolutions.com/cheque-payments-set-up/, "Specify Cheque Range and Format in
+        -- Bank Ledger" — Name of Cheque Book, From Number, To Number (the count is DERIVED, never stored).
+        -- 🔴 from_number / to_number are TEXT, not INTEGER: cheque numbers carry leading zeros and a leaf
+        -- numbered 000123 is not the same string as 123 on the paper an operator is holding.
+        CREATE TABLE cheque_books (
+            id           TEXT    NOT NULL PRIMARY KEY,
+            ledger_id    TEXT    NOT NULL REFERENCES ledgers(id),
+            name         TEXT    NOT NULL,
+            from_number  TEXT    NOT NULL,
+            to_number    TEXT    NOT NULL
+        );
+        CREATE INDEX ix_cheque_books_ledger ON cheque_books(ledger_id);
+
+        -- v57 (census 8.5): the OPERATOR-SET status of one cheque leaf, plus the printed flag.
+        -- 🔴 ONLY the operator-settable statuses live here (Available=0, Blank=1, Cancelled=2).
+        -- Unreconciled / Reconciled / Out-of-Period are COMPUTED from the posted bank allocations; storing them
+        -- is the bug that makes a register lie the moment a reconciliation is keyed.
+        CREATE TABLE cheque_status_overrides (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            cheque_book_id TEXT    NOT NULL REFERENCES cheque_books(id),
+            cheque_number  TEXT    NOT NULL,
+            status         INTEGER NOT NULL,
+            printed        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX ux_cheque_status_book_number
+            ON cheque_status_overrides(cheque_book_id, cheque_number);
+
+        -- v57 (census 8.4): the Cheque Dimensions of one bank ledger's pre-printed leaf. At most one row per
+        -- ledger. Field list from help.tallysolutions.com/docs/te9rel51/Advanced_Features/
+        -- Advanced_Accounting_Features/Creation_Mode.htm, "Cheque Dimensions".
+        -- 🔴 EVERY MEASURE IS TENTHS OF A MILLIMETRE AS INTEGER, NEVER REAL. See Domain/ChequeLayout.cs.
+        -- The vendor's "Height (gap) between lines" is deliberately NOT a column: it is
+        -- words_line2_top_tmm - words_line1_top_tmm, and two stored numbers obliged to agree is a drift bug.
+        CREATE TABLE cheque_layouts (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            ledger_id             TEXT    NOT NULL REFERENCES ledgers(id),
+            leaf_width_tmm        INTEGER NOT NULL DEFAULT 0,
+            leaf_height_tmm       INTEGER NOT NULL DEFAULT 0,
+            date_top_tmm          INTEGER NOT NULL DEFAULT 0,
+            date_left_tmm         INTEGER NOT NULL DEFAULT 0,
+            date_char_pitch_tmm   INTEGER NOT NULL DEFAULT 0,
+            payee_top_tmm         INTEGER NOT NULL DEFAULT 0,
+            payee_left_tmm        INTEGER NOT NULL DEFAULT 0,
+            payee_width_tmm       INTEGER NOT NULL DEFAULT 1350,
+            words_line1_top_tmm   INTEGER NOT NULL DEFAULT 0,
+            words_line1_left_tmm  INTEGER NOT NULL DEFAULT 0,
+            words_line2_top_tmm   INTEGER NOT NULL DEFAULT 0,
+            words_line2_left_tmm  INTEGER NOT NULL DEFAULT 0,
+            words_width_tmm       INTEGER NOT NULL DEFAULT 0,
+            figures_top_tmm       INTEGER NOT NULL DEFAULT 0,
+            figures_left_tmm      INTEGER NOT NULL DEFAULT 0,
+            figures_width_tmm     INTEGER NOT NULL DEFAULT 0,
+            sign_top_tmm          INTEGER NOT NULL DEFAULT 0,
+            sign_left_tmm         INTEGER NOT NULL DEFAULT 0,
+            sign_width_tmm        INTEGER NOT NULL DEFAULT 0,
+            sign_height_tmm       INTEGER NOT NULL DEFAULT 0,
+            salutation_1          TEXT        NULL,
+            salutation_2          TEXT        NULL,
+            print_currency_formal_name INTEGER NOT NULL DEFAULT 0,
+            print_currency_symbol      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX ux_cheque_layouts_ledger ON cheque_layouts(ledger_id);
         """;
 
     /// <summary>
@@ -4395,5 +4487,142 @@ public static class Schema
             user_order      INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX ix_company_users_company ON company_users(company_id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v57 — BANKING DOCUMENTS (census 8.4 cheque printing · 8.5 Cheque Register · 8.6 Deposit Slip).
+    // The object names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak
+    // about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The three tables v57 adds — the exact set <see cref="MigrateV56ToV57"/> creates and
+    /// <c>SchemaDowngrade.V57ToV56</c> drops. Named once so the two can never disagree.
+    /// <b>Order matters on the way down:</b> <c>cheque_status_overrides</c> FKs <c>cheque_books</c>, so the book
+    /// table is dropped after it, and both are dropped before the <c>ledgers</c> rebuild that follows.</summary>
+    public static readonly IReadOnlyList<string> V57ChequeTables =
+        new[] { "cheque_status_overrides", "cheque_books", "cheque_layouts" };
+
+    /// <summary>The six <c>ledgers</c> columns v57 adds — the exact set <see cref="MigrateV56ToV57"/> creates and
+    /// <c>SchemaDowngrade.V57ToV56</c> drops. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V57BankingLedgerColumns =
+        new[]
+        {
+            "bank_account_number", "bank_branch", "bank_ifsc",
+            "cheque_adjust_top_tmm", "cheque_adjust_left_tmm", "print_company_name_on_cheque",
+        };
+
+    /// <summary>
+    /// v56 → v57 (census rows 8.4 / 8.5 / 8.6): <b>Banking documents</b> — the cheque layout, the cheque books
+    /// and their operator-set statuses, and the bank identity fields a deposit slip and a payment advice print.
+    ///
+    /// <para>🔴 <b>WHY THIS VERSION EXISTS: IT MAKES ~625 LINES OF SHIPPED, TESTED, COMPLETELY DEAD CODE
+    /// REACHABLE.</b> <c>ChequeLayout</c>, <c>ChequePrintData</c>, <c>ChequePdf</c> and <c>ChequePrintProjector</c>
+    /// all landed correct and deterministic at census row 8.4 — and <c>Ledger.ChequeLayout</c> had <b>zero
+    /// writers anywhere in <c>src/</c></b>, because there was no <c>cheque_layouts</c> table to load one from. So
+    /// the layout was <c>null</c> on every loaded company, <c>ChequePdf.Validate</c> refused every render with
+    /// "Cheque dimensions are not set for this bank", and the cheque LEAF could never print for any operator.
+    /// That is the third dead feature filed on this project; this version closes it.</para>
+    ///
+    /// <para><b>R7 — ATTESTED.</b> The <c>cheque_layouts</c> field list is the vendor's <b>Cheque Dimensions</b>
+    /// screen, enumerated at
+    /// <c>help.tallysolutions.com/docs/te9rel51/Advanced_Features/Advanced_Accounting_Features/Creation_Mode.htm</c>
+    /// ("Cheque Dimensions"): per element, a distance from the top edge, a starting location from the left edge, a
+    /// width area, the date's character pitch, the two amount-in-words lines, and the two signatory salutations
+    /// with the signature area's width and height. <c>cheque_books</c> is
+    /// <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Specify Cheque Range and Format in Bank Ledger"
+    /// (Name of Cheque Book / From Number / To Number; the count is auto-calculated, so it is derived here and not
+    /// stored). The status buckets <c>cheque_status_overrides</c> serves are
+    /// <c>help.tallysolutions.com/cheque-register/</c>. The two adjust columns are
+    /// <c>help.tallysolutions.com/docs/te9rel53/Banking/Cheque_Printing.htm</c>, "Adjust Distance From Top Edge
+    /// (in mm)" / "Adjust Distance From Left Edge (in mm)"; <c>print_company_name_on_cheque</c> is
+    /// <c>help.tallysolutions.com/cheque-payments-set-up/</c>, "Disable Company Name in the Pre-printed Cheques";
+    /// the bank identity trio is <c>help.tallysolutions.com/deposit-slips/</c>, "Cash Deposit Slip".</para>
+    ///
+    /// <para>🔴 <b>UNITS: TENTHS OF A MILLIMETRE, STORED AS INTEGER — NEVER REAL.</b> This is the same rule
+    /// <c>Paisa</c> exists for. A <c>double</c> millimetre would let one stored layout render two different byte
+    /// streams on two machines, which breaks every PDF determinism assertion in this repository. 135 mm is
+    /// <c>1350</c>, and the ONLY floating-point step in the whole pipeline is the single tenths-mm → PDF-point
+    /// conversion inside the renderer.</para>
+    ///
+    /// <para>🔴 <b>Only the OPERATOR-SETTABLE statuses are stored.</b> <c>cheque_status_overrides.status</c> holds
+    /// Available / Blank / Cancelled and nothing else. Reconciled, Unreconciled and Out-of-Period are computed
+    /// from the posted bank allocations and the report period; persisting them would make the register lie the
+    /// moment a reconciliation date is keyed.</para>
+    ///
+    /// <para><b>Purely additive, and it back-fills NOTHING.</b> Three new tables (so no existing row is even
+    /// touched) and six <c>ledgers</c> columns whose defaults — NULL, NULL, NULL, 0, 0, 0 — are the literal truth
+    /// about every pre-v57 ledger: none had a captured account number, branch or IFSC, none had a calibration
+    /// nudge, and none printed the company name on a leaf. "Column absent" and "not captured" therefore coincide,
+    /// deliberately unlike <see cref="MigrateV49ToV50"/>'s <c>DEFAULT 1</c>.</para>
+    ///
+    /// <para><b>No UNIQUE constraint on a cheque book's number RANGE, and that is deliberate.</b> Two books on one
+    /// bank may legitimately overlap after a bank re-issues a series; the register reports an instrument that
+    /// falls in no book in its own "not in range" section rather than refusing the data. The one uniqueness that
+    /// IS enforced is a single status per (book, cheque number).</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 57. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift.</para>
+    /// </summary>
+    public const string MigrateV56ToV57 = """
+        -- v57 (census 8.4/8.5/8.6): Banking documents — cheque layout, cheque books, cheque statuses, bank identity.
+        -- Purely additive: three new tables plus six ledgers columns, all NULL/0, nothing back-filled.
+        -- 🔴 EVERY GEOMETRY COLUMN IS TENTHS OF A MILLIMETRE AS INTEGER, NEVER REAL. See this constant's doc comment.
+        ALTER TABLE ledgers ADD COLUMN bank_account_number      TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN bank_branch              TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN bank_ifsc                TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN cheque_adjust_top_tmm    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN cheque_adjust_left_tmm   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN print_company_name_on_cheque INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE cheque_books (
+            id           TEXT    NOT NULL PRIMARY KEY,
+            ledger_id    TEXT    NOT NULL REFERENCES ledgers(id),
+            name         TEXT    NOT NULL,
+            from_number  TEXT    NOT NULL,
+            to_number    TEXT    NOT NULL
+        );
+        CREATE INDEX ix_cheque_books_ledger ON cheque_books(ledger_id);
+
+        CREATE TABLE cheque_status_overrides (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            cheque_book_id TEXT    NOT NULL REFERENCES cheque_books(id),
+            cheque_number  TEXT    NOT NULL,
+            status         INTEGER NOT NULL,
+            printed        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX ux_cheque_status_book_number
+            ON cheque_status_overrides(cheque_book_id, cheque_number);
+
+        CREATE TABLE cheque_layouts (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            ledger_id             TEXT    NOT NULL REFERENCES ledgers(id),
+            leaf_width_tmm        INTEGER NOT NULL DEFAULT 0,
+            leaf_height_tmm       INTEGER NOT NULL DEFAULT 0,
+            date_top_tmm          INTEGER NOT NULL DEFAULT 0,
+            date_left_tmm         INTEGER NOT NULL DEFAULT 0,
+            date_char_pitch_tmm   INTEGER NOT NULL DEFAULT 0,
+            payee_top_tmm         INTEGER NOT NULL DEFAULT 0,
+            payee_left_tmm        INTEGER NOT NULL DEFAULT 0,
+            payee_width_tmm       INTEGER NOT NULL DEFAULT 1350,
+            words_line1_top_tmm   INTEGER NOT NULL DEFAULT 0,
+            words_line1_left_tmm  INTEGER NOT NULL DEFAULT 0,
+            words_line2_top_tmm   INTEGER NOT NULL DEFAULT 0,
+            words_line2_left_tmm  INTEGER NOT NULL DEFAULT 0,
+            words_width_tmm       INTEGER NOT NULL DEFAULT 0,
+            figures_top_tmm       INTEGER NOT NULL DEFAULT 0,
+            figures_left_tmm      INTEGER NOT NULL DEFAULT 0,
+            figures_width_tmm     INTEGER NOT NULL DEFAULT 0,
+            sign_top_tmm          INTEGER NOT NULL DEFAULT 0,
+            sign_left_tmm         INTEGER NOT NULL DEFAULT 0,
+            sign_width_tmm        INTEGER NOT NULL DEFAULT 0,
+            sign_height_tmm       INTEGER NOT NULL DEFAULT 0,
+            salutation_1          TEXT        NULL,
+            salutation_2          TEXT        NULL,
+            print_currency_formal_name INTEGER NOT NULL DEFAULT 0,
+            print_currency_symbol      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX ux_cheque_layouts_ledger ON cheque_layouts(ledger_id);
         """;
 }
