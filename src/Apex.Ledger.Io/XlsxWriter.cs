@@ -35,7 +35,9 @@ public static class XlsxWriter
     {
         ArgumentNullException.ThrowIfNull(export);
 
-        string sheetName = SheetName(export.Title);
+        // 🔴 RULING 18: the sheet name goes through the provenance seam (TabularExport.TitleText), so a report
+        // headed with a counterparty's master name names its worksheet with that name, not a mangled one.
+        string sheetName = SheetName(TabularExport.TitleText(export));
 
         // Build every part's text up front so the ZIP write is a simple deterministic loop.
         var parts = new (string Name, string Content)[]
@@ -121,7 +123,9 @@ public static class XlsxWriter
                 string cellRef = RowRef(i, r);
                 if (cell.Type == CellType.Number && cell.HasNumber)
                     return NumberCellXml(cellRef, cell.NumberValue);
-                string text = TabularDebrand.Cell(cell.TextValue);
+                // 🔴 Ruling 18: book data is written verbatim. The HEADER row above is a product-authored caption
+                // and keeps its scrub; a body cell holds a party/bank/item name that is not ours to rewrite.
+                string text = cell.TextValue ?? string.Empty;
                 return text.Length == 0 ? string.Empty : TextCellXml(cellRef, text);
             });
         }
@@ -171,11 +175,13 @@ public static class XlsxWriter
 
     // ---------------------------------------------------------------- helpers
 
-    /// <summary>A safe worksheet name: de-branded, XML-safe, ≤ 31 chars, none of the characters Excel forbids
-    /// in a sheet name (<c>: \ / ? * [ ]</c>). Falls back to "Sheet1" if empty.</summary>
+    /// <summary>A safe worksheet name: XML-safe, ≤ 31 chars, none of the characters Excel forbids in a sheet name
+    /// (<c>: \ / ? * [ ]</c>). Falls back to "Sheet1" if empty. The ER-11 de-brand is NOT applied here — the caller
+    /// has already resolved it through <see cref="TabularExport.TitleText"/>, which is the one place that decides
+    /// whether a title is ours (scrubbed) or a counterparty's master name (verbatim, ruling 18).</summary>
     private static string SheetName(string title)
     {
-        string t = Debrand.Text(title);
+        string t = title ?? string.Empty;
         var sb = new StringBuilder(t.Length);
         foreach (char c in t)
             sb.Append(c is ':' or '\\' or '/' or '?' or '*' or '[' or ']' ? ' ' : c);

@@ -157,34 +157,47 @@ public sealed class ShellChordTableTests : IDisposable
             ShellChordTable.Table.Count);
     }
 
-    // ================================================================ Ctrl+I — the chord this table does NOT take
+    // ================================================================ Ctrl+I — released by ruling 17
 
     /// <summary>
-    /// 🔴 <b>THE LOCK THAT KEEPS 14.4 HONEST.</b> <c>Ctrl+I</c> is the vendor's More Details chord and this
-    /// table does not claim it, because claiming it deletes the two-way item-invoice toggle from the keyboard
-    /// (see the reasoning beside <c>ShellChordTable.Table</c>) and the census records that ruling as OPEN.
+    /// 🔴 <b>THE INVERTED LOCK.</b> This test used to be
+    /// <c>The_table_does_not_claim_Ctrl_I_from_the_item_invoice_toggle</c>, and it held the chord for the
+    /// incumbent two-way toggle while census ruling U-6 was OPEN. <b>User ruling 17 (2026-09-06) closed it:</b>
+    /// <c>Ctrl+I</c> is the vendor's More Details (census 14.4) and the item-invoice toggle re-homes to
+    /// <c>Ctrl+H</c> with <b>no Ctrl+I alias</b>.
     ///
-    /// <para>This asserts the table stays out of the way EVEN ON A VOUCHER, which is the one context where a
-    /// More Details entry would be tempting. It is the guard that stops 14.4 being re-landed by chord alone,
-    /// without the ruling and without a keyboard door for whatever the toggle becomes — and it is why
-    /// <c>ServiceAccountingInvoiceKeyboardTests.CtrlI_stays_a_two_way_item_toggle</c> still passes.</para>
+    /// <para>What this now locks is the half of the re-homing that has to be true on a voucher — the one
+    /// context where the old binding actually did something: pressing Ctrl+I there must NOT move the entry
+    /// mode. Its non-vacuity partner is
+    /// <c>ServiceAccountingInvoiceKeyboardTests.CtrlH_is_the_keyboard_door_to_item_invoice_mode</c>, which
+    /// proves the capability kept a keyboard door rather than being deleted.</para>
     /// </summary>
     [AvaloniaFact]
-    public void The_table_does_not_claim_Ctrl_I_from_the_item_invoice_toggle()
+    public void Ctrl_I_no_longer_reaches_the_item_invoice_toggle()
     {
-        var (window, vm) = OpenWindow("Ctrl I Incumbent Co");
+        var (window, vm) = OpenWindow("Ctrl I Rehomed Co");
         try
         {
             vm.OpenVoucher(VoucherBaseType.Sales);
             var entry = vm.VoucherEntry!;
             Assert.False(entry.IsItemInvoice);
 
-            Assert.True(ShellChordTable.Match(vm, Key.I, KeyModifiers.Control) is null,
-                "The shell chord table has claimed Ctrl+I. That chord belongs to the item-invoice toggle "
-                + "until the OPEN U-6 chord ruling says otherwise — see ShellChordTable.Table.");
-
-            // And the incumbent still runs, through its own legacy arm.
             window.KeyPressQwerty(PhysicalKey.I, RawInputModifiers.Control);
+
+            Assert.False(entry.IsItemInvoice,
+                "Ctrl+I still flips item-invoice mode. Ruling 17 moved that verb to Ctrl+H and declined a "
+                + "Ctrl+I alias, so this chord must leave the entry mode alone.");
+            Assert.True(entry.IsAsVoucherMode);
+
+            // Ctrl+I did something — it opened More Details — so leave that panel before the contrast below.
+            // (Ctrl+H is gated on IsChangeModeEntry, which is false while the panel owns the screen. That is
+            // correct: a chord aimed at the voucher must not act on it from a column standing over it.)
+            Assert.Equal(Screen.MoreDetails, vm.CurrentScreen);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+
+            // Non-vacuity: the mode is still reachable, on the chord the ruling named.
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
             Assert.True(entry.IsItemInvoice);
         }
         finally { window.Close(); }
@@ -203,12 +216,12 @@ public sealed class ShellChordTableTests : IDisposable
     /// its own earlier version asserted only the mode flag, which the view-model method guards on its own, so
     /// deleting the tunnel gate left it GREEN. Observing consumption is what actually locks the behaviour.</para>
     ///
-    /// <para>🔴 <b>FAILS ON TODAY <c>main</c></b>, where the first assertion below sees <c>true</c>. It is
-    /// ruling-neutral: the incumbent keeps the chord on every screen where it does anything, which the second
-    /// half asserts so the first cannot pass vacuously by disabling the chord outright.</para>
+    /// <para>🔴 <b>THE GATE IS NOW More Details' OWN</b> (<c>CanOpenMoreDetails</c>: a live voucher-entry
+    /// screen), not the item-invoice toggle's. Where this build has no option-gated field group to offer — the
+    /// Gateway, a report — the chord claims nothing and falls through, so the swallow stays closed.</para>
     /// </summary>
     [AvaloniaFact]
-    public void Ctrl_I_is_no_longer_swallowed_where_the_item_invoice_toggle_is_a_no_op()
+    public void Ctrl_I_is_claimed_only_where_More_Details_has_a_voucher_to_stand_on()
     {
         var (window, vm) = OpenWindow("Ctrl I Swallow Co");
         try
@@ -228,25 +241,37 @@ public sealed class ShellChordTableTests : IDisposable
             Assert.False(KeyWasHandled(window, Key.I, KeyModifiers.Control),
                 "Ctrl+I was CONSUMED on a report, where the item-invoice toggle is a no-op.");
 
-            // 3. A Journal — a voucher with no item-invoice mode at all. The screen matches, the TYPE does not,
-            //    so this separates the Screen.VoucherEntry half of the guard from the CanBeItemInvoice half.
-            vm.OpenVoucher(VoucherBaseType.Journal);
-            Assert.False(vm.VoucherEntry!.CanBeItemInvoice);
-            Assert.False(vm.IsInvoiceableEntry);
-            Assert.False(KeyWasHandled(window, Key.I, KeyModifiers.Control),
-                "Ctrl+I was CONSUMED on a Journal, which has no item-invoice mode to toggle into.");
-
-            // 4. 🔴 THE NON-VACUITY CONTRAST. On a Sales the SAME keystroke is still consumed and still flips
-            //    the mode — so the three assertions above cannot be passing because the chord was disabled.
+            // 3. 🔴 THE NON-VACUITY CONTRAST, RE-POINTED BY RULING 17. It used to read "on a Sales the same
+            //    keystroke is still consumed and still flips the mode", which was the incumbent toggle's door.
+            //    The toggle no longer answers to this chord at all, so what now keeps steps 1-2 from passing
+            //    vacuously is MORE DETAILS: Ctrl+I must be CONSUMED on a voucher-entry screen, where the panel
+            //    opens. Without this, "unhandled everywhere" would pass just as happily with Ctrl+I dead.
             vm.OpenVoucher(VoucherBaseType.Sales);
             var entry = vm.VoucherEntry!;
             Assert.True(vm.IsInvoiceableEntry);
             Assert.False(entry.IsItemInvoice);
 
             Assert.True(KeyWasHandled(window, Key.I, KeyModifiers.Control),
-                "Ctrl+I stopped being consumed on a Sales voucher — the incumbent toggle has lost its "
-                + "keyboard door, which is exactly what the OPEN U-6 ruling was meant to decide first.");
-            Assert.True(entry.IsItemInvoice);
+                "Ctrl+I is not consumed on a voucher-entry screen, so census 14.4 (More Details) has no "
+                + "keyboard door and the assertions above are passing vacuously.");
+            Assert.Equal(Screen.MoreDetails, vm.CurrentScreen);
+            Assert.False(entry.IsItemInvoice,
+                "Ctrl+I opened More Details but ALSO moved the entry mode — the re-homing leaked.");
+
+            // 4. 🔴 A JOURNAL — the deliberate design decision, locked. A Journal hides no optional field
+            //    group in this build, so the panel has NOTHING to offer. The chord is still claimed and the
+            //    panel still opens, saying so in its Status line, rather than the key dying silently. That
+            //    choice is argued at MainWindowViewModel.CanOpenMoreDetails; a later agent "optimising" the
+            //    gate to require a non-empty row list would re-create the exact swallow this test is named for.
+            vm.Back();
+            vm.OpenVoucher(VoucherBaseType.Journal);
+            Assert.False(vm.VoucherEntry!.CanBeItemInvoice);
+            Assert.True(KeyWasHandled(window, Key.I, KeyModifiers.Control),
+                "Ctrl+I fell through on a Journal. More Details is documented for 'a master or voucher', and "
+                + "a chord that answers on one voucher type and dies on another is worse than either.");
+            Assert.Equal(Screen.MoreDetails, vm.CurrentScreen);
+            Assert.Empty(vm.MoreDetails!.Rows);
+            Assert.Contains("already on the screen", vm.MoreDetails!.Status);
         }
         finally { window.Close(); }
     }

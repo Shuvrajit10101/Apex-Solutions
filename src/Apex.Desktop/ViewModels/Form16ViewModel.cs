@@ -348,8 +348,13 @@ public sealed partial class Form16ViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Projects the certificate into a de-branded <see cref="PrintReport"/> — the deductor + employee blocks,
-    /// Part A quarter-wise TDS, and (when present) Part B salary/tax computation — for the generic PDF renderer.</summary>
+    /// <summary>Projects the certificate into a <see cref="PrintReport"/> — the deductor + employee blocks, Part A
+    /// quarter-wise TDS, and (when present) Part B salary/tax computation — for the generic PDF renderer.
+    ///
+    /// <para>🔴 The BODY CELLS below are NOT de-branded, and that is deliberate (ruling 18): the employee's own
+    /// legal name is book data and must reach the certificate issued to them intact. What the renderer still
+    /// scrubs on this page is OUR chrome — the header band and the column captions — so a certificate carrying a
+    /// real employee named after the vendor is correct in both directions.</para></summary>
     private PrintReport BuildPrintReport(Form16 cert)
     {
         var rows = new List<PrintRow>

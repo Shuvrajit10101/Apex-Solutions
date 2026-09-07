@@ -167,15 +167,22 @@ public sealed class MultiDocumentPrintTests
     ///
     /// <para>Both paths are asserted — the job set AND the single-document overload, since the hole was in the
     /// shared code and fixing only the new path would leave the shipped one open.</para>
+    ///
+    /// <para>🔴 <b>Narrowed by RULING 18.</b> The old fixture was <c>Doc("Tally Ltd", "Tally Opening")</c> and
+    /// demanded that BOTH vanish. The second string is a body cell — book data, the particulars column — so the
+    /// assertion was locking in the de-brander rewriting a party's name on the printed page. The job's own
+    /// heading is product-authored and still scrubbed; the body row moved to
+    /// <c>CounterpartyNameExportTests</c>.</para>
     /// </summary>
     [Fact]
-    public void The_job_never_emits_the_forbidden_brand()
+    public void The_job_never_emits_the_forbidden_brand_in_a_product_authored_heading()
     {
-        var docs = new[] { Doc("Tally Ltd", "Tally Opening") };
+        var docs = new[] { Doc("Tally Ledger Account", "Opening") };
 
         string s = AsLatin1(ReportPdf.Render(docs, new PageConfig())).ToLowerInvariant();
 
         Assert.DoesNotContain("tally", s);
+        Assert.Contains("ledger account", s);
     }
 
     [Fact]

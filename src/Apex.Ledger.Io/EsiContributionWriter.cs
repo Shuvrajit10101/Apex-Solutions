@@ -29,7 +29,10 @@ public static class EsiContributionWriter
         var sb = new StringBuilder();
         foreach (var r in esi.Rows)
             WriteRecord(sb,
-                Text(r.IpNumber), Text(r.IpName), Int(r.NoOfDays), Int(r.TotalMonthlyWages),
+                // 🔴 RULING 18: the IP number and the Insured Person's legal name are that person's OWN identity,
+                // matched against each other by ESIC — Name(), delimiter-safed but never de-branded. The reason
+                // code and the date are OURS and keep Text().
+                Name(r.IpNumber), Name(r.IpName), Int(r.NoOfDays), Int(r.TotalMonthlyWages),
                 Text(r.ReasonForZeroWages), Text(r.LastWorkingDay));
 
         return Encoding.UTF8.GetBytes(sb.ToString());
@@ -42,6 +45,19 @@ public static class EsiContributionWriter
         if (string.IsNullOrEmpty(value)) return string.Empty;
         var cleaned = Debrand.Text(value);
         return cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    /// <summary>
+    /// 🔴 <b>RULING 18 — an INSURED PERSON'S own identity (name or IP number), delimiter-safed but NEVER
+    /// de-branded.</b> ESIC matches the IP name against the IP number, so stripping a case-insensitive vendor
+    /// token out of a real person's legal name files them under a name that is not theirs. The record-framing
+    /// guard STAYS: a stray comma or newline in a name would shift every later field on the line. Pinned by
+    /// <c>EsiContributionWriterTests</c> with a fixture name that actually contains the delimiter.
+    /// </summary>
+    private static string Name(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
     }
 
     private static string Int(long value) => value.ToString(CultureInfo.InvariantCulture);
