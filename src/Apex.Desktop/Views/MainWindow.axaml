@@ -4783,8 +4783,10 @@
                                   </StackPanel>
                                 </Border>
 
-                                <!-- Bill-wise options (shown for party groups: Sundry Debtors/Creditors) -->
-                                <StackPanel Spacing="8" IsVisible="{Binding IsPartyGroup}">
+                                <!-- Bill-wise options (shown for party groups: Sundry Debtors/Creditors, and
+                                     only while the F11 → Accounting "Enable Bill-wise entry" feature is on
+                                     — census row 1.7). -->
+                                <StackPanel Spacing="8" IsVisible="{Binding ShowBillWiseOptions}">
                                   <CheckBox Content="Maintain balances bill-by-bill"
                                             IsChecked="{Binding MaintainBillByBill, Mode=TwoWay}"
                                             FontSize="13"/>
@@ -5342,10 +5344,11 @@
                                   </StackPanel>
                                 </Border>
 
-                                <!-- Interest Calculation parameters (catalog §7) -->
+                                <!-- Interest Calculation parameters (catalog §7). Gated on the F11 →
+                                     Accounting "Enable Interest Calculation" company feature (census 1.7). -->
                                 <Border Background="#FBF7EE"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
-                                        Padding="12,10">
+                                        Padding="12,10" IsVisible="{Binding ShowInterestBlock}">
                                   <StackPanel Spacing="8">
                                     <CheckBox Content="Activate Interest Calculation"
                                               IsChecked="{Binding EnableInterest, Mode=TwoWay}"
@@ -10560,6 +10563,27 @@
                                      batch/expiry feature. When off, the per-item batch switches, the Batch master
                                      and the batch reports are all hidden. Labelled as a company FEATURE (F11), not
                                      a GST/statutory option, so the company-wide inventory switch reads correctly. -->
+                                <!-- ACCOUNTING (census row 1.7). The vendor's F11 Accounting group, in the
+                                     vendor's order, with the vendor's captions verbatim
+                                     (help.tallysolutions.com/company-features-f11-tally/). Three of its four
+                                     options: "Maintain Accounts" is NOT shipped, because this product has no
+                                     accounts-less mode and the switch could only ever read Yes — a dead knob.
+                                     Each of the three below gates real, visible behaviour; see the gates in
+                                     MainWindowViewModel (menu rows), LedgerMasterViewModel (master fields)
+                                     and VoucherLineViewModel (the allocation panels). -->
+                                <TextBlock Text="ACCOUNTING" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+                                <CheckBox Content="Enable Bill-wise entry"
+                                          IsChecked="{Binding EnableBillWiseEntry, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Enable Cost Centres"
+                                          IsChecked="{Binding EnableCostCentres, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Enable Interest Calculation"
+                                          IsChecked="{Binding EnableInterestCalculation, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"/>
+
                                 <TextBlock Text="COMPANY FEATURES (F11)" FontSize="11" FontWeight="Bold"
                                            Foreground="#9098A8" LetterSpacing="1.5"/>
                                 <CheckBox Content="Maintain Batch-wise details"

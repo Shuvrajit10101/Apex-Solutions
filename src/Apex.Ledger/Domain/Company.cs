@@ -187,6 +187,84 @@ public sealed class Company
     public NatureOfGoods? FindNatureOfGoodsByCode(string collectionCode) =>
         NaturesOfGoods.FirstOrDefault(n => string.Equals(n.CollectionCode, collectionCode?.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    // ===================================================================================================
+    // F11 Company Features → ACCOUNTING (census row 1.7).
+    //
+    // 🔴 SOURCE. help.tallysolutions.com/company-features-f11-tally/ prints the Accounting group as FOUR
+    // options, in this order, with these defaults:
+    //     "Maintain Accounts"            — Yes by default
+    //     "Enable Bill-wise entry"       — Yes by default
+    //     "Enable Cost Centres"          — No  by default   (behind "Show more features")
+    //     "Enable Interest Calculation"  — No  by default   (behind "Show more features")
+    //
+    // 🔴 WHAT WE SHIP, AND WHAT WE DO NOT. THREE of the four are here. "Maintain Accounts" is NOT, and its
+    // absence is deliberate: this product has no accounts-less mode, so a "Maintain Accounts" switch could
+    // only ever read Yes and gate nothing. A toggle that changes no behaviour is a dead knob, and shipping
+    // one would make the row look more finished than it is. It is reported as a gap instead.
+    //
+    // 🔴 DIVERGENCE, STATED PLAINLY: Cost Centres and Interest default to ON here, where the vendor defaults
+    // them to OFF. This is ER-13 (an existing book must behave exactly as it did before the flag existed) —
+    // both capabilities have shipped unconditionally in this product since long before this gate, so an
+    // inferred-OFF default would silently remove Cost Centre masters and the Interest report from every book
+    // that already uses them. The same reasoning is why MaintainBatchwiseDetails infers from data rather than
+    // defaulting off. OURS, not the vendor's.
+    //
+    // 🔴 ALL THREE ARE IN-MEMORY (no schema column — this slice had NO schema budget), exactly like
+    // MaintainBatchwiseDetails and SetComponentsBom above/below. The consequence is honest and bounded: an
+    // explicit OFF is a session choice and is not remembered across a reload. It is recorded as a known
+    // limitation, not hidden.
+    // ===================================================================================================
+
+    /// <summary>Backing field for <see cref="EnableBillWiseEntry"/>; <c>null</c> ⇒ never explicitly set.</summary>
+    private bool? _enableBillWiseEntry;
+
+    /// <summary>
+    /// F11 Company Features → Accounting: <b>"Enable Bill-wise entry"</b> (vendor caption; Yes by default —
+    /// and Yes here too, so this one MATCHES the vendor default). The company-wide gate above the per-ledger
+    /// <see cref="Ledger.MaintainBillByBill"/> switch: when it is off the ledger master stops offering
+    /// "Maintain balances bill-by-bill" and the voucher line stops opening its bill-allocation panel.
+    /// <para>Turning it off deletes no bill references — posted allocations stay on their vouchers, and the
+    /// voucher screen's own master-drift refusal (see <c>VoucherLineViewModel.FromEntryLine</c>) is what stops
+    /// a re-accept from silently dropping them.</para>
+    /// </summary>
+    public bool EnableBillWiseEntry
+    {
+        get => _enableBillWiseEntry ?? true;
+        set => _enableBillWiseEntry = value;
+    }
+
+    /// <summary>Backing field for <see cref="EnableCostCentres"/>; <c>null</c> ⇒ never explicitly set.</summary>
+    private bool? _enableCostCentres;
+
+    /// <summary>
+    /// F11 Company Features → Accounting: <b>"Enable Cost Centres"</b> (vendor caption). The master gate for
+    /// cost centres — when off, the Cost Category / Cost Centre masters leave the Masters → Create column, the
+    /// Cost Centres group leaves Reports → Statements of Accounts, and a voucher line stops offering its cost
+    /// allocation panel. <b>Defaults ON here; the vendor defaults it OFF — see the ER-13 note above.</b>
+    /// Turning it off deletes no cost data.
+    /// </summary>
+    public bool EnableCostCentres
+    {
+        get => _enableCostCentres ?? true;
+        set => _enableCostCentres = value;
+    }
+
+    /// <summary>Backing field for <see cref="EnableInterestCalculation"/>; <c>null</c> ⇒ never explicitly set.</summary>
+    private bool? _enableInterestCalculation;
+
+    /// <summary>
+    /// F11 Company Features → Accounting: <b>"Enable Interest Calculation"</b> (vendor caption). The master
+    /// gate for interest — when off, the ledger master stops offering "Activate Interest Calculation" and the
+    /// Interest Calculation report leaves Reports → Statements of Accounts. <b>Defaults ON here; the vendor
+    /// defaults it OFF — see the ER-13 note above.</b> Turning it off clears no
+    /// <see cref="Ledger.Interest"/> block; the parameters simply stop being reachable from the screen.
+    /// </summary>
+    public bool EnableInterestCalculation
+    {
+        get => _enableInterestCalculation ?? true;
+        set => _enableInterestCalculation = value;
+    }
+
     /// <summary>
     /// Backing field for <see cref="MaintainBatchwiseDetails"/>: <c>null</c> ⇒ "not explicitly set", so the
     /// getter falls back to inferring the flag from persisted batch state (see below).

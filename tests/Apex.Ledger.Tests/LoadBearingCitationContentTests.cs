@@ -147,7 +147,11 @@ public sealed class LoadBearingCitationContentTests
         // let a postal field silently overwrite a GST registration — the wrong-tax-head class — and the census
         // sentence describing it would quietly become a lie.
         new("docs/full-clone-census.md",
-            "not a stamp - `GstConfigViewModel.cs:583`",
+            // 🔴 583 → 613, census row 1.7 (the F11 → Accounting group). The three Accounting flags and their
+            // three lines in LoadFromCompany were inserted ABOVE this one, so the `??=` moved down thirty lines.
+            // The anchor is re-pointed, NOT relaxed: it still names an exact line and still demands
+            // "HomeState ??=" on it, so the guard bites exactly as hard as before.
+            "not a stamp - `GstConfigViewModel.cs:624`",
             "GstConfigViewModel.cs",
             "HomeState ??="),
 
