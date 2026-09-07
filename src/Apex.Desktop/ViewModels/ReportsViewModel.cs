@@ -127,6 +127,21 @@ public enum ReportKind
     /// documents for different counterparties and must not be conflated.</summary>
     SupplierPaymentAdvice,
 
+    // ---- Wave J2: the rest of the banking documents (census rows 8.5 / 8.6) ----
+
+    /// <summary>help.tallysolutions.com/cheque-register/ and
+    /// help.tallysolutions.com/docs/te9rel65/Banking/Cheque_Register.htm — one row per cheque BOOK with the six
+    /// status counts, drilling to the leaf list.</summary>
+    ChequeRegister,
+
+    /// <summary>The leaf-by-leaf half of the Cheque Register ("View More Details in Cheque Register"): one row
+    /// per cheque number, showing which bucket it falls in and, when it has been issued, the paying voucher.</summary>
+    ChequeRegisterDetail,
+
+    /// <summary>help.tallysolutions.com/deposit-slips/ — the bank pay-in slip, in the vendor's two modes (Cash
+    /// Deposit Slip and Cheque Deposit Slip), switched on F5.</summary>
+    DepositSlip,
+
     // ---- W7-D2: the PF statutory forms beyond the ECR (census row 7.20) ----
     // Reports → Statutory Reports → Payroll → Provident Fund. Pure re-presentations of the SAME PfEcr projection
     // the ECR and the challan come from (Apex.Ledger/Reports/PfStatutoryForms.cs) — no new PF arithmetic. Forms 3A
@@ -737,8 +752,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void InitChequeBankPicker()
     {
         ChequeBanks.Add(ChequeBankOption.AllBanks);
+        // 🔴 EVERY BANK LEDGER, not only the cheque-printing ones. The picker started life scoped to the Cheque
+        // Printing report, where "Enable Cheque Printing" is the right filter. It now also scopes the Cheque
+        // Register (census 8.5) and the Deposit Slip (8.6), and a bank account you have never asked this product
+        // to INK cheques for still receives cash and still holds a cheque book — narrowing to the flag would have
+        // made those two reports permanently blank for that account with no way for the operator to tell why.
         foreach (var l in _company.Ledgers
-            .Where(l => l.EnableChequePrinting)
+            .Where(l => l.EnableChequePrinting || ClassificationRules.IsBankGroup(l.GroupId, _company))
             .OrderBy(l => l.Name, StringComparer.Ordinal))
             ChequeBanks.Add(new ChequeBankOption { LedgerId = l.Id, Display = l.Name });
         SelectedChequeBank = ChequeBanks[0];
@@ -931,6 +951,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // Without this the picker stays hidden when the operator arrives on the Cheque Printing report from
         // another report in the same viewer — the bug the whole block above exists to prevent.
         OnPropertyChanged(nameof(ShowChequeBankPicker));
+        // Wave J2: the same argument for the two new banking guards — the F8 status filter and the F5 slip
+        // switch are bound through these, so a viewer that arrives on the Cheque Register from another report
+        // would otherwise leave both chords dead until the screen was re-entered.
+        OnPropertyChanged(nameof(IsChequeRegister));
+        OnPropertyChanged(nameof(IsDepositSlip));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
@@ -1057,6 +1082,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
             // ---- Wave 7 D1: Banking documents (census 8.4 / 8.7) ----
             case ReportKind.ChequePrinting: BuildChequePrinting(); break;
             case ReportKind.SupplierPaymentAdvice: BuildSupplierPaymentAdvice(); break;
+
+            // ---- Wave J2: the rest of the banking documents (census 8.5 / 8.6) ----
+            case ReportKind.ChequeRegister: BuildChequeRegister(); break;
+            case ReportKind.ChequeRegisterDetail: BuildChequeRegisterDetail(); break;
+            case ReportKind.DepositSlip: BuildDepositSlip(); break;
 
             // W7-D2 — the PF statutory forms beyond the ECR (census 7.20). Every one of these reaches an engine
             // that THROWS on an incompletely set-up payroll (see RunStatutoryForm), and Show() has no handler.
@@ -1312,6 +1342,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.Statistics] = "Statistics",
         [ReportKind.ChequePrinting] = "ChequePrinting",
         [ReportKind.SupplierPaymentAdvice] = "SupplierPaymentAdvice",
+        [ReportKind.ChequeRegister] = "ChequeRegister",
+        [ReportKind.ChequeRegisterDetail] = "ChequeRegisterDetail",
+        [ReportKind.DepositSlip] = "DepositSlip",
         // W7-D2 payroll statutory forms (census 7.20 / 7.21). Every ReportKind MUST appear here: TokenFor indexes
         // this dictionary directly, so a kind with no token throws KeyNotFoundException the moment an operator
         // presses Alt+K to save the view — which is what these eight did before this line existed.
@@ -1509,6 +1542,25 @@ public sealed partial class ReportsViewModel : ViewModelBase
             // For 8.4 that drill IS the print route — Ctrl+P on the opened voucher inks the cheque leaf. ----
             case ReportKind.ChequePrinting:
             case ReportKind.SupplierPaymentAdvice:
+            case ReportKind.DepositSlip:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // Census 8.5 — "View More Details in Cheque Register": a book row opens its leaf list, IN PLACE, so
+            // the drill needs no shell event and works wherever the report is hosted. Escape re-shows the
+            // summary; a register whose summary has no drill is half a report.
+            case ReportKind.ChequeRegister:
+                if (row.DrillChequeBookId != Guid.Empty)
+                {
+                    _chequeRegisterBookId = row.DrillChequeBookId;
+                    Show(ReportKind.ChequeRegisterDetail);
+                }
+                break;
+
+            // On the leaf list the drill is the paying voucher — an unissued leaf has none, so Enter is a no-op
+            // on exactly the rows where there is nothing to open.
+            case ReportKind.ChequeRegisterDetail:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
@@ -3220,9 +3272,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     // =============================================================== Wave 7 D1 — Banking documents (8.4 / 8.7)
 
-    /// <summary>Show the Cheque Printing report's bank picker — the vendor's "List of Banks" scope
-    /// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report"). False on every other report.</summary>
-    public bool ShowChequeBankPicker => Kind == ReportKind.ChequePrinting;
+    /// <summary>Show the bank picker — the vendor's "List of Banks" scope
+    /// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report"; the same scope is
+    /// "View Cheques with Status for Specific Banks" on the Cheque Register and <b>F4</b> on the Deposit Slip).
+    /// False on every other report.</summary>
+    public bool ShowChequeBankPicker =>
+        Kind is ReportKind.ChequePrinting
+             or ReportKind.ChequeRegister
+             or ReportKind.ChequeRegisterDetail
+             or ReportKind.DepositSlip;
 
     /// <summary>"All Banks", then every ledger with cheque printing enabled. Built once in the ctor.</summary>
     public ObservableCollection<ChequeBankOption> ChequeBanks { get; } = new();
@@ -3232,7 +3290,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     partial void OnSelectedChequeBankChanged(ChequeBankOption? value)
     {
-        if (Kind == ReportKind.ChequePrinting) Show(Kind);
+        if (ShowChequeBankPicker) Show(Kind);
     }
 
     /// <summary>
@@ -3283,6 +3341,334 @@ public sealed partial class ReportsViewModel : ViewModelBase
             });
         else
             Rows.Add(ReportRow.Total("Total", rows.Aggregate(Money.Zero, (acc, r) => acc + r.Amount)));
+    }
+
+    // =============================================================== Wave J2 — Cheque Register (census 8.5)
+
+    /// <summary>The cheque book the detail view is scoped to, or <see cref="Guid.Empty"/> for every book.
+    /// Set by the summary drill and cleared when the summary is re-shown.</summary>
+    private Guid _chequeRegisterBookId = Guid.Empty;
+
+    /// <summary>
+    /// The vendor's <b>Cheque Status Filter</b> (<b>F8</b>) — <c>help.tallysolutions.com/cheque-register/</c>,
+    /// "View Cheques with Specific Statuses". Empty ⇒ every bucket, which is how the report opens.
+    ///
+    /// <para>It cycles rather than presenting a multi-select, because the button bar carries one key: <b>all →
+    /// Available → Blank → Cancelled → Unreconciled → Reconciled → Out of Period → all</b>. The caption always
+    /// says which one is on, so the operator can never be looking at a filtered register that looks complete.</para>
+    /// </summary>
+    private ChequeRegisterStatus? _chequeStatusFilter;
+
+    /// <summary>True on either half of the Cheque Register — drives the F8 status filter's availability.</summary>
+    public bool IsChequeRegister => Kind is ReportKind.ChequeRegister or ReportKind.ChequeRegisterDetail;
+
+    /// <summary>
+    /// Which cheque leaf each detail row stands for. Kept as a side map rather than as two more fields on
+    /// <c>ReportRow</c>, because <c>ReportRow</c> is shared by ~60 reports and a leaf number means nothing on any
+    /// of the others; a row identity that only one report populates belongs beside that report.
+    /// </summary>
+    private readonly Dictionary<ReportRow, (Guid Book, string Leaf)> _chequeLeafByRow = new();
+
+    /// <summary>
+    /// <b>Alt+A — "Alter Status"</b> on the Cheque Register's leaf list
+    /// (<c>help.tallysolutions.com/cheque-register/</c>). Cycles the highlighted leaf
+    /// <b>Available → Blank → Cancelled → Available</b> and re-projects.
+    ///
+    /// <para>🔴 <b>THIS IS THE ONLY WRITER OF AN OPERATOR CHEQUE STATUS IN THE PRODUCT.</b> Without it the
+    /// <c>cheque_status_overrides</c> table has storage, the register has three buckets that read it, and nothing
+    /// an operator can press ever writes one — which is the dead-capability shape this whole track exists to
+    /// close, reproduced one slice later.</para>
+    ///
+    /// <para><b>A SPENT LEAF IS REFUSED, and the refusal is the safety.</b> Marking a cheque you have already
+    /// paid out as "Blank" would put a leaf that is gone back into the issuable pile. The projection already
+    /// ignores such a status; refusing to record it means the stored data cannot disagree with the report either.</para>
+    /// </summary>
+    public bool AlterHighlightedChequeStatus(out string message)
+    {
+        message = string.Empty;
+        if (Kind != ReportKind.ChequeRegisterDetail) return false;
+        if (SelectedRow is not { } row || !_chequeLeafByRow.TryGetValue(row, out var leaf))
+        {
+            message = "Move to a cheque leaf first — Alt+A alters the status of the highlighted cheque.";
+            return false;
+        }
+        if (leaf.Book == Guid.Empty)
+        {
+            message = "This cheque belongs to no cheque book, so it has no status to alter. Record a cheque book "
+                    + "covering its number on the bank ledger master first.";
+            return false;
+        }
+        if (row.DrillVoucherId != Guid.Empty)
+        {
+            message = $"Cheque No. {leaf.Leaf} has already been paid out, so its status follows the books and "
+                    + "cannot be set by hand. Cancel or delete the voucher if the cheque was never issued.";
+            return false;
+        }
+
+        var current = _company.FindChequeStatus(leaf.Book, leaf.Leaf)?.Status ?? ChequeStatus.Available;
+        var next = current switch
+        {
+            ChequeStatus.Available => ChequeStatus.Blank,
+            ChequeStatus.Blank => ChequeStatus.Cancelled,
+            _ => ChequeStatus.Available,
+        };
+        _company.SetChequeStatus(leaf.Book, leaf.Leaf, next);
+        message = $"Cheque No. {leaf.Leaf} is now {next}.";
+        Show(Kind);
+        return true;
+    }
+
+    /// <summary>F8 on the Cheque Register: advances the status filter and re-projects.</summary>
+    public void CycleChequeStatusFilter()
+    {
+        if (!IsChequeRegister) return;
+        _chequeStatusFilter = _chequeStatusFilter switch
+        {
+            null => ChequeRegisterStatus.Available,
+            ChequeRegisterStatus.Available => ChequeRegisterStatus.Blank,
+            ChequeRegisterStatus.Blank => ChequeRegisterStatus.Cancelled,
+            ChequeRegisterStatus.Cancelled => ChequeRegisterStatus.Unreconciled,
+            ChequeRegisterStatus.Unreconciled => ChequeRegisterStatus.Reconciled,
+            ChequeRegisterStatus.Reconciled => ChequeRegisterStatus.OutOfPeriod,
+            _ => null,
+        };
+        Show(Kind);
+    }
+
+    /// <summary>The caption for the current F8 filter, or blank when every bucket is showing.</summary>
+    private string ChequeStatusFilterCaption =>
+        _chequeStatusFilter is { } s ? $"  —  {StatusCaption(s)} only (F8)" : string.Empty;
+
+    /// <summary>One summary row's count in a given bucket — the single place the six columns are addressed by
+    /// enum, so the F8 narrowing and the row's own caption cannot name different numbers.</summary>
+    private static int BucketCount(ChequeRegisterSummaryRow r, ChequeRegisterStatus s) => s switch
+    {
+        ChequeRegisterStatus.Available => r.Available,
+        ChequeRegisterStatus.Unreconciled => r.Unreconciled,
+        ChequeRegisterStatus.Reconciled => r.Reconciled,
+        ChequeRegisterStatus.Blank => r.Blank,
+        ChequeRegisterStatus.Cancelled => r.Cancelled,
+        _ => r.OutOfPeriod,
+    };
+
+    /// <summary>The vendor's own wording for a bucket (<c>help.tallysolutions.com/cheque-register/</c>).</summary>
+    private static string StatusCaption(ChequeRegisterStatus s) => s switch
+    {
+        ChequeRegisterStatus.Available => "Available",
+        ChequeRegisterStatus.Unreconciled => "Unreconciled",
+        ChequeRegisterStatus.Reconciled => "Reconciled",
+        ChequeRegisterStatus.Blank => "Blank",
+        ChequeRegisterStatus.Cancelled => "Cancelled",
+        _ => "Out of Period",
+    };
+
+    /// <summary>
+    /// <b>Cheque Register</b> summary (census row 8.5) —
+    /// <c>help.tallysolutions.com/docs/te9rel65/Banking/Cheque_Register.htm</c>: one row per cheque book with its
+    /// six status counts. Enter drills to the leaf list ("View More Details in Cheque Register").
+    ///
+    /// <para>🔴 <b>THE COUNTS RIDE IN <c>Particulars</c> AND <c>Secondary</c> BECAUSE ONE EGRESS CANNOT SEE THE
+    /// OTHER.</b> <c>ReportPrintProjector</c> emits Particulars + Amount only, so a bucket count that lived
+    /// anywhere else would print as a blank register — the same defect the Cheque Printing report had to fix for
+    /// its cheque numbers. The book name and the range go in Particulars, which every projection carries.</para>
+    /// </summary>
+    private void BuildChequeRegister()
+    {
+        _chequeRegisterBookId = Guid.Empty;
+        var period = StatementPeriod;
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        var all = ChequeRegister.Summary(_company, period, bankId);
+        // F8 narrows the SUMMARY to the books that actually hold a leaf in the chosen bucket, and says so in the
+        // caption. 🔴 It has to do something visible here: the operator presses F8 on the report they are
+        // looking at, and a chord that silently only affects the drill-down view reads as a broken key. The
+        // per-book counts themselves are never filtered — a count of Available leaves is a count of Available
+        // leaves whatever the filter says, and filtering it would make the summary contradict the leaf list.
+        // (Narrowing the SET of books is ours; the vendor documents the filter over the cheque list itself.)
+        var rows = _chequeStatusFilter is { } bucket
+            ? all.Where(r => BucketCount(r, bucket) > 0).ToList()
+            : all;
+
+        Title = "Cheque Register";
+        Subtitle = $"{CompanyName}  —  {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (bankId is null ? string.Empty : $"  —  {SelectedChequeBank!.Display}")
+                   + ChequeStatusFilterCaption;
+        IsTwoColumn = false;
+
+        foreach (var r in rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{r.BankName}  ·  {r.ChequeBookName}  ({r.FromNumber}–{r.ToNumber}, {r.Total} leaves)"
+                              + $"  ·  Available {r.Available}  ·  Blank {r.Blank}  ·  Cancelled {r.Cancelled}",
+                Secondary = $"Unreconciled {r.Unreconciled}  ·  Reconciled {r.Reconciled}"
+                            + $"  ·  Out of period {r.OutOfPeriod}",
+                DrillChequeBookId = r.ChequeBookId,
+            });
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                // The empty state has to name the route that fills it, or the operator is looking at a report
+                // they cannot tell apart from a broken one.
+                Particulars = bankId is not null
+                    ? $"No cheque books recorded for {SelectedChequeBank!.Display}. Record one on the bank ledger "
+                      + "master — Masters > Ledgers > alter the bank > Cheque Books."
+                    : "No cheque books recorded. A cheque book is the range of leaf numbers your bank issued you; "
+                      + "record one on the bank ledger master (Masters > Ledgers > Cheque Books) and the register "
+                      + "can then tell you which leaves are still available.",
+                IsHeader = true,
+            });
+    }
+
+    /// <summary>
+    /// <b>Cheque Register</b> detail (census row 8.5) — the leaf-by-leaf view. One row per cheque number, in the
+    /// bucket it falls in, drilling to the paying voucher where one exists.
+    ///
+    /// <para>The vendor's "cheques which do not belong to any cheque range" case appears here as its own
+    /// <see cref="ChequeRegister.NotInRangeCaption"/> rows rather than being dropped — a cheque you actually
+    /// wrote that the register cannot see is worse than an untidy register.</para>
+    /// </summary>
+    private void BuildChequeRegisterDetail()
+    {
+        var period = StatementPeriod;
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        var filter = _chequeStatusFilter is { } s ? new[] { s } : null;
+        var all = ChequeRegister.Build(_company, period, bankId, filter);
+        var rows = _chequeRegisterBookId == Guid.Empty
+            ? all
+            : all.Where(r => r.ChequeBookId == _chequeRegisterBookId).ToList();
+
+        var book = _chequeRegisterBookId == Guid.Empty ? null : _company.FindChequeBook(_chequeRegisterBookId);
+        Title = book is null ? "Cheque Register — all leaves" : $"Cheque Register — {book.Name}";
+        Subtitle = $"{CompanyName}  —  {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + (bankId is null ? string.Empty : $"  —  {SelectedChequeBank!.Display}")
+                   + ChequeStatusFilterCaption;
+        IsTwoColumn = false;
+
+        _chequeLeafByRow.Clear();
+        foreach (var r in rows)
+        {
+            var reportRow = new ReportRow
+            {
+                // The leaf number and its bucket are the two facts this report exists to state, so both ride in
+                // Particulars where every egress (print, PDF, CSV/XLSX, e-mail) carries them.
+                Particulars = $"Cheque No. {r.ChequeNumber}  ·  {StatusCaption(r.Status)}"
+                              + (r.VoucherDate is { } d ? $"  ·  {FormatDate(d)}" : string.Empty)
+                              + (string.IsNullOrEmpty(r.FavouringName) ? string.Empty : $"  ·  {r.FavouringName}"),
+                Secondary = $"{r.BankName}  ·  {r.ChequeBookName}"
+                            + (string.IsNullOrEmpty(r.FormattedNumber) ? string.Empty : $"  ·  Vch No. {r.FormattedNumber}"),
+                Amount = r.Amount == Money.Zero ? string.Empty : IndianFormat.Amount(r.Amount),
+                DrillVoucherId = r.VoucherId ?? Guid.Empty,
+            };
+            _chequeLeafByRow[reportRow] = (r.ChequeBookId, r.ChequeNumber);
+            Rows.Add(reportRow);
+        }
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = _chequeStatusFilter is { } only
+                    ? $"No cheques in the {StatusCaption(only)} bucket. Press F8 to move the status filter on."
+                    : "No cheque leaves to show. Record a cheque book on the bank ledger master "
+                      + "(Masters > Ledgers > Cheque Books) first.",
+                IsHeader = true,
+            });
+    }
+
+    // =============================================================== Wave J2 — Deposit Slip (census 8.6)
+
+    /// <summary>True on the Deposit Slip — drives the F5 Cash/Cheque switch's availability.</summary>
+    public bool IsDepositSlip => Kind == ReportKind.DepositSlip;
+
+    /// <summary>The vendor's F5 mode switch (<c>help.tallysolutions.com/deposit-slips/</c>). Cheque is the
+    /// default because the cheque slip is the one with per-instrument lines to check.</summary>
+    private DepositSlipKind _depositSlipKind = DepositSlipKind.Cheque;
+
+    /// <summary>F5 on the Deposit Slip: switches between the Cash and the Cheque slip and re-projects.</summary>
+    public void ToggleDepositSlipKind()
+    {
+        if (!IsDepositSlip) return;
+        _depositSlipKind = _depositSlipKind == DepositSlipKind.Cheque ? DepositSlipKind.Cash : DepositSlipKind.Cheque;
+        Show(ReportKind.DepositSlip);
+    }
+
+    /// <summary>
+    /// <b>Deposit Slip</b> (census row 8.6) — <c>help.tallysolutions.com/deposit-slips/</c>: the pay-in slip for
+    /// the cash or the cheques being banked, with the bank's own header block.
+    ///
+    /// <para>🔴 <b>A bank must be PICKED.</b> Unlike the Cheque Printing report there is no "All Banks" slip: a
+    /// deposit slip is a piece of paper handed to one teller at one branch, and totalling three banks onto one
+    /// would produce a document nobody can present. "All Banks" therefore asks the operator to choose rather than
+    /// silently picking one for them.</para>
+    ///
+    /// <para><b>Two fields the vendor's slip has and ours does not print, stated rather than faked:</b> the
+    /// company's telephone number (no column exists on <c>companies</c>) and the cash denomination breakdown
+    /// (not in the books and not derivable). Neither is captioned, because a caption over permanent blank is the
+    /// dead-field defect this project has filed three times.</para>
+    /// </summary>
+    private void BuildDepositSlip()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = false;
+        var kindLabel = _depositSlipKind == DepositSlipKind.Cash ? "Cash Deposit Slip" : "Cheque Deposit Slip";
+        Title = kindLabel;
+
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        if (bankId is null || _company.FindLedger(bankId.Value) is not { } bank)
+        {
+            Subtitle = $"{CompanyName}  —  {FormatDate(period.From)} to {FormatDate(period.To)}";
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Choose the bank account you are paying into (F4). A deposit slip is presented at "
+                              + "one branch, so it is drawn for one bank account at a time.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        var slip = DepositSlip.Build(_company, bank, period, _depositSlipKind);
+        Subtitle = $"{CompanyName}  —  {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + $"  —  {kindLabel} (F5 switches)";
+
+        // The header block the vendor prints. Each field is shown only when it HAS a value: an "Account number:"
+        // caption over a blank is exactly the shape that got three features filed as dead here.
+        var header = new List<string> { $"Bank: {slip.BankName}" };
+        if (!string.IsNullOrEmpty(slip.AccountNumber)) header.Add($"A/c No. {slip.AccountNumber}");
+        if (!string.IsNullOrEmpty(slip.BranchName)) header.Add($"Branch: {slip.BranchName}");
+        header.Add($"Account holder: {slip.AccountHolderName}");
+        Rows.Add(new ReportRow { Particulars = string.Join("  ·  ", header), IsHeader = true });
+
+        if (string.IsNullOrEmpty(slip.AccountNumber) || string.IsNullOrEmpty(slip.BranchName))
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Tip: the account number and branch print on this slip once they are recorded on "
+                              + "the bank ledger master (Masters > Ledgers > Bank Identity).",
+                IsHeader = true,
+            });
+
+        foreach (var l in slip.Lines)
+            Rows.Add(new ReportRow
+            {
+                Particulars = FormatDate(l.Date)
+                              + (string.IsNullOrEmpty(l.InstrumentNumber)
+                                  ? string.Empty
+                                  : $"  Cheque No. {l.InstrumentNumber}")
+                              + (l.InstrumentDate is { } id2 ? $"  dated {FormatDate(id2)}" : string.Empty)
+                              + $"  ·  {l.ReceivedFrom}",
+                Secondary = $"Vch No. {l.FormattedNumber}",
+                Amount = IndianFormat.Amount(l.Amount),
+                DrillVoucherId = l.VoucherId,
+            });
+
+        if (slip.Lines.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = _depositSlipKind == DepositSlipKind.Cash
+                    ? $"No cash was banked into {slip.BankName} in this period. Press F5 for the cheque slip."
+                    : $"No cheques were banked into {slip.BankName} in this period. Press F5 for the cash slip.",
+                IsHeader = true,
+            });
+        else
+            Rows.Add(ReportRow.Total("Total deposited", slip.Total));
     }
 
     /// <summary>The supplier advices the current report holds, so Ctrl+P can render the LETTER rather than the

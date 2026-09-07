@@ -42,7 +42,7 @@ public sealed class VoucherTypeFlagsSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);
                 SqliteConnection.ClearPool(conn);
@@ -85,7 +85,7 @@ public sealed class VoucherTypeFlagsSchemaTests
         {
             var legacy = CompanyFactory.CreateSeeded("Backfill Co", FyStart);
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SchemaDowngrade.V53ToV52(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SchemaDowngrade.V53ToV52(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -210,7 +210,7 @@ public sealed class VoucherTypeFlagsSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(company);
             Assert.Equal((long)typeCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;"));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SchemaDowngrade.V53ToV52(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SchemaDowngrade.V53ToV52(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(52L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal((long)typeCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;"));

@@ -99,34 +99,34 @@ public sealed class Ledger
     // ---- Banking documents (census rows 8.4-8.7). Post-construction properties, so the ctor and its every
     //      call site are untouched and an untouched bank ledger stays byte-identical (ER-13). ----
     //
-    // 🔴 READ THIS BEFORE BUILDING ON THE SIX PROPERTIES BELOW — THEY DO NOT PERSIST YET, AND THE CHEQUE-LEAF
-    //    RENDERER THEY FEED IS THEREFORE NOT REACHABLE BY ANY OPERATOR.
+    // ✅ THESE SEVEN PROPERTIES PERSIST AS OF SCHEMA v57, AND THE CHEQUE LEAF IS NOW REACHABLE.
     //
-    //    ChequeLayout, ChequeAdjustTopTmm, ChequeAdjustLeftTmm, PrintCompanyNameOnCheque, BankAccountNumber,
-    //    BankBranch and BankIfsc are in-memory only. There is no `cheque_layouts` table and there are no
-    //    `ledgers` columns for them: that storage is the wave's single schema migration, and it could not be
-    //    taken on this branch (see below). So they are always at their defaults on a loaded company, which
-    //    means ChequePdf.Validate always refuses with "Cheque dimensions are not set for this bank" and the
-    //    cheque LEAF never prints. What DOES ship and is fully reachable is the other half of row 8.4 — the
-    //    Cheque Printing REPORT (Transactions > Banking > Cheque Management > Cheque Printing), which runs off
-    //    EnableChequePrinting / ChequePrintingBankName above; those are schema-v5 columns that persist today and
-    //    that the ledger master finally captures.
+    //    ChequeAdjustTopTmm, ChequeAdjustLeftTmm, PrintCompanyNameOnCheque, BankAccountNumber, BankBranch and
+    //    BankIfsc are six `ledgers` columns; ChequeLayout is its own `cheque_layouts` row, at most one per bank
+    //    ledger. Both halves land in Schema.MigrateV56ToV57, with byte-identical CreateV1 twins and
+    //    SchemaDowngrade.V57ToV56. The operator captures the dimensions on the bank ledger master
+    //    (Masters > Ledgers, "Cheque Dimensions", Alt+L), which is the one screen the vendor captures them on
+    //    (help.tallysolutions.com/cheque-payments-set-up/, "Specify Cheque Range and Format in Bank Ledger").
     //
-    //    WHY THE MIGRATION WAS NOT TAKEN — AND THE OLD REASON HERE IS SPENT. It said this branch was cut at
-    //    v52 and to merge origin/main in first. THAT MERGE IS DONE: this tree reads Schema.CurrentVersion 53.
-    //    The live blocker is ALLOCATION, not arithmetic — wave 7 gave the next schema version to a sibling
-    //    track, and two live tracks taking one number is a collision this project has already been bitten by.
-    //    Whoever takes it next: claim a version no sibling holds; add that migration with cheque_layouts /
-    //    cheque_books / cheque_status_overrides and the ledgers columns, their byte-identical CreateV1 twins
-    //    and the matching downgrade; and add the ledger-master block. Until then nothing here is shipped.
+    //    🔴 WHAT THIS CLOSED, SO IT IS NOT REOPENED BY ACCIDENT. Until v57 there was NO `cheque_layouts` table
+    //    and no columns for the rest, so ChequeLayout was null on every loaded company, ChequePdf.Validate
+    //    refused every render with "Cheque dimensions are not set for this bank", and roughly 625 lines of
+    //    shipped, tested, deterministic cheque-rendering code (ChequeLayout, ChequePrintData, ChequePdf,
+    //    ChequePrintProjector) could not be reached by any operator — the third dead feature filed on this
+    //    project. Deleting the persistence would make it dead again.
+    //
+    //    STILL A DIVERGENCE, STATED RATHER THAN HIDDEN: the CANONICAL export/import (CanonicalModel /
+    //    CanonicalXml) does not yet carry the layout or the bank identity trio, so a company exported to
+    //    JSON/XML and re-imported comes back without its cheque dimensions. The SQLite store — which is what
+    //    Save/Load and Backup/Restore use — carries all of it.
 
     /// <summary>
     /// The bank's <b>Cheque Dimensions</b> — where each element is inked on this bank's pre-printed leaf
     /// (catalog §8; row 8.4). <c>null</c> ⇒ never configured, and cheque printing refuses with a message rather
     /// than guessing a millimetre. See <see cref="ChequeLayout"/> for the vendor grounding and the units rule.
     ///
-    /// <para><b>🔴 Not persisted yet</b> — see the block above. It is <c>null</c> on every loaded company, so the
-    /// cheque-leaf renderer is currently unreachable and row 8.4 ships on its report half alone.</para>
+    /// <para><b>✅ Persisted since schema v57</b> as a <c>cheque_layouts</c> row keyed on this ledger — see the
+    /// block above for what that closed. Captured on the bank ledger master's <b>Cheque Dimensions</b> block.</para>
     /// </summary>
     public ChequeLayout? ChequeLayout { get; set; }
 

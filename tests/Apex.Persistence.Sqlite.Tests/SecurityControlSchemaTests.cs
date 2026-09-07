@@ -36,11 +36,15 @@ public sealed class SecurityControlSchemaTests
 
     // ================================================================= the version itself
 
-    /// <summary>🔴 Fails on today's <c>origin/main</c>, where <see cref="Schema.CurrentVersion"/> is 55.</summary>
+    /// <summary>Security Control's own version floor. (It read "fails on origin/main where CurrentVersion is 55" when it landed; that is history now.)</summary>
     [Fact]
-    public void Schema_current_version_is_56()
+    public void Schema_current_version_is_at_least_56()
     {
-        Assert.Equal(56, Schema.CurrentVersion);
+        // Pinned as a FLOOR, not an equality. The equality was true the day this slice landed and became a false
+        // statement the moment v57 landed — a test failing for a reason unrelated to what it guards. What this
+        // guards is that Security Control's storage is reachable, and that is true at 56 and at every version above.
+        Assert.True(Schema.CurrentVersion >= 56,
+            $"Security Control landed at v56; Schema.CurrentVersion reads {Schema.CurrentVersion}.");
     }
 
     // ================================================================= migration parity
@@ -65,7 +69,7 @@ public sealed class SecurityControlSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V56ToV55(conn);
+                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
                 SqliteConnection.ClearPool(conn);
             }
             Assert.Equal(55L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
@@ -78,7 +82,7 @@ public sealed class SecurityControlSchemaTests
 
             // Reopen through the production store — the v55 → v56 migration runs.
             using (new SqliteCompanyStore(migratedPath)) { }
-            Assert.Equal(56L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The three tables and the three columns are now present, with identical declarations either way.
             foreach (var table in Schema.V56SecurityTables)
@@ -116,7 +120,7 @@ public sealed class SecurityControlSchemaTests
         {
             var c = CompanyFactory.CreateSeeded("Back-fill Co", FyStart);
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
-            using (var conn = Open(path)) { SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(c.Id)!;
@@ -333,7 +337,7 @@ public sealed class SecurityControlSchemaTests
             admin.SetPassword("pw-to-be-dropped", When, TestIterations);
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(55L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             var tables = TableNames(path);
@@ -365,7 +369,7 @@ public sealed class SecurityControlSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V56ToV55(conn);
+                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
                 SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
@@ -374,7 +378,7 @@ public sealed class SecurityControlSchemaTests
 
             using (new SqliteCompanyStore(path)) { }
 
-            Assert.Equal(56L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             foreach (var col in Schema.V54CreditLimitColumns)
                 Assert.Contains(col, ColumnNames(path, "ledgers"));
             foreach (var table in Schema.V56SecurityTables)

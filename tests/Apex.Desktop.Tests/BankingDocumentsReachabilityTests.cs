@@ -152,17 +152,18 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         Assert.True(column.IsMenu);
 
         var headers = column.Items.Where(i => i.IsHeader).Select(i => i.Label).ToArray();
-        // "Advices", not "Slips & Advices": the Deposit Slip (census 8.6) is not built, and a section captioned
-        // for a document the menu does not carry is how a census cell gets graded present when it is absent.
-        Assert.Equal(new[] { "Reconciliation", "Cheque Management", "Advices" }, headers);
+        // "Slips & Advices" since the Deposit Slip (census 8.6) landed with schema v57. It read "Advices" alone
+        // before that, deliberately: a section captioned for a document the menu does not carry is how a census
+        // cell gets graded present when it is absent. The caption follows the contents, in both directions.
+        Assert.Equal(new[] { "Reconciliation", "Cheque Management", "Slips & Advices" }, headers);
 
         var rows = column.Items.Where(i => i.IsSelectable).Select(i => i.Label).ToArray();
         Assert.Equal(
             new[]
             {
                 "Bank Reconciliation", "Import Bank Statement",
-                "Cheque Printing",
-                "Payment Advice (Suppliers)",
+                "Cheque Printing", "Cheque Register",
+                "Deposit Slip", "Payment Advice (Suppliers)",
             },
             rows);
 
@@ -555,7 +556,7 @@ public sealed class BankingDocumentsReachabilityTests : IDisposable
         var voucher = PostChequePayment(vm.Company!, acme, bank, 4100m, "100400", date);
 
         var detail = new VoucherDetailViewModel(vm.Company!, vm.Company!.FindVoucher(voucher.Id)!);
-        Assert.Null(bank.ChequeLayout);              // nothing persists it, so it is always null on a loaded book
+        Assert.Null(bank.ChequeLayout);              // this fixture never captured dimensions (v57 persists them when it does)
         Assert.NotNull(detail.ChequePrintData);      // the voucher IS a cheque payment
         Assert.Null(detail.ChequePrintRefusal);      // ...and that is not a refusal
 

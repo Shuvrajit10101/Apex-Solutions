@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -266,9 +266,20 @@ public sealed class VoucherEditLogSchemaTests
             // (Security Control) adds three tables and their three indexes, so climbing down through it removes
             // those too — that is the chain doing its job, not a leak. The edit-log's own two objects are still
             // named literally, because they are what THIS file is about.
+            // v57 (Banking documents) adds three more tables and three indexes, so the chain removes those too.
+            // 🔴 Its index names are NOT derivable from the table names the way v56's are — two of the three are
+            // UNIQUE indexes named ux_*, and one is keyed on a column pair — so they are listed, not computed. A
+            // derived name here would have silently expected an index that does not exist and passed anyway.
             var expected = new[] { "index:ix_voucher_edit_log_company", "table:voucher_edit_log" }
                 .Concat(Schema.V56SecurityTables.Select(t => "table:" + t))
                 .Concat(Schema.V56SecurityTables.Select(t => "index:ix_" + t + "_company"))
+                .Concat(Schema.V57ChequeTables.Select(t => "table:" + t))
+                .Concat(new[]
+                {
+                    "index:ix_cheque_books_ledger",
+                    "index:ux_cheque_status_book_number",
+                    "index:ux_cheque_layouts_ledger",
+                })
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.Equal(
