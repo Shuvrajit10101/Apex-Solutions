@@ -128,10 +128,31 @@ public static class ShellChordTable
             vm => vm.Company is not null,
             vm => vm.ShutCompany()),
 
-        // ── Ctrl+I — More Details — DELIBERATELY NOT IN THIS TABLE ───────────────────────────────────────
-        // 🔴 Census 14.4 (More Details) is the vendor's Ctrl+I: "To add more details to a master or voucher for
-        // the current instance." It is NOT claimed here, and the omission is a finding rather than an
-        // oversight — the reasoning belongs beside the table so the next agent does not "fix" it.
+        // ── Ctrl+I — More Details (census 14.4) ──────────────────────────────────────────────────────────
+        // Vendor, verbatim: "To add more details to a master or voucher for the current instance", listed in
+        // the Right button area at help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/.
+        //
+        // 🔴 CLAIMED UNDER USER RULING 17 (2026-09-06), WHICH CLOSED THE OPEN U-6 CHORD RULING. Everything
+        // below this entry is the RECORD OF WHY THIS ROW WAITED — it is deliberately preserved rather than
+        // deleted, because it is also the map of what the re-homing had to answer for.
+        //
+        // WHAT THE RULING DECIDED: Ctrl+I is More Details. The item-invoice toggle moves to Ctrl+H and answers
+        // to Ctrl+H ONLY — the user declined a Ctrl+I alias explicitly, so nothing is ambiguous.
+        //
+        // 🔴 AND THE COLLISION THAT RE-HOMING WALKED INTO, MEASURED IN THIS TREE. Ctrl+H WAS NOT A FREE CHORD:
+        // it is the incumbent "Change Mode" arm in MainWindow.OnKeyDown, and the vendor's own shortcut page
+        // attests it ("Change mode - open vouchers in different modes"). NOTHING WAS DISPLACED TO MAKE ROOM,
+        // and nothing may be: the incumbent turned out to be a STRICT SUPERSET of the verb that moved.
+        //   • ChangeMode() cycles As Voucher -> Item Invoice -> Accounting Invoice, so it ALREADY reaches
+        //     item-invoice mode on exactly the Purchase/Sales screens the old two-way toggle worked on,
+        //     under a WIDER gate (IsChangeModeEntry, which also admits Contra/Payment/Receipt).
+        //   • So "the toggle answers to Ctrl+H" is satisfied by the key that was already there, and the
+        //     capability keeps a keyboard door. What is gone is only the two-way toggle's distinct cycling
+        //     SHAPE — the part the vendor never attested and census T2-14 graded as wrong.
+        // 🔴 IF A LATER AGENT IS TEMPTED TO "FREE" Ctrl+H BY MOVING Change Mode ELSEWHERE: don't. That would
+        // break a shipped, vendor-attested binding in order to re-seat an Apex invention.
+        //
+        // ── the record of why this row waited, kept verbatim ────────────────────────────────────────────
         //
         // Taking Ctrl+I means taking it FROM vm.ToggleItemInvoice(), and the case for that was argued on the
         // premise that it "costs nothing, because Ctrl+H already carries mode switching". MEASURED IN THIS
@@ -168,6 +189,50 @@ public static class ShellChordTable
         // at all: our Single/Double-entry switch is Ctrl+H, deliberately NOT an F12 flag (see the remarks at
         // VoucherEntryViewModel:113-133). There is therefore no honest half-measure — 14.4 needs the ruling,
         // and it must ship WITH a keyboard door for whatever the item-invoice toggle becomes.
+        //
+        // ── how the ruling answered that last paragraph ─────────────────────────────────────────────────
+        // 🔴 THE MEASUREMENT ABOVE STILL HOLDS AND IS STILL THE CONSTRAINT ON THE PANEL'S CONTENT: this build
+        // has exactly TWO option-gated field groups (bill-wise, batch), both reachable only in invoice mode on
+        // a Purchase/Sales. What the ruling changed is that Ctrl+I is no longer PARTITIONED — it is the whole
+        // chord — so the surface with the rows is included rather than excluded, and the "always-empty panel"
+        // failure mode does not arise. Where a voucher genuinely hides nothing (a Journal), the panel still
+        // opens and says so; see MainWindowViewModel.CanOpenMoreDetails for why an honest empty answer was
+        // chosen over a silently dead key.
+        //
+        // The gate is CanOpenMoreDetails (a live voucher-entry screen), NOT IsReportContext: the vendor's
+        // "master or voucher" wording does not extend to reports, and this build has no option-gated field
+        // group on a master screen to offer either. Where we have nothing, we claim nothing.
+        //
+        // ── 🔴 WHAT THE RE-HOMING COST, DISCLOSED RATHER THAN LEFT TO BE REDISCOVERED ───────────────────
+        // The measurement above ("they are different verbs") did not stop being true when the ruling landed —
+        // it stopped being a reason to WAIT. The price is real and it is this, exactly:
+        //
+        //   THERE IS NO LONGER A ONE-PRESS KEYBOARD ROUTE FROM ITEM INVOICE BACK TO AS VOUCHER.
+        //   It now takes TWO presses of Ctrl+H, ON EVERY VOUCHER THAT HAS ITEM-INVOICE MODE AT ALL.
+        //
+        // VoucherEntryViewModel.ChangeMode cycles AsVoucher -> ItemInvoice -> AccountingInvoice -> AsVoucher, so
+        // the next stop out of Item Invoice is Accounting Invoice, not As Voucher. The retired
+        // Ctrl+I -> ToggleItemInvoice was a TWO-WAY toggle and did that return in one keystroke.
+        //
+        // 🔴 AND THE SCOPE IS WIDER THAN "SALES", WHICH IS WORTH STATING BECAUSE THE OBVIOUS READING IS WRONG.
+        // ChangeMode's ItemInvoice arm falls through to `_ => AsVoucher` only when CanBeAccountingInvoice is
+        // false, which invites the conclusion that Purchase keeps its one-press return. It does not:
+        // CanBeItemInvoice (:67) and CanBeAccountingInvoice (:85) are the SAME predicate — `Sales or Purchase`
+        // — so wherever the ItemInvoice arm is reachable the third mode exists, and that `_` arm is UNREACHABLE
+        // FROM ITEM INVOICE. The cost applies to Purchase exactly as it does to Sales; there is no exempt
+        // family. (CtrlH_on_a_purchase_cycles_all_three_modes already pins the Purchase cycle's period at 3.)
+        //
+        // This is a CONSEQUENCE OF USER RULING 17, not a defect to be fixed behind the ruling's back: the user
+        // was asked for the chord and declined a Ctrl+I alias explicitly. It is legitimate, it is one direction
+        // only, and it costs a keystroke rather than a capability — every mode including As Voucher remains
+        // keyboard-reachable, and the mouse checkbox (MainWindow.axaml, "Item Invoice (Ctrl+H)") still flips it
+        // directly. It is written down HERE, and pinned by ServiceAccountingInvoiceKeyboardTests, so that it is
+        // a KNOWN divergence with a named cause rather than a silent regression an operator meets first. Should
+        // the user later want the one-press return back, the honest fix is a NEW chord for ToggleItemInvoice —
+        // not a Ctrl+I alias, which the ruling closed.
+        new("Ctrl+I", Key.I, KeyModifiers.Control,
+            vm => vm.CanOpenMoreDetails,
+            vm => vm.OpenMoreDetails()),
     };
 
     /// <summary>

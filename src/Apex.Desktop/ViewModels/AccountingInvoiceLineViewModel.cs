@@ -23,7 +23,7 @@ public enum VoucherEntryMode
     /// <summary>Classic Dr/Cr accounting voucher (the default).</summary>
     AsVoucher,
 
-    /// <summary>Item invoice — stock-item lines; the accounting legs are auto-derived (Ctrl+I).</summary>
+    /// <summary>Item invoice — stock-item lines; the accounting legs are auto-derived (Ctrl+H "Change Mode").</summary>
     ItemInvoice,
 
     /// <summary>Accounting invoice — service/income ledger lines under Particulars, auto SAC-based GST, no stock.</summary>
