@@ -131,12 +131,19 @@ public sealed class PlatformPrintingTests
         }
         else
         {
-            // On Windows the spool really ran — against a queue that cannot exist, so it must have refused, and
-            // it must have done so on some thread that is not this one.
+            // On Windows the spool really ran — against a queue that cannot exist, so it must have refused.
             Assert.False(result.Submitted);
             int ran = System.Threading.Volatile.Read(ref WindowsRawPrintJobSubmitter.LastSpoolThreadId);
             Assert.True(ran != 0, "the Windows spool never ran at all.");
-            Assert.True(ran != caller, "the Windows spool ran on the calling thread.");
+
+            // 🔴 There is deliberately NO `ran != caller` here, and re-adding it would reintroduce a flake that
+            // was measured, not imagined: it failed once in twenty runs of this class on a loaded Windows box
+            // with "the Windows spool ran on the calling thread." A managed thread id is REUSED. The test body
+            // runs on a thread-pool thread, and `await pending` hands that thread straight back to the pool —
+            // so the pool is then free to run the queued spool on the very same thread, giving `ran == caller`
+            // on a build that did everything right. The property this test exists for is asserted ABOVE, before
+            // the await, where the comparison is sound because `caller` cannot yet have been handed to anyone
+            // else: at that instant the only way LastSpoolThreadId can equal it is a spool that ran inline.
         }
     }
 
@@ -180,9 +187,9 @@ public sealed class PlatformPrintingTests
     /// error and no way out. A frozen UI on a printer enumeration is worse than no printer list.</para>
     ///
     /// <para><b>Why this fails rather than hangs.</b> The call is made on a worker and given a generous wall
-    /// clock. On the defective build the wait expires and the assertion fires with a message; on the fixed build
-    /// it returns in well under a second. A test that simply called <c>RunTool</c> inline would hang the whole
-    /// gate instead of failing it, which is not a test — it is a way to lose an afternoon.</para>
+    /// clock. On the defective build the wait never expires at all and the assertion fires with a message; on the
+    /// fixed build it returns. A test that simply called <c>RunTool</c> inline would hang the whole gate instead
+    /// of failing it, which is not a test — it is a way to lose an afternoon.</para>
     ///
     /// <para><b>Why these particular children.</b> The child has to write ~200 KB to stderr and a known marker to
     /// stdout, on all three runners the gate uses: <c>powershell.exe</c> on windows-latest, <c>/bin/sh</c> on
@@ -191,6 +198,40 @@ public sealed class PlatformPrintingTests
     /// ECHOED the script text and exited 0. That version passed: the echoed text contained the marker the
     /// assertion looks for, while nothing had ever been written to stderr at all. Exactly the vacuous pass this
     /// file's own header warns about, caught only by running the command by hand and counting the bytes.</para>
+    ///
+    /// <para>🔴 <b>Why the marker is asserted CONDITIONALLY, and why that is not a softened assertion.</b> The
+    /// first version of this test asserted the marker unconditionally, and it became the campaign's worst flake:
+    /// it failed twice on windows-latest (CI runs 34064316653 and 34070256944) with
+    /// <c>Assert.Contains() Failure … String: ""</c>, both times after exactly <c>[4 s]</c> — which is
+    /// <see cref="CupsPrinterDevices.TimeoutMs"/> to the millisecond. Nothing was wrong with the product. The
+    /// child simply did not finish inside <c>RunTool</c>'s own budget, so <c>RunTool</c> killed it and answered
+    /// <c>""</c> — its documented reply to every failure — and the test called that correct answer a defect.</para>
+    ///
+    /// <para><b>The cause was measured, not guessed.</b> On a saturated Windows box,
+    /// <c>powershell.exe -NoProfile -NonInteractive -Command exit</c> — a child that does <i>nothing at all</i> —
+    /// took 6.3–7.6 s to start and exit, against a 4 s budget; the same interpreter WITH the 200 KB flood took
+    /// 5.4–7.4 s. The flood is free; the whole cost is PowerShell's cold start, and it does not warm up across
+    /// repeated runs. Idle, the identical child takes 240–350 ms. So the old assertion was really asserting
+    /// "this runner started PowerShell in under four seconds", which is not a property of Apex and not a property
+    /// anything can control. Picking a cheaper child does not rescue it either: on the same load a bare
+    /// <c>where.exe</c> was measured at 6.1 s.</para>
+    ///
+    /// <para><b>What is asserted instead.</b> The branch is taken on the RESULT, and the clock is used only
+    /// inside the empty branch, to state the one thing that must be true there. A non-empty answer must be the
+    /// stdout we came for, whole — the drain must not have cost us the marker, and a killed child must not leave
+    /// partial output behind. An empty answer is <c>RunTool</c>'s documented reply to every failure, and it is
+    /// legitimate only if the bound was actually spent; that closes the vacuous pass this file's header warns
+    /// about, because an implementation returning <c>""</c> without reading anything arrives in milliseconds and
+    /// fails. The load-bearing assertion — that <c>RunTool</c> RETURNS AT ALL when stderr is flooded — is
+    /// untouched by any of this, because the pre-fix implementation did not return late, it never returned.</para>
+    ///
+    /// <para>🔴 <b>Do not "simplify" this by branching on the clock instead.</b> It reads as the same thing and
+    /// is not: <c>elapsed</c> also covers building the <c>ProcessStartInfo</c> and <c>Process.Start</c>, which
+    /// <c>RunTool</c>'s internal budget does not, so a child that is merely slow to START can return past
+    /// <see cref="CupsPrinterDevices.TimeoutMs"/> having succeeded honestly. A draft of this fix asserted
+    /// "over the bound ⇒ empty" and failed twice in a 40-run loaded loop with
+    /// <c>Expected: "" / Actual: "apex-stdout-marker"</c> at 5.3 s. Each implication here holds in one direction
+    /// only, and the code takes only that direction.</para>
     /// </summary>
     [Fact]
     public async Task Enumeration_survives_a_tool_that_floods_stderr()
@@ -212,19 +253,62 @@ public sealed class PlatformPrintingTests
                });
 
         var token = TestContext.Current.CancellationToken;
-        var call = Task.Run(() => CupsPrinterDevices.RunTool(exe, args), token);
+
+        // The clock starts INSIDE the worker and wraps RunTool alone, so it measures what RunTool did and not how
+        // long a saturated thread pool took to get around to starting it.
+        var call = Task.Run(() =>
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            string text = CupsPrinterDevices.RunTool(exe, args);
+            clock.Stop();
+            return (Text: text, Elapsed: clock.ElapsedMilliseconds);
+        }, token);
 
         // Task.WhenAny, not Task.Wait: awaited rather than blocked, but still BOUNDED. Awaiting `call` directly
-        // would hang the gate forever on the defective build instead of failing it.
+        // would hang the gate forever on the defective build instead of failing it. The bound stays deliberately
+        // generous — what it guards against is an unbounded wait, and no honest run comes close to it.
         var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(60), token));
 
-        Assert.Same(call, finished);
-        Assert.True(call.IsCompletedSuccessfully,
+        // The message rides on THIS assertion, not on the IsCompletedSuccessfully one below it: a deadlocked
+        // RunTool leaves `call` running forever, so it is the reference check that fires, and a bare
+        // "values are not the same instance" would tell whoever sees it nothing about what actually broke.
+        Assert.True(ReferenceEquals(call, finished),
             "RunTool never returned. A child that floods the stderr pipe deadlocks any implementation that "
           + "reads stdout to end before waiting: the child blocks on a full stderr buffer, never closes stdout, "
           + "and the timeout on the next line is never reached. The panel calls this on the UI thread.");
+        Assert.True(call.IsCompletedSuccessfully,
+            "RunTool returned by throwing. Its own contract is that every failure — no such executable, no "
+          + "permission, no /bin at all — comes back as \"no queues\", never as an exception into a panel that "
+          + "is merely opening. " + call.Exception?.GetBaseException().ToString());
 
-        Assert.Contains(marker, await call, StringComparison.Ordinal);
+        (string text, long elapsed) = await call;
+
+        // 🔴 The branch is taken on the RESULT, never on the clock. Branching on the clock instead looks
+        // equivalent and is not: `elapsed` also covers building the ProcessStartInfo and Process.Start, which
+        // RunTool's internal budget does not, so a slow-to-START child can come back well past TimeoutMs having
+        // succeeded honestly. A draft that asserted "over the bound ⇒ empty" failed twice in a 40-run loaded
+        // loop with `Expected: "" / Actual: "apex-stdout-marker"` at 5.3 s — a correct run, mis-accused. Both
+        // implications below hold in one direction only, and that direction is the sound one.
+        if (text.Length == 0)
+        {
+            // "" is RunTool's documented reply to every failure. Here it can only mean the child outlived the
+            // budget and was killed — PowerShell's cold start alone can do that on a loaded box — and that is
+            // legitimate ONLY if the bound was really spent. Since the internal wait is always a subset of the
+            // elapsed time, a genuine timeout cannot land under it. This is the assertion that makes the test
+            // impossible to pass by doing nothing: a RunTool that answered "" without reading anything arrives
+            // here in a few milliseconds and fails right here.
+            Assert.True(elapsed >= CupsPrinterDevices.TimeoutMs,
+                $"RunTool answered \"no queues\" after only {elapsed} ms, well inside its own "
+              + $"{CupsPrinterDevices.TimeoutMs} ms bound. The child was never given the time to speak, so the "
+              + "drain that this test exists to check cannot have run at all.");
+        }
+        else
+        {
+            // Anything non-empty must be the stdout we actually came for, whole: the concurrent drain must not
+            // have cost us the marker, and a killed child must never leave partial output behind for the
+            // enumerator to parse into queue names.
+            Assert.Contains(marker, text, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
