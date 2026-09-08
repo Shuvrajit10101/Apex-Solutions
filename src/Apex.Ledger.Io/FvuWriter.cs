@@ -232,15 +232,32 @@ public static class FvuWriter
             Money(row.AmountReceived), Money(row.TcsAmount), Rate(row.RateBasisPoints),
             row.PanApplied ? "Y" : "N", Text(row.LowerCollectionReason));
 
-    // ---- field encoders (invariant, de-branded, delimiter-safe) ----
+    // ---- field encoders (invariant, de-branded, delimiter-safe, formula-guarded) ----
 
+    /// <summary>
+    /// De-brands (ER-11), then strips the delimiter/record separators so a stray caret or newline in a user field
+    /// can never corrupt the record framing, then applies <see cref="SpreadsheetFormulaGuard"/>. Deterministic; no
+    /// culture leak.
+    ///
+    /// <para><b>Why the formula guard is here even though this file is <c>.txt</c> and not <c>.csv</c>.</b> The FVU
+    /// file is caret-delimited, so a spreadsheet will not auto-split it on a double-click — the risk is lower than
+    /// the product's real CSVs and it is ranked as such. But an operator checking a return before upload routinely
+    /// opens it through Excel's Text Import Wizard, and a cell whose content begins <c>= + - @</c> is evaluated on
+    /// import exactly as it would be from a <c>.csv</c>. The guard costs one call and cannot fire on real data (no
+    /// legal name or PAN begins with a formula trigger), so the honest trade is to apply it rather than to rank the
+    /// risk and leave it open.</para>
+    ///
+    /// <para>🔴 <b>It runs LAST, after the replacement, and that ordering is load-bearing</b> — the replacement can
+    /// expose a trigger that was not first before (<c>"^=cmd…"</c> becomes <c>" =cmd…"</c>). Numbers and dates
+    /// never come through here: <see cref="Int"/>, <see cref="Money"/>, <see cref="Rate"/> and <see cref="Date"/>
+    /// are separate encoders, so a negative figure cannot collect an apostrophe and stop being a number.</para>
+    /// </summary>
     private static string Text(string? value)
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
-        // De-brand (ER-11) then strip the delimiter/record separators so a stray caret or newline in a user field
-        // can never corrupt the record framing. Deterministic; no culture leak.
         var cleaned = Debrand.Text(value);
-        return cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+        return SpreadsheetFormulaGuard.Neutralize(
+            cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' '));
     }
 
     /// <summary>
@@ -257,11 +274,16 @@ public static class FvuWriter
     /// pinned by <c>FvuWriterTests</c> and <c>FvuWriter27EQTests</c> with fixtures that actually contain a caret
     /// and a newline — an earlier pair of fixtures contained neither, so the assertion could not fail and deleting
     /// this entire line left all 651 IO tests green.</para>
+    ///
+    /// <para>The formula guard runs here too, and last, for the reason given on <see cref="Text"/>. It PREFIXES and
+    /// never rewrites, so the party's own name and PAN still reach the department verbatim after the
+    /// apostrophe.</para>
     /// </summary>
     private static string Name(string? value)
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
-        return value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+        return SpreadsheetFormulaGuard.Neutralize(
+            value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' '));
     }
 
     private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
