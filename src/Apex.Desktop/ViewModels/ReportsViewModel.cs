@@ -5872,13 +5872,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
 
         Footnote(PayrollStatutorySummary.PaidDerivationNote);
+        // Empty since census row 7.18 closed the NPS divergence; Footnote() ignores an empty string, so nothing is
+        // printed. It stays wired because the next unsupported statutory type belongs in that constant.
         Footnote(PayrollStatutorySummary.UnsupportedTypeNote);
         Footnote("This is the roll-up OVER the PF, ESI and Professional-Tax computations, not a replacement for "
                + "them; those reports live under Reports > Statutory Reports > Payroll.");
 
         MarkStatutoryFormEmpty(summary.IsEmpty,
-            "No pay head is configured as a PF, ESI, Professional-Tax or Income-Tax statutory head, so there is "
-            + "nothing to summarise.");
+            "No pay head is configured as a PF, ESI, Professional-Tax, Income-Tax or National-Pension-Scheme "
+            + "statutory head, so there is nothing to summarise.");
     }
 
     // --------------------------------------------------------------- 7.26 Income Tax Computation
