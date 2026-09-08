@@ -233,6 +233,33 @@ public static class ShellChordTable
         new("Ctrl+I", Key.I, KeyModifiers.Control,
             vm => vm.CanOpenMoreDetails,
             vm => vm.OpenMoreDetails()),
+
+        // ── Alt+I — Insert Voucher (census row 5.5) ──────────────────────────────────────────────────────
+        // Vendor, verbatim: "To insert a voucher in a report", listed in the Bottom bar area at
+        // help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/. The gesture is the Day Book page's:
+        // "Select the entry above which you want to insert the transaction, press Alt+I (Insert Vch)"
+        // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+        //
+        // 🔴 THIS IS THE Alt+I ARM OF THE OWED RULING U-6, AND IT IS CLAIMED WITHOUT REBINDING EITHER SIDE.
+        // The incumbent is the POS tender-mode toggle in MainWindow.OnKeyDown, and that arm is ALREADY scoped
+        // `&& vm.CurrentScreen == Screen.PosBilling` — it was written that way from the start, "so it never
+        // collides elsewhere", in its own words. This entry is scoped to the Day Book report. The two
+        // predicates are DISJOINT (a POS Billing entry screen is not a report; the Day Book is not a till), so:
+        //   • no keystroke is taken from a shipped feature — the POS toggle keeps its only door;
+        //   • the CanFire below returning false leaves the keystroke UNCLAIMED, and it falls through to the
+        //     legacy POS arm exactly as it does today, which is what makes this safe to land ahead of the
+        //     ruling rather than in place of it.
+        // This is the same arbitration already shipped for Alt+A, which serves THREE verbs on three disjoint
+        // surfaces (Outstandings settle / Day Book add / POS tax analysis). If the user's ruling lands
+        // differently, re-pointing is a one-line edit to this predicate — which is the property this table
+        // exists to provide.
+        //
+        // 🔴 WHAT IS NOT DECIDED HERE. The ruling asked which verb OWNS Alt+I outright. This entry does not
+        // answer that; it removes the contested overlap, so the answer is no longer blocking a build. The row
+        // ships scoped, and the census cell says so.
+        new("Alt+I", Key.I, KeyModifiers.Alt,
+            vm => vm.Company is not null && vm.IsDayBookReport,
+            vm => vm.RequestInsertVoucherAtHighlight()),
     };
 
     /// <summary>
