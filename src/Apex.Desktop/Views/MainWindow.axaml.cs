@@ -237,6 +237,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        // census 3.13 — THE SAME CHORD, THE SAME RULE, on the Stock Group master's existing-groups list. The
+        // Stock Group master had no alteration route at all; a GST rung the rate walk reads at transaction time
+        // and that an operator could set once and never correct is what made adding one part of the row.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedStockGroupRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // 7.16 — THE SAME CHORD, THE SAME RULE, on the payroll masters' existing-lists. ONE arm for every kind
         // that has the capability: the VM resolves which payroll master is open and returns false on every other
         // screen, so this is inert everywhere else and cannot diverge kind-by-kind (which is exactly how the
@@ -1996,8 +2006,15 @@ public partial class MainWindow : Window
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
 
+    // 🔴 The button must branch the SAME way Ctrl+A does. It did not: it called Create() unconditionally, so on
+    // the Group ALTERATION screen the pointer path tried to create a second group with the same name and printed
+    // "A group named 'X' already exists" over a perfectly valid alteration. Found while adding the census 2.2
+    // fields, which is when the alteration screen grew enough of them to be worth using.
     private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
-        => Vm?.AccountGroupMaster?.Create();
+    {
+        if (Vm?.AccountGroupMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
     private void OnMultiMasterCreateClick(object? sender, RoutedEventArgs e)
@@ -2110,7 +2127,10 @@ public partial class MainWindow : Window
         => Vm?.CurrencyMaster?.CreateRate();
 
     private void OnCreateStockGroupClick(object? sender, RoutedEventArgs e)
-        => Vm?.StockGroupMaster?.Create();
+    {
+        if (Vm?.StockGroupMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateStockCategoryClick(object? sender, RoutedEventArgs e)
         => Vm?.StockCategoryMaster?.Create();

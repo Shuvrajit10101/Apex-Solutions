@@ -40,6 +40,45 @@ public sealed class InventoryService
         return group;
     }
 
+    /// <summary>
+    /// <b>Alters</b> an existing stock group in place — rename, re-alias, re-parent and the
+    /// "<i>Should quantities be added?</i>" flag — resolved by its stable <paramref name="groupId"/>, so every
+    /// child group and stock item that references it follows a rename automatically (they reference the Guid).
+    ///
+    /// <para>🔴 <b>THIS VERB DID NOT EXIST, AND ITS ABSENCE IS PART OF CENSUS ROW 3.13.</b> The Stock Group master
+    /// shipped with Create only; the sole way to change one afterwards was <see cref="SetStockGroupParent"/>, which
+    /// touches the parent and nothing else. A GST block captured at create time with no Alter route would have been
+    /// a rate an operator could set once and never correct — on a rung <c>MasterAncestry.NearestStockGroupGst</c>
+    /// reads at transaction time.</para>
+    ///
+    /// <para>Guards, all validated BEFORE anything is mutated so a rejected alteration leaves the company
+    /// untouched: the name is required and unique excluding this group itself; a new parent must exist and must
+    /// not sit inside this group's own sub-tree (the cycle check <see cref="EnsureStockGroupParentValid"/> already
+    /// owns). Throws <see cref="InvalidOperationException"/> on any violation.</para>
+    /// </summary>
+    public StockGroup AlterStockGroup(
+        Guid groupId, string name, Guid? parentId, string? alias = null, bool addQuantities = true)
+    {
+        var group = _company.FindStockGroup(groupId)
+            ?? throw new InvalidOperationException($"Stock group {groupId} not found.");
+
+        var trimmed = RequireName(name, "stock group");
+        if (_company.FindStockGroupByName(trimmed) is { } clash && clash.Id != groupId)
+            throw new InvalidOperationException($"A stock group named '{trimmed}' already exists.");
+
+        // Validate the proposed parent against a COPY of the shape, then commit — mirroring SetStockGroupParent's
+        // restore-on-throw, so a cyclic parent cannot leave the group half-altered.
+        var previousParent = group.ParentId;
+        group.ParentId = parentId;
+        try { EnsureStockGroupParentValid(group); }
+        catch { group.ParentId = previousParent; throw; }
+
+        group.Name = trimmed;
+        group.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        group.AddQuantities = addQuantities;
+        return group;
+    }
+
     /// <summary>Re-parents a stock group, rejecting a move that would create a cycle.</summary>
     public void SetStockGroupParent(Guid groupId, Guid? parentId)
     {
@@ -314,6 +353,65 @@ public sealed class InventoryService
             valuationMethod, hsnSacCode, isTaxable, reorderLevel, minimumOrderQuantity, standardCost);
         _company.AddStockItem(item);
         return item;
+    }
+
+    /// <summary>
+    /// Census 3.6 — sets (or clears) a stock item's <b>Alternate Unit</b> and its conversion factor, as one
+    /// operation, and refuses every half-state (schema v60).
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/manage-stock-item-tally/</c>: after the base unit is
+    /// chosen "<i>The <b>Alternate units</b> field appears</i>" and the operator "<i>provide[s] the conversion
+    /// factor between the simple or compound units and alternative units</i>".</para>
+    ///
+    /// <para>🔴 <b>THIS IS THE CHOKE POINT, AND IT EXISTS BECAUSE EVERY REFUSAL BELOW IS A WRONG-QUANTITY BUG IF
+    /// IT LANDS INSTEAD IN A SCREEN.</b> Each of the four states it rejects would otherwise persist and read back
+    /// as a plausible item:</para>
+    /// <list type="bullet">
+    ///   <item>an <b>alternate unit with no factor</b> — the derived quantity has nothing to divide by;</item>
+    ///   <item>a <b>factor with no alternate unit</b> — a number stored against no unit at all;</item>
+    ///   <item>a <b>zero or negative factor</b> — zero divides by zero on every display, and a negative one prints
+    ///     a negative quantity for stock that is physically present;</item>
+    ///   <item>the <b>alternate unit equal to the base unit</b>, which is either a no-op dressed up as a
+    ///     conversion or, with a factor other than 1, a claim that a unit converts into itself at some other
+    ///     rate.</item>
+    /// </list>
+    ///
+    /// <para>Passing <c>null</c> for <paramref name="alternateUnitId"/> clears BOTH fields, so "the operator
+    /// removed the alternate unit" cannot leave an orphan factor behind.</para>
+    /// </summary>
+    public void SetAlternateUnit(StockItem item, Guid? alternateUnitId, decimal? conversion)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (alternateUnitId is not { } altId)
+        {
+            if (conversion is not null)
+                throw new InvalidOperationException(
+                    "A conversion factor needs an Alternate Unit — pick one, or clear the factor.");
+            item.AlternateUnitId = null;
+            item.AlternateUnitConversion = null;
+            return;
+        }
+
+        var alternate = _company.FindUnit(altId)
+            ?? throw new InvalidOperationException($"Alternate unit {altId} not found.");
+
+        if (altId == item.BaseUnitId)
+            throw new InvalidOperationException(
+                $"The Alternate Unit cannot be the item's base unit ('{alternate.Symbol}') — an alternate unit "
+                + "exists to express the same quantity in a DIFFERENT unit.");
+
+        if (conversion is not { } factor)
+            throw new InvalidOperationException(
+                "An Alternate Unit needs a conversion factor — how many base units make one alternate unit.");
+
+        if (factor <= 0m)
+            throw new InvalidOperationException(
+                "The conversion factor must be greater than zero — it is how many base units make one alternate "
+                + "unit, so zero or a negative figure cannot describe any real quantity.");
+
+        item.AlternateUnitId = altId;
+        item.AlternateUnitConversion = factor;
     }
 
     /// <summary>

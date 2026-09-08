@@ -263,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 59;
+    public const int CurrentVersion = 60;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -928,7 +928,16 @@ public static class Schema
             gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
             gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
             gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
-            gst_supply_type  INTEGER     NULL    -- GstSupplyType enum ordinal (Goods/Services)
+            gst_supply_type  INTEGER     NULL,   -- GstSupplyType enum ordinal (Goods/Services)
+            -- v60 (census 2.2): the vendor's five Group behavioural fields. Declarations byte-identical to
+            -- MigrateV59ToV60. All four flags DEFAULT 0 and the method NULL (= "Not Applicable"), which is the
+            -- literal truth about every pre-v60 group (ER-13) — nothing is back-filled, the four seeded trading
+            -- heads included. See MigrateV59ToV60 for why back-filling them would have been a silent data change.
+            behaves_like_sub_ledger     INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Group behaves like a sub-ledger"
+            nett_balances_for_reporting INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Nett Debit/Credit Balances for Reporting"
+            used_for_calculation        INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Used for calculation (taxes, discounts)"
+            affects_gross_profits       INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Does it affect Gross Profits"
+            purchase_allocation_method  INTEGER     NULL             -- MethodOfAppropriation ordinal; NULL = Not Applicable
         );
 
         CREATE TABLE ledgers (
@@ -1502,7 +1511,13 @@ public static class Schema
             -- liquor for human consumption (Constitution Art. 366(12A); CGST Act s.9(1)) and the five petroleum
             -- products (CGST Act s.9(2)). 0 = None = ordinary GST goods, for which VatService REFUSES a rate.
             non_gst_goods_class       INTEGER NOT NULL DEFAULT 0, -- NonGstGoodsClass ordinal (0 = None)
-            vat_tax_rate_bp           INTEGER     NULL            -- vendor "Tax rate" on the item VAT block, basis points
+            vat_tax_rate_bp           INTEGER     NULL,           -- vendor "Tax rate" on the item VAT block, basis points
+            -- v60 (census 3.6): the item's optional ALTERNATE UNIT and its conversion. Declarations byte-identical
+            -- to MigrateV59ToV60. Both NULL on every pre-v60 item, which is the literal truth about it (ER-13).
+            -- 🔴 NO QUANTITY IS EVER STORED IN THE ALTERNATE UNIT — every stock table keeps its single base-unit
+            -- column and the alternate expression is DERIVED on display by AlternateUnitConversion. See that class.
+            alternate_unit_id             TEXT    NULL REFERENCES units(id),
+            alternate_conversion_micro    INTEGER NULL            -- BASE units per ONE alternate unit, × 1,000,000
         );
 
         CREATE TABLE stock_opening_balances (
@@ -4990,5 +5005,89 @@ public static class Schema
         ALTER TABLE vouchers ADD COLUMN cst_form_series_no TEXT        NULL;
         ALTER TABLE vouchers ADD COLUMN cst_form_number    TEXT        NULL;
         ALTER TABLE vouchers ADD COLUMN cst_form_date      TEXT        NULL;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v60 — THE MASTER-LEVEL GAPS (census 2.2 Group behavioural flags · 3.6 Alternate units per stock item).
+    // Object names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak
+    // about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The five <c>groups</c> columns v60 adds — the vendor's Group master behavioural fields. The exact
+    /// set <see cref="MigrateV59ToV60"/> creates and <c>SchemaDowngrade.V60ToV59</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V60GroupBehaviourColumns = new[]
+    {
+        "behaves_like_sub_ledger", "nett_balances_for_reporting", "used_for_calculation",
+        "affects_gross_profits", "purchase_allocation_method",
+    };
+
+    /// <summary>The two <c>stock_items</c> columns v60 adds — the Alternate Unit and its conversion factor.</summary>
+    public static readonly IReadOnlyList<string> V60AlternateUnitColumns =
+        new[] { "alternate_unit_id", "alternate_conversion_micro" };
+
+    /// <summary>
+    /// v59 → v60 (census rows 2.2 / 3.6): <b>the two master-level gaps</b> — the vendor's five behavioural fields
+    /// on the accounting Group master, and the optional Alternate Unit on the Stock Item master.
+    ///
+    /// <para><b>R7 — ATTESTED, BOTH ROWS.</b> The Group fields are
+    /// <c>help.tallysolutions.com/groups-in-tallyprime/</c>, whose Group Creation / Alteration screen names all
+    /// five verbatim: <i>"Nature of Group"</i> (Assets / Liabilities / Expenses / Income, shown only under
+    /// <i>Primary</i>), <i>"Does it affect Gross Profits"</i>, <i>"Group behaves like a sub-ledger"</i>,
+    /// <i>"Nett Debit/Credit Balances for Reporting"</i>, <i>"Used for calculation (for example: taxes,
+    /// discounts)"</i>, and <i>"Method to allocate when used in purchase invoice"</i> with options <i>Not
+    /// Applicable / Appropriate by Qty / Appropriate by Value</i>. The Alternate Unit is
+    /// <c>help.tallysolutions.com/manage-stock-item-tally/</c>: the base unit is picked in <i>Units</i>, then
+    /// "<i>The <b>Alternate units</b> field appears</i>" and the operator "<i>provide[s] the conversion factor
+    /// between the simple or compound units and alternative units</i>".</para>
+    ///
+    /// <para>🔴 <b>"Nature of Group" ADDS NO COLUMN, AND THAT IS THE POINT.</b> <c>groups.nature</c> has existed
+    /// since v1; what did not exist was any way for an operator to REACH it, because a new PRIMARY group could not
+    /// be created at all (defect T1-31 — the parent picker held only existing groups and both
+    /// <c>GroupService.CreateGroup</c> and the master screen refused a null parent), and the vendor shows
+    /// <i>Nature of Group</i> only under <i>Primary</i>. The fix for that is in the service and the screen, not
+    /// here. A migration that had added a second "nature" column would have created two sources of truth for the
+    /// side of the Balance Sheet a whole sub-tree prints on.</para>
+    ///
+    /// <para>🔴 <b>NOTHING IS BACK-FILLED, AND THE SEEDED TRADING HEADS ARE DELIBERATELY LEFT AT 0.</b> It is
+    /// tempting to stamp <c>affects_gross_profits = 1</c> on the seeded <i>Direct Expenses</i> and <i>Direct
+    /// Incomes</i>, since that is what they are. It is refused for two reasons. First, it would be a silent data
+    /// change to every shipped book. Second, and decisively, <b>no report would read it</b>:
+    /// <c>ProfitAndLoss.ComputeGrossProfit</c> matches those four heads by NAME and always has, so the flag is
+    /// consulted only for a CUSTOM primary group — a thing no pre-v60 book can contain. A 1 there would be a
+    /// figure written into the database that nothing looks at, indistinguishable from a live setting.</para>
+    ///
+    /// <para><b>The two Stock Item columns store an item's SHAPE, never a quantity.</b>
+    /// <c>alternate_conversion_micro</c> is base units per ONE alternate unit at the schema's usual
+    /// <see cref="QuantityScale"/>, so "1 Box = 10 Nos" is 10 000 000 and a fractional factor round-trips exactly.
+    /// Every stock table keeps the single base-unit quantity column it already had; the alternate expression is
+    /// DERIVED on display by <c>AlternateUnitConversion</c>. There is deliberately no second stored quantity for a
+    /// report and an invoice to disagree about.</para>
+    ///
+    /// <para><b>The <c>REFERENCES</c> clause on <c>alternate_unit_id</c> is legal precisely because its default is
+    /// NULL</b> — SQLite refuses an added FK column with any other default. That is also why it could not have been
+    /// <c>NOT NULL</c>.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 60. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift. v60 adds no index: neither column set is a lookup key, and an index nothing queries is
+    /// write cost for nothing.</para>
+    /// </summary>
+    public const string MigrateV59ToV60 = """
+        -- v60 (census 2.2/3.6): the master-level gaps. Purely additive: seven columns across two tables, all
+        -- 0/NULL, nothing back-filled — the seeded trading heads included. See this constant's doc comment.
+
+        -- 2.2: the vendor's five Group behavioural fields. "Nature of Group" adds NO column — groups.nature has
+        -- existed since v1 and the gap was reachability (T1-31), which is fixed in GroupService and the screen.
+        ALTER TABLE groups ADD COLUMN behaves_like_sub_ledger     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE groups ADD COLUMN nett_balances_for_reporting INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE groups ADD COLUMN used_for_calculation        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE groups ADD COLUMN affects_gross_profits       INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE groups ADD COLUMN purchase_allocation_method  INTEGER     NULL;
+
+        -- 3.6: the Stock Item's Alternate Unit and its factor. NULL default is REQUIRED by SQLite for an added
+        -- column carrying a REFERENCES clause. No quantity is stored in the alternate unit anywhere.
+        ALTER TABLE stock_items ADD COLUMN alternate_unit_id          TEXT    NULL REFERENCES units(id);
+        ALTER TABLE stock_items ADD COLUMN alternate_conversion_micro INTEGER NULL;
         """;
 }

@@ -6962,19 +6962,40 @@
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                  <!-- T1-31: the list now opens with "Primary", so a NEW top-level head can be
+                                       created — which is what makes Nature of Group and Does it affect Gross
+                                       Profits reachable at all (census 2.2). -->
+                                  <ComboBox Grid.Column="1" Name="AccountGroupUnderPicker"
+                                            HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding ParentOptions}"
                                             SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
-                                            PlaceholderText="Select parent group…">
+                                            PlaceholderText="Primary, or a parent group…">
                                     <ComboBox.ItemTemplate>
-                                      <DataTemplate x:DataType="ledger:Group">
-                                        <TextBlock Text="{Binding Name}"/>
+                                      <DataTemplate x:DataType="vm:ParentAccountGroupOption">
+                                        <TextBlock Text="{Binding Display}"/>
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
-                                <!-- Nature: READ-ONLY, derived from the parent. Never an input. -->
-                                <Grid ColumnDefinitions="90,*">
+                                <!-- Nature of Group: an INPUT under Primary (the head's nature is its own), and
+                                     READ-ONLY derived from the parent otherwise. Vendor caption, and the vendor
+                                     shows the picker only under Primary. -->
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding IsPrimaryGroup}">
+                                  <TextBlock Grid.Column="0" Text="Nature of Group" FontWeight="SemiBold"
+                                             TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" Name="AccountGroupNaturePicker"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding NatureChoices}"
+                                            SelectedItem="{Binding SelectedNature, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:GroupNatureChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding IsChildGroup}">
                                   <TextBlock Grid.Column="0" Text="Nature" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -6983,6 +7004,86 @@
                                     <TextBlock Text="(derived from parent)" FontSize="11" FontStyle="Italic"
                                                VerticalAlignment="Center" Foreground="#6A6A6A"/>
                                   </StackPanel>
+                                </Grid>
+
+                                <!-- census 2.2 — the vendor's Group behavioural fields, captions verbatim from
+                                     help.tallysolutions.com/groups-in-tallyprime/. "Does it affect Gross Profits"
+                                     is bound to IsPrimaryGroup because the vendor shows it only there, and the
+                                     engine refuses it off a primary group for the same reason. -->
+                                <CheckBox Name="GroupAffectsGrossProfits"
+                                          IsVisible="{Binding IsPrimaryGroup}"
+                                          IsChecked="{Binding AffectsGrossProfits, Mode=TwoWay}"
+                                          Content="Does it affect Gross Profits"/>
+                                <CheckBox Name="GroupBehavesLikeSubLedger"
+                                          IsChecked="{Binding BehavesLikeSubLedger, Mode=TwoWay}"
+                                          Content="Group behaves like a sub-ledger"/>
+                                <CheckBox Name="GroupNettBalancesForReporting"
+                                          IsChecked="{Binding NettBalancesForReporting, Mode=TwoWay}"
+                                          Content="Nett Debit/Credit Balances for Reporting"/>
+                                <CheckBox Name="GroupUsedForCalculation"
+                                          IsChecked="{Binding UsedForCalculation, Mode=TwoWay}"
+                                          Content="Used for calculation (for example: taxes, discounts)"/>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Margin="0,0,10,0" TextWrapping="Wrap"
+                                             Text="Method to allocate when used in purchase invoice"
+                                             FontWeight="SemiBold" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" Name="GroupAllocationMethodPicker"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding AllocationMethodChoices}"
+                                            SelectedItem="{Binding SelectedAllocationMethod, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:GroupAllocationMethodChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <!-- census 3.13 — the accounting Group's GST rung. Storage and the resolver walk
+                                     shipped at v51/T0-4; this is the capture half that never existed. -->
+                                <CheckBox Name="AccountGroupSetGstDetails"
+                                          IsChecked="{Binding Gst.Enabled, Mode=TwoWay}"
+                                          Content="Set/Alter GST Details"/>
+                                <Grid ColumnDefinitions="90,*,110,*" IsVisible="{Binding Gst.Enabled}">
+                                  <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="AccountGroupGstHsn"
+                                           Text="{Binding Gst.HsnSac, Mode=TwoWay}"
+                                           PlaceholderText="4, 6 or 8 digits"/>
+                                  <TextBlock Grid.Column="2" Text="Taxability" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" Name="AccountGroupGstTaxability"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Gst.TaxabilityChoices}"
+                                            SelectedItem="{Binding Gst.SelectedTaxability, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:MasterGstTaxabilityChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*,110,*" IsVisible="{Binding Gst.Enabled}">
+                                  <TextBlock Grid.Column="0" Text="GST Rate %" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="AccountGroupGstRate"
+                                           Text="{Binding Gst.RatePercentText, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 18"/>
+                                  <TextBlock Grid.Column="2" Text="Type of Supply" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" Name="AccountGroupGstSupplyType"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Gst.SupplyTypeChoices}"
+                                            SelectedItem="{Binding Gst.SelectedSupplyType, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:MasterGstSupplyTypeChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
                                 </Grid>
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
@@ -7143,7 +7244,7 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:StockGroupMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Stock Group Creation"
+                            <TextBlock Grid.Row="0" Name="StockGroupMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -7179,24 +7280,75 @@
                                 </Grid>
                                 <CheckBox Content="Should quantities be added?"
                                           IsChecked="{Binding AddQuantities, Mode=TwoWay}" FontSize="13"/>
+
+                                <!-- census 3.13 — the Stock Group's GST rung. Vendor: "Set/Alter GST Details:
+                                     'Yes' for setting fixed GST Rate, which will be applicable for all items
+                                     under this group". Storage (v51) and the resolver walk (T0-4 S2) already
+                                     existed; nothing but the importer could write this until now. -->
+                                <CheckBox Name="StockGroupSetGstDetails"
+                                          IsChecked="{Binding Gst.Enabled, Mode=TwoWay}" FontSize="13"
+                                          Content="Set/Alter GST Details"/>
+                                <Grid ColumnDefinitions="90,*,110,*" IsVisible="{Binding Gst.Enabled}">
+                                  <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="StockGroupGstHsn"
+                                           Text="{Binding Gst.HsnSac, Mode=TwoWay}"
+                                           PlaceholderText="4, 6 or 8 digits"/>
+                                  <TextBlock Grid.Column="2" Text="Taxability" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" Name="StockGroupGstTaxability"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Gst.TaxabilityChoices}"
+                                            SelectedItem="{Binding Gst.SelectedTaxability, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:MasterGstTaxabilityChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*,110,*" IsVisible="{Binding Gst.Enabled}">
+                                  <TextBlock Grid.Column="0" Text="GST Rate %" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="StockGroupGstRate"
+                                           Text="{Binding Gst.RatePercentText, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 12"/>
+                                  <TextBlock Grid.Column="2" Text="Type of Supply" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" Name="StockGroupGstSupplyType"
+                                            HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Gst.SupplyTypeChoices}"
+                                            SelectedItem="{Binding Gst.SelectedSupplyType, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:MasterGstSupplyTypeChoice">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Content="Accept (Ctrl+A)" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateStockGroupClick"/>
                                 </Grid>
                               </StackPanel>
                             </Border>
 
-                            <!-- Existing groups header -->
+                            <!-- Existing groups header. Ctrl+Enter on a highlighted row opens it for alteration
+                                 (census 3.13) — the same chord the Stock Item master's list uses. -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,200,120">
+                              <Grid ColumnDefinitions="*,180,110,130">
                                 <TextBlock Grid.Column="0" Text="Stock Group" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Quantities" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="GST" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -7205,12 +7357,18 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:StockGroupListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,200,120" Height="24">
+                                      <Grid ColumnDefinitions="*,180,110,130" Height="24">
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4"
+                                                Background="{StaticResource BrandNavy}" Opacity="0.12"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Under}"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Quantities}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Gst}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
                                                    VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
                                       </Grid>
@@ -7975,6 +8133,42 @@
                                       </ComboBox.ItemTemplate>
                                     </ComboBox>
                                   </Grid>
+                                  <!-- census 3.6 — Alternate Units. Vendor: after the base unit is chosen "The
+                                       Alternate units field appears", then the operator "provide[s] the
+                                       conversion factor between the simple or compound units and alternative
+                                       units". The factor box and the live sentence appear only once a unit is
+                                       chosen, so a factor is never offered with nothing to convert. THE STORED
+                                       QUANTITY IS ALWAYS THE BASE ONE — the alternate is derived on display. -->
+                                  <Grid ColumnDefinitions="110,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="Alternate units" FontWeight="SemiBold"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" Name="StockItemAlternateUnitPicker"
+                                              HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="Unit"
+                                              ItemsSource="{Binding AlternateUnitOptions}"
+                                              SelectedItem="{Binding SelectedAlternateUnit, Mode=TwoWay}"
+                                              PlaceholderText="(none)">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:OptionalUnitOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Base units per 1 alternate"
+                                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="10,0,6,0"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                               IsVisible="{Binding HasAlternateUnit}"/>
+                                    <TextBox Grid.Column="3" Name="StockItemAlternateUnitFactor"
+                                             Text="{Binding AlternateUnitConversionText, Mode=TwoWay}"
+                                             IsVisible="{Binding HasAlternateUnit}"
+                                             PlaceholderText="e.g. 10"/>
+                                  </Grid>
+                                  <TextBlock Name="StockItemAlternateUnitPreview"
+                                             Text="{Binding AlternateUnitPreview}"
+                                             IsVisible="{Binding HasAlternateUnit}"
+                                             Margin="110,0,0,0" FontSize="11" FontStyle="Italic"
+                                             TextWrapping="Wrap" Foreground="#6A6A6A"/>
                                   <!-- Reorder / Min-order-qty are label-less and rely on their placeholder hint;
                                        the Min-order field was 110px and clipped "Min order qty" → "Min order q"
                                        (D-5). Widened to 140 (the "*" HSN field yields the room) so the full hint

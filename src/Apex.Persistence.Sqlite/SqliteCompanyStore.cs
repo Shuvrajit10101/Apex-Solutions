@@ -1490,6 +1490,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 59;
         }
 
+        // v59 → v60 (census 2.2/3.6): the master-level gaps — the vendor's five Group behavioural fields
+        // (behaves_like_sub_ledger, nett_balances_for_reporting, used_for_calculation, affects_gross_profits and
+        // purchase_allocation_method) and the Stock Item's optional alternate_unit_id + alternate_conversion_micro.
+        // 🔴 "Nature of Group" adds NO column: groups.nature has existed since v1 and the gap was that a PRIMARY
+        // group could not be created at all (T1-31), which is fixed in GroupService and the master screen.
+        // Purely additive and it back-fills NOTHING — the seeded Direct Expenses / Direct Incomes heads are left
+        // at affects_gross_profits = 0 on purpose, because ComputeGrossProfit matches those four by NAME and would
+        // never read the flag on them. See Schema.MigrateV59ToV60.
+        if (version == 59)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV59ToV60;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 60);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 60;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2306,12 +2334,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = includePlHead
             ? """
               SELECT id, name, nature, parent_id, alias, is_predefined,
-                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
+                     behaves_like_sub_ledger, nett_balances_for_reporting, used_for_calculation,
+                     affects_gross_profits, purchase_allocation_method
               FROM groups WHERE company_id = $cid ORDER BY rowid;
               """
             : """
               SELECT id, name, nature, parent_id, alias, is_predefined,
-                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
+                     behaves_like_sub_ledger, nett_balances_for_reporting, used_for_calculation,
+                     affects_gross_profits, purchase_allocation_method
               FROM groups WHERE company_id = $cid AND is_pl_head = 0 ORDER BY rowid;
               """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2331,6 +2363,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v51 (WF-1): the Group level of the GST hierarchy. Columns 6–9; NULL taxability = no block, so every
                 // pre-v51 group reads back exactly as it did (ER-13).
                 Gst = ReadMasterGst(r, firstOrdinal: 6),
+                // v60 (census 2.2): the vendor's five Group behavioural fields. Columns 10–14; every pre-v60 group
+                // reads back all-false with a NULL method, which is exactly what it was (ER-13).
+                BehavesLikeSubLedger = r.GetInt64(10) != 0,
+                NettBalancesForReporting = r.GetInt64(11) != 0,
+                UsedForCalculation = r.GetInt64(12) != 0,
+                AffectsGrossProfits = r.GetInt64(13) != 0,
+                PurchaseAllocationMethod = r.IsDBNull(14)
+                    ? null
+                    : (MethodOfAppropriation)(int)r.GetInt64(14),
             });
         }
         return list;
@@ -3993,7 +4034,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
                    reverse_charge_applicable, gta_forward_charge, rcm_category_id,
                    itc_eligibility, blocked_credit_category,
-                   non_gst_goods_class, vat_tax_rate_bp
+                   non_gst_goods_class, vat_tax_rate_bp,
+                   alternate_unit_id, alternate_conversion_micro
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4028,6 +4070,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             // and every pre-v59 item reads back correctly classified (ER-13).
             item.NonGstGoodsClass = (NonGstGoodsClass)(int)r.GetInt64(33);
             item.VatTaxRateBasisPoints = r.IsDBNull(34) ? null : (int)r.GetInt64(34);
+            // v60 (census 3.6): the optional Alternate Unit and its factor (columns 35-36). Both NULL on every
+            // pre-v60 item (ER-13). The factor is stored at QuantityScale like every other quantity here, so a
+            // fractional conversion round-trips exactly — no binary float ever touches a stock figure.
+            item.AlternateUnitId = r.IsDBNull(35) ? (Guid?)null : Guid.Parse(r.GetString(35));
+            item.AlternateUnitConversion = r.IsDBNull(36) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(36));
             list.Add(item);
         }
         return list;
@@ -5892,9 +5939,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO groups (id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head,
-                                gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+                                gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
+                                behaves_like_sub_ledger, nett_balances_for_reporting, used_for_calculation,
+                                affects_gross_profits, purchase_allocation_method)
             VALUES ($id, $cid, $name, $nature, $parent, $alias, $pre, $plhead,
-                    $gsthsn, $gsttax, $gstrate, $gstsupply);
+                    $gsthsn, $gsttax, $gstrate, $gstsupply,
+                    $subledger, $nett, $usedcalc, $grossprofit, $allocmethod);
             """;
         cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -5907,6 +5957,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v51 (WF-1): the Group level of the GST hierarchy — all four NULL when the group carries no block, which is
         // every group on a book that has not used the hierarchy (ER-13).
         BindMasterGst(cmd, g.Gst);
+        // v60 (census 2.2): the vendor's five Group behavioural fields.
+        cmd.Parameters.AddWithValue("$subledger", g.BehavesLikeSubLedger ? 1 : 0);
+        cmd.Parameters.AddWithValue("$nett", g.NettBalancesForReporting ? 1 : 0);
+        cmd.Parameters.AddWithValue("$usedcalc", g.UsedForCalculation ? 1 : 0);
+        cmd.Parameters.AddWithValue("$grossprofit", g.AffectsGrossProfits ? 1 : 0);
+        cmd.Parameters.AddWithValue(
+            "$allocmethod",
+            g.PurchaseAllocationMethod is { } m ? (int)m : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -7333,13 +7391,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
                      reverse_charge_applicable, gta_forward_charge, rcm_category_id,
                      itc_eligibility, blocked_credit_category,
-                     non_gst_goods_class, vat_tax_rate_bp)
+                     non_gst_goods_class, vat_tax_rate_bp,
+                     alternate_unit_id, alternate_conversion_micro)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
                         $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
                         $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp,
                         $rca, $gtafc, $rcmcat,
                         $itcelig, $blkcat,
-                        $ngclass, $itemvatrate);
+                        $ngclass, $itemvatrate,
+                        $altunit, $altconv);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7392,6 +7452,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$ngclass", (int)item.NonGstGoodsClass);
             cmd.Parameters.AddWithValue("$itemvatrate",
                 item.VatTaxRateBasisPoints is { } ivr ? ivr : (object)DBNull.Value);
+            // v60 (census 3.6): the optional Alternate Unit and its factor, written verbatim. Both NULL for an
+            // item measured in its base unit alone, which is every pre-v60 item (ER-13).
+            cmd.Parameters.AddWithValue(
+                "$altunit", (object?)item.AlternateUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(
+                "$altconv",
+                item.AlternateUnitConversion is { } acf ? QtyMicroFromDecimal(acf) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

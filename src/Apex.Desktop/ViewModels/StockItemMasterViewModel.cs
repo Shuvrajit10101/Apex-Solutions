@@ -43,6 +43,16 @@ public sealed class OptionalStockCategoryOption
     public bool IsNone => Category is null;
 }
 
+/// <summary>An optional <see cref="Unit"/> option for the census 3.6 <b>Alternate Units</b> picker: "(none)" or a
+/// unit. <see cref="Unit"/> is <c>null</c> for the none option, which is what clears the alternate unit and its
+/// factor together.</summary>
+public sealed class OptionalUnitOption
+{
+    public Unit? Unit { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Unit is null;
+}
+
 /// <summary>A valuation-method option for the picker (label + the enum value).</summary>
 public sealed class ValuationMethodOption
 {
@@ -162,6 +172,62 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     [ObservableProperty] private bool _isTaxable;
     [ObservableProperty] private string _reorderLevelText = string.Empty;
     [ObservableProperty] private string _minimumOrderQtyText = string.Empty;
+
+    // ---- census 3.6: Alternate Units ----
+
+    /// <summary>
+    /// The optional <b>Alternate Unit</b> picker: "◦ (none)" plus every unit. Vendor
+    /// (<c>help.tallysolutions.com/manage-stock-item-tally/</c>): after the base unit is chosen "<i>The
+    /// <b>Alternate units</b> field appears</i>".
+    /// </summary>
+    public ObservableCollection<OptionalUnitOption> AlternateUnitOptions { get; } = new();
+
+    [ObservableProperty] private OptionalUnitOption? _selectedAlternateUnit;
+
+    /// <summary>
+    /// The vendor's conversion factor, keyed as <b>how many BASE units make ONE alternate unit</b> — "1 Box = 10
+    /// Nos" is typed as 10. Parsed invariantly, so the gate's ubuntu and macos legs read "10.5" the same way this
+    /// build's Windows leg does.
+    /// </summary>
+    [ObservableProperty] private string _alternateUnitConversionText = string.Empty;
+
+    /// <summary>True iff an alternate unit is chosen — the factor field and the live sentence hang off this, so a
+    /// factor box is never offered with nothing to convert.</summary>
+    public bool HasAlternateUnit => SelectedAlternateUnit?.Unit is not null;
+
+    /// <summary>
+    /// The live "1 Box = 10 Nos" sentence, rebuilt as the operator types. It exists so the DIRECTION of the factor
+    /// is visible at entry time rather than discovered later on a report: the same number read the other way round
+    /// would silently make every derived quantity wrong by a factor of 100 on a 1:10 conversion.
+    /// </summary>
+    public string AlternateUnitPreview
+    {
+        get
+        {
+            if (SelectedAlternateUnit?.Unit is not { } alt) return string.Empty;
+            var baseSymbol = SelectedUnit?.Symbol ?? "base unit";
+            var text = (AlternateUnitConversionText ?? string.Empty).Trim();
+            if (text.Length == 0
+                || !decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var f)
+                || f <= 0m)
+                return $"1 {alt.Symbol} = ? {baseSymbol}";
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"1 {alt.Symbol} = {f.ToString("0.######", CultureInfo.InvariantCulture)} {baseSymbol}");
+        }
+    }
+
+    partial void OnSelectedAlternateUnitChanged(OptionalUnitOption? value)
+    {
+        OnPropertyChanged(nameof(HasAlternateUnit));
+        OnPropertyChanged(nameof(AlternateUnitPreview));
+        // Clearing the unit clears the factor, so "no alternate unit" can never be saved carrying a stale number
+        // the engine would then refuse — the operator sees the field empty, which is what it means.
+        if (value?.Unit is null) AlternateUnitConversionText = string.Empty;
+    }
+
+    partial void OnAlternateUnitConversionTextChanged(string value)
+        => OnPropertyChanged(nameof(AlternateUnitPreview));
 
     /// <summary>
     /// 🔴 <b>T0-3.</b> The item's <b>standard rate</b> (₹ per base unit) — <see cref="StockItem.StandardCost"/>.
@@ -369,6 +435,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         IsTaxable = item.IsTaxable;
         ReorderLevelText = item.ReorderLevel?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
         MinimumOrderQtyText = item.MinimumOrderQuantity?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
+        // census 3.6 — the Alternate Unit and its factor, so an alter that changes something else writes them
+        // back unchanged instead of silently clearing them (SaveMaster always calls SetAlternateUnit).
+        SelectedAlternateUnit =
+            AlternateUnitOptions.FirstOrDefault(o => o.Unit?.Id == item.AlternateUnitId)
+            ?? AlternateUnitOptions.FirstOrDefault(o => o.IsNone);
+        AlternateUnitConversionText = item.AlternateUnitConversion is { } acf
+            ? acf.ToString("0.######", CultureInfo.InvariantCulture)
+            : string.Empty;
         StandardCostText = item.StandardCost is { } sc ? sc.Amount.ToString("0.00", CultureInfo.InvariantCulture) : string.Empty;
 
         var gst = item.Gst;
@@ -777,6 +851,26 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 }
             }
 
+            // census 3.6 — the Alternate Unit and its factor go through InventoryService.SetAlternateUnit, which
+            // is the thing that can REFUSE. Setting the two properties here would put the guard in the UI alone,
+            // and a UI guard is exactly the one a later screen, an import or a test forgets — the same reasoning
+            // the VAT block above records. A blank factor with a unit chosen is refused there, not silently
+            // treated as 1 (which would make every derived alternate quantity equal the base one).
+            {
+                decimal? altFactor = null;
+                var altText = (AlternateUnitConversionText ?? string.Empty).Trim();
+                if (SelectedAlternateUnit?.Unit is not null && altText.Length > 0)
+                {
+                    if (!decimal.TryParse(altText, NumberStyles.Number, CultureInfo.InvariantCulture, out var f))
+                    {
+                        Message = "The Alternate Unit conversion must be a number, for example 10 or 0.4536.";
+                        return false;
+                    }
+                    altFactor = f;
+                }
+                service.SetAlternateUnit(item, SelectedAlternateUnit?.Unit?.Id, altFactor);
+            }
+
             // Opening stock is a CREATE-only side effect. Re-running it on every alter would add a fresh opening
             // allocation each time the operator accepted, silently multiplying the item's opening quantity.
             if (!altering && wantsOpening && openingQty > 0m)
@@ -814,6 +908,10 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         ReorderLevelText = string.Empty;
         MinimumOrderQtyText = string.Empty;
         StandardCostText = string.Empty;
+        // census 3.6 — clear the alternate unit AND its factor together, so the next item does not inherit the
+        // previous one's conversion (which would be a wrong quantity on every display of it).
+        SelectedAlternateUnit = AlternateUnitOptions.FirstOrDefault(o => o.IsNone) ?? SelectedAlternateUnit;
+        AlternateUnitConversionText = string.Empty;
         OpeningQuantityText = string.Empty;
         OpeningRateText = string.Empty;
         OpeningBatchLabel = string.Empty;
@@ -923,6 +1021,17 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             Units.Add(u);
         SelectedUnit = Units.FirstOrDefault(u => u.Id == unitId) ?? Units.FirstOrDefault();
 
+        // census 3.6 — the Alternate Units picker. "(none)" first, then every unit; a unit created on the fly
+        // (Alt+C) therefore becomes selectable here on the same refresh that adds it to the base-unit picker.
+        var altId = SelectedAlternateUnit?.Unit?.Id;
+        AlternateUnitOptions.Clear();
+        AlternateUnitOptions.Add(new OptionalUnitOption { Unit = null, Display = "◦ (none)" });
+        foreach (var u in _company.Units.OrderBy(u => u.Symbol, StringComparer.OrdinalIgnoreCase))
+            AlternateUnitOptions.Add(new OptionalUnitOption { Unit = u, Display = u.Symbol });
+        SelectedAlternateUnit = AlternateUnitOptions.FirstOrDefault(o => o.Unit?.Id == altId)
+                                ?? AlternateUnitOptions.FirstOrDefault();
+        OnPropertyChanged(nameof(AlternateUnitPreview));
+
         var godownId = OpeningGodown?.Id;
         Godowns.Clear();
         foreach (var g in _company.Godowns.OrderByDescending(g => g.IsMainLocation)
@@ -957,6 +1066,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         {
             var group = _company.FindStockGroup(item.StockGroupId)?.Name ?? "—";
             var unit = _company.FindUnit(item.BaseUnitId)?.Symbol ?? "—";
+            // census 3.6 — show the conversion on the list so an operator can see which items carry an alternate
+            // unit without opening each one. AlternateUnitConversion.DescribeConversion is the ONE formatter, so
+            // this cell and the master screen can never state the factor in different directions.
+            if (AlternateUnitConversion.DescribeConversion(item, _company) is { } conv)
+                unit = $"{unit}  ({conv})";
             var opening = service.OpeningValueOf(item.Id);
             Existing.Add(new StockItemListRow
             {

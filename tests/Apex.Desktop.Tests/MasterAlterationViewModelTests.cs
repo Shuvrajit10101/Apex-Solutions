@@ -315,12 +315,12 @@ public sealed class MasterAlterationViewModelTests : IDisposable
 
         vm.ShowAccountGroupMaster();
         var create = vm.AccountGroupMaster!;
-        create.SelectedParent = create.ParentOptions.First(g => g.Name == "Current Liabilities");
+        create.SelectedParent = create.ParentOptions.First(g => g.Group?.Name == "Current Liabilities");
         create.Name = "Staff Costs";
         Assert.True(create.Create(), create.Message);
         var parentId = vm.Company!.FindGroupByName("Staff Costs")!.Id;
 
-        create.SelectedParent = create.ParentOptions.First(g => g.Id == parentId);
+        create.SelectedParent = create.ParentOptions.First(g => g.Group?.Id == parentId);
         create.Name = "Bonus Payable";
         Assert.True(create.Create(), create.Message);
         var childId = vm.Company!.FindGroupByName("Bonus Payable")!.Id;
@@ -332,7 +332,7 @@ public sealed class MasterAlterationViewModelTests : IDisposable
         var alter = vm.AccountGroupMaster!;
         Assert.True(alter.IsAltering);
         Assert.Equal("Staff Costs", alter.Name);
-        alter.SelectedParent = alter.ParentOptions.First(g => g.Name == "Indirect Expenses");
+        alter.SelectedParent = alter.ParentOptions.First(g => g.Group?.Name == "Indirect Expenses");
         Assert.True(alter.Alter(), alter.Message);
 
         Assert.Equal(GroupNature.Expense, vm.Company!.FindGroup(parentId)!.Nature);
@@ -416,7 +416,7 @@ public sealed class MasterAlterationViewModelTests : IDisposable
 
         vm.ShowAccountGroupMaster();
         var groups = vm.AccountGroupMaster!;
-        groups.SelectedParent = groups.ParentOptions.First(g => g.Name == "Sundry Debtors");
+        groups.SelectedParent = groups.ParentOptions.First(g => g.Group?.Name == "Sundry Debtors");
         groups.Name = "North Zone Debtors";
         Assert.True(groups.Create(), groups.Message);
 
