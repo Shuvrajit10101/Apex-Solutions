@@ -31,7 +31,7 @@ public sealed class CompositionTaxService
     /// cancelled / post-dated-after-<paramref name="to"/> are excluded via <see cref="LedgerBalances.CountsAsOf"/>).
     /// Throws when the company is not a composition dealer (the caller — the returns — guards before invoking).
     /// </summary>
-    public CompositionTax ComputeForPeriod(DateOnly from, DateOnly to)
+    public CompositionTax ComputeForPeriod(DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         var gst = _company.Gst
             ?? throw new InvalidOperationException("GST is not enabled — composition tax is not applicable.");
@@ -41,7 +41,7 @@ public sealed class CompositionTaxService
             ?? throw new InvalidOperationException("The Composition sub-type is not set — cannot resolve the tax-on-turnover rate/base.");
 
         var total = 0m; var taxable = 0m;
-        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(_company, from, to, GstTaxDirection.Output))
+        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(_company, from, to, GstTaxDirection.Output, registrationId))
         {
             // A composition dealer's turnover is NET of sales returns: a Bill-of-Supply sale-return Credit Note reduces
             // the turnover base (sign by base type — Sales +, Credit Note − — mirroring Gstr1.ComputeRcm4BOutwardValue).

@@ -1518,6 +1518,33 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 60;
         }
 
+        // v60 → v61 (census 6.23/6.25): multiple GST registrations inside one company (the gst_registrations
+        // table + the operator's companies.gst_primary_registration_name override + vouchers.gst_registration_id),
+        // and the gst_classifications master. Purely additive.
+        // 🔴 IT BACK-FILLS NOTHING, ON PURPOSE. The company's FIRST registration stays in the companies columns
+        // that already hold it, and a NULL vouchers.gst_registration_id MEANS that registration — so every
+        // voucher in every existing book already attributes correctly and no UPDATE is run over any book's
+        // vouchers. See Schema.MigrateV60ToV61.
+        if (version == 60)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV60ToV61;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 61);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 61;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1559,7 +1586,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    use_user_access_control, password_min_length, password_expiry_days,
                    use_tracking_numbers, enable_cost_tracking, enable_job_costing,
                    vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
-                   vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp
+                   vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp,
+                   gst_primary_registration_name
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1701,6 +1729,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 };
                 foreach (var t in ReadEWayStateThresholds(companyId))
                     company.Gst.AddEWayStateThreshold(t);
+
+                // v61 (census 6.23): the operator's override of the FIRST registration's name (column 102), then
+                // the ADDITIONAL registrations. Both empty/NULL on every pre-v61 book, so PrimaryRegistration
+                // falls back to the vendor's auto-generated "<State> Registration" and IsMultiRegistration is
+                // false — the byte-identical v60 path (ER-13).
+                company.Gst.PrimaryRegistrationName = r.IsDBNull(102) ? null : r.GetString(102);
+                foreach (var reg in ReadGstRegistrations(companyId))
+                    company.Gst.AddRegistration(reg);
+
+                // v61 (census 6.25): the GST Classification master. Empty on every pre-v61 book.
+                foreach (var classification in ReadGstClassifications(companyId))
+                    company.Gst.AddClassification(classification);
             }
 
             // v25 (Phase 7 slice 1): TDS/TCS deductor config. The deductor identity (TAN/type/responsible person/
@@ -3033,6 +3073,60 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             list.Add(new EWayStateThreshold(
                 Guid.Parse(r.GetString(0)), r.GetString(1), (EWayTransactionType)(int)r.GetInt64(2),
                 Paisa.ToMoney(r.GetInt64(3))));
+        return list;
+    }
+
+    /// <summary>
+    /// v61 (census 6.23): reads the company's <b>additional</b> GST registrations. Empty for every book that has
+    /// only ever had one GSTIN — the first registration is not a row here, it is the <c>companies</c> columns
+    /// (see <see cref="GstRegistration"/>).
+    /// </summary>
+    private IEnumerable<GstRegistration> ReadGstRegistrations(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, state_code, gstin, registration_type, applicable_from, periodicity,
+                   assessee_other_territory
+            FROM gst_registrations WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstRegistration>();
+        while (r.Read())
+            list.Add(new GstRegistration(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2),
+                r.IsDBNull(3) ? null : r.GetString(3),
+                (GstRegistrationType)(int)r.GetInt64(4),
+                r.IsDBNull(5) ? null : ParseDate(r.GetString(5)),
+                (GstReturnPeriodicity)(int)r.GetInt64(6),
+                r.GetInt64(7) != 0));
+        return list;
+    }
+
+    /// <summary>v61 (census 6.25): reads the company's GST Classifications. Empty on every pre-v61 book.</summary>
+    private IEnumerable<GstClassification> ReadGstClassifications(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, hsn_sac, description, taxability, rate_bp, supply_type, nature_of_transaction,
+                   cess_valuation_mode, cess_rate_bp, cess_per_unit_paisa
+            FROM gst_classifications WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstClassification>();
+        while (r.Read())
+            list.Add(new GstClassification(
+                Guid.Parse(r.GetString(0)), r.GetString(1),
+                r.IsDBNull(2) ? null : r.GetString(2),
+                r.IsDBNull(3) ? null : r.GetString(3),
+                (GstTaxability)(int)r.GetInt64(4),
+                r.IsDBNull(5) ? (int?)null : (int)r.GetInt64(5),
+                (GstSupplyType)(int)r.GetInt64(6),
+                r.IsDBNull(7) ? null : r.GetString(7),
+                (CessValuationMode)(int)r.GetInt64(8),
+                (int)r.GetInt64(9),
+                Paisa.ToMoney(r.GetInt64(10))));
         return list;
     }
 
@@ -4682,14 +4776,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto,
             string? ReferenceNo, DateOnly? ReferenceDate, bool IsAccountingInvoice,
             CstDeclarationForm? CstFormType, string? CstFormSeriesNumber, string? CstFormNumber,
-            DateOnly? CstFormDate)>();
+            DateOnly? CstFormDate, Guid? GstRegistrationId)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
                        applicable_upto, reference_no, reference_date, is_accounting_invoice,
-                       cst_form_type, cst_form_series_no, cst_form_number, cst_form_date
+                       cst_form_type, cst_form_series_no, cst_form_number, cst_form_date,
+                       gst_registration_id
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4717,7 +4812,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.IsDBNull(13) ? (CstDeclarationForm?)null : (CstDeclarationForm)r.GetInt64(13),
                     r.IsDBNull(14) ? null : r.GetString(14),
                     r.IsDBNull(15) ? null : r.GetString(15),
-                    r.IsDBNull(16) ? (DateOnly?)null : ParseDate(r.GetString(16))));
+                    r.IsDBNull(16) ? (DateOnly?)null : ParseDate(r.GetString(16)),
+                    // v61 (census 6.23): the registration the voucher was recorded under (column 17). NULL on
+                    // every pre-v61 voucher, which MEANS the company's own first registration — see
+                    // Voucher.GstRegistrationId. Read verbatim; nothing is defaulted to a registration here.
+                    r.IsDBNull(17) ? (Guid?)null : Guid.Parse(r.GetString(17))));
             }
         }
 
@@ -4748,6 +4847,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             voucher.CstFormSeriesNumber = h.CstFormSeriesNumber;
             voucher.CstFormNumber = h.CstFormNumber;
             voucher.CstFormDate = h.CstFormDate;
+            // v61 (census 6.23): the GST registration this voucher was recorded under. Set after construction for
+            // the same reason as the CST block — it selects which return the voucher folds into, not whether the
+            // posting is valid.
+            voucher.GstRegistrationId = h.GstRegistrationId;
             result.Add(voucher);
         }
         return result;
@@ -5181,6 +5284,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
+        // v61 (census 6.23/6.25): the GST registrations and classifications. 🔴 gst_registrations is the FK PARENT
+        // of vouchers.gst_registration_id, so it MUST be deleted AFTER the vouchers above — deleting it first
+        // would orphan a live child row. gst_classifications has no children and is deleted alongside it.
+        ExecTx(tx, "DELETE FROM gst_registrations WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_classifications WHERE company_id = $cid;", ("$cid", cid));
         // Inventory & order vouchers: child lines FK the header; the header FKs voucher_types + a party ledger
         // + stock masters → delete these before voucher_types / ledgers / stock masters below.
         ExecTx(tx, """
@@ -5414,7 +5522,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  use_user_access_control, password_min_length, password_expiry_days,
                  use_tracking_numbers, enable_cost_tracking, enable_job_costing,
                  vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
-                 vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp)
+                 vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp,
+                 gst_primary_registration_name)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -5439,7 +5548,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply,
                  $useuac, $pwdminlen, $pwdexpiry,
                  $usetrack, $costtrack, $jobcost,
-                 $vaten, $vattin, $vatcstno, $vatfrom, $vatper, $vatdealer, $vatcstrate);
+                 $vaten, $vattin, $vatcstno, $vatfrom, $vatper, $vatdealer, $vatcstrate,
+                 $gstprimregname);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -5462,6 +5572,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         // v13 core GST config: all NULL / 0 for a non-GST company (default), so existing companies are unchanged.
         var gst = c.Gst;
+        // v61 (census 6.23): the operator's override of the first registration's vendor "Registration Name".
+        // NULL — every pre-v61 book, and every book that never renamed it — reads back as the auto-generated name.
+        cmd.Parameters.AddWithValue("$gstprimregname", (object?)gst?.PrimaryRegistrationName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$gsten", gst is { Enabled: true } ? 1 : 0);
         cmd.Parameters.AddWithValue("$gstin", (object?)gst?.Gstin ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$gsthome", (object?)gst?.HomeStateCode ?? DBNull.Value);
@@ -5629,6 +5742,61 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.Parameters.AddWithValue("$state", t.StateCode);
                 s.Parameters.AddWithValue("$txn", (int)t.TxnType);
                 s.Parameters.AddWithValue("$thresh", Paisa.FromMoney(t.Threshold));
+                s.ExecuteNonQuery();
+            }
+
+        // v61 (census 6.23): the ADDITIONAL GST registrations — FK companies (just inserted). Empty for a company
+        // with a single GSTIN, which is every pre-v61 book (ER-13). The FIRST registration is NOT written here;
+        // it is the gst_* columns on the companies row above.
+        if (gst is not null)
+            foreach (var reg in gst.AdditionalRegistrations)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO gst_registrations
+                        (id, company_id, name, state_code, gstin, registration_type, applicable_from, periodicity,
+                         assessee_other_territory)
+                    VALUES ($id, $cid, $name, $state, $gstin, $type, $from, $per, $oth);
+                    """;
+                s.Parameters.AddWithValue("$id", reg.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$name", reg.Name);
+                s.Parameters.AddWithValue("$state", reg.StateCode);
+                s.Parameters.AddWithValue("$gstin", (object?)reg.Gstin ?? DBNull.Value);
+                s.Parameters.AddWithValue("$type", (int)reg.RegistrationType);
+                s.Parameters.AddWithValue("$from",
+                    reg.ApplicableFrom is { } regFrom ? FormatDate(regFrom) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$per", (int)reg.Periodicity);
+                s.Parameters.AddWithValue("$oth", reg.AssesseeOfOtherTerritory ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
+        // v61 (census 6.25): the GST Classification master — FK companies. Empty on every pre-v61 book (ER-13).
+        // central/state tax are NOT written: they are derived halves of rate_bp (see GstClassification).
+        if (gst is not null)
+            foreach (var gc in gst.Classifications)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO gst_classifications
+                        (id, company_id, name, hsn_sac, description, taxability, rate_bp, supply_type,
+                         nature_of_transaction, cess_valuation_mode, cess_rate_bp, cess_per_unit_paisa)
+                    VALUES ($id, $cid, $name, $hsn, $desc, $tax, $rate, $supply, $nature, $cmode, $crate, $cunit);
+                    """;
+                s.Parameters.AddWithValue("$id", gc.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$name", gc.Name);
+                s.Parameters.AddWithValue("$hsn", (object?)gc.HsnSac ?? DBNull.Value);
+                s.Parameters.AddWithValue("$desc", (object?)gc.Description ?? DBNull.Value);
+                s.Parameters.AddWithValue("$tax", (int)gc.Taxability);
+                s.Parameters.AddWithValue("$rate", (object?)gc.RateBasisPoints ?? DBNull.Value);
+                s.Parameters.AddWithValue("$supply", (int)gc.SupplyType);
+                s.Parameters.AddWithValue("$nature", (object?)gc.NatureOfTransaction ?? DBNull.Value);
+                s.Parameters.AddWithValue("$cmode", (int)gc.CessValuationMode);
+                s.Parameters.AddWithValue("$crate", gc.CessRateBasisPoints);
+                s.Parameters.AddWithValue("$cunit", Paisa.FromMoney(gc.CessPerUnit));
                 s.ExecuteNonQuery();
             }
 
@@ -7940,9 +8108,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO vouchers
                     (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
                      applicable_upto, reference_no, reference_date, is_accounting_invoice,
-                     cst_form_type, cst_form_series_no, cst_form_number, cst_form_date)
+                     cst_form_type, cst_form_series_no, cst_form_number, cst_form_date,
+                     gst_registration_id)
                 VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate, $acctinv,
-                        $cstform, $cstseries, $cstnum, $cstdate);
+                        $cstform, $cstseries, $cstnum, $cstdate, $gstreg);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -7968,6 +8137,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cstnum", (object?)v.CstFormNumber ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$cstdate",
                 v.CstFormDate is { } cfd ? FormatDate(cfd) : (object)DBNull.Value);
+            // v61 (census 6.23): the registration this voucher was recorded under.
+            // 🔴 THE PRIMARY REGISTRATION IS NORMALISED TO NULL, AND IT HAS TO BE. GstRegistration.PrimaryId is
+            // Guid.Empty and has NO row in gst_registrations, so writing it literally would violate the
+            // REFERENCES clause on the next foreign-key check. NULL is the storage form of "the company's own
+            // registration" — see Voucher.GstRegistrationId.
+            cmd.Parameters.AddWithValue("$gstreg",
+                v.GstRegistrationId is { } vreg && vreg != GstRegistration.PrimaryId
+                    ? vreg.ToString("D")
+                    : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 
