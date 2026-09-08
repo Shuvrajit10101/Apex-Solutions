@@ -963,6 +963,49 @@ public sealed class LedgerService
         return regular;
     }
 
+    /// <summary>
+    /// Clears <see cref="Voucher.Optional"/> on a voucher — the moment a provisional entry <b>reaches the books</b>.
+    /// This is the engine half of the vendor's <b>R</b> ("Mark as Regular &amp; Reconcile") on the
+    /// "Bank Reconciliation – Optional Vouchers" screen (census 8.13,
+    /// <c>help.tallysolutions.com/auto-create-vouchers/</c>); the reconcile half is
+    /// <see cref="Reports.BankReconciliation.SetBankDate"/>, and
+    /// <c>BankStatementVoucherCreation.MarkAsRegularAndReconcile</c> is what sequences the two.
+    /// Returns the voucher; a no-op (and no log line) when it is already regular.
+    ///
+    /// <para>🔴 <b>WHY THIS IS ITS OWN VERB-CARRYING METHOD AND NOT A <see cref="Replace(Guid, Voucher)"/>.</b>
+    /// §7.4 of <see cref="Replace(Guid, Voucher, out IReadOnlyList{VoucherAlterationWarning})"/> REFUSES a
+    /// replacement that moves the provisional-state vector, on purpose — <c>LedgerBalance.cs</c> reads
+    /// <c>Optional</c> exactly as it reads <c>Cancelled</c>, so an alteration that silently flipped it would put
+    /// money on the books through a door labelled "edit the narration". Regularising is a deliberate, separately
+    /// invoked act, so it gets a deliberate, separately invoked method.</para>
+    ///
+    /// <para><b>It is logged as <see cref="VoucherEditVerb.Alter"/>, and that is a considered choice rather than a
+    /// gap.</b> The verb column is a persisted ordinal (<c>0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum</c>) and
+    /// this track carries no schema budget, so a fifth ordinal is not available to it. <c>Alter</c> is not a
+    /// misdescription — the voucher IS overwritten in place and stays under its own id, which is precisely what that
+    /// verb means — and the <see cref="VoucherEditLogEntry.BeforeSnapshot"/> records the Optional state it left, so
+    /// an auditor reading the chain sees the flag change. A dedicated <c>Regularise</c> ordinal would read better
+    /// and is an additive schema bump for whoever next opens that file.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or is cancelled (a cancelled voucher
+    /// affects nothing; "regularising" one would claim a state change that does not happen).</exception>
+    public Voucher MarkOptionalAsRegular(Guid voucherId)
+    {
+        var voucher = _company.FindVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        if (voucher.Cancelled)
+            throw new InvalidOperationException(
+                $"Voucher {voucherId} is cancelled; a cancelled voucher affects no balance whether it is "
+                + "Optional or not, so there is nothing to regularise.");
+
+        if (!voucher.Optional) return voucher;
+
+        RecordEdit(voucher, VoucherEditVerb.Alter);
+        voucher.Optional = false;
+        return voucher;
+    }
+
     /// <summary>Next automatic number for a voucher type = max existing + 1 (per type, per company).
     /// <para><b>Computed by SCANNING the posted vouchers</b> — there is no stored counter and no
     /// <c>last_used_number</c> column anywhere in the schema, so this is not monotone across a

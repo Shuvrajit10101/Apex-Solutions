@@ -1429,6 +1429,31 @@ public partial class MainWindow : Window
             return;
         }
 
+        // census 8.13 — the Import Bank Statement page owns F7 / Alt+F7 / R while it is the current screen
+        // (help.tallysolutions.com/auto-create-vouchers/: "F7 Create Vch/Multi-Vch", "Alt+F7 Create
+        // Voucher(Consolidate)", "R Mark as Regular & Reconcile").
+        //
+        // 🔴 PLACED HERE, ABOVE THE GLOBAL MODIFIER BLOCKS, DELIBERATELY. Bare F7 and Alt+F7 are both already
+        // spent globally (Journal, and Stock Journal / Manufacturing Journal), so without a page-scoped arm ahead
+        // of them this page's two vendor chords would open an inventory voucher instead. The guard is the screen,
+        // so every other page behaves exactly as before — the same shape as the `Key.F9 when vm.IsReorderStatusReport`
+        // arm below. R additionally needs `!IsTyping(e)`: this page carries a CSV-path text box, and an "r" typed
+        // into it must not post a batch of pending vouchers.
+        if (vm.CurrentScreen == Screen.BankStatementImport && vm.BankStatementImport is { } statementImport)
+        {
+            var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+            var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            switch (e.Key)
+            {
+                case Key.F7 when alt && !ctrl:
+                    statementImport.CreateConsolidatedVoucherForSelection(); e.Handled = true; return;
+                case Key.F7 when !alt && !ctrl:
+                    statementImport.CreateVouchersForSelection(); e.Handled = true; return;
+                case Key.R when !alt && !ctrl && !IsTyping(e):
+                    statementImport.MarkSelectedAsRegular(); e.Handled = true; return;
+            }
+        }
+
         // Inventory/order voucher shortcuts (modifier + F-key). Checked before the plain F-key switch so a
         // modified F-key never falls through to its bare-key report/voucher action.
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
@@ -2045,6 +2070,17 @@ public partial class MainWindow : Window
 
     private void OnImportBankStatementClick(object? sender, RoutedEventArgs e)
         => Vm?.BankStatementImport?.Import();
+
+    // census 8.13 — auto-create vouchers from the imported statement. Both chords create OPTIONAL vouchers only;
+    // R is the separate, deliberate act that puts them on the books.
+    private void OnCreateStatementVouchersClick(object? sender, RoutedEventArgs e)
+        => Vm?.BankStatementImport?.CreateVouchersForSelection();
+
+    private void OnCreateConsolidatedStatementVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.BankStatementImport?.CreateConsolidatedVoucherForSelection();
+
+    private void OnMarkOptionalVouchersRegularClick(object? sender, RoutedEventArgs e)
+        => Vm?.BankStatementImport?.MarkSelectedAsRegular();
 
     private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
         => Vm?.ScenarioMaster?.Create();

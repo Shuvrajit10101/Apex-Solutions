@@ -500,11 +500,28 @@
                         <TextBlock Grid.Row="0" Text="{Binding Title}"
                                    FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                    HorizontalAlignment="Center" Margin="0,12,0,2"/>
-                        <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
-                                   FontSize="12" Foreground="#555555"
-                                   HorizontalAlignment="Center" Margin="0,0,0,10"
-                                   TextTrimming="CharacterEllipsis"
-                                   ToolTip.Tip="{Binding Subtitle}"/>
+                        <!-- Row 1 holds the subtitle AND, on the e-Payments report only, the line saying what
+                             Ctrl+A just did. They are STACKED rather than both placed at Grid.Row="1": two
+                             children in one Auto row draw on top of each other, and the export status wraps, so
+                             an overlap here would obscure the very sentence that names the file just written. -->
+                        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+                          <TextBlock Text="{Binding Subtitle}"
+                                     FontSize="12" Foreground="#555555"
+                                     HorizontalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding Subtitle}"/>
+
+                          <!-- Census 8.10 — what Ctrl+A did on the e-Payments report. Without this the export is a
+                               keystroke with no visible result, which is indistinguishable from a broken one. -->
+                          <TextBlock Text="{Binding EPaymentsExportStatus}"
+                                     IsVisible="{Binding EPaymentsExportStatus,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     HorizontalAlignment="Center" Margin="12,4,12,0"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding EPaymentsExportStatus}"/>
+                        </StackPanel>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
@@ -5130,31 +5147,6 @@
                                          the store. Labels carry TextTrimming and the boxes a fixed 110px so a
                                          narrow window slices neither. -->
                                     <StackPanel Spacing="8" IsVisible="{Binding ShowChequeDimensions}">
-                                      <TextBlock Text="Bank Identity (deposit slip / payment advice)"
-                                                 FontWeight="SemiBold" FontSize="12"
-                                                 Foreground="{StaticResource BrandNavy}"/>
-                                      <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto"
-                                            ColumnSpacing="10" RowSpacing="6">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Account number"
-                                                   FontWeight="SemiBold" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                   Foreground="{StaticResource BrandNavy}"/>
-                                        <TextBox Grid.Row="0" Grid.Column="1"
-                                                 Text="{Binding BankAccountNumber, Mode=TwoWay}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Branch name"
-                                                   FontWeight="SemiBold" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                   Foreground="{StaticResource BrandNavy}"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1"
-                                                 Text="{Binding BankBranch, Mode=TwoWay}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="IFSC"
-                                                   FontWeight="SemiBold" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                   Foreground="{StaticResource BrandNavy}"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1"
-                                                 Text="{Binding BankIfsc, Mode=TwoWay}"/>
-                                      </Grid>
-
                                       <TextBlock Text="Cheque Dimensions (millimetres, measured from the leaf edges)"
                                                  FontWeight="SemiBold" FontSize="12"
                                                  TextWrapping="Wrap"
@@ -5330,6 +5322,50 @@
                                                 Click="OnRemoveChequeBookClick"/>
                                       </Grid>
                                     </StackPanel>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Bank Identity — census 8.6/8.7 for a BANK ledger (the company's own account,
+                                     printed on a deposit slip and a payment advice) and census 8.10 for a PARTY
+                                     ledger (the BENEFICIARY's account, which is what a payment-instruction file
+                                     pays to).
+                                     🔴 IT IS ITS OWN BORDER, OUTSIDE THE CHEQUE PRINTING ONE, AND THAT IS THE
+                                     WHOLE FIX. While it lived inside that Border it inherited
+                                     IsVisible="{Binding ShowChequePrinting}", so for any party ledger the block
+                                     was not merely collapsed — it was never realised. The three v57 columns
+                                     therefore had NO writer for a supplier, no beneficiary could carry an account
+                                     number, and every e-payment would have been stuck in the
+                                     "Incomplete/Incorrect Transaction Details" bucket for ever. Measured on this
+                                     branch; EPaymentsReachabilityTests walks the realised visual tree to keep it
+                                     from happening again. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowBankIdentity}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="{Binding BankIdentityHeading}"
+                                               FontWeight="SemiBold" FontSize="12.5" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto"
+                                          ColumnSpacing="10" RowSpacing="6">
+                                      <TextBlock Grid.Row="0" Grid.Column="0" Text="Account number"
+                                                 FontWeight="SemiBold" FontSize="12.5"
+                                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Row="0" Grid.Column="1"
+                                               Text="{Binding BankAccountNumber, Mode=TwoWay}"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="0" Text="Branch name"
+                                                 FontWeight="SemiBold" FontSize="12.5"
+                                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Row="1" Grid.Column="1"
+                                               Text="{Binding BankBranch, Mode=TwoWay}"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="0" Text="IFSC"
+                                                 FontWeight="SemiBold" FontSize="12.5"
+                                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Row="2" Grid.Column="1"
+                                               Text="{Binding BankIfsc, Mode=TwoWay}"/>
+                                    </Grid>
                                   </StackPanel>
                                 </Border>
 
@@ -20138,7 +20174,8 @@
                                     Content="{Binding BankStatementImport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:BankStatementImportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                          <Grid x:Name="BankStatementPane"
+                                RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
@@ -20183,50 +20220,166 @@
                                        FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
                                        Margin="8,0,8,6"/>
 
-                            <!-- Column header band (navy) -->
-                            <Border Grid.Row="5" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="150,90,*,120,110,100">
-                                <TextBlock Grid.Column="0" Text="Status" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="Date" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Description" Classes="colHdr"/>
-                                <TextBlock Grid.Column="3" Text="Instrument" Classes="colHdr"/>
-                                <TextBlock Grid.Column="4" Text="Amount" Classes="colHdr"/>
-                                <TextBlock Grid.Column="5" Text="Bank Date" Classes="colHdr"/>
+                            <!-- Column header band (navy). The first and last columns are census 8.13: the tick
+                                 that selects a line for F7/Alt+F7 and the vendor's "Ledger Name" column.
+                                 🔴 THE WHOLE TABLE SCROLLS HORIZONTALLY INSIDE ITS OWN VIEWPORT, and that is
+                                 measured, not decorative. This page column is 638px wide at 1280x720 DIP, and the
+                                 eight headings alone need ~780px: with the columns simply squeezed, the
+                                 Description column was allotted ZERO pixels and "Instrument" and "Bank Date" were
+                                 both sliced. Abbreviating the captions to fit would trade one unreadable thing
+                                 for another, so the band and the rows share ONE horizontal scroller at a fixed
+                                 content width instead — the standing rule for wide content. The header and the
+                                 rows are inside the SAME scroller so they cannot drift apart. -->
+                            <ScrollViewer Grid.Row="5" Grid.RowSpan="2"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled">
+                            <Grid RowDefinitions="Auto,*"
+                                  Width="{Binding #BankStatementPane.Bounds.Width}" MinWidth="966">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="30,140,88,*,130,108,120,170" MinWidth="966">
+                                <TextBlock Grid.Column="1" Text="Status" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Description" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Instrument" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Amount" Classes="colHdr"/>
+                                <TextBlock Grid.Column="6" Text="Bank Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="7" Text="Ledger Name" Classes="colHdr"/>
                               </Grid>
                             </Border>
 
-                            <ScrollViewer Grid.Row="6" Background="White">
+                            <ScrollViewer Grid.Row="1" Background="White">
                               <ItemsControl ItemsSource="{Binding Results}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:StatementResultRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                             Background="{Binding Kind, Converter={x:Static conv:StatementRowBrushConverter.Instance}}">
-                                      <Grid ColumnDefinitions="150,90,*,120,110,100" Height="26">
-                                        <TextBlock Grid.Column="0" Text="{Binding StatusLabel}"
+                                      <Grid ColumnDefinitions="30,140,88,*,130,108,120,170" MinWidth="966" Height="28">
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  IsVisible="{Binding CanCreateVoucher}"
+                                                  Margin="8,0,0,0" VerticalAlignment="Center"
+                                                  ToolTip.Tip="Select this statement line for F7 (create voucher)"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding StatusLabel}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="11"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Date}"
+                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Date}"
                                                    VerticalAlignment="Center" FontSize="11" Foreground="#555555"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Description}"
+                                        <TextBlock Grid.Column="3" Text="{Binding Description}"
                                                    VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Description}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Instrument}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#333333"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="3" Text="{Binding Instrument}"
-                                                   VerticalAlignment="Center" FontSize="11" Foreground="#333333"/>
-                                        <TextBlock Grid.Column="4" Text="{Binding Amount}"
+                                        <TextBlock Grid.Column="5" Text="{Binding Amount}"
                                                    VerticalAlignment="Center" FontSize="11"/>
-                                        <TextBlock Grid.Column="5" Text="{Binding BankDate}"
+                                        <TextBlock Grid.Column="6" Text="{Binding BankDate}"
                                                    VerticalAlignment="Center" FontSize="11" Foreground="#555555"/>
+                                        <ComboBox Grid.Column="7" IsVisible="{Binding CanCreateVoucher}"
+                                                  ItemsSource="{Binding LedgerChoices}"
+                                                  SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                  PlaceholderText="choose a ledger…"
+                                                  HorizontalAlignment="Stretch" Margin="2,1"
+                                                  FontSize="11" MinHeight="24">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="ledger:Ledger">
+                                              <TextBlock Text="{Binding Name}" FontSize="11"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            </Grid>
+                            </ScrollViewer>
 
-                            <TextBlock Grid.Row="7" Text="{Binding Message}"
-                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
-                                       Margin="2,4,0,2" TextWrapping="Wrap"/>
+                            <!-- census 8.13 — auto-create vouchers from the statement (F7 / Alt+F7). -->
+                            <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="8,6,8,4" Spacing="8">
+                              <Button Content="Create Vch/Multi-Vch (F7)" Padding="10,5"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnCreateStatementVouchersClick"
+                                      ToolTip.Tip="One OPTIONAL voucher per ticked statement line"/>
+                              <Button Content="Create Voucher — Consolidate (Alt+F7)" Padding="10,5"
+                                      Click="OnCreateConsolidatedStatementVoucherClick"
+                                      ToolTip.Tip="One OPTIONAL voucher for the combined amount of the ticked lines"/>
+                            </StackPanel>
+
+                            <!-- census 8.13 — the review queue. Nothing here is in any balance yet. -->
+                            <TextBlock Grid.Row="8" Text="{Binding OptionalVouchersHeading}"
+                                       IsVisible="{Binding HasOptionalVouchers}"
+                                       FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                       Margin="8,4,8,4" TextWrapping="Wrap"/>
+
+                            <!-- Same one-scroller treatment and for the same measured reason as the band above:
+                                 seven columns of full-width captions do not fit 638px, and a sliced "Ledger Name"
+                                 on the queue an operator is about to POST from is worse here than anywhere. -->
+                            <ScrollViewer Grid.Row="9" Grid.RowSpan="2"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          IsVisible="{Binding HasOptionalVouchers}">
+                            <Grid RowDefinitions="Auto,*"
+                                  Width="{Binding #BankStatementPane.Bounds.Width}" MinWidth="786">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="30,88,100,110,170,108,*" MinWidth="786">
+                                <TextBlock Grid.Column="1" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Vch No." Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Type" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Ledger Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Amount" Classes="colHdr"/>
+                                <TextBlock Grid.Column="6" Text="Narration" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="1" Background="White" MaxHeight="150">
+                              <ItemsControl ItemsSource="{Binding OptionalVouchers}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:OptionalVoucherRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="30,88,100,110,170,108,*" MinWidth="786" Height="26">
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  Margin="8,0,0,0" VerticalAlignment="Center"
+                                                  ToolTip.Tip="Select this pending voucher for R (mark regular and reconcile)"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Date}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Number}"
+                                                   VerticalAlignment="Center" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding VoucherType}"
+                                                   VerticalAlignment="Center" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding LedgerName}"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding LedgerName}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Amount}"
+                                                   VerticalAlignment="Center" FontSize="11"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Narration}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Narration}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                            </Grid>
+                            </ScrollViewer>
+
+                            <StackPanel Grid.Row="11" Orientation="Vertical" Margin="2,4,0,2" Spacing="4">
+                              <Button Content="Mark as Regular &amp; Reconcile (R)" Padding="10,5"
+                                      HorizontalAlignment="Left"
+                                      IsVisible="{Binding HasOptionalVouchers}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnMarkOptionalVouchersRegularClick"
+                                      ToolTip.Tip="Post the ticked pending vouchers and stamp their bank dates"/>
+                              <TextBlock Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                         TextWrapping="Wrap"/>
+                            </StackPanel>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

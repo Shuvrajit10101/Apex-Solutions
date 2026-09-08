@@ -142,6 +142,10 @@ public enum ReportKind
     /// Deposit Slip and Cheque Deposit Slip), switched on F5.</summary>
     DepositSlip,
 
+    /// <summary>help.tallysolutions.com/e-payments-report/ (census row 8.10) — the electronic payments waiting to
+    /// go to the bank, in the vendor's sections, with Ctrl+A exporting the payment-instruction file.</summary>
+    EPayments,
+
     // ---- W7-D2: the PF statutory forms beyond the ECR (census row 7.20) ----
     // Reports → Statutory Reports → Payroll → Provident Fund. Pure re-presentations of the SAME PfEcr projection
     // the ECR and the challan come from (Apex.Ledger/Reports/PfStatutoryForms.cs) — no new PF arithmetic. Forms 3A
@@ -1231,6 +1235,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ChequeRegister: BuildChequeRegister(); break;
             case ReportKind.ChequeRegisterDetail: BuildChequeRegisterDetail(); break;
             case ReportKind.DepositSlip: BuildDepositSlip(); break;
+            case ReportKind.EPayments: BuildEPayments(); break;
 
             // W7-D2 — the PF statutory forms beyond the ECR (census 7.20). Every one of these reaches an engine
             // that THROWS on an incompletely set-up payroll (see RunStatutoryForm), and Show() has no handler.
@@ -1498,6 +1503,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.ChequeRegister] = "ChequeRegister",
         [ReportKind.ChequeRegisterDetail] = "ChequeRegisterDetail",
         [ReportKind.DepositSlip] = "DepositSlip",
+        [ReportKind.EPayments] = "EPayments",
         // W7-D2 payroll statutory forms (census 7.20 / 7.21). Every ReportKind MUST appear here: TokenFor indexes
         // this dictionary directly, so a kind with no token throws KeyNotFoundException the moment an operator
         // presses Alt+K to save the view — which is what these eight did before this line existed.
@@ -1711,6 +1717,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ChequePrinting:
             case ReportKind.SupplierPaymentAdvice:
             case ReportKind.DepositSlip:
+            // Census 8.10 — an e-Payments row drills to the payment that raised it, which is how an operator
+            // reaches the entry an exception row is complaining about.
+            case ReportKind.EPayments:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
@@ -3679,7 +3688,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Kind is ReportKind.ChequePrinting
              or ReportKind.ChequeRegister
              or ReportKind.ChequeRegisterDetail
-             or ReportKind.DepositSlip;
+             or ReportKind.DepositSlip
+             // census 8.10 - F4 scopes the e-Payments report to one remitting bank, or leaves it on All Banks.
+             or ReportKind.EPayments;
 
     /// <summary>"All Banks", then every ledger with cheque printing enabled. Built once in the ctor.</summary>
     public ObservableCollection<ChequeBankOption> ChequeBanks { get; } = new();
@@ -4068,6 +4079,147 @@ public sealed partial class ReportsViewModel : ViewModelBase
             });
         else
             Rows.Add(ReportRow.Total("Total deposited", slip.Total));
+    }
+
+    // =============================================================== census 8.10 — e-Payments
+
+    /// <summary>True on the e-Payments report — drives its Ctrl+A export and the status line under the grid.</summary>
+    public bool IsEPayments => Kind == ReportKind.EPayments;
+
+    /// <summary>The last e-Payments projection, kept so Ctrl+A exports exactly the rows on screen rather than
+    /// re-deriving them from parameters that may have moved.</summary>
+    private EPaymentsReport? _ePayments;
+
+    /// <summary>Where the last payment-instruction export went, or why it did not. Shown on the report.</summary>
+    [ObservableProperty] private string _ePaymentsExportStatus = string.Empty;
+
+    /// <summary>
+    /// <b>e-Payments</b> (census row 8.10) — <c>help.tallysolutions.com/e-payments-report/</c>. The electronic
+    /// payments in the period, under the vendor's own section headings: <b>Ready for Sending to Bank</b> first,
+    /// then <b>Incomplete/Incorrect Bank Ledger Master Details</b> and <b>Incomplete/Incorrect Transaction
+    /// Details</b>. Each exception row carries the sentence that says what to fix and on which master.
+    ///
+    /// <para><b>F4</b> scopes it to one remitting bank; the default is All Banks, which is what the vendor's
+    /// report shows. <b>Ctrl+A</b> exports the payment-instruction file for the ready rows.</para>
+    ///
+    /// <para>Two of the vendor's sections are deliberately ABSENT and the report says so on its own face rather
+    /// than leaving an operator to wonder: "Sent to Bank (Unreconciled)" with its In Progress / Successful /
+    /// Unsuccessful split needs a stored export-and-response state that this schema has no column for, and
+    /// "Mismatch in Bank Details (With Masters)" needs a per-transaction copy of the payee's account to compare
+    /// against the master. See <see cref="EPayments"/> for the full statement.</para>
+    /// </summary>
+    private void BuildEPayments()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = false;
+        Title = "e-Payments";
+        EPaymentsExportStatus = string.Empty;
+
+        var bankId = SelectedChequeBank?.LedgerId is { } id && id != Guid.Empty ? id : (Guid?)null;
+        var bank = bankId is null ? null : _company.FindLedger(bankId.Value);
+        var scope = bank?.Name ?? "All Banks";
+
+        var report = EPayments.Build(_company, bank, period);
+        _ePayments = report;
+
+        Subtitle = $"{CompanyName}  —  {FormatDate(period.From)} to {FormatDate(period.To)}"
+                   + $"  —  {scope} (F4 switches)  —  NEFT and RTGS payments";
+
+        Section("Ready for Sending to Bank", report.ReadyForSendingToBank, showReason: false);
+        Section("Incomplete/Incorrect Bank Ledger Master Details", report.IncompleteBankLedgerMaster,
+            showReason: true);
+        Section("Incomplete/Incorrect Transaction Details", report.IncompleteTransactionDetails,
+            showReason: true);
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"No NEFT or RTGS payment left {scope} in this period. A payment is an e-payment "
+                              + "when its bank allocation records the transfer as NEFT or RTGS.",
+                IsHeader = true,
+            });
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Ctrl+A exports a payment instruction file for the rows that are ready. The layout is "
+                          + "Apex's own documented CSV — no bank publishes one this product could clone — so "
+                          + "check it against your bank's upload template before you use it.",
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Not shown: whether a payment has already been sent to the bank, and whether the bank "
+                          + "accepted it. Neither is recorded anywhere in this product, so no section claims it.",
+            IsHeader = true,
+        });
+
+        void Section(string heading, IReadOnlyList<EPaymentRow> section, bool showReason)
+        {
+            if (section.Count == 0) return;
+            Rows.Add(new ReportRow { Particulars = heading, IsHeader = true });
+            foreach (var r in section)
+                Rows.Add(new ReportRow
+                {
+                    Particulars = FormatDate(r.Date)
+                                  + $"  ·  {(r.PayeeName.Length == 0 ? "(no single beneficiary)" : r.PayeeName)}"
+                                  + $"  ·  {r.TransactionType} from {r.BankLedgerName}"
+                                  + (showReason ? $"  —  {r.Reason}" : string.Empty),
+                    Secondary = $"Vch No. {r.FormattedNumber}",
+                    Amount = IndianFormat.Amount(r.Amount),
+                    DrillVoucherId = r.VoucherId,
+                });
+            if (!showReason)
+                Rows.Add(ReportRow.Total("Total ready for sending to bank", report.ReadyTotal));
+        }
+    }
+
+    /// <summary>
+    /// <b>Ctrl+A on the e-Payments report</b> — writes the payment-instruction file for the rows that are ready
+    /// (the vendor's <b>Export &gt; Payment Instructions</b>). Refuses, with a reason, when there is nothing
+    /// ready: a zero-row instruction file uploaded to a bank portal is a support call, not an export.
+    ///
+    /// <para>Ctrl+A rather than the vendor's Alt+E because Alt+E on this product is the generic report Export
+    /// panel (CSV / XLSX / PDF / HTML / XML / JSON / ASCII), which this report needs as much as any other;
+    /// taking it would have removed a working route to add one. Ctrl+A is this codebase's own established key for
+    /// "write this return's file" — the Kerala Flood Cess return, Form 24Q's FVU and Form 16's PDF all sit on
+    /// it — so the chord is a divergence from the vendor and a match for the product it is in.</para>
+    /// </summary>
+    public string? ExportPaymentInstructions()
+    {
+        if (!IsEPayments || _ePayments is not { } report)
+        {
+            EPaymentsExportStatus = "Payment instructions are exported from the e-Payments report.";
+            return null;
+        }
+
+        if (report.ReadyForSendingToBank.Count == 0)
+        {
+            EPaymentsExportStatus =
+                "Nothing is ready to send. Every e-payment in this period is missing a bank account number or an "
+                + "IFS code — fix the masters named above and the rows will move into 'Ready for Sending to Bank'.";
+            return null;
+        }
+
+        var text = EPayments.BuildPaymentInstructionFile(_company, report);
+        var folder = Apex.Desktop.Services.ExportFolderDefault.Resolve();
+        var file = $"PaymentInstructions-{report.From:yyyyMMdd}-{report.To:yyyyMMdd}.csv";
+
+        try
+        {
+            System.IO.Directory.CreateDirectory(folder);
+            var path = System.IO.Path.Combine(folder, file);
+            System.IO.File.WriteAllText(path, text);
+            EPaymentsExportStatus =
+                $"Saved {path} — {report.ReadyForSendingToBank.Count} payment(s), "
+                + $"{IndianFormat.Amount(report.ReadyTotal)} in total.";
+            return path;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException
+                                      or NotSupportedException or ArgumentException)
+        {
+            EPaymentsExportStatus = $"Could not write the payment instruction file: {ex.Message}";
+            return null;
+        }
     }
 
     /// <summary>The supplier advices the current report holds, so Ctrl+P can render the LETTER rather than the
