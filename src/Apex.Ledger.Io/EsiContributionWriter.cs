@@ -12,7 +12,9 @@ namespace Apex.Ledger.Io;
 /// delimited file offline (project decision — no online upload). It mirrors the deterministic, byte-stable
 /// discipline of <see cref="EcrWriter"/>/<see cref="CsvWriter"/>: integers only (the file carries no paisa),
 /// invariant-culture formatting, no clock, no RNG, and every free-text field de-branded (ER-11) + delimiter-safe so
-/// a stray token in a user field can never corrupt the record framing. Rows are emitted in the return's
+/// a stray token in a user field can never corrupt the record framing + put through
+/// <see cref="SpreadsheetFormulaGuard"/>, because this one is written with a <c>.csv</c> extension and is opened in
+/// a spreadsheet before it is uploaded. Rows are emitted in the return's
 /// already-deterministic order (IP number then name); the file has no trailing empty line.
 /// </summary>
 public static class EsiContributionWriter
@@ -38,13 +40,31 @@ public static class EsiContributionWriter
         return Encoding.UTF8.GetBytes(sb.ToString());
     }
 
-    // ---- field encoders (invariant, de-branded, delimiter-safe) ----
+    // ---- field encoders (invariant, de-branded, delimiter-safe, formula-guarded) ----
 
+    /// <summary>
+    /// 🔴 <b>THIS FILE IS WRITTEN AS <c>.csv</c> AND A CLERK OPENS IT, so the spreadsheet-formula-injection guard
+    /// (OWASP "CSV injection") applies here exactly as it does to the product's other CSV exports.</b>
+    /// <c>EsiContributionReportViewModel</c> writes these bytes to <c>&lt;employer code&gt;_yyyy_MM.csv</c>; the
+    /// operator checks the file before uploading it to ESIC, and a double-click opens it in a spreadsheet, where a
+    /// field beginning <c>= + - @</c> is EXECUTED. The IP NAME and IP NUMBER on every line are user-typed. Before
+    /// this guard, an Insured Person named <c>=cmd|'/c calc'!A1</c> ran on open.
+    ///
+    /// <para>🔴 <b>The guard runs LAST here, and that ordering is the opposite of the quoting exporters' — for a
+    /// reason.</b> Where a field is QUOTED, neutralising first is required so the <c>'</c> lands inside the quotes.
+    /// This writer has no quoting: it makes the field framing-safe by REPLACING the delimiter and CR/LF with a
+    /// space, and that replacement can expose a trigger that was not first before — <c>",=cmd|'/c calc'!A1"</c>
+    /// becomes <c>" =cmd|'/c calc'!A1"</c>, which the guard's leading-space skip catches but only if it runs
+    /// afterwards. Neutralising first would return that field untouched and ship the formula. Numbers are NOT
+    /// routed through here: <see cref="Int"/> is a separate encoder, so a negative figure can never collect an
+    /// apostrophe and stop being a number.</para>
+    /// </summary>
     private static string Text(string? value)
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
         var cleaned = Debrand.Text(value);
-        return cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+        return SpreadsheetFormulaGuard.Neutralize(
+            cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' '));
     }
 
     /// <summary>
@@ -53,11 +73,16 @@ public static class EsiContributionWriter
     /// token out of a real person's legal name files them under a name that is not theirs. The record-framing
     /// guard STAYS: a stray comma or newline in a name would shift every later field on the line. Pinned by
     /// <c>EsiContributionWriterTests</c> with a fixture name that actually contains the delimiter.
+    ///
+    /// <para>The formula guard runs here too, and last, for the reason given on <see cref="Text"/>. It PREFIXES
+    /// and never rewrites, so the person's own name still reaches ESIC verbatim after the apostrophe — and no real
+    /// legal name begins with <c>= + - @</c>, so on real data this encoder is a no-op.</para>
     /// </summary>
     private static string Name(string? value)
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
-        return value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+        return SpreadsheetFormulaGuard.Neutralize(
+            value.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' '));
     }
 
     private static string Int(long value) => value.ToString(CultureInfo.InvariantCulture);
