@@ -129,7 +129,9 @@ public class CanonicalTdsTcsRoundTripTests
         Assert.True(model.Company.Tds!.Enabled);
         Assert.Equal(ValidTan, model.Company.Tds.Tan);
         Assert.Equal("Company", model.Company.Tds.DeductorType);
-        Assert.Equal(8, model.Company.Tds.NaturesOfPayment.Count);
+        // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08); TCS is untouched at 8. The two
+        // counts differ on purpose now, so read the property name before changing either.
+        Assert.Equal(11, model.Company.Tds.NaturesOfPayment.Count);
         Assert.True(model.Company.Tds.SurchargeApplicable);
 
         Assert.NotNull(model.Company.Tcs);

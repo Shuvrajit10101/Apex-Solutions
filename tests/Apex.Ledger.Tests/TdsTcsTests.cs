@@ -88,8 +88,9 @@ public class TdsTcsTests
         svc.EnableTds(new TdsConfig { Tan = ValidTan, ResponsiblePersonName = "A. Sharma", ResponsiblePersonPan = ValidPan });
 
         Assert.True(c.TdsEnabled);
-        // The 8 predefined Nature-of-Payment masters (194I/194J bifurcated) are seeded.
-        Assert.Equal(8, c.NaturesOfPayment.Count);
+        // The 11 predefined Nature-of-Payment masters are seeded: the Phase-7 eight (194I/194J bifurcated) plus
+        // census row 6.35's first long-tail instalment — 194T, 194R, 194S (2026-09-08).
+        Assert.Equal(11, c.NaturesOfPayment.Count);
 
         // "TDS Payable" auto-created under Duties & Taxes, tagged, and excluded from the item-invoice pairing sum.
         var payable = svc.FindPayableLedger(TdsTcsLedgerKind.Tds)!;
@@ -178,7 +179,10 @@ public class TdsTcsTests
             Assert.True(n.IsPredefined);
         }
 
-        Assert.Equal(8, byCode.Count);
+        // 🔴 ELEVEN, NOT EIGHT, SINCE 2026-09-08 — census row 6.35's first long-tail instalment added §194T,
+        // §194R and §194S. The count assertion is kept (rather than relaxed to `>= 8`) precisely because it is
+        // what forces a seeding pass to come here and state the new rows' figures explicitly.
+        Assert.Equal(11, byCode.Count);
         Check("194A", 1000, 2000, "94A", null, 10_000m); // generic (non-bank) SMB default (A14); bank ₹50k is a later refinement
         Check("194C", 100, 2000, "94C", 30_000m, 1_00_000m);
         Check("194H", 200, 2000, "94H", null, 20_000m);
@@ -192,6 +196,15 @@ public class TdsTcsTests
         Check("194J(a)", 200, 2000, "94J-A", null, 50_000m);
         Check("194J(b)", 1000, 2000, "94J-B", null, 50_000m);
         Check("194Q", 10, 500, "94Q", null, 50_00_000m); // no-PAN = 5% special §206AA cap, NOT 20%
+
+        // ── Census row 6.35, the long tail's first instalment (2026-09-08) ────────────────────────────────
+        // Every figure below is quoted from the operative sentence of the bare Act in SeedTdsTcsRates, and
+        // every FVU code from the NOTIFIED Form 26Q's own section-code table. No-PAN is 20% on all three:
+        // §206AA(1)(iii)'s twenty per cent beats each section rate, and the two five-per-cent provisos name
+        // only §194-O and §194Q.
+        Check("194T", 1000, 2000, "94T", null, 20_000m);  // §194T(1) 10% · §194T(2) "does not exceed ₹20,000"
+        Check("194R", 1000, 2000, "94R", null, 20_000m);  // §194R(1) 10% · 2nd proviso "does not exceed ₹20,000"
+        Check("194S", 100, 2000, "94S", null, 10_000m);   // §194S(1) 1% · §194S(3)(b) "does not exceed ₹10,000"
     }
 
     [Fact]

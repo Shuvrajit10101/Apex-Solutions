@@ -97,10 +97,10 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         page.DeductorType = page.DeductorTypes.First(o => o.Value == DeductorType.Company);
         Assert.True(page.ApplyTds());
 
-        // Company TDS is on, TAN captured, 8 predefined Nature-of-Payment masters seeded, payable ledger created.
+        // Company TDS is on, TAN captured, the predefined Nature-of-Payment masters seeded, payable ledger created.
         Assert.True(vm.Company.TdsEnabled);
         Assert.Equal(ValidTan, vm.Company.Tds!.Tan);
-        Assert.Equal(8, vm.Company.NaturesOfPayment.Count);
+        Assert.Equal(11, vm.Company.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
         Assert.Contains(vm.Company.NaturesOfPayment, n => n.SectionCode == "194J(b)");
         Assert.NotNull(vm.Company.FindLedgerByName("TDS Payable"));
         Assert.Contains(page.TdsTcsLedgers, r => r.Name == "TDS Payable");
@@ -109,7 +109,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         var reloaded = Reload(companyName);
         Assert.True(reloaded.TdsEnabled);
         Assert.Equal(ValidTan, reloaded.Tds!.Tan);
-        Assert.Equal(8, reloaded.NaturesOfPayment.Count);
+        Assert.Equal(11, reloaded.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
         Assert.NotNull(reloaded.FindLedgerByName("TDS Payable"));
     }
 
@@ -202,9 +202,9 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         Assert.Null(reloaded.Tds);
         Assert.Empty(reloaded.NaturesOfPayment);
 
-        // Re-enabling on that reloaded company re-seeds the 8 predefined masters cleanly (no duplication).
+        // Re-enabling on that reloaded company re-seeds the predefined masters cleanly (no duplication).
         new Apex.Ledger.Services.TdsTcsService(reloaded).EnableTds(new TdsConfig { Tan = ValidTan });
-        Assert.Equal(8, reloaded.NaturesOfPayment.Count);
+        Assert.Equal(11, reloaded.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
 
         Assert.True(vm.Company!.TdsEnabled);
         Assert.Equal(ValidTan, vm.Company.Tds!.Tan);
-        Assert.Equal(8, vm.Company.NaturesOfPayment.Count);
+        Assert.Equal(11, vm.Company.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
         Assert.NotNull(vm.Company.FindLedgerByName("TDS Payable"));
 
         // And it persists across a reload, exactly like the button path.
@@ -291,7 +291,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         vm.ShowNatureOfPaymentMaster();
         Assert.Equal(Screen.NatureOfPaymentMaster, vm.CurrentScreen);
         var m = vm.NatureOfPaymentMaster!;
-        Assert.Equal(8, m.Natures.Count);
+        Assert.Equal(11, m.Natures.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
         Assert.Contains(m.Natures, r => r.SectionCode == "194Q" && r.Kind == "Predefined");
 
         // Create a custom nature.
