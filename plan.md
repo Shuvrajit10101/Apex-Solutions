@@ -999,6 +999,94 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > complete is **23.5% of 221**, where it was **24.1% of 216**. **That is what an honest denominator move looks
 > like.**
 
+> **▶ 🔴 THREE FURTHER USER RULINGS (R12, 2026-09-09) — SETTLED; DO NOT RE-LITIGATE. THEY RETITLE A CENSUS ROW,
+> THEY FIX THE NEXT TWO SCHEMA VERSIONS, AND THEY CLOSE THE OLDEST ARCHITECTURE QUESTION ON THE DECISION
+> SHEET.** Recorded **here**, beside the 2026-08-15, 2026-08-16, 2026-08-19, 2026-09-03, 2026-09-04, 2026-09-06
+> and 2026-09-07 banners, so all twenty-three rulings are read in one place. Search string for
+> cross-references: `THREE FURTHER USER RULINGS (R12, 2026-09-09)`. What each amends outside this paragraph:
+> **ruling 21** amends `docs/full-clone-census.md` row **1.8** (the TITLE cell, in place) and register row
+> **T1-16**; **ruling 22** fixes the migration order for **v62** and **v63**; **ruling 23** closes owed ruling
+> **U-9** / decision-sheet row **D-4** and unblocks census row **16.1**.
+>
+> **21 · ROW 1.8 IS RETITLED AND BUILT AS `F1: Help > Settings`. THE CAPABILITY IS KEPT; THE WRONG NAME IS
+> DROPPED.**
+>
+> **▶ THE MEASUREMENT THAT FORCED IT, first, because this ruling is a response to a fact.** Two build tracks in
+> a row (wave K3 / PR #82, then wave N / PR #87) carried census row **1.8 — "F12 Configure — the global
+> configuration tree"** in their brief and **declined to build it, on the same ground**. The second track did
+> not inherit the first's cell: it **re-fetched the vendor page itself** and returned verbatim from
+> `help.tallysolutions.com/developer-reference/release-notes-whats-new-in-tdl/working-of-tally-erp-9-customisations-with-tallyprime/`:
+> *"Button F12 has been removed from Menu context."*; *"The menu 'Configuration' has been removed. The related
+> configurations have been added under the respective features."*; and *"the items in the General Configuration
+> have now been placed in the Popup Menu, F1: Help invoked from the top buttons (F1: Help > Settings)"*.
+> **TallyPrime HAS NO GLOBAL F12 CONFIGURATION TREE.** The census row described a feature **the reference
+> product does not have**, and building it as titled would have been **inventing a Tally.ERP 9 artefact into a
+> TallyPrime clone**.
+>
+> **▶ WHAT THE USER CHOSE, AND WHY — KEEP THE CAPABILITY, DROP THE WRONG NAME.** The global configuration layer
+> genuinely exists; it lives at **F1: Help > Settings**, and **F12 remains contextual**, overriding the global
+> layer *per report* (`help.tallysolutions.com/working-with-reports/`) — which is what census row **1.9** has
+> always described and why 1.9 is untouched. So: **retitle row 1.8 to the settings surface the vendor actually
+> ships, and build that.** 🔴 **AND GATE THE DEAD `F12` BUTTON** — `ButtonBar.Add(new ButtonBarItem("F12",
+> "Configure", F12Configure))`, which the ruling located at `MainWindowViewModel.cs:11245` and A12 re-measured
+> on `origin/main` `53d43a1` at **`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:11298`** (the only
+> `"F12"` button in the file; only the line number drifted). It is **currently offered to the operator where it
+> does nothing**, which is register defect **IV-31**'s own shape — an enabled badge that fires nothing.
+>
+> **▶ WHAT THIS DOES NOT DO, STATED SO NO TRACK OVER-READS IT.** It does **not** authorise re-introducing a
+> global Configuration **menu** under a different name: the vendor *removed* that surface, and cloning a
+> removed surface is inventing, not cloning. The row **stays `ABSENT` and in scope**; **no state cell and no
+> count moved**, and `CensusDerivationDriftLockTests` was re-run after the retitle to prove it (`sum == rows`).
+> Register row **T1-16** is reshaped by the same ruling and amended in place. 🔴 **AND IT VINDICATES THE TWO
+> REFUSALS:** both tracks that declined to build this row were **right to refuse** — that is the behaviour this
+> project wants, not an exception to apologise for.
+>
+> **22 · SCHEMA ORDER IS FIXED: v62 → ROW 2.6 VOUCHER CLASS, ALONE IN ITS OWN WAVE; THEN v63 → ROWS 10.2 AND
+> 7.19 TOGETHER. DO NOT REORDER THIS.**
+>
+> **▶ THE USER'S REASONING, RECORDED BECAUSE IT DECIDES FUTURE CASES TOO.** **Voucher Class (row 2.6)
+> auto-posts ledger entries** and is therefore a **wrong-money surface** — the class decides what gets debited
+> and credited without the operator typing it. **Its own previous builder asked for a dedicated wave**, and the
+> user granted exactly that: **v62 goes to 2.6 and 2.6 rides alone**, so a defect in it cannot be entangled
+> with anything else in the same migration. **Then v63 covers row 10.2 (Multi Address) and row 7.19 (Labour
+> Welfare Fund) together** — neither auto-posts, so they may share a version.
+>
+> **▶ THE HAZARD THIS EXISTS TO STOP, restated because the project has hit it before:** **two live tracks must
+> never both take the same schema version.** ⚠️ **AND THE BASE NUMBER IS NOT ASSUMED HERE.** `origin/main`
+> `53d43a1` carries `Schema.CurrentVersion = 60`, and **wave 21 is landing v61 in parallel**; the ruling's
+> `v62`/`v63` are therefore **the next two free numbers after wave 21 lands**, and any track taking a migration
+> **must re-measure `Schema.CurrentVersion` on `origin/main` itself and say what it took** rather than quoting
+> this paragraph.
+>
+> **23 · TALLYVAULT (CENSUS ROW 16.1) IS IN SCOPE, AND THE STORAGE-IDENTITY CHANGE IS ACCEPTED. 🔴 THIS CLOSES
+> OWED RULING U-9 / DECISION-SHEET ROW D-4 — the oldest architecture question on the sheet, open since
+> 2026-08.**
+>
+> **▶ THE COLLISION THE RULING ANSWERS.** The vendor encrypts the company *"including the company name"*, while
+> our companies live in a `.db` **named after the company** — so **today the filename leaks the very plaintext
+> the feature exists to hide**, and `CompanyStorage` builds its company list **by enumerating those
+> filenames**. It could never have been bolted on. Offered *(a) take SQLCipher and move to opaque ids · (b)
+> defer both · (c) ship a weaker "encrypt contents, leak the name" version*, the user chose **(a)** — and **(c)
+> was ruled out on the sheet's own ground: a vault that names the company it is hiding is a feature that lies
+> about itself.**
+>
+> **▶ WHAT THE USER EXPLICITLY ACCEPTED, NAMED, BECAUSE THESE ARE THE COSTS AND THEY WERE PUT TO HIM.** (i) **a
+> new NATIVE dependency with its own licence** (SQLCipher); (ii) **three-OS CI risk** — a native library must
+> build and load on ubuntu, windows and macos, and this project's gate is all three; (iii) **company `.db`
+> files are no longer named after the company**, so `CompanyStorage`'s filename-enumeration listing must be
+> replaced by a name held **inside** the encrypted book. **R13 (secrets) applies throughout** — no passphrase,
+> key or derived material in the repo. 🔴 **AND THE BRAND RULE BITES HARDEST HERE:** the vendor's feature is
+> called *TallyVault*; **whatever WE ship must carry OUR name, not theirs** — the shipped app and code must
+> never contain the word "Tally" in a user-visible string. The census row keeps the vendor's name **as the
+> reference-product identifier only**; the build track must state what it called the shipped feature.
+>
+> **▶ 🔴 WHAT WAS *NOT* RULED, AND THEREFORE IS *NOT* SCOPE — SAID PLAINLY SO NO TRACK READS RULING 23 WIDER
+> THAN IT IS.** The user ruled on **16.1 only**. **NOT ruled in, and all three stay exactly as they are:**
+> (a) **census row 16.7 Group Company / the multi-company primitive** — it remains open under decision-sheet
+> row **D-6**, and ruling 23 does **not** touch it even though both rows live in Area 16; (b) **any change to
+> how rows 8.11 and 8.12 sit in the denominator** — that question **remains open and unanswered**; (c)
+> consequently **the in-scope denominator does not move**: it stays **221 of an honest 224**.
+
 > **▶ 🔴 THE OWED-RULINGS DECISION SHEET — REWRITTEN 2026-09-07 SO IT CAN BE ANSWERED IN ONE SITTING. THIS
 > SUPERSEDES THE STATUS (NOT THE TEXT) OF THE `TEN RULINGS ARE STILL OWED` BATCH IMMEDIATELY BELOW, WHICH IS
 > KEPT AS THE LONG-FORM RECORD.** Rulings 14–20 closed **U-0**, **U-3**, the whole **ten-row gate**, the
@@ -1011,7 +1099,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > | **D-1** *(was T0-5)* | The product deducts a **4% Health & Education cess** from real salaries on the default **TY 2026-27** path, and the code's own comment says the rate was never verified — the only URL that ever carried it **404s**. | (a) Re-source it to a live `incometaxindia.gov.in` page and cite that; (b) refuse to compute TY 2026-27 until sourced; (c) ship it as a labelled divergence. | **(a), and it is first on this sheet.** This is the only item that takes money off a real payslip on a figure nobody can stand behind. If (a) fails, **(b)** — a blank with a footnote is honest; a confident wrong deduction is not. | Any payroll slice touching TY 2026-27 salary TDS. The census's own citation test checks paths, **never web citations**, so nothing in the repo would ever notice this again. |
 > | **D-2** *(was T0-6, residual)* | `SeedTdsTcsRates.cs` once cited **cleartax / disytax** for **shipped** TDS/TCS rates; it has since been re-sourced to the bare Act and the Department's charts, but the **[CHART-TDS]** page **contradicts itself about its own vintage** (it claims AY 2026-27 *and* "as amended by Finance Act 2026" in the same document) and carries no Year metadata to resolve it. | (a) Pin every rate to a **bare-Act section at its year slug** and drop the chart as a source; (b) keep the chart with the contradiction recorded; (c) freeze the seed at FY 2025-26 and refuse later years. | **(a).** The bare-Act pages carry a Year discriminator and the chart does not; this project has already been bitten once by treating a page's own claim as settled. **Say plainly that T0-6 is substantially closed** — it is no longer blog-cited — **and that this is the residue**, not the original defect. | Nothing is dispatched into it today; but **T1-21** means a wrong seeded rate has **no in-app remedy** (both master screens are create-only), so it stays on the sheet. |
 > | **D-3** *(was U-6, remaining arms)* | Two attested vendor chords are still occupied by unattested verbs — **`Alt+I`** (vendor: Insert Voucher; ours: the POS tender toggle) and **`Alt+K`** (vendor: Company menu; ours: Saved Views) — and **`Alt+A`**'s attested arm is **third** in arbitration behind two unattested ones. | (a) One ruling over the whole map, releasing both chords and fixing `Alt+A`'s order; (b) release `Alt+I` only; (c) leave both and record the divergence. | **(a).** Ruling 17 settled `Ctrl+I` the same way and it worked; **each answer constrains the others**, and wave 3 showed the pattern is larger than three collisions — all three of the vendor's top-level output menus (`Alt+P`, `Alt+E`, `Alt+M`) are also wrong, which makes this a **navigation-shell** question, not a chord question. | Register rows **T2-14**, **T2-15**, **T2-18**; the nine census rows sitting behind the three `Alt` menus. **T2-17 is closed.** |
-> | **D-4** *(was U-9)* | **TallyVault** (census 16.1) needs a crypto dependency **and** a storage-identity change, because the vendor encrypts the company *"including the company name"* while our companies live in a `.db` **named after the company** — the filename leaks the plaintext the feature exists to hide. | (a) Take SQLCipher **and** move to opaque company ids with a name held inside the encrypted book; (b) defer both; (c) ship a weaker "encrypt contents, leak the name" version. | **(a) or (b), never (c).** A vault that names the company it is hiding is a feature that lies about itself. **Decide the dependency and the storage layout together** — they cannot be sequenced apart. R13 applies. | Census row **16.1** entirely, and any company-rename work, which is out of scope for the same filename reason. |
+> | ~~**D-4**~~ 🔴 **CLOSED 2026-09-09 BY RULING 23 — option (a) TAKEN.** *(was U-9)* | **TallyVault** (census 16.1) needs a crypto dependency **and** a storage-identity change, because the vendor encrypts the company *"including the company name"* while our companies live in a `.db` **named after the company** — the filename leaks the plaintext the feature exists to hide. | (a) Take SQLCipher **and** move to opaque company ids with a name held inside the encrypted book; (b) defer both; (c) ship a weaker "encrypt contents, leak the name" version. | **(a) or (b), never (c).** A vault that names the company it is hiding is a feature that lies about itself. **Decide the dependency and the storage layout together** — they cannot be sequenced apart. R13 applies. | ~~Census row **16.1** entirely, and any company-rename work, which is out of scope for the same filename reason.~~ 🔴 **NOTHING — RULING 23 (2026-09-09) TOOK (a): SQLCipher AND opaque company ids, with the name held inside the encrypted book. The user accepted the two named costs (a new NATIVE dependency with its own licence, and three-OS CI risk) and accepted that `.db` files stop being named after the company, which means `CompanyStorage`'s filename-enumeration listing must be replaced. Row 16.1 is UNBLOCKED. ⚠️ Company-rename work is unblocked only in so far as the filename reason is gone; it has no row and no ruling of its own. ⚠️ The shipped feature must NOT be called by the vendor's name (R7 / brand rule) — the build track says what it called it.** |
 > | **D-5** *(was U-5, remaining arm)* | Ruling 20 struck FBT, Service Tax and the 2005 VAT slabs — but census **15.5** still bundles **VAT Computation** (buildable against the live liquor/petroleum surface) with **~30 State return forms**, which have **no single official publisher**. | (a) Build VAT Computation only and split the return forms into their own ABSENT row; (b) strike the return-form half the way 15.3 was struck; (c) build both. | **(a).** It keeps a real capability while refusing to invent ~30 forms from unsourceable material — the same reasoning ruling 20 already accepted for 15.3, one row further on. **(c) is the failure mode this project has the most scar tissue about.** | The return-form half of **15.5**. VAT Computation itself is unblocked either way. |
 > | **D-6** *(was U-10, TEXT CORRECTED)* | The architecture / scope carry-overs from the wave-2 breadth design (**R2–R17**), taken together: multiple GSTIN registrations (6.23) · **Group Company (16.7)** · WhatsApp sharing (14.10) · e-Payments file format (8.10) · GST Classification master (6.25) · Kerala Flood Cess (6.26) · `IntegrateAccountsWithInventory` · charting approach (14.3) · Show-Inactive scope (2.13). | (a) Take them as one batch now; (b) take only those a live track needs; (c) defer. | **(b).** Most are not on any track's path this week. 🔴 **CORRECTION, AND IT CHANGES THE ITEM:** this row used to read *"multi-company shell (14.2 Switch To, 16.7 Group Company)"*. **14.2 was retitled 2026-09-06 (PR #57) and is NOT a multi-company feature** — the vendor gives `Ctrl+G` as *"switch to a different REPORT"*, and company switching is the `F3` / `Alt+F3` / `Ctrl+F3` family. **14.2 is struck from this row; only 16.7 remains multi-company.** ⚠️ `IntegrateAccountsWithInventory` is behaviour-bearing and **needs an oracle harness first** — three negative-stock attempts produced three *different* unbounded Balance-Sheet errors that each passed the full suite. | Whichever of the nine a dispatched slice reaches. |
 > | **D-7** *(was U-1)* | **Which product's voucher-type set does the clone target?** The official Statistics report lists **twenty-two** default kinds, census Area 4 is titled for 7.2's classic **eighteen**, and we seed **twenty-three**. | (a) The vendor's current set; (b) the 7.2 eighteen; (c) our seeded set, recorded as a divergence. | **No recommendation — it is a scope decision.** But it is **upstream of Area 4, not of Area 11**: a Statistics report built to the smaller list would be **wrong against the source while matching our own census**. Cheap to ask now, expensive after Area 11 ships. | Area 11's Statistics work, and any re-grade of Area 4. |
@@ -1087,7 +1175,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 >   **existing** tabular projection, and the XML and JSON writers already exist on the whole-company surface.
 >   **JPEG alone needs a rasteriser** — a dependency, or a hand-rolled encoder. *Recommend: carve JPEG out,
 >   take the other four cheaply, and **record that 13.6 cannot then be marked closed**.*
-> - **U-9 · TallyVault (census row 16.1).** Company-data encryption behind a passphrase means SQLCipher or an
+> - **U-9 · 🔴 CLOSED 2026-09-09 BY RULING 23 (`THREE FURTHER USER RULINGS (R12, 2026-09-09)`) — option (a)
+>   taken: SQLCipher **and** opaque company ids, with the company name held inside the encrypted book. The user
+>   accepted the new native dependency, its licence, the three-OS CI risk, and the loss of company-named `.db`
+>   files (so `CompanyStorage` can no longer list companies by enumerating filenames). Row 16.1 is unblocked;
+>   the shipped feature must carry OUR name, not the vendor's.** The question as it was asked is kept below,
+>   because the collision it records is the design constraint the build must satisfy. **TallyVault (census row
+>   16.1).** Company-data encryption behind a passphrase means SQLCipher or an
 >   equivalent crypto dependency. 🔴 **And there is an architecture collision:** the source says the password
 >   encrypts the company *"including the company name"*, while our companies live in a `.db` **named after the
 >   company** — the same constraint that puts rename out of scope. **It cannot be bolted on: the filename leaks
