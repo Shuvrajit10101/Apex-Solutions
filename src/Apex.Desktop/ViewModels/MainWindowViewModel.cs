@@ -13,6 +13,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
 // Phase 10.11 S4 — the Delete guards. Aliased for the reason above, not imported.
 using MasterDeletionRules = Apex.Ledger.Services.MasterDeletionRules;
+// Census row 5.5 — Insert Voucher's number-series planner. Aliased for the reason above, not imported.
+using VoucherInsertion = Apex.Ledger.Services.VoucherInsertion;
+using VoucherInsertionPlan = Apex.Ledger.Services.VoucherInsertionPlan;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -4979,6 +4982,213 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (row is not null && row.DrillVoucherId != Guid.Empty)
             return Company?.FindVoucher(row.DrillVoucherId)?.Date;
         return null;
+    }
+
+    // ==================================== census row 5.5: Alt+I — INSERT a voucher at the highlighted position
+
+    /// <summary>
+    /// The anchor an in-flight <b>Insert Voucher</b> is positioned above — the voucher that was highlighted when
+    /// Alt+I was pressed. <c>null</c> whenever the picker is an ordinary Alt+A <i>Add</i>, which is exactly what
+    /// makes one picker serve both verbs without a second Screen member or a second column shape.
+    /// </summary>
+    private Guid? _insertAnchorId;
+
+    /// <summary>
+    /// <b>Alt+I — insert a voucher into the number series at the highlighted position</b> (census row 5.5).
+    ///
+    /// <para><b>Fidelity (R7; RULING 14 tier 1).</b> The chord and the verb are the vendor's, verbatim:
+    /// <i>"To insert a voucher in a report"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/</c>), and the Day Book page gives the
+    /// gesture — <i>"Select the entry above which you want to insert the transaction, press <b>Alt</b>+<b>I</b>
+    /// (Insert Vch)"</i> (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>).
+    /// What the inserted voucher does to the series is computed by <see cref="VoucherInsertion"/>, whose own
+    /// remarks carry the vendor's worked example and the per-method scoping.</para>
+    ///
+    /// <para>🔴 <b>THE Alt+I COLLISION (owed ruling U-6) IS RESOLVED BY DISJOINT SCOPE, AND NEITHER SIDE IS
+    /// REBOUND.</b> The incumbent Alt+I arm is the POS tender-mode toggle, and it is already scoped
+    /// <c>&amp;&amp; vm.CurrentScreen == Screen.PosBilling</c> in <c>MainWindow.OnKeyDown</c>. This door is scoped to
+    /// the Day Book report. A POS Billing entry screen is not a report and the Day Book is not a POS till, so the
+    /// two predicates cannot both be true and no keystroke is taken from a shipped feature. This is EXACTLY the
+    /// arbitration already shipped for Alt+A, which serves three different verbs on three disjoint surfaces
+    /// (Outstandings settle / Day Book add / POS tax analysis). The chord is claimed in
+    /// <see cref="ShellChordTable"/> rather than as a new arm in the key chain, so if the user's ruling lands
+    /// differently it is a one-line edit to that predicate. <b>Nothing here pre-empts the ruling</b> — it removes
+    /// the reason the ruling was blocking, because there is no longer a contested keystroke.</para>
+    ///
+    /// <para><b>Returns</b> the same three-valued <see cref="VoucherAlterationRequest"/> as the Alt+2 duplicate
+    /// door, for the identical reason: <c>NoVoucherHere</c> must fall through (nothing was chosen, so there is
+    /// nothing to say) while <c>Refused</c> must be consumed, because a named sentence is already on the notice
+    /// bar and <c>OnCurrentScreenChanged</c> would wipe it on the way past.</para>
+    /// </summary>
+    public VoucherAlterationRequest RequestInsertVoucherAtHighlight()
+    {
+        if (Company is null || !IsDayBookReport) return VoucherAlterationRequest.NoVoucherHere;
+        if (CurrentScreen == Screen.AddVoucherPicker) return VoucherAlterationRequest.NoVoucherHere;
+
+        // The armed-confirmation gate, copied in effect from the Alt+2 door: an armed Alt+X / Alt+D question
+        // names a voucher and is answered by a bare Y, and opening a picker over it would carry the arming into
+        // a column that cannot show the question.
+        if (IsAcceptPromptOpen)
+        {
+            RaiseLifecycleNotice(
+                "Answer the question on screen first (Y or N) — Alt+I does nothing while it is up.");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var row = Reports?.SelectedRow;
+        if (row is null || row.DrillVoucherId == Guid.Empty) return VoucherAlterationRequest.NoVoucherHere;
+        if (Company.FindVoucher(row.DrillVoucherId) is not { } anchor) return VoucherAlterationRequest.NoVoucherHere;
+
+        OpenInsertVoucherPicker(anchor);
+        return VoucherAlterationRequest.Opened;
+    }
+
+    /// <summary>
+    /// Opens the voucher-type picker for an INSERT above <paramref name="anchor"/> — the same cascade menu column
+    /// the Alt+A add picker uses (same Screen member, same column shape, same arrow/Enter navigation), differing
+    /// only in its title, the anchor it remembers, and the rows it offers.
+    ///
+    /// <para>🔴 <b>WHY THE ROW SET IS NARROWER THAN Alt+A's, AND WHY THAT IS A CORRECTNESS GUARD RATHER THAN A
+    /// SHORTCUT.</b> <see cref="VoucherInsertion.Plan"/> reasons over <c>Company.Vouchers</c> — the ACCOUNTING
+    /// book. Pure-inventory documents (Delivery Note, Stock Journal, Physical Stock, the orders, Material In/Out)
+    /// live in the separate <c>Company.InventoryVouchers</c> collection with their own independent number series,
+    /// so planning one of those against the accounting book would compute a renumbering from the wrong sequence
+    /// and write it onto the wrong documents. They are therefore NOT OFFERED, rather than offered and silently
+    /// mis-numbered. The screens that are their own entry flow (POS, Job Work, Material movement, Payroll,
+    /// Manufacturing Journal) are excluded for the second reason below. <b>This is a declared gap, labelled as
+    /// ours:</b> the vendor's Insert reaches every type its Day Book lists; this build's reaches the accounting
+    /// series only, and offering no row is how that is made visible instead of hidden.</para>
+    ///
+    /// <para>The second reason is the post-save hook. Renumbering must be applied AFTER the newcomer is posted
+    /// and only if it is posted at all — an operator who presses Esc must leave the series untouched — so the
+    /// insert is carried by the entry screen's <c>onSaved</c> callback. Only <see cref="OpenVoucher"/> takes one;
+    /// the dedicated screens do not, and a type routed there would open normally and then quietly fail to
+    /// renumber, which is the dead-knob shape this project files as a defect.</para>
+    /// </summary>
+    private void OpenInsertVoucherPicker(Voucher anchor)
+    {
+        if (Company is null) return;
+
+        _insertAnchorId = anchor.Id;
+
+        var picker = new GatewayColumn("Insert Voucher") { Kind = GatewayColumnKind.DataDriven };
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive && CanInsertFromDayBook(t)))
+        {
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickInsertVoucherType(chosen, anchor),
+                type.DefaultShortcut ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        // Appended WITHOUT ClearSubScreens/OpenPageColumn so the Day Book survives beneath and Esc pops straight
+        // back to the row the operator was standing on — identical to OpenAddVoucherFromReport.
+        Columns.Add(picker);
+        picker.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AddVoucherPicker;
+        ScreenTitle = "Insert Voucher";
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Whether a voucher type can be INSERTED from the Day Book — i.e. whether it posts into the accounting book
+    /// that <see cref="VoucherInsertion"/> plans over AND opens through <see cref="OpenVoucher"/>, which is the
+    /// only entry door carrying the post-save hook the renumbering needs. See
+    /// <see cref="OpenInsertVoucherPicker"/> for why each exclusion is a correctness guard.
+    /// </summary>
+    private bool CanInsertFromDayBook(VoucherType type) =>
+        CanAddFromDayBook(type)
+        && !VoucherEffects.IsInventoryBaseType(type.BaseType)
+        && type.BaseType != VoucherBaseType.Payroll
+        && !type.IsManufacturingJournal
+        && !type.IsPosSales;
+
+    /// <summary>
+    /// A voucher type was chosen in the Alt+I picker: plan the insertion, refuse it by name if the plan is
+    /// refused, otherwise open that type's entry seeded with the anchor's date and apply the renumbering on save.
+    ///
+    /// <para>🔴 <b>THE PLAN IS COMPUTED HERE AND RE-COMPUTED NOWHERE.</b> Every target and every new number is
+    /// read from the immutable plan inside <see cref="VoucherInsertion.Apply"/>; see that method's remarks for
+    /// why re-deriving <c>n → n+1</c> in place would cascade an earlier write into a later read.</para>
+    ///
+    /// <para>🔴 <b>ORDER OF THE TWO WRITES, AND THE TRANSIENT DUPLICATE IT AVOIDS.</b> The newcomer is posted by
+    /// the entry screen first and takes <c>max + 1</c> from the ordinary numbering path. The successors are then
+    /// shifted up, which would move the topmost of them onto <c>max + 1</c> — the number the newcomer is holding
+    /// — so the newcomer is moved DOWN onto its planned number BEFORE the shift is applied, never after. The book
+    /// therefore never holds two vouchers of the type on one number, not even between two statements.</para>
+    /// </summary>
+    private void PickInsertVoucherType(VoucherType type, Voucher anchor)
+    {
+        if (Company is null) return;
+
+        var plan = VoucherInsertion.Plan(Company, type, anchor);
+
+        // Drop the picker column either way, so the refusal is read against the live Day Book rather than over a
+        // menu column the operator would then have to dismiss themselves.
+        if (CurrentScreen == Screen.AddVoucherPicker && Columns.Count > 0)
+            Columns.RemoveAt(Columns.Count - 1);
+
+        if (!plan.IsAllowed)
+        {
+            _insertAnchorId = null;
+            CurrentScreen = Screen.Report;
+            ScreenTitle = Reports?.Title ?? ScreenTitle;
+            ActiveColumnIndex = Columns.Count - 1;
+            SyncActiveColumn();
+            // RaiseLifecycleNotice, not Message: the notice bar is what survives the screen change above, and the
+            // refusal is the whole point of the keystroke.
+            RaiseLifecycleNotice(plan.Refusal!);
+            BuildButtonBar();
+            return;
+        }
+
+        // The ids of this series BEFORE the newcomer is posted. The newcomer is then the one id that is not in
+        // this set — exact, and independent of what number the ordinary numbering path chose for it. Resolving it
+        // by "highest number of the type" instead would be wrong the moment the shift below moves an existing
+        // voucher onto that same number.
+        var before = Company.Vouchers.Where(v => v.TypeId == type.Id).Select(v => v.Id).ToHashSet();
+
+        OpenVoucher(type, anchor.Date, onSaved: () =>
+        {
+            ApplyPendingInsertion(plan, type.Id, before);
+            OpenReport(ReportKind.DayBook);
+        });
+    }
+
+    /// <summary>
+    /// Applies a computed insertion to the book the moment its voucher has been posted: moves the newcomer onto
+    /// its planned number, shifts the successors, and persists. A no-op for a plan that rewrites nothing (an
+    /// append, or a method that does not renumber), so the ordinary Add path is untouched.
+    ///
+    /// <para><b>The newcomer is identified by set difference against <paramref name="idsBefore"/></b> — the ids
+    /// of the series captured before the entry screen opened — rather than by "the highest number of the type".
+    /// The latter is wrong precisely when this method does its work, because the shift lands an existing voucher
+    /// on that same number.</para>
+    /// </summary>
+    /// <param name="plan">The insertion computed before the entry screen opened. Never re-derived.</param>
+    /// <param name="typeId">The inserted voucher's type — the series the newcomer belongs to.</param>
+    /// <param name="idsBefore">Ids of that series before the newcomer was posted.</param>
+    private void ApplyPendingInsertion(VoucherInsertionPlan plan, Guid typeId, HashSet<Guid> idsBefore)
+    {
+        _insertAnchorId = null;
+        if (Company is null || !plan.RewritesExistingNumbers) return;
+
+        var newcomer = Company.Vouchers
+            .FirstOrDefault(v => v.TypeId == typeId && !idsBefore.Contains(v.Id));
+
+        // Nothing was actually posted (the save was abandoned in a way that still ran the hook): leave the series
+        // exactly as it was. Renumbering to make room for a voucher that does not exist would open a real GAP in
+        // a statutory series, which is the defect this row exists to avoid.
+        if (newcomer is null) return;
+
+        newcomer.Number = plan.InsertedNumber;
+        VoucherInsertion.Apply(Company, plan);
+        _storage.Save(Company);
     }
 
     // =============================================================== screen: ledger master
@@ -10812,7 +11022,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Ctrl+I", "More Details", OpenMoreDetails, CanOpenMoreDetails));
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
-        ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
+        // Alt+I is context-sensitive, and is emitted as EXACTLY ONE ROW for the same reason Alt+A below is: the
+        // shell's Fire()/hint lookup takes the first key match, so a second Alt+I row would shadow this one and
+        // the POS screen would advertise a verb that fires the wrong handler. On the Day Book the chord is the
+        // vendor's INSERT VOUCHER (census row 5.5; "To insert a voucher in a report",
+        // help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/); on POS it stays the tender-mode toggle.
+        // The two contexts are DISJOINT — see RequestInsertVoucherAtHighlight for why that resolves the U-6 arm
+        // without either side being rebound.
+        if (IsDayBookReport)
+            ButtonBar.Add(new ButtonBarItem("Alt+I", "Insert Vch",
+                () => RequestInsertVoucherAtHighlight(), true));
+        else
+            ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
         // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
         // the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
         // Only ONE Alt+A row is emitted — the shell's Fire()/hint lookup takes the first key match, so a second
