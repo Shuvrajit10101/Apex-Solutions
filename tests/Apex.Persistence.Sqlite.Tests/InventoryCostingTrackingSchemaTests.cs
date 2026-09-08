@@ -44,7 +44,7 @@ public sealed class InventoryCostingTrackingSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Track Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(57L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // Every v58 object really is absent from the manufactured v57 book.
@@ -110,7 +110,7 @@ public sealed class InventoryCostingTrackingSchemaTests
             var legacy = CompanyFactory.CreateSeeded("Backfill Track Co", FyStart);
             new InventoryService(legacy).CreateGodown("Site A");
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -311,7 +311,7 @@ public sealed class InventoryCostingTrackingSchemaTests
             var linesBefore = ReadScalar(path, "SELECT COUNT(*) FROM voucher_inventory_lines;");
             var companiesBefore = ReadScalar(path, "SELECT COUNT(*) FROM companies;");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(57L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal(godownsBefore, ReadScalar(path, "SELECT COUNT(*) FROM godowns;"));

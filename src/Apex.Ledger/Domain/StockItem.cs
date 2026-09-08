@@ -32,6 +32,38 @@ public sealed class StockItem
     /// <summary>The base <see cref="Unit"/> of measure; required.</summary>
     public Guid BaseUnitId { get; set; }
 
+    /// <summary>
+    /// Census 3.6 — the item's optional <b>Alternate Unit</b> (schema v60). <c>null</c> ⇒ the item is measured in
+    /// its base unit alone, which is what every pre-v60 item is (ER-13).
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/manage-stock-item-tally/</c>: the base unit is
+    /// picked in the <i>Units</i> field ("any simple or compound unit"), then "<i>The <b>Alternate units</b>
+    /// field appears</i>", and the operator "<i>provide[s] the conversion factor between the simple or compound
+    /// units and alternative units</i>".</para>
+    ///
+    /// <para>🔴 <b>THE BASE UNIT IS STORED; THE ALTERNATE IS ALWAYS DERIVED. NOTHING IN THIS BUILD EVER STORES A
+    /// QUANTITY IN THE ALTERNATE UNIT.</b> That is the whole reason this pair of fields is safe to add to a
+    /// product whose every stock table, valuation walk, report and printed document already reads one quantity
+    /// column. The vendor's own framing agrees — the alternate is a conversion offered "in real time throughout
+    /// a transaction", not a second stored measure. Every alternate figure a user sees is computed on demand by
+    /// <see cref="Services.AlternateUnitConversion"/> from the stored base quantity, so a report and an invoice
+    /// cannot disagree about how much stock there is: there is only ever one number, expressed two ways.</para>
+    /// </summary>
+    public Guid? AlternateUnitId { get; set; }
+
+    /// <summary>
+    /// The conversion behind <see cref="AlternateUnitId"/>: <b>how many BASE units make ONE alternate unit</b>
+    /// (the vendor's "1 Box = 10 Nos" reads as <c>10</c> with base = Nos and alternate = Box). Must be strictly
+    /// positive when an alternate unit is set, and must be <c>null</c> when it is not — <c>InventoryService</c>
+    /// enforces both, so "an alternate unit with no factor" and "a factor with no unit" are unrepresentable
+    /// rather than silently defaulting to 1 (which would make every alternate quantity equal the base one and
+    /// look plausible on screen).
+    ///
+    /// <para>Exact decimal, persisted as micros (× 1,000,000) like every other quantity in this schema, so a
+    /// fractional factor such as 0.4536 round-trips losslessly and no binary float enters a stock figure.</para>
+    /// </summary>
+    public decimal? AlternateUnitConversion { get; set; }
+
     /// <summary>Optional short name.</summary>
     public string? Alias { get; set; }
 

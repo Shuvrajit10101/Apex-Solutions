@@ -360,7 +360,13 @@ public sealed class MasterListExportViewModelTests : IDisposable
 
         Assert.True(shell.IsExportablePage);
         var export = MasterListTabularProjector.ProjectSource(shell.StockGroupMaster!);
-        Assert.Equal(new[] { "Name", "Under", "Quantities" }, export.Columns.Select(c => c.Header).ToArray());
+        // 🔴 "GST" is a FOURTH column as of census 3.13 (schema v60). The Stock Group master can now carry a GST
+        // rung — the one MasterAncestry.NearestStockGroupGst reads at transaction time — so the export carries it
+        // too; a generic export that silently omitted a captured master field would be the export bug this file
+        // exists to prevent. The header list is asserted in full, deliberately, so a future column cannot be added
+        // to the screen and quietly left out of the export.
+        Assert.Equal(
+            new[] { "Name", "Under", "Quantities", "GST" }, export.Columns.Select(c => c.Header).ToArray());
 
         var vm = Capture("Stock Groups", () => export, out var cap, ExportFormat.Csv);
         Assert.True(vm.Apply());

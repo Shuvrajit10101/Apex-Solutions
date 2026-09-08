@@ -44,7 +44,7 @@ public sealed class StateVatCstSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Vat Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(58L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // Every v59 column really is absent from the manufactured v58 book.
@@ -108,7 +108,7 @@ public sealed class StateVatCstSchemaTests
             inventory.CreateStockItem("Ordinary Widget", group.Id, unit.Id);
 
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -327,10 +327,20 @@ public sealed class StateVatCstSchemaTests
             new VatService(c).EnableVat(tin: "29777777777");
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
 
-            var beforeCompanies = ColumnNames(path, "companies").Count;
-            var beforeLedgers = ColumnNames(path, "ledgers").Count;
-            var beforeItems = ColumnNames(path, "stock_items").Count;
-            var beforeVouchers = ColumnNames(path, "vouchers").Count;
+            // 🔴 The baseline is taken at v59, NOT at the current version. This test measures ONE rung — "the v59
+            // downgrade drops only the v59 columns" — and the chain above it now has a v60 rung that legitimately
+            // drops two more from stock_items (census 3.6's alternate unit). Counting from the current version
+            // would fold the two rungs together and make this assertion fail for a reason it is not about.
+            int beforeCompanies, beforeLedgers, beforeItems, beforeVouchers;
+            using (var top = Open(path))
+            {
+                SchemaDowngrade.V60ToV59(top);
+                beforeCompanies = ColumnCount(top, "companies");
+                beforeLedgers = ColumnCount(top, "ledgers");
+                beforeItems = ColumnCount(top, "stock_items");
+                beforeVouchers = ColumnCount(top, "vouchers");
+                SqliteConnection.ClearPool(top);
+            }
 
             using (var conn = Open(path))
             {
