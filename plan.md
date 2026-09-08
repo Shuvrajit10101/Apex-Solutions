@@ -1090,7 +1090,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > **▶ 🔴 THE OWED-RULINGS DECISION SHEET — REWRITTEN 2026-09-07 SO IT CAN BE ANSWERED IN ONE SITTING. THIS
 > SUPERSEDES THE STATUS (NOT THE TEXT) OF THE `TEN RULINGS ARE STILL OWED` BATCH IMMEDIATELY BELOW, WHICH IS
 > KEPT AS THE LONG-FORM RECORD.** Rulings 14–20 closed **U-0**, **U-3**, the whole **ten-row gate**, the
-> **`Ctrl+I`** arm of U-6, the **FBT** arm of U-5 and the **denominator half** of U-11. What is left is below,
+> **`Ctrl+I`** arm of U-6, the **FBT** arm of U-5 and the **denominator half** of U-11. 🔴 **AND RULING 23
+> (2026-09-09) CLOSED `D-4` / U-9 — TALLYVAULT — SO THAT ROW BELOW IS STRUCK, NOT OPEN.** ⚠️ **Ruling 23
+> closed D-4 ONLY: `D-6`'s Group Company (16.7) arm and the 8.11 / 8.12 denominator question were explicitly
+> NOT ruled and remain open.** What is left is below,
 > **one sentence each, with the options, a recommendation and its reason, and what stays blocked.** Nothing
 > here may be decided by an agent (R12). **Order is by cost of getting it wrong, not by number.**
 >
