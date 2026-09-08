@@ -343,14 +343,30 @@ public sealed partial class ProfessionalTaxRegisterViewModel : ViewModelBase
     /// text — the company name, the PT enrolment number, and every employee number and NAME — into a file an
     /// accounts clerk opens in a spreadsheet, where a value beginning <c>= + - @</c> is EXECUTED on open.</para>
     ///
-    /// <para>Every field goes through the one helper deliberately: the money cells this register emits are
-    /// whole-rupee Indian-grouped strings ("1,20,000"), already text to a spreadsheet, so guarding them costs
-    /// nothing and leaves no call site that can be forgotten.</para>
+    /// <para>Every field that carries a VALUE goes through this one helper deliberately — the money cells included,
+    /// even though they are whole-rupee Indian-grouped strings ("1,20,000") a spreadsheet already reads as text,
+    /// because guarding them costs nothing and leaves no value call site that can be forgotten. What does NOT come
+    /// through here is this register's own chrome, which cannot carry user text: the title line, the four row
+    /// labels ("Company", "State", "Enrolment No", "Wage Month"), the column-caption row and the "Total" label are
+    /// compile-time constants written straight into the buffer — so do not read this as a claim that every CELL in
+    /// the file is guarded or quoted.</para>
+    ///
+    /// <para>🔴 <b>A BARE CR MUST QUOTE, and leaving it out of the set below was a live bypass, not a nicety.</b>
+    /// The neutraliser fires on the first value-carrying character, so an employee name like
+    /// <c>Kiran Shet\r=cmd|'/c calc'!A1</c> — which begins with a letter — is not prefixed. If the CR then does not
+    /// force quoting, the raw CR reaches the file, and a bare CR is a RECORD TERMINATOR to Excel, LibreOffice and a
+    /// strict RFC-4180 parser alike: the clerk's spreadsheet sees a NEW record whose FIRST cell is
+    /// <c>=cmd|'/c calc'!A1</c> with no apostrophe in front of it, and it executes on open. Quoting the field puts
+    /// the CR inside the quotes, where it is data. This set therefore matches
+    /// <c>Apex.Ledger.Io.DelimitedText.Quote</c> exactly — <c>, " CR LF</c>. It does NOT change this file's own
+    /// record separator, which stays the LF <see cref="BuildCsv"/> writes. Pinned by
+    /// <c>DelimitedExportFormulaInjectionTests.Pt_register_a_CR_inside_an_employee_name_cannot_start_a_new_record</c>,
+    /// which parses the export into records rather than reading it as one string.</para>
     /// </summary>
     private static string Csv(string value)
     {
         var field = Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize(value);
-        if (field.IndexOfAny(new[] { ',', '"', '\n' }) < 0) return field;
+        if (field.IndexOfAny(new[] { ',', '"', '\r', '\n' }) < 0) return field;
         return "\"" + field.Replace("\"", "\"\"") + "\"";
     }
 

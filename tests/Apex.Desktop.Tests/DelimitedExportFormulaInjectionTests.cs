@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,6 +10,78 @@ using Apex.Desktop.ViewModels;
 using Xunit;
 
 namespace Apex.Desktop.Tests;
+
+/// <summary>
+/// A strict RFC-4180 reader used by the injection tests to read an export the way a SPREADSHEET reads it — as
+/// records and fields, not as one string.
+///
+/// <para>🔴 <b>Why the tests need this at all.</b> The bypass this reader exists to catch was invisible to a
+/// substring assertion: a bare CR inside an employee name was written unquoted, and a bare CR is a RECORD
+/// TERMINATOR to Excel, LibreOffice and any strict parser. The file "contained" the guarded text, so
+/// <c>Assert.Contains</c> passed while the clerk's spreadsheet saw an extra record whose first cell was a live
+/// formula. Only splitting into records can see that, so a record boundary is asserted as a record boundary.</para>
+/// </summary>
+internal static class DelimitedRecords
+{
+    /// <summary>
+    /// Splits <paramref name="text"/> into records of fields. Quotes are honoured (<c>""</c> is a literal quote),
+    /// and OUTSIDE quotes each of CRLF, a bare CR and a bare LF ends a record — which is precisely the latitude a
+    /// spreadsheet takes and the reason a raw CR may never reach an unquoted field.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<string>> Parse(string text)
+    {
+        var records = new List<IReadOnlyList<string>>();
+        var fields = new List<string>();
+        var sb = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var ch = text[i];
+
+            if (inQuotes)
+            {
+                if (ch != '"') { sb.Append(ch); continue; }
+                if (i + 1 < text.Length && text[i + 1] == '"') { sb.Append('"'); i++; }
+                else inQuotes = false;
+                continue;
+            }
+
+            switch (ch)
+            {
+                case '"':
+                    inQuotes = true;
+                    break;
+                case ',':
+                    fields.Add(sb.ToString());
+                    sb.Clear();
+                    break;
+                case '\r':
+                case '\n':
+                    if (ch == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                    fields.Add(sb.ToString());
+                    sb.Clear();
+                    records.Add(fields);
+                    fields = new List<string>();
+                    break;
+                default:
+                    sb.Append(ch);
+                    break;
+            }
+        }
+
+        if (sb.Length > 0 || fields.Count > 0) { fields.Add(sb.ToString()); records.Add(fields); }
+        return records;
+    }
+
+    /// <summary>A readable dump of the parsed records, so a failure names what the spreadsheet would have seen.</summary>
+    public static string Dump(IReadOnlyList<IReadOnlyList<string>> records) =>
+        string.Join(Environment.NewLine,
+            records.Select((r, i) => $"  [{i}] " + string.Join(" | ", r.Select(f => "<" + Visible(f) + ">"))));
+
+    private static string Visible(string field) =>
+        field.Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
+}
 
 /// <summary>
 /// 🔴 <b>SECURITY — spreadsheet formula injection (OWASP "CSV injection") in the two HAND-ROLLED CSV exporters.</b>
@@ -183,5 +256,155 @@ public sealed class DelimitedExportFormulaInjectionTests : IDisposable
 
         Assert.Contains(",'" + IndentedPayload + ",", csv, StringComparison.Ordinal);
         Assert.DoesNotContain("," + IndentedPayload + ",", csv, StringComparison.Ordinal);
+    }
+
+    // ───────────────────────────── the CR bypass: the guard fires on the FIRST character, the CR is not first
+
+    /// <summary>The payload hidden BEHIND a legitimate name, so the neutraliser cannot see it: the field's first
+    /// value-carrying character is <c>K</c>. The CR is what makes it dangerous.</summary>
+    private const string CrPayload = "Kiran Shet\r=cmd|'/c calc'!A1";
+
+    /// <summary>The number of records the register writes for one employee: the title, four header lines, the
+    /// column-caption row, one employee row and the Total row.</summary>
+    private const int PtRecordCount = 8;
+
+    /// <summary>
+    /// 🔴 <b>SECURITY REGRESSION — a bare CR inside an employee name started a NEW RECORD whose first cell was a
+    /// live formula, and every earlier test in this file passed while it did.</b>
+    ///
+    /// <para><b>The bypass.</b> The neutraliser fires on the first character that carries the value, so
+    /// <c>Kiran Shet\r=cmd|'/c calc'!A1</c> — beginning with a letter — is correctly NOT prefixed. The PT register
+    /// then quotes only conditionally, and its condition tested <c>, " LF</c> and omitted <b>CR</b>. So the raw CR
+    /// reached the file unquoted; Excel, LibreOffice and a strict RFC-4180 parser all treat a bare CR as a record
+    /// terminator, and the clerk's spreadsheet saw an extra record whose FIRST cell was
+    /// <c>=cmd|'/c calc'!A1</c> — unprefixed, and executed on open. The canonical quoter
+    /// (<c>Apex.Ledger.Io.DelimitedText.Quote</c>) had always quoted on CR; the hand-rolled copy did not.</para>
+    ///
+    /// <para><b>Why this test parses instead of searching.</b> A substring assertion cannot fail here: the file
+    /// really does contain the name and really does contain the payload. The defect is entirely a question of
+    /// WHERE THE RECORD BOUNDARIES ARE, so the export is read as records and fields — the spreadsheet's view.</para>
+    /// </summary>
+    [Fact]
+    public void Pt_register_a_CR_inside_an_employee_name_cannot_start_a_new_record()
+    {
+        var csv = ExportPtRegister(PtCompany(companyName: "PT Injection Co", employeeName: CrPayload));
+        var records = DelimitedRecords.Parse(csv);
+
+        // 1. The CR did not split the file. With the CR omitted from the quote set this is 9, and record [7] is
+        //    the invented one.
+        Assert.True(records.Count == PtRecordCount,
+            $"the export parsed as {records.Count} records, expected {PtRecordCount} — a bare CR split a record:"
+            + Environment.NewLine + DelimitedRecords.Dump(records));
+
+        // 2. No record anywhere in the file begins with a cell a spreadsheet would evaluate. This is the property
+        //    the attack breaks, stated directly and over EVERY record rather than the one we expect to be hit.
+        foreach (var (record, i) in records.Select((r, i) => (r, i)))
+        {
+            var first = record.Count > 0 ? record[0] : string.Empty;
+            Assert.False(first.Length > 0 && (first[0] is '=' or '+' or '-' or '@'),
+                $"record [{i}] begins with an unguarded formula cell <{first}>:"
+                + Environment.NewLine + DelimitedRecords.Dump(records));
+        }
+
+        // 3. And the name is still one field, byte for byte — the CR included, and with NO apostrophe, because the
+        //    guard must not fire on a name that starts with a letter (ruling 18: book data ships verbatim).
+        var employee = Assert.Single(records, r => r.Count == 5 && r[0] == "E-001");
+        Assert.Equal(CrPayload, employee[1]);
+    }
+
+    // ───────────────────────── ESI monthly contribution: a THIRD hand-rolled exporter, .csv, never guarded
+
+    private const string Ip = "3100123456";
+
+    /// <summary>An ESI establishment with one Insured Person on ₹20,000 Basic (inside the ₹21,000 ceiling), whose
+    /// name is set to <paramref name="ipName"/> AFTER creation so a hostile leading character survives the
+    /// service's name trim.</summary>
+    private static Company EsiCompany(string ipName)
+    {
+        var from = new DateOnly(2025, 4, 1);
+        var c = CompanyFactory.CreateSeeded("ESI Injection Co", from, from);
+
+        var pay = new PayrollService(c);
+        pay.EnablePayroll();
+        pay.EnableEsi(employerCode: "12345678901234567");
+
+        var ph = new PayHeadService(c);
+        var indirect = IndirectExpenses(c);
+        var liab = CurrentLiabilities(c);
+        var basic = ph.CreatePayHead("Basic", PayHeadType.Earnings, PayHeadCalculationType.FlatRate,
+            underGroupId: indirect, partOfEsiWages: true);
+        var ee = ph.CreatePayHead("Employee ESI", PayHeadType.EmployeesStatutoryDeductions,
+            PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+            esiComponent: EsiStatutoryComponent.EmployeeStateInsurance);
+        var er = ph.CreatePayHead("Employer ESI", PayHeadType.EmployersStatutoryContributions,
+            PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+            esiComponent: EsiStatutoryComponent.EmployerStateInsurance);
+
+        var e = pay.CreateEmployee("Placeholder Name", pay.CreateEmployeeGroup("Staff").Id, esiNumber: Ip);
+        pay.SetEmployeeEsiDetails(e.Id, applicable: true);
+        new SalaryStructureService(c).DefineForEmployee(e.Id, from, new[]
+        {
+            new SalaryStructureLine(basic.Id, 0, new Money(20_000m)),
+            new SalaryStructureLine(ee.Id, 1),
+            new SalaryStructureLine(er.Id, 2),
+        });
+
+        c.FindEmployee(e.Id)!.Name = ipName;
+        return c;
+    }
+
+    /// <summary>Drives the REAL export path — the screen's own Ctrl+A — and returns the bytes it would have
+    /// written to <c>&lt;employer code&gt;_2025_04.csv</c>.</summary>
+    private static string ExportEsiContributionFile(Company c)
+    {
+        var page = new EsiContributionReportViewModel(c);
+        string? path = null;
+        byte[]? written = null;
+        Assert.True(page.ExportReturn((p, b) => { path = p; written = b; }),
+            $"the ESI contribution file did not export; status was '{page.ExportStatus}'.");
+        Assert.NotNull(written);
+
+        // The extension is the whole reason this file is ranked with the CSVs: a clerk double-clicks it.
+        Assert.EndsWith(".csv", path!, StringComparison.Ordinal);
+        return Encoding.UTF8.GetString(written!);
+    }
+
+    /// <summary>
+    /// 🔴 <b>SECURITY — the ESI monthly-contribution file is written as <c>.csv</c>, carries the user-typed
+    /// Insured Person NAME and IP NUMBER, and applied no formula guard at all.</b> Its two encoders replaced the
+    /// delimiter and CR/LF with spaces and stopped there, so an employee named <c>=cmd|'/c calc'!A1</c> reached
+    /// <c>&lt;employer code&gt;_2025_04.csv</c> raw and executed when the operator opened the file to check it
+    /// before uploading to ESIC. Parsed as records, because the framing is exactly what is being asserted.
+    /// </summary>
+    [Fact]
+    public void Esi_contribution_file_neutralises_a_formula_ip_name_on_the_real_export_path()
+    {
+        var csv = ExportEsiContributionFile(EsiCompany(Payload));
+        var records = DelimitedRecords.Parse(csv);
+
+        var record = Assert.Single(records);
+        Assert.Equal(6, record.Count);                 // IP no · name · days · wages · reason · LWD
+        Assert.Equal(Ip, record[0]);
+        // Guarded, and the person's own name still reaches ESIC verbatim after the apostrophe.
+        Assert.Equal("'" + Payload, record[1]);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The ordering proof for a writer that SANITISES instead of quoting: the guard has to run LAST.</b> This
+    /// writer makes a field framing-safe by replacing the delimiter with a space — and that replacement can EXPOSE
+    /// a trigger that was not first before. A name of <c>",=cmd|'/c calc'!A1"</c> begins with a comma, which is not
+    /// a formula trigger, so neutralising FIRST returns it untouched; the comma then becomes a space and the file
+    /// carries <c>" =cmd|'/c calc'!A1"</c>, which every importer that trims on the way in evaluates. Running the
+    /// guard after the replacement catches it through the leading-space skip. Swap the two steps in
+    /// <c>EsiContributionWriter.Name</c> and this test — and only this one — reddens.
+    /// </summary>
+    [Fact]
+    public void Esi_contribution_file_guards_a_formula_that_only_the_delimiter_sanitisation_exposes()
+    {
+        var csv = ExportEsiContributionFile(EsiCompany("," + Payload));
+        var record = Assert.Single(DelimitedRecords.Parse(csv));
+
+        Assert.Equal(6, record.Count);                 // the comma invented no field
+        Assert.Equal("' " + Payload, record[1]);       // ' then the space the comma became, then the payload
     }
 }
