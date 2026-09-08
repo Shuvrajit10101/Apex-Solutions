@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -266,7 +266,11 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
                 RateWithPan = $"{n.RateWithPanBp / 100m:0.##}%",
                 RateWithoutPan = $"{n.RateWithoutPanBp / 100m:0.##}%",
                 Threshold = DescribeThreshold(n),
-                FvuCode = n.FvuSectionCode,
+                // The code that will actually be FILED, not the one stored — they differ on a legacy §194-I row
+                // whose book persists "4IA" where the notified Form 26Q spells it "4-IA". Showing the stored value
+                // here would tell the operator a code the return does not carry. See
+                // NatureOfPayment.NotifiedFvuSectionCode.
+                FvuCode = n.NotifiedFvuSectionCode,
                 Kind = n.IsPredefined ? "Predefined" : "Custom",
             });
         }
@@ -293,7 +297,17 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         // exists to eliminate — and on a de-DE host "₹100.000", which reads as a decimal.
         if (single is { } s) parts.Add($"₹{IndianFormat.RupeesAlways(s)} single");
         if (monthly is { } m) parts.Add($"₹{IndianFormat.RupeesAlways(m)}/month");
-        if (cumulative is { } c) parts.Add($"₹{IndianFormat.RupeesAlways(c)}/FY");
+        // 🔴 THE BOUNDARY IS PART OF THE FIGURE, and printing the number alone tells the operator the wrong rule
+        // on §192A and §194EE. Those two are liable AT the threshold ("is less than X"), every other section only
+        // ABOVE it ("does not exceed X") — so a bare "₹50,000/FY" on §192A reads as the exclusive rule the engine
+        // deliberately does not apply there. Suffixed rather than reworded so the exclusive sections, which are the
+        // overwhelming majority and whose wording is already pinned by tests, print exactly as they always have.
+        if (cumulative is { } c)
+            parts.Add($"₹{IndianFormat.RupeesAlways(c)}/FY" + (n.AggregateThresholdIsInclusive ? " (incl.)" : ""));
+        // §194-O(2)'s exemption is available only to an individual/HUF participant who furnished a PAN; everyone
+        // else is liable from the first rupee, so the figure alone would overstate who it protects.
+        if (n.AggregateThresholdAppliesOnlyToIndividualHufWithPan && cumulative is not null)
+            parts.Add("Ind/HUF with PAN only");
         return string.Join(" · ", parts);
     }
 }

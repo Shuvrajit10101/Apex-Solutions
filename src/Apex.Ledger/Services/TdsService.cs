@@ -1,4 +1,4 @@
-using Apex.Ledger.Domain;
+﻿using Apex.Ledger.Domain;
 
 namespace Apex.Ledger.Services;
 
@@ -115,7 +115,7 @@ public sealed class TdsService
             ? ProjectPriorInMonth(deductee.Id, nature.Id, date, asPostedBefore)
             : prior;
         var applies = GrandfatheredLiability(nature, assessableValue, postedAssessableValue, postedTdsAmount)
-                      ?? ThresholdCrossed(nature, assessableValue, priorInWindow);
+                      ?? ThresholdCrossed(nature, assessableValue, priorInWindow, deductee, panApplied);
         if (!applies)
             return new Withholding(false, assessableValue, rateBp, Money.Zero, panApplied, prior);
 
@@ -304,8 +304,21 @@ public sealed class TdsService
     /// Whether the section threshold is crossed so TDS must be withheld: a nature with <b>no</b> threshold always
     /// applies; otherwise TDS applies iff the current transaction <b>exceeds</b> the single-transaction threshold
     /// (§194C ₹30,000) OR the aggregate over the section's own <b>threshold window</b>
-    /// (<paramref name="priorInWindow"/> + current) <b>exceeds</b> that window's limb. "Exceeds" is strict (at
-    /// exactly the threshold ⇒ no TDS, per the bare Act wording).
+    /// (<paramref name="priorInWindow"/> + current) <b>exceeds</b> that window's limb.
+    ///
+    /// <para>🔴 <b>THE BOUNDARY IS THE SECTION'S, NOT THIS METHOD'S.</b> "Exceeds" is strict — at exactly the
+    /// threshold there is no TDS — for every section whose proviso reads "<b>does not exceed</b> X", which is all
+    /// of §194A, §194C, §194H, §194-I, §194J, §194K, §194LA, §194Q, §194T, §194R and §194S. A section whose proviso
+    /// reads "<b>is less than</b> X" (§192A, §194EE) is liable <b>at</b> X and answers
+    /// <see cref="NatureOfPayment.AggregateThresholdIsInclusive"/>; testing it strictly under-deducts on the
+    /// boundary — ₹5,000.00 on a §192A payment of exactly ₹50,000. §194G's limb is stated the other way round in
+    /// the Act ("in an amount <b>exceeding</b> twenty thousand rupees") and is a per-<i>payment</i> limb, so it is
+    /// seeded as a single-transaction threshold, which is strict by the same wording.</para>
+    ///
+    /// <para>🔴 <b>AND THE LIMB CAN BE UNAVAILABLE ALTOGETHER.</b> §194-O's aggregate exemption is conditional on
+    /// the participant being an individual or HUF who furnished a PAN; for anyone else there is no aggregate limb
+    /// at all and the first rupee is liable. That is dropped, not tested-and-uncrossed — the two differ whenever a
+    /// section also has a single-transaction limb.</para>
     ///
     /// <para>🔴 <b>THE WINDOW IS THE NATURE'S, NOT THIS METHOD'S — and reading
     /// <see cref="NatureOfPayment.CumulativeThreshold"/> here again is the one edit that silently reopens the
@@ -318,12 +331,54 @@ public sealed class TdsService
     /// superseded <see cref="NatureOfPayment.CumulativeThreshold"/> is now unset, testing that field instead would
     /// read "no threshold" and withhold on <b>every</b> rent bill, ₹100 included.</para>
     /// </summary>
-    private static bool ThresholdCrossed(NatureOfPayment nature, Money current, Money priorInWindow)
+    private static bool ThresholdCrossed(
+        NatureOfPayment nature, Money current, Money priorInWindow, Domain.Ledger deductee, bool panApplied)
     {
         if (nature.SingleTransactionThreshold is null && nature.AggregateThreshold is null) return true;
+
+        // 🔴 §194-O(2). The aggregate exemption is not a threshold every deductee gets: it is available ONLY to an
+        // e-commerce participant "being an individual or Hindu undivided family" who "has furnished his Permanent
+        // Account Number or Aadhaar number". A participant outside either condition has NO aggregate limb and is
+        // liable from the first rupee — so the limb is dropped rather than tested, which is not the same as testing
+        // it and finding it uncrossed. See NatureOfPayment.AggregateThresholdAppliesOnlyToIndividualHufWithPan for
+        // the quoted sub-section, the money either approximation would have moved, and the Aadhaar narrowing.
+        var aggregateLimb = nature.AggregateThreshold;
+        if (aggregateLimb is not null && nature.AggregateThresholdAppliesOnlyToIndividualHufWithPan
+            && !ExemptionAvailableToThisDeductee(nature, deductee, panApplied))
+            aggregateLimb = null;
+
+        if (nature.SingleTransactionThreshold is null && aggregateLimb is null) return true;
+
         var single = nature.SingleTransactionThreshold is { } st && current > st;
-        var aggregate = nature.AggregateThreshold is { } at && (priorInWindow + current) > at;
+        // 🔴 THE BOUNDARY. "does not exceed X" is strictly-greater — at exactly X there is no deduction. "is less
+        // than X" (§192A, §194EE) is liable AT X, so the test is greater-or-equal. Reading the wrong one costs the
+        // whole rupee-at-the-boundary deduction: §192A at exactly ₹50,000 is ₹5,000.00.
+        var aggregateInWindow = priorInWindow + current;
+        var aggregate = aggregateLimb is { } at
+                        && (nature.AggregateThresholdIsInclusive ? aggregateInWindow >= at : aggregateInWindow > at);
         return single || aggregate;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="deductee"/> is eligible for a <b>conditional</b> aggregate exemption (§194-O(2):
+    /// an individual or HUF who has furnished a PAN). Only reached on a nature that has one.
+    /// <para><b>An unrecorded legal status is refused by name</b>, exactly as
+    /// <see cref="ResolveWithPanRate"/> refuses it on §194C and for the same reason: §194-O(2) grants the exemption
+    /// only where the participant <i>is</i> an individual or a HUF, a party with no
+    /// <see cref="Domain.Ledger.DeducteeType"/> does not evidence that, and guessing either way moves money —
+    /// withholding on a protected individual seller, or not withholding on a company that owes from rupee one.</para>
+    /// </summary>
+    private static bool ExemptionAvailableToThisDeductee(
+        NatureOfPayment nature, Domain.Ledger deductee, bool panApplied)
+    {
+        if (!panApplied) return false;
+        if (deductee.DeducteeType is not { } status)
+            throw new InvalidOperationException(
+                $"'{deductee.Name}' is a §{nature.SectionCode} deductee with no deductee type recorded, and "
+                + $"§{nature.SectionCode} grants its threshold exemption only to an individual or a Hindu "
+                + "undivided family — every other participant is liable from the first rupee. Set the party's "
+                + "Deductee Type on the ledger master before withholding from it.");
+        return status is DeducteeType.Individual or DeducteeType.HinduUndividedFamily;
     }
 
     // ---- threshold-window projection (pure, like Gstr1 YTD): per-FY, or per-MONTH for §194-I ----

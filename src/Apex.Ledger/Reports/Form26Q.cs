@@ -1,4 +1,4 @@
-using Apex.Ledger.Domain;
+﻿using Apex.Ledger.Domain;
 
 namespace Apex.Ledger.Reports;
 
@@ -285,7 +285,13 @@ public sealed record Form26Q(
                     deductee?.Name ?? "(unknown)",
                     deductee?.PartyPan,
                     t.SectionCode,
-                    nature?.FvuSectionCode ?? t.SectionCode,
+                    // 🔴 NotifiedFvuSectionCode, NEVER the stored FvuSectionCode. This is the single choke point
+                    // through which a section code reaches a filed return: FvuWriter writes this row into the FVU
+                    // flat file, Form16A projects it onto the deductee certificate and Form16APdf prints it. An
+                    // existing book persists the superseded "4IA"/"4IB" for §194-I where the notified form spells
+                    // them "4-IA"/"4-IB"; normalising here corrects the filed code for every book without a data
+                    // migration. See NatureOfPayment.NotifiedFvuSectionCode for [FORM-26Q] and the migration note.
+                    nature?.NotifiedFvuSectionCode ?? t.SectionCode,
                     v.Date,
                     t.AssessableValue,
                     t.TdsAmount,

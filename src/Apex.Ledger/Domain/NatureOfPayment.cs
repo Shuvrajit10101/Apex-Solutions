@@ -1,4 +1,4 @@
-namespace Apex.Ledger.Domain;
+﻿namespace Apex.Ledger.Domain;
 
 /// <summary>
 /// A <b>Nature of Payment</b> master — a TDS section under which a payment is liable to withholding (Phase 7
@@ -34,7 +34,12 @@ public sealed class NatureOfPayment
     /// <summary>Cumulative-per-FY threshold below which no TDS applies; <c>null</c> ⇒ none.</summary>
     public Money? CumulativeThreshold { get; }
 
-    /// <summary>The Form 26Q / FVU section code (e.g. "94J-B", "4IA", "94Q"); required.</summary>
+    /// <summary>
+    /// The Form 26Q / FVU section code <b>as stored in this book</b> (e.g. "94J-B", "94Q"); required.
+    /// <para>🔴 <b>DO NOT EMIT THIS FIELD INTO A RETURN. EMIT <see cref="NotifiedFvuSectionCode"/>.</b> An existing
+    /// book can hold a superseded spelling of a §194-I code here — see that property for the defect, the notified
+    /// codes and why the stored value is deliberately left alone.</para>
+    /// </summary>
     public string FvuSectionCode { get; }
 
     /// <summary>The date this rate/threshold applies from; <c>null</c> when unset.</summary>
@@ -75,6 +80,149 @@ public sealed class NatureOfPayment
 
     /// <summary>The with-PAN rate as a percentage (e.g. 10.00 for 1000 bp).</summary>
     public decimal RateWithPanPercent => RateWithPanBp / 100m;
+
+    /// <summary>
+    /// 🔴 <b>THE FORM-26Q SECTION CODE THIS NATURE ACTUALLY FILES UNDER — the one every emitter must use.</b> It is
+    /// <see cref="FvuSectionCode"/> for every nature in the seed but the two §194-I rows, where a <b>superseded
+    /// spelling persisted in existing books</b> is normalised to the notified one.
+    ///
+    /// <para>🔴 <b>THE DEFECT THIS CLOSES, PLAINLY: THE PRODUCT WAS EMITTING A SECTION CODE THAT IS NOT IN THE
+    /// NOTIFIED FORM, INTO RETURNS FILED WITH THE DEPARTMENT.</b> The seed shipped <c>"4IA"</c> and <c>"4IB"</c>.
+    /// The notified codes are <c>"4-IA"</c> and <c>"4-IB"</c>, <b>with a hyphen</b>. This is not cosmetic:
+    /// <c>FvuWriter</c> writes the code into the FVU flat file, <c>Form26Q</c> reports it and <c>Form16APdf</c>
+    /// prints it on the certificate issued to the deductee, so every §194-I rent deduction was being reported under
+    /// a code the validator does not recognise.</para>
+    ///
+    /// <para><b>[FORM-26Q] — the source, read first-hand 2026-09-08.</b> Income-tax Department, notified <b>FORM
+    /// NO. 26Q</b>, "Quarterly statement of deduction of tax under sub-section (3) of section 200 in respect of
+    /// payments other than salary",
+    /// <c>https://www.incometaxindia.gov.in/documents/d/guest/103120000000007861-pdf-2</c>, the official
+    /// "Section | Nature of Payment | Section Code" table under note 16 ("List of section codes is as under"). The
+    /// two rows read verbatim: <c>194-I(a) Rent <b>4-IA</b></c> and <c>194-I (b) Rent <b>4-IB</b></c>. The same
+    /// table confirms every other code in the seed unchanged — 94A, 94C, 94H, 94J-A, 94J-B, 94Q, 94T, 94R, 94S —
+    /// so §194-I is the only one that moves.</para>
+    ///
+    /// <para>🔴 <b>WHY THE STORED VALUE IS NOT REWRITTEN, AND WHAT A MIGRATION WOULD HAVE TO DO.</b> The code is
+    /// persisted per nature (<c>natures_of_payment.fvu_section_code</c>), so correcting the seed alone would leave
+    /// every book created before this change still holding <c>"4IA"</c> — and still filing it. Rewriting those rows
+    /// is a data migration, and this pass has <b>no schema budget</b> (v61 belongs to the GST track). Normalising at
+    /// the point of emission fixes the filed figure for <b>every</b> book, old and new, with no migration at all,
+    /// and it is total: a legacy book and a freshly seeded book emit the identical code. The stored value is left
+    /// untouched and inert, exactly as the superseded §194-I ₹6,00,000 <see cref="CumulativeThreshold"/> is.
+    /// <b>What a migration would still be needed for, if the user wants the stored values normalised too:</b> a
+    /// single <c>UPDATE natures_of_payment SET fvu_section_code = '4-IA' WHERE fvu_section_code = '4IA'</c> (and
+    /// '4IB' → '4-IB'), guarded to the rows whose <c>section_code</c> is in the §194-I family so a hand-authored
+    /// nature that happens to reuse the string is not caught; plus the same rewrite inside the canonical
+    /// XML/JSON importer for books restored from a backup taken before this change. Nothing else reads the field.
+    /// <b>That decision is the user's and is reported, not taken here.</b></para>
+    ///
+    /// <para><b>THE MATCH IS TOLERANT IN BOTH DIRECTIONS, WHICH IS THE POINT.</b> A book already holding the
+    /// notified <c>"4-IA"</c> is returned unchanged; a legacy <c>"4IA"</c>, <c>"4ia"</c> or <c>" 4 I A "</c> maps to
+    /// <c>"4-IA"</c>. Comparison strips hyphens and whitespace and folds case, so no existing book — however its
+    /// row was authored — can file the wrong code, and re-running the normaliser on its own output is a no-op.
+    /// <b>It is scoped to the §194-I family alone</b>: every other code is returned verbatim, so this can never
+    /// invent a code for a section the notified table spells differently.</para>
+    /// </summary>
+    public string NotifiedFvuSectionCode => NormalizeFvuSectionCode(FvuSectionCode);
+
+    /// <summary>
+    /// Maps a stored Form-26Q section code to the spelling in the notified form. See
+    /// <see cref="NotifiedFvuSectionCode"/> for the source and the reasoning; this is the same rule exposed for the
+    /// import path, which sees raw codes before a <see cref="NatureOfPayment"/> exists to ask.
+    /// </summary>
+    public static string NormalizeFvuSectionCode(string? fvuSectionCode)
+    {
+        if (string.IsNullOrWhiteSpace(fvuSectionCode)) return string.Empty;
+        var trimmed = fvuSectionCode.Trim();
+        var key = new string(trimmed.Where(c => !char.IsWhiteSpace(c) && c != '-').ToArray()).ToUpperInvariant();
+        return key switch
+        {
+            "4IA" => "4-IA",
+            "4IB" => "4-IB",
+            _ => trimmed,
+        };
+    }
+
+    /// <summary>
+    /// 🔴 <b>Whether this section's aggregate limb is crossed AT the threshold or only ABOVE it — the one flag that
+    /// separates a statute reading "does not exceed X" from one reading "is less than X".</b>
+    ///
+    /// <para><b>Why it exists.</b> <c>TdsService.ThresholdCrossed</c> tests <c>(prior + current) &gt; threshold</c>,
+    /// which is exactly "no deduction where the aggregate <b>does not exceed</b> X" — the shape of every section in
+    /// the seed before this. A section whose proviso instead exempts a payment that "<b>is less than</b> X" is
+    /// liable <b>at exactly X</b>, and testing it with the strictly-greater rule under-deducts on the boundary
+    /// rupee: on §192A at exactly ₹50,000 that is <b>₹5,000.00</b> withheld nowhere, which the deductor answers for
+    /// under §201 with interest under §201(1A). Both boundaries now exist and each section says which it has.</para>
+    ///
+    /// <para><b>The two sections, with the operative words quoted from the bare Act at the FY 2025-26 vintage
+    /// (the page's own "Year" field reads 2025, which is the only reliable discriminator on this site):</b>
+    /// <list type="bullet">
+    ///   <item><b>§192A</b> — <c>https://www.incometaxindia.gov.in/w/section-192a-11</c>, Year 2025: "Provided that
+    ///     no deduction under this section shall be made where the amount of such payment or, as the case may be,
+    ///     the aggregate amount of such payment to the payee <b>is less than fifty thousand rupees</b>."</item>
+    ///   <item><b>§194EE</b> — <c>https://www.incometaxindia.gov.in/w/section-194ee-35</c>, Year 2025: "Provided
+    ///     that no deduction shall be made under this section where the amount of such payment or, as the case may
+    ///     be, the aggregate amount of such payments to the payee during the financial year <b>is less than two
+    ///     thousand five hundred rupees</b>."</item>
+    /// </list></para>
+    ///
+    /// <para>✅ <b>AND THE AUDIT THAT CAME WITH IT, BECAUSE ADDING THE FLAG IS ONLY HALF THE JOB.</b> Every section
+    /// already shipped was re-read at its own cited slug on 2026-09-08 looking for an "is less than" limb that this
+    /// engine had been treating as strictly-greater — a live under-deduction if one existed. <b>None does.</b>
+    /// §194A, §194C, §194H, §194-I, §194J, §194T, §194R and §194S all read "does not exceed"; §194Q reads
+    /// "exceeding". The shipped set was correct before this change and is unmoved by it, and
+    /// <c>TdsInclusiveThresholdTests</c> pins that over the whole seed so a future row cannot quietly acquire the
+    /// wrong boundary.</para>
+    ///
+    /// <para>🔴 <b>THE SINGLE-TRANSACTION LIMB IS DELIBERATELY NOT COVERED.</b> Neither §192A nor §194EE has one,
+    /// and no shipped section has an inclusive single-transaction limb, so widening the flag to
+    /// <see cref="SingleTransactionThreshold"/> would be untested reach. Whoever seeds a section that needs it must
+    /// extend this rather than assume it already applies.</para>
+    ///
+    /// <para><b>Derived from <see cref="SectionCode"/>, not stored</b> — the same reason and the same precedent as
+    /// <see cref="MonthlyThreshold"/> and <see cref="RateWithPanOtherThanIndividualBp"/>: a stored flag needs a
+    /// <c>natures_of_payment</c> column and therefore a schema migration, and v61 is allocated to the GST track.
+    /// The section code is persisted, unique per company and already the lookup key, so deriving it round-trips
+    /// exactly and a future promotion to a stored column back-fills figure-for-figure from this predicate.</para>
+    /// </summary>
+    public bool AggregateThresholdIsInclusive =>
+        NormalizedSectionCode is "192A" or "194EE";
+
+    /// <summary>
+    /// 🔴 <b>§194-O's aggregate exemption is CONDITIONAL ON WHO THE PAYEE IS — it is not a threshold every
+    /// deductee gets.</b> True only on §194-O; <c>false</c> everywhere else, where the threshold is unconditional.
+    ///
+    /// <para><b>Statutory ground.</b> §194-O(2), bare Act at
+    /// <c>https://www.incometaxindia.gov.in/w/section-194-o-6</c>, <b>Year 2025</b> (= FY 2025-26): "No deduction
+    /// under sub-section (1) shall be made from any sum credited or paid ... to the account of an e-commerce
+    /// participant, <b>being an individual or Hindu undivided family</b>, where the gross amount of such sale or
+    /// services or both during the previous year <b>does not exceed five lakh rupees</b> and such e-commerce
+    /// participant <b>has furnished his Permanent Account Number or Aadhaar number</b> to the e-commerce
+    /// operator."</para>
+    ///
+    /// <para>🔴 <b>THE MONEY, AND WHY A FLAT THRESHOLD WOULD HAVE BEEN A DEFECT IN EITHER DIRECTION.</b> The
+    /// exemption needs <b>all three</b> conditions. A <b>company</b> e-commerce participant gets no exemption at
+    /// all: it is liable from the first rupee, so seeding §194-O with a plain ₹5,00,000 cumulative threshold would
+    /// have withheld <b>₹0.00</b> on a ₹4,00,000 payout that owes <b>₹400.00</b>. Seeding it with no threshold
+    /// instead would have over-withheld on exactly the individual sellers the sub-section protects. Neither is the
+    /// statute, so the condition is modelled rather than approximated.</para>
+    ///
+    /// <para>⚠️ <b>AADHAAR IS A DOCUMENTED NARROWING, STATED SO IT IS NOT MISTAKEN FOR AN OVERSIGHT.</b> The
+    /// sub-section accepts a PAN <b>or</b> an Aadhaar number; the ledger master carries only
+    /// <c>Domain.Ledger.PartyPan</c> and there is no Aadhaar field (adding one is storage). A participant who
+    /// furnished only an Aadhaar is therefore treated as not having furnished, which withholds where the statute
+    /// exempts — the conservative direction, and the deductee recovers it on assessment. Recorded as ours, not
+    /// claimed as fidelity.</para>
+    /// </summary>
+    public bool AggregateThresholdAppliesOnlyToIndividualHufWithPan => NormalizedSectionCode is "194O";
+
+    /// <summary>
+    /// The section code folded for comparison: hyphens and whitespace removed, upper-cased — so a hand-authored
+    /// "194-O", "194 o" and the seeded "194-O" are one entry, exactly as <see cref="IsSection194I"/> already folds
+    /// its family. Parentheses are <b>kept</b>, because "194I(a)" and "194I" must stay distinguishable.
+    /// </summary>
+    private string NormalizedSectionCode =>
+        SectionCode.Replace("-", string.Empty).Replace(" ", string.Empty).ToUpperInvariant();
 
     /// <summary>
     /// 🔴 <b>T0-1.</b> True iff this section charges the tax only on the value <b>EXCEEDING</b> its
@@ -223,7 +371,5 @@ public sealed class NatureOfPayment
     public Money? AggregateThreshold => MonthlyThreshold ?? CumulativeThreshold;
 
     /// <summary>§194-I itself, and neither §194-IA nor §194-IB nor §194-IC. See <see cref="MonthlyThreshold"/>.</summary>
-    private bool IsSection194I =>
-        SectionCode.Replace("-", string.Empty).Replace(" ", string.Empty).ToUpperInvariant()
-            is "194I" or "194I(A)" or "194I(B)";
+    private bool IsSection194I => NormalizedSectionCode is "194I" or "194I(A)" or "194I(B)";
 }

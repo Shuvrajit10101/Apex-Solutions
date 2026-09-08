@@ -1,4 +1,4 @@
-using Apex.Ledger.Domain;
+﻿using Apex.Ledger.Domain;
 
 namespace Apex.Ledger.Seed;
 
@@ -96,15 +96,19 @@ public static class SeedTdsTcsRates
 
     /// <summary>
     /// Builds the seeded predefined TDS Nature-of-Payment set (fresh ids each call): 194A, 194C, 194H, 194I(a),
-    /// 194I(b), 194J(a), 194J(b), 194Q — the Phase-7 approved set — plus <b>194T, 194R and 194S</b>, the first
-    /// instalment of the census's TDS long tail (row 6.35, 2026-09-08). FY 2025-26 rates/thresholds/FVU codes.
+    /// 194I(b), 194J(a), 194J(b), 194Q — the Phase-7 approved set — plus the census's TDS long tail (row 6.35):
+    /// <b>194T, 194R, 194S</b> (first instalment) and <b>192A, 194EE, 194G, 194K, 194LA, 194-O</b> (second
+    /// instalment, 2026-09-08). Seventeen natures. FY 2025-26 rates / thresholds / notified FVU codes.
     ///
-    /// <para>🔴 <b>THE TAIL IS THREE SECTIONS LONG, NOT FOURTEEN, AND THAT IS THE FINDING RATHER THAN A
-    /// SHORTFALL.</b> Fifteen candidates were taken to the bare Act; twelve failed one of four stated gates and
-    /// are recorded, by name and reason, in <see cref="LongTailSectionsNotSeeded"/> — which
-    /// <c>TdsLongTailSeedTests</c> asserts against the seed, so a rejected section cannot be quietly added later
-    /// without someone clearing its gate. The gates and the per-candidate evidence are in the block comment
-    /// above the three rows.</para>
+    /// <para>🔴 <b>THE TAIL IS NINE SECTIONS LONG, AND FIVE OF THE SIX ADDED IN THE SECOND INSTALMENT WERE
+    /// PREVIOUSLY REJECTED ON EVIDENCE THAT TURNED OUT TO BE OURS TO FIX.</b> Four (§194-O, §194G, §194K, §194LA)
+    /// had been read at slugs serving ARCHIVED text; at the slug whose "Year" field reads 2025 all four agree with
+    /// the Department's rate chart, and two of them carried thresholds that would have shipped WRONG had the
+    /// archived figure been believed (§194LA ₹1,00,000 where the FY 2025-26 figure is ₹5,00,000; §194-O 1% where
+    /// it is 0.1%). Two (§192A, §194EE) needed an inclusive threshold boundary the engine could not express, which
+    /// it now can. The remaining rejections stand and are recorded by name and reason in
+    /// <see cref="LongTailSectionsNotSeeded"/>, which <c>TdsLongTailSeedTests</c> asserts against this seed so a
+    /// rejected section cannot be quietly added later without someone clearing its gate.</para>
     /// </summary>
     public static IReadOnlyList<NatureOfPayment> BuildTdsDefaults()
     {
@@ -198,7 +202,19 @@ public static class SeedTdsTcsRates
             // §194I(a) Rent — plant/machinery/equipment. RATE AGREES; the THRESHOLD IS A PER-MONTH LIMB — SEE BELOW.
             //   §194-I(a) [194I]: "TWO per cent for the use of any machinery or plant or equipment".
             //   [CHART-TDS]: "Section 194-I: Rent a) Plant & Machinery 2". No-PAN 20% [206AA(1)(iii)].
-            N("194I(a)", "Rent — plant/machinery/equipment", 200, 2000, "4IA"),
+            //   🔴 THE FVU CODE BELOW CHANGED FROM "4IA" TO "4-IA" ON 2026-09-08, AND IT IS A WRONG-FIGURE FIX,
+            //   NOT A TIDY-UP. The notified Form 26Q spells the two §194-I codes WITH A HYPHEN — [FORM-26Q],
+            //   note 16: "194-I(a) Rent 4-IA" and "194-I (b) Rent 4-IB", read first-hand from the Department's own
+            //   PDF. The seed shipped the unhyphenated spelling, and FvuWriter, Form26Q and Form16APdf all emit it,
+            //   so every §194-I rent deduction was reported to NSDL under a code the notified form does not carry.
+            //   🔴 CORRECTING THE SEED IS ONLY HALF OF IT — the code is PERSISTED PER NATURE, so every book created
+            //   before today still holds "4IA"/"4IB" and would keep filing it. There is no schema budget for a data
+            //   migration (v61 belongs to the GST track), so the fix is applied where it reaches the return instead:
+            //   NatureOfPayment.NotifiedFvuSectionCode normalises both spellings to the notified one, Form26Q emits
+            //   THAT, and a legacy book and a book seeded from this file today now file the identical code. The
+            //   stored value is left untouched and inert. What a migration would still have to do — if the user
+            //   wants the stored values normalised as well — is written out on NotifiedFvuSectionCode.
+            N("194I(a)", "Rent — plant/machinery/equipment", 200, 2000, "4-IA"),
             // §194I(b) Rent — land/building/furniture/fittings. RATE AGREES; PER-MONTH THRESHOLD — SEE BELOW.
             //   §194-I(b) [194I]: "TEN per cent for the use of any land or building (including factory building) or
             //   land appurtenant to a building (including factory building) or furniture or fittings".
@@ -234,7 +250,8 @@ public static class SeedTdsTcsRates
             //   RATE disagreement; here the drift is in whether the threshold was CROSSED AT ALL, so what is pinned
             //   is the posted OUTCOME — TdsService.GrandfatheredLiability, fed the posted voucher's own stamped
             //   AssessableValue and TdsAmount, and never a date check.
-            N("194I(b)", "Rent — land/building/furniture/fittings", 1000, 2000, "4IB"),
+            //   🔴 "4-IB", hyphenated — same fix, same source, same reasoning as the §194I(a) row above.
+            N("194I(b)", "Rent — land/building/furniture/fittings", 1000, 2000, "4-IB"),
             // §194J(a) Technical services / call-centre / certain royalty — AGREES with the statute.
             //   §194J(1) [194J]: "TWO per cent of such sum in case of fees for technical services (not being a
             //   professional services), or royalty where such royalty is in the nature of consideration for sale,
@@ -283,21 +300,43 @@ public static class SeedTdsTcsRates
             //       ships that way and is FLAGGED as an unclosed R7 gap; adding more would DEEPEN it, not close
             //       it. Rejected on G1: §193, §194, §194B, §194BB, §194D.
             //   G2. THE ACT TEXT MUST AGREE WITH [CHART-TDS]. Where the two disagree, the slug is serving an
-            //       archived text and NEITHER source can be trusted for the FY 2025-26 figure. Rejected on G2:
-            //       §194-O (both /w/section-194-o and /w/section-194-o-1 read "one per cent" on 2026-09-08 while
-            //       the chart says 0.1), §194G (Act "ten per cent" + ₹1,000 vs chart 2), §194K (the slug serves
-            //       the version OMITTED in 1999 — 20%/15% and "no deduction ... on or after the 1st day of June,
-            //       1999"), §194LA (Act ₹1,00,000 threshold, and the page carries a Taxmann copyright line).
-            //   G3. 🔴 THE THRESHOLD LIMB MUST READ "DOES NOT EXCEED", BECAUSE THAT IS THE ONLY BOUNDARY THIS
-            //       ENGINE CAN EXPRESS. TdsService.ThresholdCrossed tests `(prior + current) > AggregateThreshold`
-            //       — strictly greater — which is exactly "no deduction where the aggregate does not exceed X".
-            //       A section whose proviso instead says the payment "is LESS THAN X" deducts AT X, and a seeded
-            //       row would silently under-deduct on the boundary rupee. Rejected on G3: §192A ("is less than
-            //       fifty thousand rupees"), §194EE ("is less than two thousand five hundred rupees"). Modelling
-            //       them needs an inclusive-boundary flag on the master, which is storage; see the census report.
-            //   G4. THE DEDUCTOR MUST PLAUSIBLY BE THIS PRODUCT'S USER. §194N is borne by banks, co-operative
-            //       banks and post offices; §194DA by insurers; §194K by mutual funds. An SMB is the DEDUCTEE
-            //       there, never the deductor. (The §194N forward note below already made this point.)
+            //       archived text and NEITHER source can be trusted for the FY 2025-26 figure.
+            //       🔴 ALL FOUR G2 REJECTIONS RECORDED HERE WERE WITHDRAWN ON 2026-09-08 AND THE SECTIONS SEEDED —
+            //       §194-O, §194G, §194K and §194LA. The paragraph that stood here read them as real
+            //       disagreements; they were OUR VINTAGE ERROR. The rejections rested on /w/section-194-o and
+            //       -194-o-1 ("one per cent"), /w/section-194g ("ten per cent" + ₹1,000), /w/section-194k (the
+            //       version OMITTED in 1999) and a /w/section-194la serving ₹1,00,000 — and EVERY ONE of those
+            //       slugs serves an archived text. The Department publishes each historical version under its own
+            //       numbered slug in NO predictable order (for §194G the years run 2000, 2009, 2001, 2010, ...),
+            //       so a slug's NUMBER means nothing and its "Year" field means everything. Enumerating the slugs
+            //       and reading that field found the Year-2025 text of all four, and at that vintage all four
+            //       agree with the chart. The right-vintage slug is named in each seeded row.
+            //       🔴 THE LESSON, WHICH COST TWO WRONG FIGURES: A G2 "DISAGREEMENT" IS FAR MORE LIKELY TO BE A
+            //       WRONG SLUG THAN A WRONG CHART. Enumerate the slugs and read the Year field BEFORE recording a
+            //       rejection. Believing the archived §194LA would have shipped a ₹1,00,000 threshold where the
+            //       statute says ₹5,00,000 — ₹10,000.00 over-deducted on a ₹1,00,001 compensation.
+            //   G3. THE SECTION'S THRESHOLD SHAPE MUST BE ONE THE MASTER CAN EXPRESS. ✅ THE INCLUSIVE BOUNDARY
+            //       THAT REJECTED §192A AND §194EE HERE IS NOW BUILT and both are seeded. The engine used to test
+            //       `(prior + current) > AggregateThreshold` and nothing else, which is exactly "no deduction
+            //       where the aggregate does not exceed X" but NOT "where the payment is LESS THAN X" — the
+            //       latter deducts AT X, so a seeded row silently under-deducted on the boundary rupee (₹5,000.00
+            //       on a §192A payment of exactly ₹50,000). NatureOfPayment.AggregateThresholdIsInclusive now
+            //       carries the distinction and the test picks >= or > from it. Storage was not needed: it is
+            //       derived from the section code like the three flags before it.
+            //       🔴 AND EVERY ALREADY-SHIPPED SECTION WAS RE-READ WHEN THE FLAG WENT IN, because a flag that
+            //       reveals a boundary error is worthless if nobody checks the rows that predate it. §194A, §194C,
+            //       §194H, §194-I, §194J, §194T, §194R, §194S all read "does not exceed" and §194Q reads
+            //       "exceeding" at their own cited slugs — NOT ONE of them is inclusive, so no shipped section was
+            //       withholding the wrong amount at its boundary. TdsInclusiveThresholdTests pins that over the
+            //       whole seed. What still fails G3 is a shape the MASTER cannot hold at all, not a boundary:
+            //       §194N's banded, non-filer-gated rate needs two rates and a band edge on one nature.
+            //   G4. 🔴🔴 WITHDRAWN 2026-09-08 — DO NOT RE-APPLY IT. It read "the deductor must plausibly be this
+            //       product's user", and on that basis §194K (mutual funds), §192A (EPF trustees), §194EE (the
+            //       post office), §194LA (an acquiring authority) and §194G (lottery stockists) were kept out of
+            //       the product. R7 (ruling 14) makes the VENDOR'S published documentation the fidelity ground
+            //       truth, and it ships every one of them — see the [VENDOR-NATURES] note below. The Nature of
+            //       Payment master is a selectable list, not a prediction about who the operator is. G4 was a
+            //       divergence from the clone dressed as caution, and it is the reason this row sat PARTIAL.
             //
             //  Every row below therefore has: a rate quoted from the operative sentence of the bare Act, read at
             //  BOTH the plain slug and a numbered slug on 2026-09-08; a threshold quoted from the section's own
@@ -311,13 +350,38 @@ public static class SeedTdsTcsRates
             //  official three-column table "Section | Nature of Payment | Section Code". Read 2026-09-08. This
             //  matters because the FvuSectionCode is NOT cosmetic: FvuWriter, Form26Q and Form16APdf all emit it,
             //  so a code taken from a blog or guessed from a pattern would be a wrong figure in a filed return.
-            //  The eight codes seeded before this pass carry no citation in this file at all; that gap is
-            //  PRE-EXISTING and is reported rather than papered over, and this note is not a claim to have closed
-            //  it. ⚠️ IT ALSO SURFACED A DEFECT IN ONE OF THEM: the notified form spells the §194-I codes
-            //  "4-IA" and "4-IB", WITH A HYPHEN, where this seed has "4IA"/"4IB". That is reported, NOT changed
-            //  here — the code is persisted per nature, so correcting the seed alone would leave every existing
-            //  book on the old spelling and split the population in two. It needs a migration, which this pass
-            //  has no budget for.
+            //  ✅ THE CITATION GAP ON THE EIGHT ORIGINAL CODES IS NOW CLOSED (2026-09-08, second pass). The
+            //  previous pass could only report that those eight carried no citation in this file. The notified
+            //  table has since been read row by row and every one of them CONFIRMED verbatim against it:
+            //    194A → 94A · 194C → 94C · 194H → 94H · 194J(a) → 94J-A · 194J(b) → 94J-B · 194Q → 94Q,
+            //  and from the first long-tail pass 194T → 94T · 194R → 94R · 194S → 94S. All nine agree.
+            //  🔴 EXACTLY ONE DID NOT, AND IT IS NOW FIXED RATHER THAN MERELY REPORTED: the notified form spells
+            //  the §194-I codes "4-IA" and "4-IB", WITH A HYPHEN, where this seed shipped "4IA"/"4IB" — a wrong
+            //  section code in filed returns. The seed rows are corrected above and, because the code is persisted
+            //  per nature and there is no schema budget for a data migration, the value is ALSO normalised at the
+            //  point of emission (NatureOfPayment.NotifiedFvuSectionCode → Form26Q), so existing books stop filing
+            //  the wrong code without any migration. See that property for the full reasoning and for what a
+            //  migration of the STORED values would additionally have to do, which is the user's call.
+            //
+            //  🔴🔴 [VENDOR-NATURES] — G4 IS WITHDRAWN AS A GATE. IT WAS OURS, NOT THE VENDOR'S, AND IT WAS
+            //  KEEPING SOURCED SECTIONS OUT OF THE PRODUCT. G4 rejected a section when "the deductor must plausibly be this product's user"
+            //  failed: §194K because the deductor is a Mutual Fund, §192A because it is the EPF trustees, §194EE
+            //  the post office, §194LA an acquiring authority, §194G lottery stockists. R7 (ruling 14) makes the
+            //  VENDOR'S OWN PUBLISHED DOCUMENTATION the fidelity ground truth, and it contradicts G4 flatly. The
+            //  TallyPrime Nature-of-Payment helper list (Alt+H on the Nature of Payment screen) —
+            //  https://help.tallysolutions.com/tds-nature-of-payment-income-tax-act/, read 2026-09-08 — ships ALL
+            //  of them: "Payment of Accumulated Balance Due to an Employee" (§192A), "Payments in Respect of
+            //  Deposits Under NSS u/s 80CCA(2) of IT Act, 1961" (§194EE), "Income from Stocking, Distributing,
+            //  Purchasing or Selling Lottery Tickets" (§194G), "Income from Units of Specified Mutual Fund or
+            //  Administrator of Undertaking or Company" (§194K), "Payment of Compensation on Acquisition of
+            //  Certain Immovable Property" (§194LA) and "Payments to Any E-Commerce Participant" (§194-O). The
+            //  Nature of Payment master is a SELECTABLE LIST, not a prediction about who the operator is; a firm
+            //  that never pays lottery commission simply never picks §194G. Excluding them was a divergence from
+            //  the clone dressed as caution. ⚠️ G1, G2 and G3 are UNTOUCHED and still bind — they are CITATION
+            //  gates, and the vendor list attests that the product ships a nature, never what its rate is.
+            //  (The vendor page is written against the Income-tax Act 2025's renumbered sections — §392/§393 with
+            //  four-digit payment codes — so it is read for WHICH NATURES EXIST, by subject matter, and never for
+            //  a 1961-Act rate, threshold or section code. Those come from the bare Act and [FORM-26Q] below.)
 
             // §194T Payments to partners of firms — 🔴 THE ONE AN INDIAN BUSINESS IS MOST LIKELY TO HIT, and the
             //   newest. Every partnership firm that pays a partner salary, remuneration, commission, bonus or
@@ -362,7 +426,14 @@ public static class SeedTdsTcsRates
             //   https://www.incometaxindia.gov.in/w/section-194r-2 — same rate, same threshold. The numbered slug
             //   additionally carries "Explanation 2 ... the provisions of sub-section (1) shall apply to any
             //   benefit or perquisite, WHETHER IN CASH OR IN KIND or partly in cash and partly in kind", i.e. it
-            //   is the LATER text of the two, and it did not move the rate or the threshold. ✅ G2: [CHART-TDS]
+            //   is the LATER text of the two, and it did not move the rate or the threshold.
+            //   🔴 CITATION CORRECTED 2026-09-08 (second pass): NEITHER slug above is the FY 2025-26 text. Their
+            //   "Year" fields read 2022 and 2024. The FY 2025-26 text is
+            //   https://www.incometaxindia.gov.in/w/section-194r-4, Year 2025, and it was read for this
+            //   correction: "at the rate of ten per cent" and "does not exceed twenty thousand rupees", i.e. THE
+            //   SHIPPED FIGURES ARE UNCHANGED AND REMAIN CORRECT. Only the citation was of the wrong vintage —
+            //   recorded rather than silently swapped, because a right figure resting on a wrong-vintage page is
+            //   exactly the shape that made four other sections look like G2 failures. ✅ G2: [CHART-TDS]
             //   agrees — "Section 194R: ... aggregate value of such benefit/perquisite exceeds Rs. 20,000 ... 10".
             //   Code 94R — [FORM-26Q]: "194R | Benefits or perquisites of business or profession | 94R".
             //   ⚠️ WHAT IS DELIBERATELY NOT MODELLED, stated so it is not mistaken for an oversight. (a) The THIRD
@@ -394,11 +465,192 @@ public static class SeedTdsTcsRates
             //   READ TWICE, 2026-09-08: https://www.incometaxindia.gov.in/w/section-194s AND the numbered slug
             //   https://www.incometaxindia.gov.in/w/section-194s-2 — identical. ✅ G2: [CHART-TDS] agrees — "1",
             //   and restates both limbs and the "specified person" definition.
+            //   🔴 CITATION CORRECTED 2026-09-08 (second pass), same as §194R above: those two slugs are Year 2022
+            //   and Year 2024, not FY 2025-26. The FY 2025-26 text is
+            //   https://www.incometaxindia.gov.in/w/section-194s-4, Year 2025, read for this correction — both
+            //   limbs still read "does not exceed fifty thousand rupees" and "does not exceed ten thousand
+            //   rupees", so THE SHIPPED FIGURES ARE UNCHANGED AND REMAIN CORRECT. Only the citation moved.
             //   No-PAN 20% — §206AA(1)(iii); §194S is named in neither five-per-cent proviso.
             //   ⚠️ The §194S(1) proviso's in-kind / asset-for-asset route (form code 94S-P) is NOT seeded, for the
             //   same reason as 94R-P: there is no money voucher to deduct from.
             N("194S", "Consideration for transfer of a virtual digital asset (payer other than a specified person)",
                 100, 2000, "94S", cumulative: R(10_000m)),
+
+            // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+            //  CENSUS ROW 6.35 — THE TDS LONG TAIL, SECOND INSTALMENT (2026-09-08). SIX MORE SECTIONS.
+            //
+            //  🔴 WHAT UNBLOCKED THEM, BECAUSE IT WAS NOT NEW LAW — IT WAS A SLUG-INDEXING TRICK AND ONE
+            //  WITHDRAWN GATE. The previous pass rejected §194-O, §194G, §194K and §194LA on G2 (Act text
+            //  disagrees with [CHART-TDS]) after reading the plain and low-numbered slugs. Those slugs were
+            //  serving ARCHIVED texts. The Department publishes EVERY historical version of a section under its
+            //  own numbered slug, in NO predictable order, and each page's "Year" metadata field is the only
+            //  reliable discriminator. Enumerating the slugs and reading the Year field off each one located the
+            //  FY 2025-26 (Year 2025) text for all four, and at that vintage ALL FOUR AGREE WITH THE CHART. G2 was
+            //  never a real disagreement; it was a vintage error on our side. The right-vintage slug is recorded
+            //  on every row below so the next reader does not repeat the enumeration.
+            //  §192A and §194EE were blocked on G3 alone — an inclusive "is less than" boundary the engine could
+            //  not express. It can now: NatureOfPayment.AggregateThresholdIsInclusive.
+            //  G4 is withdrawn; see the block above BuildTdsDefaults's first long-tail instalment.
+            //
+            //  🔴 EFFECTIVE-FROM. Every row below carries EffectiveFrom = 01-Apr-2025 through the N() helper, as
+            //  every seeded row does, so no rate is a bare undated constant. ⚠️ THE MODEL HAS NO EFFECTIVE-TO, and
+            //  that is stated rather than implied: NatureOfPayment carries EffectiveFrom only, so a superseded
+            //  rate cannot be closed off — a second row for the same section would be the only way to express a
+            //  mid-year change, and adding the column is storage. This does NOT deepen defect T1-26 (the s.192
+            //  salary engine's date-blind consts) — every figure here is stored, dated data, not a const — but it
+            //  does not close that half of it either.
+
+            // §192A Accumulated PF balance paid to an employee — 🔴 THE FIRST INCLUSIVE-BOUNDARY SECTION IN THE
+            //   SEED, AND THE REASON THE FLAG EXISTS.
+            //   ✅ G1 RATE IS IN THE ACT. §192A, Year 2025 — https://www.incometaxindia.gov.in/w/section-192a-11
+            //   (the plain /w/section-192a slug serves Year 2026 and must not be read for this year): the trustees
+            //   of the EPF Scheme 1952 "or any person authorised under the scheme to make payment of accumulated
+            //   balance due to employees shall ... deduct income-tax thereon AT THE RATE OF TEN PER CENT".
+            //   ✅ G2 [CHART-TDS] agrees: "Section 192A: Payment of accumulated balance of provident fund which is
+            //   taxable in the hands of an employee 10".
+            //   🔴 G3 — THE BOUNDARY IS INCLUSIVE, AND THIS IS THE WHOLE POINT OF THE ROW. The proviso reads
+            //   "no deduction under this section shall be made where the amount of such payment or, as the case may
+            //   be, the aggregate amount of such payment to the payee IS LESS THAN FIFTY THOUSAND RUPEES." "Is less
+            //   than", NOT "does not exceed" — so a payment of EXACTLY ₹50,000 IS liable, and at 10% that is
+            //   ₹5,000.00 the strictly-greater test would have withheld nowhere.
+            //   AggregateThresholdIsInclusive carries it; TdsInclusiveThresholdTests measures both sides of the
+            //   boundary rupee.
+            //   ⚠️ ONE NARROWING, STATED. The proviso's aggregate carries NO "during the financial year" qualifier
+            //   (unlike §194EE's, which does) — it is the aggregate of payments to that payee, period. The engine's
+            //   aggregate window is the financial year, so instalments of one accumulated balance paid across an
+            //   FY boundary are two windows here and one aggregate in the statute. A PF accumulated balance is paid
+            //   out as a single settlement in practice, so the shapes coincide in the ordinary case; the divergence
+            //   is ours and is recorded rather than hidden. Closing it needs a per-payee lifetime window, which is
+            //   a fourth threshold window and therefore its own decision.
+            //   Code 192A — [FORM-26Q]: "192A | Payment of accumulated balance due to an employee | 192A". The
+            //   section code and the FVU code are the same string for this one section; that is what the form says.
+            //   No-PAN 20% — §206AA(1)(iii); §192A is named in neither five-per-cent proviso.
+            N("192A", "Accumulated provident-fund balance paid to an employee",
+                1000, 2000, "192A", cumulative: R(50_000m)),
+
+            // §194EE Payments out of a National Savings Scheme deposit (§80CCA(2)(a)) — the second inclusive row.
+            //   ✅ G1 RATE IS IN THE ACT. §194EE, Year 2025 —
+            //   https://www.incometaxindia.gov.in/w/section-194ee-35 (the plain slug serves Year 2026): "The person
+            //   responsible for paying to any person any amount referred to in clause (a) of sub-section (2) of
+            //   section 80CCA shall, at the time of payment thereof, deduct income-tax thereon AT THE RATE OF TEN
+            //   PER CENT".
+            //   ✅ G2 [CHART-TDS] agrees: "Section 194EE: Payment in respect of deposit under National Savings
+            //   scheme 10".
+            //   🔴 G3 INCLUSIVE, same shape as §192A: "no deduction shall be made under this section where the
+            //   amount of such payment or, as the case may be, the aggregate amount of such payments to the payee
+            //   DURING THE FINANCIAL YEAR IS LESS THAN TWO THOUSAND FIVE HUNDRED RUPEES". Note this one DOES say
+            //   "during the financial year", so unlike §192A the window needs no narrowing — it is exactly the
+            //   engine's default. At exactly ₹2,500 the deduction is ₹250.00.
+            //   ⚠️ The second proviso — "nothing contained in this section shall apply to the payment of the said
+            //   amount to the HEIRS of the assessee" — is NOT modelled: the ledger master has no
+            //   payee-is-an-heir fact, and there is nowhere to record one without storage. A deductor paying an
+            //   heir must not tag the voucher with this nature. Ours, and stated.
+            //   Code 4EE — [FORM-26Q]: "194EE | Payments in respect of deposits under National Savings Schemes |
+            //   4EE". No-PAN 20% [206AA(1)(iii)].
+            N("194EE", "Payment out of a National Savings Scheme deposit (§80CCA(2)(a))",
+                1000, 2000, "4EE", cumulative: R(2_500m)),
+
+            // §194G Commission etc. on the sale of lottery tickets — 🔴 ITS LIMB IS PER-PAYMENT, NOT AN FY
+            //   AGGREGATE, AND SEEDING IT AS A CUMULATIVE WOULD HAVE BEEN A DEFECT.
+            //   ✅ G1 RATE IS IN THE ACT. §194G(1), Year 2025 —
+            //   https://www.incometaxindia.gov.in/w/section-194g-34: "Any person who is responsible for paying ...
+            //   to any person, who is or has been stocking, distributing, purchasing or selling lottery tickets,
+            //   any income by way of commission, remuneration or prize (by whatever name called) on such tickets
+            //   IN AN AMOUNT EXCEEDING 84[TWENTY] THOUSAND RUPEES shall ... deduct income-tax thereon AT THE RATE
+            //   OF 85[TWO] PER CENT."
+            //   ✅ G2 [CHART-TDS] agrees: "Section 194G: Commission, etc., on sale of lottery tickets 2". 🔴 THE
+            //   PREVIOUS PASS REJECTED THIS ROW ON G2 having read "ten per cent" and "one thousand rupees" — that
+            //   is the PRE-2016 text, served by the plain slug. Both figures were substituted (footnote markers 84
+            //   and 85 above); the Year 2025 page reads 2% and ₹20,000 and agrees with the chart exactly.
+            //   ✅ G3 — the boundary is "IN AN AMOUNT EXCEEDING twenty thousand rupees", i.e. strictly greater, and
+            //   it qualifies THE INCOME BEING PAID, not a running total: §194G has no aggregate limb and no
+            //   "during the financial year" anywhere in it. It is therefore seeded as a SINGLE-TRANSACTION
+            //   threshold, which the engine already tests strictly. Seeding it as a cumulative would have made two
+            //   ₹15,000 commissions liable, which the section does not.
+            //   Code 94G — [FORM-26Q]: "194G | Commission, prize etc., on sale of lottery tickets | 94G".
+            //   No-PAN 20% [206AA(1)(iii)].
+            N("194G", "Commission/remuneration/prize on the sale of lottery tickets",
+                200, 2000, "94G", single: R(20_000m)),
+
+            // §194K Income in respect of units of a mutual fund / specified undertaking / specified company.
+            //   ✅ G1 RATE IS IN THE ACT. §194K, Year 2025 —
+            //   https://www.incometaxindia.gov.in/w/section-194k-30: any person paying a resident income in
+            //   respect of units of a §10(23D) Mutual Fund, units from the Administrator of the specified
+            //   undertaking, or units from the specified company "shall ... deduct income-tax thereon AT THE RATE
+            //   OF TEN PER CENT".
+            //   🔴 THIS IS THE RE-INSERTED (FA2020) §194K, NOT THE ONE OMITTED IN 1999 — and distinguishing them
+            //   was the whole difficulty. The previous pass read the plain /w/section-194k slug, which serves the
+            //   Year 2000 text: 20% for a company payee, 15% for others, and "no deduction shall be made ... on or
+            //   after the 1st day of June, 1999". The Year 2025 page carries none of that; it carries the
+            //   three-limb units definition and the flat ten per cent quoted above.
+            //   ✅ G2 [CHART-TDS] agrees: "Section 194K: Income in respect of units payable to resident person 10".
+            //   ✅ G3 "does not exceed" form, FY aggregate — proviso (i): the section does not apply "where the
+            //   amount of such income or, as the case may be, the aggregate of the amounts of such income credited
+            //   or paid or likely to be credited or paid DURING THE FINANCIAL YEAR ... DOES NOT EXCEED 92[TEN]
+            //   THOUSAND RUPEES". Exactly the engine's default window and boundary.
+            //   ⚠️ Proviso (ii) — the section does not apply "if the income is of the nature of CAPITAL GAINS" — is
+            //   NOT modelled. It is a property of the payment, not of the master, and there is no capital-gains
+            //   flag on a voucher line; a deductor paying out unit capital gains must not tag the line with this
+            //   nature. Ours, and stated.
+            //   Code 94K — [FORM-26Q]: "194K | Income in respect of units | 94K". No-PAN 20% [206AA(1)(iii)].
+            N("194K", "Income in respect of units of a mutual fund / specified undertaking / specified company",
+                1000, 2000, "94K", cumulative: R(10_000m)),
+
+            // §194LA Compensation on the compulsory acquisition of immovable property (not agricultural land).
+            //   ✅ G1 RATE IS IN THE ACT. §194LA, Year 2025 —
+            //   https://www.incometaxindia.gov.in/w/section-194la-21: any person paying a resident compensation or
+            //   enhanced compensation on the compulsory acquisition of immovable property other than agricultural
+            //   land "shall ... deduct an amount equal to TEN PER CENT of such sum as income-tax thereon".
+            //   ✅ G2 [CHART-TDS] agrees: "Section 194LA: Payment of compensation on acquisition of certain
+            //   immovable property 10".
+            //   🔴 THE THRESHOLD IS ₹5,00,000, NOT THE ₹1,00,000 THE PREVIOUS PASS READ — that figure is the
+            //   pre-2020 text and it was the reason this row was rejected. The Year 2025 first proviso reads: "no
+            //   deduction shall be made under this section where the amount of such payment or, as the case may
+            //   be, the aggregate amount of such payments to a resident DURING THE FINANCIAL YEAR DOES NOT EXCEED
+            //   93[FIVE LAKH] RUPEES" — the bracketed 93 marks it as substituted. Seeding ₹1,00,000 would have
+            //   OVER-deducted ₹10,000.00 on a ₹1,00,001 compensation the statute exempts. ✅ G3: "does not exceed",
+            //   FY aggregate — the engine's default on both counts. The right-vintage page carries no third-party
+            //   copyright line either; that was an artefact of the slug the previous pass read.
+            //   ⚠️ The second proviso — no deduction where the award or agreement is exempt from income-tax under
+            //   §96 of the RFCTLARR Act 2013 — is NOT modelled: it is a property of the acquisition, not of the
+            //   master, and there is nowhere to record it. Such a payment must not be tagged with this nature.
+            //   Code 4LA — [FORM-26Q]: "194LA | Payment of Compensation on acquisition of certain immovable
+            //   property | 4LA". No-PAN 20% [206AA(1)(iii)].
+            N("194LA", "Compensation on compulsory acquisition of immovable property (not agricultural land)",
+                1000, 2000, "4LA", cumulative: R(5_00_000m)),
+
+            // §194-O Sums paid by an e-commerce operator to an e-commerce participant — 🔴 THE ONE ROW IN THIS
+            //   INSTALMENT WHOSE THRESHOLD IS CONDITIONAL ON WHO THE PAYEE IS.
+            //   ✅ G1 RATE IS IN THE ACT, AT 0.1% AND NOT 1%. §194-O(1), Year 2025 —
+            //   https://www.incometaxindia.gov.in/w/section-194-o-6: the operator "shall ... deduct income-tax at
+            //   the rate of 1[0.1] PER CENT of the gross amount of such sales or services or both". 🔴 THE
+            //   PREVIOUS PASS REJECTED THIS ON G2 having read "one per cent" at /w/section-194-o and
+            //   /w/section-194-o-1. Those slugs serve Year 2020 and Year 2021; the ORIGINAL rate was one per cent
+            //   and the bracketed footnote marker 1 above shows it was substituted. Reading a §194-O slug without
+            //   checking its Year field is exactly how a repealed rate gets shipped.
+            //   ✅ G2 [CHART-TDS] agrees at the right vintage: "Section 194-O: Payment or credit of amount by the
+            //   e-commerce operator to e-commerce participant 0.1". 10 bp below.
+            //   🔴 G3 — THE EXEMPTION IS CONDITIONAL, AND SEEDING A FLAT ₹5,00,000 WOULD HAVE BEEN A WRONG FIGURE.
+            //   §194-O(2): "No deduction under sub-section (1) shall be made from any sum credited or paid ... to
+            //   the account of an e-commerce participant, BEING AN INDIVIDUAL OR HINDU UNDIVIDED FAMILY, where the
+            //   gross amount of such sale or services or both during the previous year DOES NOT EXCEED FIVE LAKH
+            //   RUPEES AND such e-commerce participant HAS FURNISHED HIS PERMANENT ACCOUNT NUMBER OR AADHAAR
+            //   NUMBER to the e-commerce operator." Three conditions, all required. A COMPANY participant has no
+            //   exemption at all and is liable from the first rupee, so a plain cumulative limb would have
+            //   withheld ₹0.00 on a ₹4,00,000 payout owing ₹400.00; no limb at all would have over-withheld on the
+            //   individual sellers the sub-section exists to protect.
+            //   NatureOfPayment.AggregateThresholdAppliesOnlyToIndividualHufWithPan carries the condition and
+            //   TdsService drops the limb entirely for anyone outside it. The boundary itself is "does not exceed"
+            //   — strict — so it is NOT flagged inclusive. Aadhaar is a documented narrowing; see that property.
+            //   Code 94O — [FORM-26Q]: "194-O | Payment of certain sums by e-commerce operator to e-commerce
+            //   participant | 94O".
+            //   🔴 NO-PAN 5%, NOT 20% — and §194-O is one of only TWO sections in the Act that get this. §206AA,
+            //   FIRST proviso, Year 2025 — https://www.incometaxindia.gov.in/w/section-206aa-16: "Provided that
+            //   where the tax is required to be deducted under SECTION 194-O, the provisions of clause (iii) shall
+            //   apply as if for the words 'twenty per cent', the words 'FIVE PER CENT' had been substituted". (The
+            //   second proviso does the same for §194Q, which is why that row also carries 500.)
+            N("194-O", "Sums paid by an e-commerce operator to an e-commerce participant",
+                10, 500, "94O", cumulative: R(5_00_000m)),
             // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
             // ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -435,20 +687,33 @@ public static class SeedTdsTcsRates
     }
 
     /// <summary>
-    /// 🔴 <b>THE TWELVE LONG-TAIL SECTIONS THAT WERE EVALUATED AND NOT SEEDED, each with the gate it failed
-    /// (census row 6.35, 2026-09-08).</b> This is data, not a comment, for one reason: a comment cannot stop the
-    /// next pass from seeding §194-O off the rate chart, and <c>TdsLongTailSeedTests</c> can — it asserts that no
-    /// section named here appears in <see cref="BuildTdsDefaults"/>.
+    /// 🔴 <b>THE LONG-TAIL SECTIONS THAT WERE EVALUATED AND NOT SEEDED, each with the gate it failed (census row
+    /// 6.35).</b> This is data, not a comment, for one reason: a comment cannot stop the next pass from seeding a
+    /// rate off the chart, and <c>TdsLongTailSeedTests</c> can — it asserts that no section named here appears in
+    /// <see cref="BuildTdsDefaults"/>.
+    ///
+    /// <para>🔴 <b>SIX ENTRIES WERE REMOVED ON 2026-09-08 AND THE SECTIONS SEEDED</b> — §192A, §194EE, §194G,
+    /// §194K, §194LA and §194-O. Each removal is a claim, discharged in the seed row itself: the four §194-O /
+    /// §194G / §194K / §194LA rejections were <b>OUR VINTAGE ERROR, NOT A REAL G2 DISAGREEMENT</b> (the earlier
+    /// pass read archived texts at plain and low-numbered slugs; the Year-2025 text of all four agrees with
+    /// [CHART-TDS]), and §192A / §194EE were blocked only by the missing inclusive boundary, which
+    /// <see cref="NatureOfPayment.AggregateThresholdIsInclusive"/> now expresses.</para>
     ///
     /// <para><b>Removing an entry is the ONLY way to seed the section, and removing it is a claim that the gate
-    /// has been cleared with a fresh reading of a primary source — not that the section looks fine.</b> The four
-    /// gates are stated in full in the block comment inside <see cref="BuildTdsDefaults"/>; in short: <b>G1</b>
-    /// the bare Act must state the rate (otherwise the figure rests on the self-contradicting [CHART-TDS]
-    /// alone, which is the unclosed §194A gap and must not be widened); <b>G2</b> the Act text must agree with
-    /// [CHART-TDS] (disagreement means the slug is serving an archived text and neither source can be trusted);
-    /// <b>G3</b> the threshold limb must read "does not exceed", because <c>TdsService.ThresholdCrossed</c> is a
-    /// strictly-greater test and cannot express a "is less than" boundary without under-deducting on it; and
-    /// <b>G4</b> the deductor must plausibly be this product's user.</para>
+    /// has been cleared with a fresh reading of a primary source — not that the section looks fine.</b> The gates
+    /// are stated in full in the block comments inside <see cref="BuildTdsDefaults"/>; in short: <b>G1</b> the bare
+    /// Act must state the rate (otherwise the figure rests on the self-contradicting [CHART-TDS] alone, which is
+    /// the unclosed §194A gap and must not be widened); <b>G2</b> the Act text — <b>at the slug whose "Year" field
+    /// reads 2025</b>, never a plain or arbitrarily-numbered one — must agree with [CHART-TDS]; <b>G3</b> the
+    /// section's threshold shape must be one the master can express.</para>
+    ///
+    /// <para>🔴 <b>G4 ("the deductor must plausibly be this product's user") IS WITHDRAWN AND MUST NOT BE
+    /// RE-APPLIED.</b> It was ours, it was never the vendor's, and it was holding fully-sourced sections out of
+    /// the product. Under R7 (ruling 14) the vendor's published documentation is the fidelity ground truth, and
+    /// TallyPrime's own Nature-of-Payment helper list ships every section G4 rejected. The evidence and the URL
+    /// are in the block comment inside <see cref="BuildTdsDefaults"/>. Two entries below still <i>mention</i> G4
+    /// in a trailing clause; those clauses are dead and each is marked — <b>G1 alone is what holds those two
+    /// sections back</b>, and clearing G1 is sufficient to seed them.</para>
     /// </summary>
     public static IReadOnlyDictionary<string, string> LongTailSectionsNotSeeded { get; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -464,40 +729,23 @@ public static class SeedTdsTcsRates
             ["194B"] = "G1 — 'deduct income-tax thereon at the rates in force'. Its ₹10,000 limb is also "
                      + "per-single-transaction, which this engine can express, but the rate cannot be sourced.",
             ["194BB"] = "G1 — §194BB carries the same 'deduct income-tax thereon at the rates in force' shape as "
-                      + "§194B, so the 30% on [CHART-TDS] has no bare-Act basis to cite. G4 as well: the "
-                      + "deductor is a bookmaker or a race club, which is not this product's user population.",
+                      + "§194B, so the 30% on [CHART-TDS] has no bare-Act basis to cite. (A trailing 'G4 as well: "
+                      + "the deductor is a bookmaker or a race club' stood here and is DEAD — G4 is withdrawn. G1 "
+                      + "alone holds this section back; clear it and §194BB is seedable.)",
             ["194D"] = "G1 — 'rates in force'. [CHART-TDS] additionally states TWO different figures for it in "
                      + "its own two blocks (5 for a non-company payee, 10 for a company), which is a second "
-                     + "reason not to copy it. G4 also: the deductor is an insurer.",
-            ["194-O"] = "G2 — THE ACT AND THE CHART DISAGREE AND NEITHER CAN BE TRUSTED. Both "
-                      + "https://www.incometaxindia.gov.in/w/section-194-o and the numbered slug "
-                      + "https://www.incometaxindia.gov.in/w/section-194-o-1 read 'deduct income-tax at the rate "
-                      + "of ONE PER CENT' on 2026-09-08, while [CHART-TDS] states 0.1. Both slugs are therefore "
-                      + "serving a pre-amendment text and the chart's own vintage is unresolvable, so the FY "
-                      + "2025-26 figure cannot be established from either. Its ₹5,00,000 threshold IS in 'does "
-                      + "not exceed' form and its code is 94O, so only the rate blocks it.",
-            ["194G"] = "G2 — the Act reads 'at the rate of TEN per cent' on an amount 'exceeding ONE THOUSAND "
-                     + "rupees'; [CHART-TDS] says 2. An archived text. Also G4 (lottery stockists).",
-            ["194K"] = "G2 — https://www.incometaxindia.gov.in/w/section-194k serves the version OMITTED IN 1999: "
-                     + "it prescribes 20% for a company payee and 15% for others and provides that 'no deduction "
-                     + "shall be made ... on or after the 1st day of June, 1999'. It is not the section "
-                     + "re-inserted in 2020. Also G4 (the deductor is a Mutual Fund or the UTI).",
-            ["194LA"] = "G2 — the Act text served reads 'does not exceed ONE HUNDRED THOUSAND RUPEES' and the "
-                      + "page carries a third-party copyright line; the current threshold could not be "
-                      + "established from a primary source. The 10% rate IS in the Act, so this one needs only a "
-                      + "correctly-vintaged slug to become seedable.",
-            ["192A"] = "🔴 G3 — THE BOUNDARY, NOT THE RATE. §192A's 10% and its ₹50,000 are both in the Act and "
-                     + "both agree with [CHART-TDS]. But its proviso reads 'where the amount of such payment ... "
-                     + "IS LESS THAN fifty thousand rupees', so the statute DEDUCTS AT exactly ₹50,000, whereas "
-                     + "TdsService.ThresholdCrossed only deducts ABOVE the threshold. Seeding it would "
-                     + "under-deduct on the boundary rupee. Modelling it needs an inclusive-boundary flag on the "
-                     + "master — storage. Also G4 (the deductor is the EPF Scheme trustees).",
-            ["194EE"] = "G3 — same inclusive boundary as §192A: 'is less than two thousand five hundred rupees'. "
-                      + "Rate and figure both sourced and both agreeing with the chart; only the boundary blocks "
-                      + "it. Also G4 (the deductor is the post office).",
-            ["194N"] = "G4 — borne by banks, co-operative banks and post offices; an SMB is the deductee, never "
-                     + "the deductor. See the fuller forward note inside BuildTdsDefaults, which also records "
-                     + "that [CHART-TDS] states §194N's bands INCONSISTENTLY across its own three blocks.",
+                     + "reason not to copy it. (A trailing 'G4 also: the deductor is an insurer' stood here and is "
+                     + "DEAD — G4 is withdrawn, and the vendor's own helper list ships an insurance-commission "
+                     + "nature. G1 alone holds this section back.)",
+            ["194N"] = "🔴 NOT G4 ANY MORE — G4 IS WITHDRAWN (see BuildTdsDefaults). §194N is held back on a "
+                     + "SOURCE-SHAPE problem the engine cannot express: its rate is BANDED and NON-FILER-GATED — "
+                     + "2% only on the band ₹20 lakh→₹1 crore and 5% above ₹1 crore, both limbs applying solely "
+                     + "to a recipient who has not filed returns for three assessment years, with the ordinary "
+                     + "filer case at 2% on cash exceeding ₹1 crore and a co-operative-society substitution "
+                     + "reading '₹1 crore' as '₹3 crore'. NatureOfPayment carries ONE with-PAN rate and no band "
+                     + "boundaries, so no single row can state this section. [CHART-TDS] also states the bands "
+                     + "INCONSISTENTLY across its own three blocks — see the forward note inside "
+                     + "BuildTdsDefaults, which quotes the statute that settles them.",
         };
 
     /// <summary>
