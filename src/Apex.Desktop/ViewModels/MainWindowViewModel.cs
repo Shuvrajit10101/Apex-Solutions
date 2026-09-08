@@ -312,6 +312,12 @@ public enum GatewayMenu
     // Reports → Statutory Reports (Phase 7 slice 8): the TDS/TCS exception & outstanding reports, nested under
     // TDS Reports / TCS Reports sub-groups (+ a common Ledgers-without-PAN report spanning both taxes).
     StatutoryReports,
+
+    // W-N1 (census 15.1 / 15.5 / 15.6): Reports -> Statutory Reports -> VAT Reports, and its Declaration Forms
+    // sub-column. Two levels, never a flat dump — the computation and the two declaration-form registers are
+    // different kinds of working paper and the vendor groups them apart.
+    VatReports,
+    VatDeclarationForms,
     TdsReports,
     TcsReports,
 
@@ -1399,7 +1405,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // dealer (ER-13), so a company using none is byte-identical to the pre-slice Reports menu. This group is the
         // ONLY door to the advanced-GST screens, so a plain Regular GST company (GST on, no TDS/TCS/Payroll) must see
         // it — omitting IsRegularGstDealer here made all ten UI-1 screens unreachable through the real cascade.
+        // 🔴 W-N1 ADDED `{ VatEnabled: true }` TO THIS DISJUNCTION, AND ITS ABSENCE WAS A REAL DEFECT CAUGHT BY
+        // StateVatCstReachabilityTests. A liquor or fuel dealer running on State VAT typically has NO GST
+        // registration, NO TDS and NO payroll — so without this clause the whole Statutory Reports hub was
+        // missing for exactly the companies census area 15 exists to serve, and the three VAT reports below it
+        // were unreachable through the real cascade. That is the same omission that once made all ten Phase-9
+        // UI-1 screens unreachable by leaving IsRegularGstDealer out of this line.
         if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true }
+                or { VatEnabled: true }
             || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
@@ -2498,10 +2511,47 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // always-empty report is a dead capability, not a feature.
         if (IsKeralaFloodCessRelevant)
             col.Add(new MenuItemViewModel("Kerala Flood Cess", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // W-N1 (census 15.1 / 15.5 / 15.6) — State VAT & CST, for the goods GST never absorbed. Gated on the
+        // F11 VAT switch, so a company that never enabled VAT is byte-identical to the pre-slice menu (ER-13).
+        // A dealer in ordinary GST goods must never meet a VAT menu row: it would invite them to compute a tax
+        // abolished for their trade, which is the harm this whole area is gated against.
+        if (Company is { VatEnabled: true })
+            col.Add(new MenuItemViewModel("VAT Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
         if (Company is { TdsEnabled: true } or { TcsEnabled: true })
             col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the <b>VAT Reports</b> submenu column (Reports → Statutory Reports → VAT Reports; census 15.5 /
+    /// 15.6): the VAT Computation page, and the two CST Declaration Forms registers under their own nested
+    /// group — the vendor's own grouping ("Statutory Reports &gt; VAT Reports &gt; <i>Declaration Forms</i>",
+    /// help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/).
+    ///
+    /// <para>Nested rather than flat on purpose: a computation and a forms register answer different questions,
+    /// and three rows in one list is how the next two rows get dumped beside them.</para>
+    /// </summary>
+    private GatewayColumn BuildVatReportsColumn()
+    {
+        var col = new GatewayColumn("VAT Reports");
+        col.Add(MenuItemViewModel.Header("VAT Reports"));
+        col.Add(new MenuItemViewModel("VAT Computation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Declaration Forms", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the <b>Declaration Forms</b> submenu column (Reports → Statutory Reports → VAT Reports →
+    /// Declaration Forms; census 15.6): the vendor's Forms Receivable and Forms Issuable, named verbatim.
+    /// </summary>
+    private GatewayColumn BuildVatDeclarationFormsColumn()
+    {
+        var col = new GatewayColumn("Declaration Forms");
+        col.Add(MenuItemViewModel.Header("Declaration Forms"));
+        col.Add(new MenuItemViewModel("Forms Receivable", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Forms Issuable", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -3389,6 +3439,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (!r.AlterHighlightedChequeStatus(out var message)) { Notice = message; return; }
         _storage.Save(Company);
         Notice = message;
+    }
+
+    /// <summary>True while the open report is either <b>Declaration Forms</b> register (census 15.6) — the
+    /// guard the window's report-scoped Alt+S arm tests, so the chord is dead on every other report.</summary>
+    public bool IsCstFormsReport => IsReportContext && Reports is { IsCstForms: true };
+
+    /// <summary>
+    /// Alt+S on a Declaration Forms register — the vendor's <i>"Set/Alter Form No"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/</c>). Opens the editor over the
+    /// highlighted transaction; a no-op on every other report.
+    ///
+    /// <para>🔴 <b>THIS ARM IS WHAT MAKES CENSUS ROW 15.6 REACHABLE AT ALL.</b> Nothing else in this build
+    /// writes a CST declaration form: without it the four <c>vouchers.cst_form_*</c> columns would have storage,
+    /// two reports that read them, and no key an operator could press to fill one in — the dead-capability shape
+    /// this project has filed three times.</para>
+    /// </summary>
+    public void ReportBeginSetCstForm()
+    {
+        if (Reports is not { IsCstForms: true } r) return;
+        if (!r.BeginSetCstForm(out var message)) Notice = message;
+    }
+
+    /// <summary>
+    /// Applies the open Set/Alter Form No. editor and PERSISTS. The report validates and mutates; saving is this
+    /// method's job, because a read-only projection must not hold a storage handle (see
+    /// <c>ReportsViewModel.ApplySetCstForm</c>).
+    /// </summary>
+    public void ReportApplySetCstForm()
+    {
+        if (Company is null) return;
+        if (Reports is not { IsCstForms: true } r) return;
+        if (!r.ApplySetCstForm()) return;
+        _storage.Save(Company);
+        Notice = "Declaration form saved.";
     }
 
     /// <summary>True while the open report is the <b>Deposit Slip</b> (census 8.6) — the guard the window's
@@ -10031,6 +10115,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — TCS Reports"),
             "Payroll" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
                 "Gateway of Apex Solutions — Payroll"),
+            // W-N1 (census 15.5 / 15.6) — State VAT & CST.
+            "VAT Reports" => (BuildVatReportsColumn(), GatewayMenu.VatReports,
+                "Gateway of Apex Solutions — VAT Reports"),
+            "Declaration Forms" => (BuildVatDeclarationFormsColumn(), GatewayMenu.VatDeclarationForms,
+                "Gateway of Apex Solutions — Declaration Forms"),
             "Composition Returns" => (BuildCompositionReturnsColumn(), GatewayMenu.CompositionReturns,
                 "Gateway of Apex Solutions — Composition Returns"),
             "Annual Returns" => (BuildAnnualReturnsColumn(), GatewayMenu.AnnualReturns,
@@ -10370,6 +10459,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Order Register": OpenReport(ReportKind.OrderRegister); break;
             // W-K1 (census 9.8 / 9.7 / 9.6) — Reports → Inventory Reports, each under its own heading and each
             // gated by the F11 feature that surfaces the menu row (see BuildInventoryReportsColumn).
+            // W-N1 (census 15.5 / 15.6) — Reports → Statutory Reports → VAT Reports [→ Declaration Forms].
+            // Reachable only while F11 "Enable Value Added Tax (VAT)" is on (see BuildStatutoryReportsColumn).
+            case "VAT Computation": OpenReport(ReportKind.VatComputation); break;
+            case "Forms Receivable": OpenReport(ReportKind.CstFormsReceivable); break;
+            case "Forms Issuable": OpenReport(ReportKind.CstFormsIssuable); break;
             case "Purchase Bills Pending": OpenReport(ReportKind.PurchaseBillsPending); break;
             case "Sales Bills Pending": OpenReport(ReportKind.SalesBillsPending); break;
             case "Stock Item Cost Analysis": OpenReport(ReportKind.StockItemCostAnalysis); break;
