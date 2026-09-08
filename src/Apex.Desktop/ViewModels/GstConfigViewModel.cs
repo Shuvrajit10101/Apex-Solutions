@@ -63,6 +63,21 @@ public sealed class PtSlabRow
     public string FebText { get; init; } = string.Empty;
 }
 
+/// <summary>A VAT <i>"Type of Dealer"</i> picker option (census 15.1): the vendor's value + its label. Only
+/// Regular and Composite exist — see <see cref="VatDealerType"/> for why no other value ships.</summary>
+public sealed class VatDealerTypeOption
+{
+    public VatDealerType Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>A VAT return-periodicity picker option (census 15.1): the vendor's "Monthly or Quarterly".</summary>
+public sealed class VatPeriodicityOption
+{
+    public VatReturnPeriodicity Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
 /// <summary>A gratuity provision-population picker option (Phase 8 slice 9): which employees a provision run accrues
 /// for — all active (the recommended default, liability builds pre-vesting) or vested-only (≥ 5 years).</summary>
 public sealed class GratuityPopulationOption
@@ -629,6 +644,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         LoadSalaryTdsFromCompany();
         LoadGratuityFromCompany();
         LoadBonusFromCompany();
+        // Census 15.1 / 15.6 — the State VAT registration. Same reason as the tracking flags above: without this
+        // the section shows "off" on every re-entry.
+        LoadVatFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         // INHERIT — with no GST State recorded yet, DISPLAY the company's postal State as the default, which is
@@ -2386,6 +2404,200 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     private void RevertTcsToggle()
     {
         if (TcsEnabled != _company.TcsEnabled) TcsEnabled = _company.TcsEnabled;
+    }
+
+    // =======================================================================================================
+    // 15.1 / 15.6 — STATE VAT & CENTRAL SALES TAX. The vendor's Company VAT Details screen, reached exactly the
+    // way the vendor reaches it: F11 (Features) > "Enable Value Added Tax (VAT)" > Yes opens the details
+    // (help.tallysolutions.com/tally-prime/vat-masters/india-vat-enable-vat-tally/).
+    //
+    // THIS SECTION IS A HEADLINE WARNING FIRST AND A FORM SECOND, AND THE ORDER IS THE POINT. VAT and CST were
+    // subsumed by GST for ordinary goods in 2017 and survive only for alcoholic liquor for human consumption
+    // and the five petroleum products. An operator who finds a VAT switch on the statutory page and is told
+    // nothing will reasonably conclude their trade should be using it. VatScopeNotice is rendered ABOVE the
+    // switch for exactly that reason, and a test pins both its presence and its legibility.
+    // =======================================================================================================
+
+    /// <summary>
+    /// The scope warning shown ABOVE the VAT switch. Not a footnote: it is the first thing in the section,
+    /// because enabling a repealed tax on the wrong trade is this row's failure mode.
+    ///
+    /// <para>The wording names the two live classes in the words of the statute (CGST Act s.9(1) / s.9(2)) so an
+    /// operator can match it against the Act. It is a constant, not a composed string, so the test that measures
+    /// it reads the SAME text the screen renders.</para>
+    /// </summary>
+    public const string VatScopeNotice =
+        "State VAT and CST apply only to goods outside GST — alcoholic liquor for human consumption and the "
+        + "five petroleum products (petroleum crude, high speed diesel, motor spirit, natural gas, aviation "
+        + "turbine fuel). Set each stock item's class of goods; ordinary items stay outside VAT.";
+
+    /// <summary>
+    /// <see cref="VatScopeNotice"/> as an INSTANCE property, because Avalonia's compiled bindings cannot bind a
+    /// <c>const</c>. The screen binds this; the test that measures the notice reads the constant. They are the
+    /// same string by construction, which is the whole reason the notice is a constant rather than literal XAML
+    /// text — a warning that drifts between the screen and its test protects nobody.
+    /// </summary>
+    public string VatScopeNoticeText => VatScopeNotice;
+
+    /// <summary>The vendor's F11 caption <i>"Enable Value Added Tax (VAT)"</i> (census 15.1). Applied by
+    /// <see cref="ApplyVat"/> — deliberately NOT by a change handler, because the details below it must be
+    /// keyed before anything is written.</summary>
+    [ObservableProperty] private bool _vatEnabled;
+
+    /// <summary>Vendor field <i>"TIN"</i>.</summary>
+    [ObservableProperty] private string _vatTin = string.Empty;
+
+    /// <summary>Vendor field <i>"Interstate sales tax number"</i> — the CST registration.</summary>
+    [ObservableProperty] private string _vatInterstateSalesTaxNumber = string.Empty;
+
+    /// <summary>Vendor field <i>"VAT applicable from"</i>, keyed as <c>dd-MM-yyyy</c>; blank = not set.</summary>
+    [ObservableProperty] private string _vatApplicableFromText = string.Empty;
+
+    /// <summary>Vendor field <i>"CST Rate Against Form C"</i>, keyed as a PERCENT; blank = not set.
+    /// Blank is the default and stays blank — no statutory rate is pre-filled anywhere in this build. See
+    /// <see cref="VatConfig.CstRateAgainstFormCBasisPoints"/>.</summary>
+    [ObservableProperty] private string _vatCstRateAgainstFormCText = string.Empty;
+
+    /// <summary>Vendor field <i>"Type of Dealer"</i>.</summary>
+    [ObservableProperty] private VatDealerTypeOption? _selectedVatDealerType;
+
+    /// <summary>The vendor's return <i>Periodicity</i>.</summary>
+    [ObservableProperty] private VatPeriodicityOption? _selectedVatPeriodicity;
+
+    /// <summary>Operator feedback for the VAT section (mirrors <see cref="PtMessage"/>).</summary>
+    [ObservableProperty] private string? _vatMessage;
+
+    /// <summary>The two attested "Type of Dealer" values.</summary>
+    public IReadOnlyList<VatDealerTypeOption> VatDealerTypeOptions { get; } = new[]
+    {
+        new VatDealerTypeOption { Value = VatDealerType.Regular, Display = "Regular" },
+        new VatDealerTypeOption { Value = VatDealerType.Composite, Display = "Composite" },
+    };
+
+    /// <summary>The two attested periodicities.</summary>
+    public IReadOnlyList<VatPeriodicityOption> VatPeriodicityOptions { get; } = new[]
+    {
+        new VatPeriodicityOption { Value = VatReturnPeriodicity.Monthly, Display = "Monthly" },
+        new VatPeriodicityOption { Value = VatReturnPeriodicity.Quarterly, Display = "Quarterly" },
+    };
+
+    /// <summary>
+    /// Seeds the VAT section from the live company. Loading HERE is what makes the section reflect the saved
+    /// registration rather than showing "off" on every re-entry — the omission that would let an operator enable
+    /// VAT, come back, find it apparently off, and switch it off for real on the next apply.
+    /// </summary>
+    private void LoadVatFromCompany()
+    {
+        var vat = _company.Vat;
+        VatEnabled = vat is { Enabled: true };
+        VatTin = vat?.Tin ?? string.Empty;
+        VatInterstateSalesTaxNumber = vat?.InterstateSalesTaxNumber ?? string.Empty;
+        VatApplicableFromText = vat?.ApplicableFrom is { } d
+            ? d.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture)
+            : string.Empty;
+        // InvariantCulture on BOTH the format and the parse. The gate runs on ubuntu and macos as well as
+        // Windows, and a culture whose decimal separator is a comma would round-trip "12.5" into "125".
+        VatCstRateAgainstFormCText = vat?.CstRateAgainstFormCBasisPoints is { } bp
+            ? (bp / 100m).ToString("0.##", CultureInfo.InvariantCulture)
+            : string.Empty;
+        SelectedVatDealerType =
+            VatDealerTypeOptions.FirstOrDefault(o => o.Value == (vat?.DealerType ?? VatDealerType.Regular));
+        SelectedVatPeriodicity =
+            VatPeriodicityOptions.FirstOrDefault(o => o.Value == (vat?.Periodicity ?? VatReturnPeriodicity.Monthly));
+    }
+
+    /// <summary>
+    /// Applies the VAT section (census 15.1 / 15.6): on enable, records the registration through
+    /// <see cref="VatService.EnableVat"/> and persists; on disable, flips the gate off and persists, KEEPING the
+    /// registration so re-enabling does not make the operator re-key a TIN.
+    ///
+    /// <para>A blank Form-C rate is accepted and stays blank. It is not an error and it is not defaulted: no
+    /// statutory rate is asserted anywhere in this build, and the VAT Computation report says the rate is unset
+    /// rather than showing zero. A NON-blank value that will not parse IS an error, surfaced to
+    /// <see cref="VatMessage"/> — silently ignoring a keyed rate would lose a figure the operator believes they
+    /// saved.</para>
+    ///
+    /// <para>Returns true when the company was saved.</para>
+    /// </summary>
+    public bool ApplyVat()
+    {
+        VatMessage = null;
+
+        if (!VatEnabled)
+        {
+            var wasEnabled = _company.Vat?.Enabled ?? false;
+            new VatService(_company).DisableVat();
+            if (!TrySave(m => VatMessage = m, () => { if (_company.Vat is { } v) v.Enabled = wasEnabled; }))
+            { RevertVatToggle(); return false; }
+            VatMessage = "State VAT is now OFF for this company.";
+            _onChanged();
+            return true;
+        }
+
+        int? cstRateBp;
+        var rateText = BlankToNull(VatCstRateAgainstFormCText);
+        if (rateText is null)
+        {
+            cstRateBp = null;
+        }
+        else if (decimal.TryParse(rateText, NumberStyles.Number, CultureInfo.InvariantCulture, out var pct)
+                 && pct >= 0m)
+        {
+            cstRateBp = (int)Math.Round(pct * 100m, MidpointRounding.AwayFromZero);
+        }
+        else
+        {
+            VatMessage = "CST Rate Against Form C must be a percentage, for example 2 — or left blank.";
+            return false;
+        }
+
+        DateOnly? applicableFrom;
+        var fromText = BlankToNull(VatApplicableFromText);
+        if (fromText is null)
+        {
+            applicableFrom = null;
+        }
+        else if (DateOnly.TryParseExact(fromText, "dd-MM-yyyy", CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None, out var parsed))
+        {
+            applicableFrom = parsed;
+        }
+        else
+        {
+            VatMessage = "VAT applicable from must be a date in dd-MM-yyyy form — or left blank.";
+            return false;
+        }
+
+        var previous = _company.Vat;
+        try
+        {
+            new VatService(_company).EnableVat(
+                tin: BlankToNull(VatTin),
+                interstateSalesTaxNumber: BlankToNull(VatInterstateSalesTaxNumber),
+                applicableFrom: applicableFrom,
+                dealerType: SelectedVatDealerType?.Value ?? VatDealerType.Regular,
+                periodicity: SelectedVatPeriodicity?.Value ?? VatReturnPeriodicity.Monthly,
+                cstRateAgainstFormCBasisPoints: cstRateBp);
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.Vat = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
+            VatMessage = ex.Message;
+            RevertVatToggle();
+            return false;
+        }
+
+        VatMessage = "State VAT is ON. Set each stock item's class of goods before VAT reaches any line.";
+        _onChanged();
+        return true;
+    }
+
+    private void RevertVatToggle()
+    {
+        var actual = _company.Vat is { Enabled: true };
+        if (VatEnabled != actual) VatEnabled = actual;
     }
 
     private static string? BlankToNull(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

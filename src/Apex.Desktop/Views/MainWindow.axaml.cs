@@ -767,6 +767,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+S on either Declaration Forms register is the vendor's "Set/Alter Form No" (census 15.6;
+        // help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/ — "Alt+S activates Set/Alter Form
+        // No to enter or modify the three form-related fields"). It opens the editor over the highlighted
+        // transaction.
+        // 🔴 THIS ARM IS THE ONLY WAY A CST DECLARATION FORM IS EVER WRITTEN IN THIS BUILD. Without it the four
+        // vouchers.cst_form_* columns have storage and two reports that read them and nothing that fills one in.
+        // The `== KeyModifiers.Alt` exact match (not HasFlag) keeps Ctrl+Alt+S and Alt+Shift+S off this arm,
+        // matching the Alt+A arm above; !IsTyping keeps it out of the editor's own text boxes, which matters
+        // MORE here than on Alt+A because this editor HAS text boxes and re-opening it mid-edit would discard
+        // what the operator had keyed.
+        if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsCstFormsReport && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.ReportBeginSetCstForm();
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Alt+D DELETES THE HIGHLIGHTED VOUCHER OR MASTER. (Phase 10.11 S4 / VL-2.)                        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -2256,6 +2274,20 @@ public partial class MainWindow : Window
 
     private void OnSaveReturnKeralaFloodCessClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnKeralaFloodCess();
+
+    // Set/Alter Form No. on the two Declaration Forms registers (census 15.6) — the editor's two buttons.
+    private void OnApplyCstFormClick(object? sender, RoutedEventArgs e)
+        => Vm?.ReportApplySetCstForm();
+
+    private void OnCancelCstFormClick(object? sender, RoutedEventArgs e)
+        => Vm?.Reports?.CancelSetCstForm();
+
+    // State VAT & CST (W-N1; census 15.1 / 15.6) — F11 "Enable Value Added Tax (VAT)" plus the Company VAT
+    // Details block. Applied on the button rather than on the checkbox because the TIN, the dealer type and the
+    // Form-C rate must be keyed BEFORE anything is written; a change handler would persist a half-filled
+    // registration the moment the box was ticked.
+    private void OnApplyVatClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyVat();
 
     // Gratuity + statutory Bonus (Phase 8 slice 9) — F11 Enable Gratuity / Enable Bonus + the Gratuity provision post.
     private void OnApplyGratuityClick(object? sender, RoutedEventArgs e)

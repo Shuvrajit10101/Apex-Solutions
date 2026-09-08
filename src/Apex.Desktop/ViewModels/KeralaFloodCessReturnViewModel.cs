@@ -300,6 +300,31 @@ public sealed partial class KeralaFloodCessReturnViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Quotes a CSV field. Everything is quoted, so a comma or a quote in a company name cannot shift a column.</summary>
-    private static string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+    /// <summary>
+    /// Emits one CSV field. Everything is quoted, so a comma or a quote in a company name cannot shift a column,
+    /// and the field is first put through the shared spreadsheet-formula-injection guard
+    /// (<see cref="Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize"/>) — the SAME rule the engine's own delimited
+    /// exports use, not a private copy of it.
+    ///
+    /// <para>🔴 <b>Order is load-bearing: neutralise FIRST, then quote.</b> The guard's <c>'</c> prefix has to land
+    /// INSIDE the quotes (<c>"'=cmd…"</c>); prefixing after the quoting would produce <c>'"=cmd…"</c>, which is not
+    /// a valid RFC-4180 field. This mattered here because this exporter writes user-typed text — the company name
+    /// and the GSTIN — into a file an accounts clerk opens in a spreadsheet, where a value beginning <c>= + - @</c>
+    /// is EXECUTED on open. Every field that carries a VALUE goes through this one helper deliberately — the money
+    /// cells included, even though they are Indian-grouped strings ("1,00,000.00") a spreadsheet already reads as
+    /// text, because guarding them costs nothing and leaves no value call site that can be forgotten. What does NOT
+    /// come through here is this report's own chrome, and neither can carry user text: the literal row labels and
+    /// the column-caption row are compile-time constants, and the period/due-date cells are
+    /// <see cref="Day"/>-formatted <c>DateOnly</c>s (<c>dd-MMM-yyyy</c>, invariant), so they are unquoted in the
+    /// file — do not read the paragraph above as a claim that every CELL is quoted.</para>
+    ///
+    /// <para>🔴 <b>Quoting UNCONDITIONALLY is also what makes this exporter immune to the bare-CR record split</b>
+    /// that bit <c>ProfessionalTaxRegisterViewModel</c>: a CR embedded in a company name is a RECORD TERMINATOR to
+    /// Excel, LibreOffice and a strict RFC-4180 parser, so a name like <c>Kerala Traders\r=cmd|'/c calc'!A1</c>
+    /// would otherwise start a NEW record whose first cell is an unguarded formula — the neutraliser never fires on
+    /// it, because the field's first value-carrying character is a letter. Here the CR lands inside the quotes,
+    /// where it is data. Do not make the quoting conditional.</para>
+    /// </summary>
+    private static string Csv(string value)
+        => "\"" + Apex.Ledger.Io.SpreadsheetFormulaGuard.Neutralize(value).Replace("\"", "\"\"") + "\"";
 }

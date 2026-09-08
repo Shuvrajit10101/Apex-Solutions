@@ -77,6 +77,35 @@ public sealed class StockItem
     public StockItemGstDetails? Gst { get; set; }
 
     /// <summary>
+    /// 🔴 <b>The item's class of goods for the pre-GST levies</b> (census 15.1/15.2/15.6; schema v59) — and
+    /// therefore the single fact that decides whether State VAT and CST can lawfully reach it. Defaults to
+    /// <see cref="NonGstGoodsClass.None"/> (ordinary GST goods), which is what every existing item is (ER-13).
+    ///
+    /// <para>This is <b>not</b> a "VAT applicable" tick. VAT and CST survive GST only for alcoholic liquor for
+    /// human consumption (Constitution Art. 366(12A); CGST Act s.9(1)) and the five petroleum products
+    /// (CGST Act s.9(2)); offering a VAT rate on ordinary goods would invite an operator to compute a tax
+    /// abolished for their trade. Read <see cref="NonGstGoodsClass"/> before changing anything here.</para>
+    /// </summary>
+    public NonGstGoodsClass NonGstGoodsClass { get; set; } = NonGstGoodsClass.None;
+
+    /// <summary>
+    /// Vendor field <i>"Tax rate"</i> on the Stock Item master's VAT details
+    /// (<c>help.tallysolutions.com/tally-prime/getting-started/configuring-vat-masters-tally/</c>) — census
+    /// 15.2 — in <b>basis points</b> (integer; never a REAL — see <c>Paisa.cs</c>). <c>null</c> ⇒ no VAT rate,
+    /// which is what every pre-v59 item has.
+    ///
+    /// <para>🔴 <b>Guarded by <see cref="NonGstGoodsClass"/>, not merely hidden behind it.</b>
+    /// <c>VatService</c> REFUSES to set a rate on an item whose class is inside GST, with the reason
+    /// <see cref="NonGstGoods.VatRefusalReason"/> gives. A hidden-but-settable field is how an ordinary item
+    /// ends up carrying a liquor rate.</para>
+    /// </summary>
+    public int? VatTaxRateBasisPoints { get; set; }
+
+    /// <summary>True iff this item is one State VAT / CST can lawfully reach — i.e. its goods class is outside
+    /// GST. The single predicate every VAT screen, service and report asks.</summary>
+    public bool IsOutsideGst => NonGstGoods.IsOutsideGst(NonGstGoodsClass);
+
+    /// <summary>
     /// <b>Maintain in Batches</b> (Phase 6 Cluster 1; requirements RQ-2). When on, the item's stock is tracked
     /// per batch/lot and the batch-allocation sub-screen appears at voucher entry. Independent of the two date
     /// switches. Defaults to <c>false</c> so every existing item behaves byte-identically (ER-13). This is a

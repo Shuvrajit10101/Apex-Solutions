@@ -161,6 +161,65 @@ public sealed class Ledger
     /// (<c>help.tallysolutions.com/payment-advice/</c>). <c>null</c> ⇒ not captured.</summary>
     public string? BankIfsc { get; set; }
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v59 — STATE VAT (census 15.1 / 15.2). Two independent blocks that happen to live on the same master, and
+    // conflating them is the trap: the PARTY block below records facts about SOMEONE ELSE (their TIN, their
+    // dealer type), while VatApplicable / VatTaxRateBasisPoints describe THIS sales/purchase ledger's own tax
+    // treatment. A party ledger normally carries the first and not the second, and vice versa.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Vendor field <i>"VAT Applicable"</i> on the Ledger Master
+    /// (<c>help.tallysolutions.com/tally-prime/getting-started/configuring-vat-masters-tally/</c>) — census
+    /// 15.2. Marks a <b>sales / purchase</b> ledger as carrying a VAT treatment. Off on every pre-v59 ledger.
+    ///
+    /// <para>🔴 <b>Ticking this does not by itself put VAT on a line.</b> The goods decide: State VAT survives
+    /// GST only for <see cref="NonGstGoodsClass"/>, and an item-invoice line takes its rate from the ITEM. This
+    /// flag exists for the accounts-only case the vendor documents separately
+    /// (<c>…/india-vat-configuring-accounts-only-company-tally/</c>), where there is no stock item to ask.</para>
+    /// </summary>
+    public bool VatApplicable { get; set; }
+
+    /// <summary>
+    /// Vendor field <i>"Tax Rate"</i> on the Ledger Master's VAT Details (census 15.2), in <b>basis points</b>
+    /// (integer — never a REAL; see <c>Paisa.cs</c>). <c>null</c> ⇒ no rate captured, which is what every
+    /// pre-v59 ledger has.
+    ///
+    /// <para>⚠️ <b>Census row 15.2's title is WRONG about this and the row needs re-titling.</b> The title
+    /// names a list of named classifications — <c>Input VAT @ 4%</c> / <c>Output VAT @ 4%</c>. The vendor's
+    /// current screens do not ship that list: they carry a <b>Tax Rate</b> (and a <b>Tax Type</b>) on the
+    /// ledger and stock-item masters. What ships here is the vendor's field, not the row title's.</para>
+    ///
+    /// <para>🔴 <b>The companion "Tax Type" field is deliberately NOT shipped.</b> Its LABEL is attested on the
+    /// same vendor page, but no vendor page reached for this slice publishes the VALUES it can take. Shipping a
+    /// picker whose options this project invented would put fabricated tax classifications into a statutory
+    /// master. The Input-versus-Output distinction the VAT Computation report needs is derived from the
+    /// VOUCHER (a purchase gives credit, a sale creates liability), which is exactly how the vendor's own
+    /// report is sectioned — so nothing is lost by the omission.</para>
+    /// </summary>
+    public int? VatTaxRateBasisPoints { get; set; }
+
+    /// <summary>
+    /// Vendor field <i>"TIN/Sales Tax No."</i> on a <b>party</b> ledger's VAT Details
+    /// (<c>help.tallysolutions.com/tally-prime/vat-masters/india-vat-party-ledger-tally/</c>) — the other
+    /// side's VAT TIN. <c>null</c> ⇒ not captured. Shown on the two CST Declaration Forms reports so the
+    /// operator can tie a pending form to the dealer who owes it.
+    /// </summary>
+    public string? PartyVatTin { get; set; }
+
+    /// <summary>
+    /// Vendor field <i>"CST No."</i> on a party ledger's VAT Details (same page) — the other side's inter-State
+    /// sales tax registration number. <c>null</c> ⇒ not captured.
+    /// </summary>
+    public string? PartyCstNumber { get; set; }
+
+    /// <summary>
+    /// Vendor field <i>"Type of Dealer"</i> on a party ledger's VAT Details (same page). <c>null</c> ⇒ not
+    /// captured, which is what every pre-v59 ledger is. See <see cref="VatDealerType"/> for why only Regular
+    /// and Composite ship.
+    /// </summary>
+    public VatDealerType? PartyVatDealerType { get; set; }
+
     /// <summary>
     /// "Activate Interest Calculation = Yes" (catalog §7) — the optional interest-parameter block. <c>null</c>
     /// (or a block with <see cref="InterestParameters.Enabled"/> false) means no interest accrues, so existing
