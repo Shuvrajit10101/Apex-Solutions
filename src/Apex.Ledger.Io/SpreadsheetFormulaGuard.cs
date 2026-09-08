@@ -24,9 +24,22 @@ namespace Apex.Ledger.Io;
 /// <c>EPayments.Csv</c> in the same commit</b> — otherwise every payment-instruction file silently keeps the old
 /// rule while a grep says the rule lives in one place. <c>SpreadsheetFormulaGuardDriftLockTests</c> reads the
 /// shipped source and FAILS when the two trigger sets diverge, so the cross-reference is enforced rather than
-/// merely written down. Every OTHER delimited writer in the product calls this one:
+/// merely written down. These delimited writers call this one:
 /// <see cref="DelimitedText"/>, <see cref="EsiContributionWriter"/>, <see cref="EcrWriter"/>,
 /// <see cref="FvuWriter"/>, and the two hand-rolled Desktop exporters named above.</para>
+///
+/// <para>🔴 <b>That list is NOT "every delimited writer in the product", and saying so would be false.</b>
+/// <c>Form24QViewModel.BuildFlatFile</c> (<c>src/Apex.Desktop/ViewModels/Form24QViewModel.cs</c>) hand-rolls a
+/// pipe-delimited <c>.txt</c> return of its own and reaches NEITHER this guard NOR <see cref="FvuWriter"/> —
+/// unlike its siblings <c>Form26QViewModel</c> and <c>Form27EQViewModel</c>, which do delegate to
+/// <see cref="FvuWriter"/>. Its field encoder is
+/// <c>(s ?? string.Empty).Replace('|', ' ').Trim()</c>: it strips the delimiter but NOT <c>'\r'</c> and NOT
+/// <c>'\n'</c>, and applies no guard at all. Compare <see cref="FvuWriter.Text"/>, which strips the delimiter,
+/// CR and LF and then neutralises. So a user-typed employee name carrying an embedded newline still breaks the
+/// record structure of a statutory return there, and one beginning <c>= + - @</c> is still unguarded — the same
+/// two defects this slice closed elsewhere. It is PRE-EXISTING, is byte-identical to <c>origin/main</c>, and was
+/// deliberately left out of this slice rather than fixed unreviewed; it is recorded here so the next reader is
+/// not misled by the list above into thinking the sweep was complete.</para>
 ///
 /// <para><b>Ordering matters at every call site, and it is NOT the same order everywhere.</b> Where the exporter
 /// QUOTES, neutralise FIRST: the prefix must land INSIDE the RFC-4180 quotes (<c>"'=cmd…"</c>), never outside
