@@ -507,6 +507,18 @@ public sealed class CompanyImportService
                 errors.Add(
                     $"Pay head '{ph.Name}' carries a statutory component that must post as {requiredRole}, but its " +
                     $"pay-head type '{phType}' posts as {PayrollComputationService.RoleOf(phType)}.");
+
+            // Mirror the PayHeadService NPS side guard (census row 7.18). NPS Tier-I is the one statutory tag that
+            // is legitimately TWO-sided (employee deduction OR employer contribution), so RequiredStatutoryRole —
+            // which returns a single role — cannot express it and the guard above never sees it. Tier-II is
+            // employee-only ("Any contribution by the employer towards NPS will fall under the Tier I account of
+            // the scheme"), and an employer Tier-II head would post a phantom employer pair for a side of the
+            // scheme that does not exist.
+            if (Enum.TryParse<PayHeadType>(ph.PayHeadType, out var npsType)
+                && Enum.TryParse<IncomeTaxComponent>(ph.IncomeTaxComponent, out var npsItc)
+                && NationalPensionScheme.IsNpsComponent(npsItc)
+                && !NationalPensionScheme.IsPayHeadTypeAllowed(npsItc, npsType))
+                errors.Add(NationalPensionScheme.WrongSideMessage(ph.Name, npsItc, npsType));
         }
 
         // Pay-head computed-on integrity (the direct-construction import path bypasses PayHeadService, so re-run

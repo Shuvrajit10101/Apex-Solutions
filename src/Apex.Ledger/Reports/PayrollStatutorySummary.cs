@@ -18,6 +18,16 @@ public enum PayrollStatutoryHeadType
     /// <summary>Income Tax — the §192 salary-TDS head
     /// (<see cref="IncomeTaxComponent.TaxDeductedAtSource"/>).</summary>
     IncomeTax = 3,
+
+    /// <summary>National Pension Scheme — every pay head tagged with an NPS statutory pay type
+    /// (<see cref="IncomeTaxComponent.NationalPensionSchemeTierI"/> or
+    /// <see cref="IncomeTaxComponent.NationalPensionSchemeTierII"/>), on either side: the employee's NPS deduction
+    /// and the employer's NPS contribution roll up into this one type, exactly as PF's five components do.
+    /// <para><b>Appended at 4 rather than slotted between ESI and PT.</b> The vendor's sentence lists the types as
+    /// <i>"PF, ESI, NPS, and PT"</i>, but that is prose, not a stated report order, and these ordinals are the
+    /// report's stable sort key — renumbering PT and Income Tax to chase a prose comma would silently reorder a
+    /// shipped report for no sourced reason.</para></summary>
+    NationalPensionScheme = 4,
 }
 
 /// <summary>One pay head inside a <see cref="PayrollStatutorySummaryRow"/> — the vendor's <i>Statutory Pay Head
@@ -64,10 +74,14 @@ public sealed record PayrollStatutorySummaryRow(
 /// payroll detail, which is exactly a payment/journal voucher discharging the liability rather than the payroll
 /// run creating it. The two are therefore measured over the same window and their difference is meaningful.</para>
 ///
-/// <para>⚠️ <b>NPS IS NAMED BY THE VENDOR AND IS NOT MAINTAINED BY THIS BOOK.</b> There is no NPS statutory
-/// component on a pay head anywhere in this product, so there is no NPS figure to roll up and none is invented.
-/// The row is omitted and <see cref="UnsupportedTypeNote"/> says so on the report itself — a documented divergence
-/// labelled as ours, not a silent gap.</para>
+/// <para>✅ <b>NPS IS NOW MAINTAINED AND ROLLS UP HERE — the divergence this report used to declare is CLOSED.</b>
+/// Census row 7.18 added the two NPS statutory pay types (<see cref="IncomeTaxComponent.NationalPensionSchemeTierI"/>
+/// / <see cref="IncomeTaxComponent.NationalPensionSchemeTierII"/>), so a company that tags an NPS pay head now gets a
+/// <see cref="PayrollStatutoryHeadType.NationalPensionScheme"/> row with the same payable/paid pair as every other
+/// type, and <see cref="UnsupportedTypeNote"/> is empty. <b>Nothing about how a figure is obtained changed</b>: the
+/// NPS row is read off the posted vouchers exactly like PF, ESI, PT and Income Tax, and this file still computes no
+/// statutory amount of any kind. A book with no NPS-tagged head shows no NPS row, which is the same behaviour every
+/// other type already has — not a re-declared gap.</para>
 ///
 /// <para>A pure, deterministic, culture-invariant projection — no clock, no RNG.</para>
 /// </summary>
@@ -78,10 +92,14 @@ public sealed record PayrollStatutorySummary(
     Money TotalPayable,
     Money TotalPaid)
 {
-    /// <summary>The divergence this report declares on its own face (see the type doc).</summary>
-    public const string UnsupportedTypeNote =
-        "The vendor's summary also lists NPS. This book carries no NPS statutory component on a pay head, so "
-        + "there is no NPS amount to report and no row is shown for it.";
+    /// <summary>
+    /// The divergence this report declares on its own face — <b>now empty</b>: every statutory type the vendor's
+    /// page names (PF, ESI, NPS, PT) is maintained by this book and rolls up here since census row 7.18 added the
+    /// NPS statutory pay types. Kept as a constant, rather than deleted, because the report footnote reads it and
+    /// the next unsupported type belongs here; a caller must therefore treat an empty string as "no divergence" and
+    /// print nothing (<c>ReportsViewModel</c> does).
+    /// </summary>
+    public const string UnsupportedTypeNote = "";
 
     /// <summary>How the "Paid" column is derived, printed beneath the grid so the figure is never guessed at.</summary>
     public const string PaidDerivationNote =
@@ -192,6 +210,7 @@ public sealed record PayrollStatutorySummary(
         if (payHead.EsiComponent != EsiStatutoryComponent.None) return PayrollStatutoryHeadType.EmployeeStateInsurance;
         if (payHead.PtComponent != PtStatutoryComponent.None) return PayrollStatutoryHeadType.ProfessionalTax;
         if (payHead.IncomeTaxComponent == IncomeTaxComponent.TaxDeductedAtSource) return PayrollStatutoryHeadType.IncomeTax;
+        if (NationalPensionScheme.IsNpsComponent(payHead.IncomeTaxComponent)) return PayrollStatutoryHeadType.NationalPensionScheme;
         return null;
     }
 
@@ -202,6 +221,7 @@ public sealed record PayrollStatutorySummary(
         PayrollStatutoryHeadType.EmployeeStateInsurance => "Employee State Insurance",
         PayrollStatutoryHeadType.ProfessionalTax => "Professional Tax",
         PayrollStatutoryHeadType.IncomeTax => "Income Tax",
+        PayrollStatutoryHeadType.NationalPensionScheme => NationalPensionScheme.SummaryCaption,
         _ => type.ToString(),
     };
 }

@@ -165,6 +165,7 @@ public sealed class PayHeadService
         ValidateAttendanceLinkage(payHead);
         ValidateComputation(payHead);
         ValidateStatutoryComponentRole(payHead);
+        ValidateNpsComponentSide(payHead);
     }
 
     /// <summary>
@@ -186,6 +187,22 @@ public sealed class PayHeadService
             throw new InvalidOperationException(
                 $"Pay head '{payHead.Name}' carries a statutory component that must post as {required}, but its " +
                 $"pay-head type '{payHead.Type}' posts as {actual}.");
+    }
+
+    /// <summary>
+    /// Rejects an <b>NPS</b> statutory pay type on a pay-head type the scheme has no side for (census row 7.18).
+    /// NPS is the one statutory tag in this book that is legitimately <b>two-sided</b> — Tier-I is valid both as an
+    /// employee deduction and as the employer's contribution — so it cannot go through
+    /// <see cref="ValidateStatutoryComponentRole"/>, which enforces a <i>single</i> required posting role. The rule
+    /// itself lives in <see cref="NationalPensionScheme.IsPayHeadTypeAllowed"/> with its vendor citation; this is
+    /// only the master-creation gate. Mirrored by the Io import pre-flight, which bypasses this service.
+    /// </summary>
+    private static void ValidateNpsComponentSide(PayHead payHead)
+    {
+        if (!NationalPensionScheme.IsNpsComponent(payHead.IncomeTaxComponent)) return;
+        if (NationalPensionScheme.IsPayHeadTypeAllowed(payHead.IncomeTaxComponent, payHead.Type)) return;
+        throw new InvalidOperationException(
+            NationalPensionScheme.WrongSideMessage(payHead.Name, payHead.IncomeTaxComponent, payHead.Type));
     }
 
     private void ValidateAttendanceLinkage(PayHead payHead)

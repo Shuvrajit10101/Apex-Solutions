@@ -569,8 +569,10 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
     /// classifications are always offered; the <see cref="IncomeTaxComponent.TaxDeductedAtSource"/> §192 salary-TDS
     /// marker — the tag that makes a head <b>the</b> salary-TDS withholding head the <c>SalaryIncomeTax</c> engine
     /// computes (WI-6) — is offered <b>only</b> on an <see cref="PayHeadType.EmployeesStatutoryDeductions"/> head,
-    /// the accounting side it must post on (the <c>PayHeadService</c> role guard rejects it on any other type). A
-    /// still-valid prior selection is preserved; otherwise the picker falls back to "None".
+    /// the accounting side it must post on (the <c>PayHeadService</c> role guard rejects it on any other type). The
+    /// two <b>NPS statutory pay types</b> (census row 7.18) are offered on the side(s) the scheme has — Tier-I on an
+    /// employee deduction <b>or</b> an employer contribution, Tier-II on an employee deduction only. A still-valid
+    /// prior selection is preserved; otherwise the picker falls back to "None".
     /// </summary>
     private void RefreshIncomeTaxComponents()
     {
@@ -592,6 +594,24 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                 Value = IncomeTaxComponent.TaxDeductedAtSource,
                 Display = "Income Tax (TDS on Salary)",
             });
+
+        // The two NPS statutory pay types (census row 7.18), each offered only on the pay-head type(s) the scheme
+        // actually has a side for — Tier-I on BOTH the employee deduction and the employer contribution, Tier-II on
+        // the employee deduction only. The rule and its vendor citation live in NationalPensionScheme so the picker
+        // and the PayHeadService guard can never drift apart: an option is offered here exactly when the service
+        // would accept it, so the operator is never shown a choice that is then rejected on save.
+        if (SelectedType?.Value is { } npsType)
+            foreach (var nps in new[]
+                     {
+                         IncomeTaxComponent.NationalPensionSchemeTierI,
+                         IncomeTaxComponent.NationalPensionSchemeTierII,
+                     })
+                if (NationalPensionScheme.IsPayHeadTypeAllowed(nps, npsType))
+                    IncomeTaxComponents.Add(new IncomeTaxComponentOption
+                    {
+                        Value = nps,
+                        Display = NationalPensionScheme.CaptionFor(nps)!,
+                    });
 
         SelectedIncomeTaxComponent = IncomeTaxComponents.FirstOrDefault(o => o.Value == previous)
                                      ?? IncomeTaxComponents.First();

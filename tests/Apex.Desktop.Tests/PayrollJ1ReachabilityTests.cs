@@ -363,8 +363,16 @@ public sealed class PayrollJ1ReachabilityTests : IDisposable
                 "the per-pay-head detail level is not on screen — the summary would be a total with nothing "
                 + "behind it.");
 
-            // The NPS divergence is declared on the report's own face, not left as a silent gap.
-            Assert.Contains(r.PayrollFootnotes, n => n.Contains("NPS", StringComparison.Ordinal));
+            // 🔴 THIS ASSERTION WAS INVERTED BY CENSUS ROW 7.18, DELIBERATELY. It used to require a footnote
+            // declaring NPS unsupported — the divergence this report carried on its own face. NPS is now a
+            // maintained statutory pay type that rolls up here like every other, so there is no divergence left to
+            // declare and the constant is empty; a footnote still saying otherwise would now be a LIE on a shipped
+            // report. What is asserted instead is that the report declares nothing it no longer means. That the
+            // NPS row itself DRAWS is proved against a fixture that actually has an NPS head, in
+            // NpsPayHeadReachabilityTests — this fixture has none, so a "no NPS text" check here would pass for
+            // the wrong reason.
+            Assert.Empty(PayrollStatutorySummary.UnsupportedTypeNote);
+            Assert.DoesNotContain(r.PayrollFootnotes, n => n.Contains("NPS", StringComparison.Ordinal));
             foreach (var note in r.PayrollFootnotes)
                 Assert.True(IsTextVisible(window, note), $"the footnote \"{note}\" is not on screen.");
         }
