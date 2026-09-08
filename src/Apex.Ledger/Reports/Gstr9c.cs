@@ -64,7 +64,7 @@ public sealed record Gstr9c(
     /// Builds GSTR-9C for a regular company over the FY <c>[fyFrom, fyTo]</c>, reconciling GSTR-9 to the books; a
     /// Composition dealer and a GST-off company yield a not-applicable statement.
     /// </summary>
-    public static Gstr9c Build(Company company, DateOnly fyFrom, DateOnly fyTo)
+    public static Gstr9c Build(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -75,7 +75,7 @@ public sealed record Gstr9c(
 
         // The two sides — computed INDEPENDENTLY (fact 2): the return (GSTR-9) and the books (P&L income + the Input /
         // Output tax-ledger closings). The unreconciled differences are the record's computed properties (never forced).
-        var g9 = Gstr9.Build(company, fyFrom, fyTo);
+        var g9 = Gstr9.Build(company, fyFrom, fyTo, registrationId);
 
         // 5A "books turnover" is the FY-WINDOW revenue, NOT the cumulative books-begin→To income: the return side (5Q)
         // is strictly FY-scoped, so a prior-FY sale must not inflate the books side (else 5R is spuriously non-zero for a

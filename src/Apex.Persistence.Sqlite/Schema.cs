@@ -263,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 60;
+    public const int CurrentVersion = 61;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -464,7 +464,11 @@ public static class Schema
             vat_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, vendor "VAT applicable from"
             vat_periodicity                INTEGER     NULL,            -- VatReturnPeriodicity ordinal (0 = Monthly)
             vat_dealer_type                INTEGER     NULL,            -- VatDealerType ordinal (0 = Regular, 1 = Composite)
-            vat_cst_rate_form_c_bp         INTEGER     NULL             -- vendor "CST Rate Against Form C", basis points
+            vat_cst_rate_form_c_bp         INTEGER     NULL,            -- vendor "CST Rate Against Form C", basis points
+            -- v61 (census 6.23): the operator's override of the FIRST registration's vendor "Registration Name".
+            -- NULL — every pre-v61 company — means the vendor's auto-generated "<State> Registration".
+            -- Declaration byte-identical to MigrateV60ToV61.
+            gst_primary_registration_name  TEXT        NULL
         );
 
         -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -717,6 +721,48 @@ public static class Schema
             threshold_paisa  INTEGER NOT NULL
         );
         CREATE INDEX ix_eway_state_thresholds_company ON eway_state_thresholds(company_id);
+
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+        -- v61 (census 6.23 Multiple GSTIN registrations · 6.25 GST Classification master). Two additive tables,
+        -- one companies column and one vouchers column. Declarations byte-identical to MigrateV60ToV61.
+        -- 🔴 BOTH TABLES ARE EMPTY IN EVERY PRE-v61 BOOK, and vouchers.gst_registration_id is NULL in every one
+        -- of them, which is exactly what "this voucher belongs to the company's own registration" means. Nothing
+        -- is back-filled anywhere. See Schema.MigrateV60ToV61 and Apex.Ledger.Domain.GstRegistration.
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+        -- 6.23: the ADDITIONAL GST registrations (the second State onwards). The FIRST registration is NOT a row
+        -- here — it stays in the companies table's own gstin / gst_home_state_code / … columns, where the whole
+        -- GST engine already reads it. See GstRegistration for why moving it was refused.
+        CREATE TABLE gst_registrations (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            name                       TEXT    NOT NULL,   -- vendor "Registration Name", e.g. "Karnataka Registration"
+            state_code                 TEXT    NOT NULL,   -- 2-digit GST State/UT code; unique per company
+            gstin                      TEXT        NULL,   -- 15-char GSTIN/UIN
+            registration_type          INTEGER NOT NULL DEFAULT 0,  -- GstRegistrationType ordinal (Regular = 0)
+            applicable_from            TEXT        NULL,   -- ISO yyyy-MM-dd
+            periodicity                INTEGER NOT NULL DEFAULT 0,  -- GstReturnPeriodicity ordinal (Monthly = 0)
+            assessee_other_territory   INTEGER NOT NULL DEFAULT 0   -- 0/1 vendor "Assessee of Other Territory"
+        );
+        CREATE INDEX ix_gst_registrations_company ON gst_registrations(company_id);
+
+        -- 6.25: the GST Classification master — a named reusable HSN/SAC + rate bundle. central/state tax are
+        -- DERIVED halves of rate_bp and are deliberately NOT stored, so they cannot disagree with it.
+        CREATE TABLE gst_classifications (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            name                   TEXT    NOT NULL,   -- unique per company (case-insensitively)
+            hsn_sac                TEXT        NULL,   -- 4/6/8 digits
+            description            TEXT        NULL,   -- vendor "Description"
+            taxability             INTEGER NOT NULL DEFAULT 0,  -- GstTaxability ordinal (Taxable = 0)
+            rate_bp                INTEGER     NULL,   -- INTEGRATED tax rate in basis points; NULL = none declared
+            supply_type            INTEGER NOT NULL DEFAULT 0,  -- GstSupplyType ordinal (Goods = 0)
+            nature_of_transaction  TEXT        NULL,   -- vendor "Nature of Transaction"; CAPTURED AND INERT
+            cess_valuation_mode    INTEGER NOT NULL DEFAULT 0,  -- CessValuationMode ordinal
+            cess_rate_bp           INTEGER NOT NULL DEFAULT 0,  -- ad-valorem cess, basis points
+            cess_per_unit_paisa    INTEGER NOT NULL DEFAULT 0   -- vendor "Cess Rate per Unit", paisa
+        );
+        CREATE INDEX ix_gst_classifications_company ON gst_classifications(company_id);
 
         -- v43 (Phase 9 slice 6): the immutable dated GSTR-2B/2A statement (imported external portal data — NOT the app's
         -- postings). One row = one dated statement + its source-file hash. Empty when 2B is never imported (ER-13).
@@ -1206,7 +1252,12 @@ public static class Schema
             cst_form_type       INTEGER     NULL,   -- CstDeclarationForm ordinal (FormC=0 … FormJ=6)
             cst_form_series_no  TEXT        NULL,   -- vendor "Form Series Number"
             cst_form_number     TEXT        NULL,   -- vendor "Form Number"; NULL = form not yet received/issued
-            cst_form_date       TEXT        NULL    -- ISO yyyy-MM-dd, vendor "Form Date"
+            cst_form_date       TEXT        NULL,   -- ISO yyyy-MM-dd, vendor "Form Date"
+            -- v61 (census 6.23): the GST registration this voucher was recorded UNDER — the vendor's F3
+            -- (Company/Tax Registration) selection. Declaration byte-identical to MigrateV60ToV61.
+            -- 🔴 NULL ⇒ the company's OWN (first) registration, which is what every pre-v61 voucher reads and
+            -- why no book needed a back-fill. A non-NULL value names a row in gst_registrations.
+            gst_registration_id TEXT        NULL REFERENCES gst_registrations(id)
         );
 
         CREATE TABLE entry_lines (
@@ -5089,5 +5140,128 @@ public static class Schema
         -- column carrying a REFERENCES clause. No quantity is stored in the alternate unit anywhere.
         ALTER TABLE stock_items ADD COLUMN alternate_unit_id          TEXT    NULL REFERENCES units(id);
         ALTER TABLE stock_items ADD COLUMN alternate_conversion_micro INTEGER NULL;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v61 — MULTIPLE GST REGISTRATIONS (census 6.23) and the GST CLASSIFICATION MASTER (census 6.25). Object
+    // names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the
+    // SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The two tables v61 adds — the exact set <see cref="MigrateV60ToV61"/> creates and
+    /// <c>SchemaDowngrade.V61ToV60</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V61Tables =
+        new[] { "gst_registrations", "gst_classifications" };
+
+    /// <summary>The two indexes v61 adds, one per table (both are per-company lookups, which is the only way
+    /// either table is ever read).</summary>
+    public static readonly IReadOnlyList<string> V61Indexes =
+        new[] { "ix_gst_registrations_company", "ix_gst_classifications_company" };
+
+    /// <summary>The one <c>companies</c> column v61 adds — the operator's override of the first registration's
+    /// vendor <i>Registration Name</i>.</summary>
+    public static readonly IReadOnlyList<string> V61CompanyColumns =
+        new[] { "gst_primary_registration_name" };
+
+    /// <summary>The one <c>vouchers</c> column v61 adds — the registration the voucher was recorded under.</summary>
+    public static readonly IReadOnlyList<string> V61VoucherColumns = new[] { "gst_registration_id" };
+
+    /// <summary>
+    /// v60 → v61 (census rows 6.23 / 6.25): <b>multiple GST registrations inside one company</b>, and the
+    /// <b>GST Classification</b> master.
+    ///
+    /// <para><b>R7 — ATTESTED, BOTH ROWS, AND THE FIRST ONE'S ARCHITECTURE IS ATTESTED TOO.</b> 6.23 is
+    /// <c>help.tallysolutions.com/set-up-gst-details-in-company/</c>: the product has "<i>the facility of
+    /// maintaining a single Company data with multiple GST registrations, while enabling you to record
+    /// transactions and view report for any specific GST registration or all GST registrations</i>", set up by
+    /// turning "<i>Create another GST Registration for the Company</i>" to <i>Yes</i>, with a
+    /// <i>Registration Name</i> the product "<i>auto-generates … based on the State … for example Karnataka
+    /// Registration</i>"; and vouchers are attributed by "<i>press F3 (Company/Tax Registration) and select the
+    /// registration under which you want to create the voucher</i>". 6.25 is
+    /// <c>help.tallysolutions.com/tally-prime/gst-master-setup/india-gst-create-use-and-update-gst-classifications-tally/</c>:
+    /// "<i>GST Classifications … are a powerful tool for recording tax rates and other details for categories of
+    /// goods and services that attract a common GST rate</i>", created at <i>Gateway of Tally &gt; Create &gt; …
+    /// GST Classification</i> with the HSN/SAC and GST-Rate sections this table mirrors.</para>
+    ///
+    /// <para>🔴 <b>THE ONE THING TO UNDERSTAND ABOUT THIS MIGRATION: IT BACK-FILLS NOTHING, AND THAT IS THE
+    /// SAFETY PROPERTY, NOT A SHORTCUT.</b> The obvious design — promote every company's existing GSTIN into a
+    /// row of <c>gst_registrations</c>, then stamp that row's id onto all of its vouchers — would have run a
+    /// data-moving <c>UPDATE</c> over every voucher in every shipped book, on the field that decides which GST
+    /// return a supply is filed in. Instead the first registration <b>stays in the <c>companies</c> columns it
+    /// has always lived in</b>, and <c>vouchers.gst_registration_id</c> is defined so that <b>NULL means exactly
+    /// that registration</b>. Every pre-v61 voucher is already NULL, so every pre-v61 voucher already attributes
+    /// correctly — the back-fill is a no-op and is exact <i>by construction</i>, not because a statement is
+    /// believed to have run correctly once. There is deliberately no <c>UPDATE</c> below.</para>
+    ///
+    /// <para>🔴 <b>AND THE RETURNS ARE GATED IN CODE, NOT BY DISCIPLINE.</b> Every GST return this product ships
+    /// — GSTR-1, GSTR-3B, GSTR-9, GSTR-4, CMP-08, the e-Invoice and e-Way surfaces, 2B reconciliation, ITC —
+    /// funnels through <c>GstReportSupport.PostedDirectionalVouchers</c> / <c>RcmLines</c>. Both now REFUSE to
+    /// yield anything for a company holding more than one registration unless the caller names which one, because
+    /// a return folded over two registrations is a <b>wrong filed document</b>, not a wrong screen. A company
+    /// with one registration never reaches that refusal and computes byte-identically to v60 (ER-13).</para>
+    ///
+    /// <para><b>The classification is a master, not a sixth hierarchy level.</b> The vendor applies one by
+    /// assignment ("<i>Press Alt+S (Set Rate), and select the GST Classification</i>", after which "<i>tax details
+    /// automatically populate</i>"), i.e. a COPY into the target master's own GST block. No page states where a
+    /// classification would sit in the documented rate hierarchy, so none is invented and <b>no resolved rate
+    /// changes on any existing book</b>. <c>nature_of_transaction</c> is stored and shown and read by nothing —
+    /// the vendor names the field but publishes neither its value set nor any arithmetic that follows from it.</para>
+    ///
+    /// <para><b>Central and State tax get no columns</b> because the vendor shows them auto-calculated from the
+    /// integrated rate. Storing them would create two figures that could disagree about a tax rate; they are
+    /// derived halves of <c>rate_bp</c> on the domain object instead.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 61. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift. The <c>REFERENCES gst_registrations(id)</c> clause on the added <c>vouchers</c> column is
+    /// legal only because its default is NULL — SQLite refuses an added FK column with any other default, which
+    /// is the same constraint <see cref="MigrateV59ToV60"/> records for <c>alternate_unit_id</c>.</para>
+    /// </summary>
+    public const string MigrateV60ToV61 = """
+        -- v61 (census 6.23/6.25): multiple GST registrations in one company, and the GST Classification master.
+        -- Purely additive: two tables, two indexes, one companies column, one vouchers column. NOTHING is
+        -- back-filled and there is no UPDATE here — NULL on vouchers.gst_registration_id already means "the
+        -- company's own registration". See this constant's doc comment.
+
+        -- 6.23: the ADDITIONAL registrations only. The first stays in the companies columns that already hold it.
+        CREATE TABLE gst_registrations (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            name                       TEXT    NOT NULL,   -- vendor "Registration Name", e.g. "Karnataka Registration"
+            state_code                 TEXT    NOT NULL,   -- 2-digit GST State/UT code; unique per company
+            gstin                      TEXT        NULL,   -- 15-char GSTIN/UIN
+            registration_type          INTEGER NOT NULL DEFAULT 0,  -- GstRegistrationType ordinal (Regular = 0)
+            applicable_from            TEXT        NULL,   -- ISO yyyy-MM-dd
+            periodicity                INTEGER NOT NULL DEFAULT 0,  -- GstReturnPeriodicity ordinal (Monthly = 0)
+            assessee_other_territory   INTEGER NOT NULL DEFAULT 0   -- 0/1 vendor "Assessee of Other Territory"
+        );
+        CREATE INDEX ix_gst_registrations_company ON gst_registrations(company_id);
+
+        -- 6.25: the GST Classification master. central/state tax are DERIVED halves of rate_bp, never stored.
+        CREATE TABLE gst_classifications (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            name                   TEXT    NOT NULL,   -- unique per company (case-insensitively)
+            hsn_sac                TEXT        NULL,   -- 4/6/8 digits
+            description            TEXT        NULL,   -- vendor "Description"
+            taxability             INTEGER NOT NULL DEFAULT 0,  -- GstTaxability ordinal (Taxable = 0)
+            rate_bp                INTEGER     NULL,   -- INTEGRATED tax rate in basis points; NULL = none declared
+            supply_type            INTEGER NOT NULL DEFAULT 0,  -- GstSupplyType ordinal (Goods = 0)
+            nature_of_transaction  TEXT        NULL,   -- vendor "Nature of Transaction"; CAPTURED AND INERT
+            cess_valuation_mode    INTEGER NOT NULL DEFAULT 0,  -- CessValuationMode ordinal
+            cess_rate_bp           INTEGER NOT NULL DEFAULT 0,  -- ad-valorem cess, basis points
+            cess_per_unit_paisa    INTEGER NOT NULL DEFAULT 0   -- vendor "Cess Rate per Unit", paisa
+        );
+        CREATE INDEX ix_gst_classifications_company ON gst_classifications(company_id);
+
+        -- 6.23: the operator's override of the FIRST registration's vendor "Registration Name". NULL on every
+        -- pre-v61 company ⇒ the vendor's auto-generated "<State> Registration".
+        ALTER TABLE companies ADD COLUMN gst_primary_registration_name TEXT NULL;
+
+        -- 6.23: the registration a voucher was recorded UNDER. NULL — every pre-v61 voucher — is the company's
+        -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
+        -- for an added column carrying a REFERENCES clause.
+        ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
         """;
 }

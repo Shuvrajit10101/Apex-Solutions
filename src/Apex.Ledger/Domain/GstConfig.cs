@@ -22,6 +22,8 @@ public sealed class GstConfig
     private readonly List<GstCessRate> _cessRates = new();
     private readonly List<RcmCategory> _rcmCategories = new();
     private readonly List<EWayStateThreshold> _eWayStateThresholds = new();
+    private readonly List<GstRegistration> _additionalRegistrations = new();
+    private readonly List<GstClassification> _classifications = new();
 
     /// <summary>Whether GST is enabled for the company. When false, no GST field or report is active.</summary>
     public bool Enabled { get; set; }
@@ -228,6 +230,91 @@ public sealed class GstConfig
     /// </summary>
     public GstDetailSource SourceOfGstRate { get; set; } = GstDetailSource.LedgerFirst;
 
+    // --- Multiple GST registrations (census row 6.23; schema v61). VENDOR-ATTESTED: the product maintains
+    //     "a single Company data with multiple GST registrations" — see GstRegistration for the citations and for
+    //     why the FIRST registration stays in the scalar fields above rather than becoming a row here. ---
+
+    /// <summary>
+    /// The <b>additional</b> GST registrations (the second State onwards). <b>Empty</b> for every company that has
+    /// only ever had one GSTIN, which is every pre-v61 book — so <see cref="IsMultiRegistration"/> is false, every
+    /// voucher attributes to <see cref="PrimaryRegistration"/>, and every return folds exactly as it did (ER-13).
+    /// </summary>
+    public IReadOnlyList<GstRegistration> AdditionalRegistrations => _additionalRegistrations;
+
+    /// <summary>Adds an additional GST registration (the vendor's "Create another GST Registration for the
+    /// Company"). Used by the master screen, the seed and the import.</summary>
+    public void AddRegistration(GstRegistration registration) =>
+        _additionalRegistrations.Add(registration ?? throw new ArgumentNullException(nameof(registration)));
+
+    /// <summary>Removes an additional registration by id. Returns false when no such registration exists. The
+    /// primary registration is not in this collection and cannot be removed this way.</summary>
+    public bool RemoveRegistration(Guid id) => _additionalRegistrations.RemoveAll(r => r.Id == id) > 0;
+
+    /// <summary>
+    /// The company's <b>first</b> registration, projected from the scalar fields above so that callers can treat
+    /// every registration uniformly. Carries <see cref="GstRegistration.PrimaryId"/>. <c>null</c> when GST is off
+    /// or the home State code is not a recognised one (there is then nothing to file under).
+    /// </summary>
+    public GstRegistration? PrimaryRegistration =>
+        Enabled && IndianState.IsValidCode(HomeStateCode)
+            ? new GstRegistration(
+                GstRegistration.PrimaryId,
+                string.IsNullOrWhiteSpace(PrimaryRegistrationName)
+                    ? GstRegistration.DefaultNameFor(HomeStateCode)
+                    : PrimaryRegistrationName!,
+                HomeStateCode!, Gstin, RegistrationType, ApplicableFrom, Periodicity)
+            : null;
+
+    /// <summary>
+    /// The operator's override of the first registration's <i>Registration Name</i>. <c>null</c> ⇒ the vendor's
+    /// auto-generated "&lt;State&gt; Registration" (<see cref="GstRegistration.DefaultNameFor"/>), which is what
+    /// every pre-v61 book shows.
+    /// </summary>
+    public string? PrimaryRegistrationName { get; set; }
+
+    /// <summary>Every registration the company holds — the primary first, then the additional ones in order.
+    /// Empty when GST is off.</summary>
+    public IReadOnlyList<GstRegistration> AllRegistrations =>
+        PrimaryRegistration is { } p
+            ? new[] { p }.Concat(_additionalRegistrations).ToList()
+            : (IReadOnlyList<GstRegistration>)Array.Empty<GstRegistration>();
+
+    /// <summary>
+    /// 🔴 <b>The switch every GST return is gated on.</b> True once the company holds more than one registration —
+    /// at which point a return that did not name one would silently aggregate two States into one filed document,
+    /// so <c>GstReportSupport</c> refuses to produce one. False for every book that has a single GSTIN, which is
+    /// the byte-identical v60 path.
+    /// </summary>
+    public bool IsMultiRegistration => _additionalRegistrations.Count > 0;
+
+    /// <summary>
+    /// Resolves a voucher's registration id (<c>null</c> or <see cref="GstRegistration.PrimaryId"/> ⇒ the
+    /// primary) to the registration itself, or <c>null</c> when the id names no registration this company holds.
+    /// </summary>
+    public GstRegistration? FindRegistration(Guid? id) =>
+        id is null || id == GstRegistration.PrimaryId
+            ? PrimaryRegistration
+            : _additionalRegistrations.FirstOrDefault(r => r.Id == id);
+
+    // --- GST Classifications (census row 6.25; schema v61). VENDOR-ATTESTED; see GstClassification. ---
+
+    /// <summary>
+    /// The company's GST Classifications — named reusable HSN/SAC + rate bundles. <b>Empty</b> for every pre-v61
+    /// book, and reading no figure either way: a classification is COPIED onto a master when assigned, never
+    /// consulted during rate resolution (ER-13; see <see cref="GstClassification"/>).
+    /// </summary>
+    public IReadOnlyList<GstClassification> Classifications => _classifications;
+
+    /// <summary>Adds a GST classification (used by the master screen and the import).</summary>
+    public void AddClassification(GstClassification classification) =>
+        _classifications.Add(classification ?? throw new ArgumentNullException(nameof(classification)));
+
+    /// <summary>Removes a classification by id. Returns false when no such classification exists.</summary>
+    public bool RemoveClassification(Guid id) => _classifications.RemoveAll(c => c.Id == id) > 0;
+
+    /// <summary>Finds a classification by id, or <c>null</c>.</summary>
+    public GstClassification? FindClassification(Guid id) => _classifications.FirstOrDefault(c => c.Id == id);
+
     /// <summary>The home <see cref="IndianState"/>, or <c>null</c> if the home state code is unset/invalid.</summary>
     public IndianState? HomeState => IndianState.FromCode(HomeStateCode);
 
@@ -286,6 +373,36 @@ public sealed class GstConfig
         // one would surface as a bad rate on any line no other level answered. Validate it with the same three rules
         // every other GST block obeys (fail-fast, ER-6) rather than letting it reach a resolver.
         DefaultGst?.EnsureValid();
+
+        // v61 (census 6.23): the additional registrations. Each validated itself on construction; what can only be
+        // checked HERE is the set-level rules — no row may claim the reserved primary id, no two registrations may
+        // share a State (the vendor's registrations are per-State, and two in one State would make "which return
+        // does this voucher belong to" undecidable), and no two may share a GSTIN.
+        foreach (var r in _additionalRegistrations)
+        {
+            if (r.Id == GstRegistration.PrimaryId)
+                throw new ArgumentException(
+                    "An additional GST registration must not use the reserved primary registration id.");
+
+            if (string.Equals(r.StateCode, HomeStateCode, StringComparison.Ordinal))
+                throw new ArgumentException(
+                    $"GST registration '{r.Name}' is in State {r.StateCode}, which is already the company's own registration State.");
+        }
+
+        if (_additionalRegistrations.Select(r => r.StateCode).Distinct(StringComparer.Ordinal).Count()
+            != _additionalRegistrations.Count)
+            throw new ArgumentException("Two GST registrations may not be in the same State/UT.");
+
+        var gstins = _additionalRegistrations
+            .Select(r => r.Gstin).Concat(new[] { Gstin })
+            .Where(g => g is not null).ToList();
+        if (gstins.Distinct(StringComparer.OrdinalIgnoreCase).Count() != gstins.Count)
+            throw new ArgumentException("Two GST registrations may not share a GSTIN.");
+
+        // v61 (census 6.25): classification names are how the operator picks one, so they must be unique.
+        var names = _classifications.Select(c => c.Name).ToList();
+        if (names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count)
+            throw new ArgumentException("Two GST classifications may not share a name.");
 
         foreach (var t in _eWayStateThresholds)
         {

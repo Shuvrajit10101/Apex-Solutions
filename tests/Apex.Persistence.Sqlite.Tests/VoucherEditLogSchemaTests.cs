@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -293,6 +293,12 @@ public sealed class VoucherEditLogSchemaTests
                     "index:ix_voucher_inventory_lines_tracking",
                     "index:ix_voucher_inventory_lines_cost_track",
                 })
+                // v61 (census 6.23 multi-GSTIN / 6.25 GST Classification) adds two tables and one index each, so
+                // the chain removes those too. Here the index names ARE derivable — both are the plain
+                // "ix_<table>_company" per-company lookup — so they are computed from the same published list
+                // the migration and the downgrade use, which is what keeps this expectation from drifting.
+                .Concat(Schema.V61Tables.Select(t => "table:" + t))
+                .Concat(Schema.V61Tables.Select(t => "index:ix_" + t + "_company"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.Equal(

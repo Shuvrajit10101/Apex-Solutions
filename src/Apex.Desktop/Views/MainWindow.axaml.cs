@@ -2364,6 +2364,16 @@ public partial class MainWindow : Window
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfGoodsMaster?.Create();
 
+    // GST masters (census 6.23 / 6.25; schema v61) — the two Create actions plus the primary-registration rename.
+    private void OnCreateGstRegistrationClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstRegistrationsMaster?.Create();
+
+    private void OnRenamePrimaryGstRegistrationClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstRegistrationsMaster?.RenamePrimary();
+
+    private void OnCreateGstClassificationClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstClassificationMaster?.Create();
+
     // Payroll masters (Phase 8 slice 1) — the five Create actions + the Payroll-Unit Simple/Compound toggle.
     private void OnCreateEmployeeCategoryClick(object? sender, RoutedEventArgs e)
         => Vm?.EmployeeCategoryMaster?.Create();

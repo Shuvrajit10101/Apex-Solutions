@@ -184,6 +184,12 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         for (var y = fyStart; y >= fyStart - 2; y--)
             FinancialYears.Add(new GstAdvFyOption { StartYear = y });
 
+        // v61 (census 6.23): the registrations this company files under, the company's own first. On a
+        // single-GSTIN book this is exactly one entry and the picker stays hidden — the byte-identical v60 view.
+        foreach (var registration in company.Gst?.AllRegistrations ?? [])
+            Registrations.Add(registration);
+        _selectedRegistration = Registrations.FirstOrDefault();
+
         _selectedYear = FinancialYears.FirstOrDefault();
         _selectedReturn = (preselect is { } k ? Returns.FirstOrDefault(r => r.Kind == k) : null)
                           ?? Returns.FirstOrDefault();
@@ -259,6 +265,36 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         get => _selectedPeriod;
         set { if (SetProperty(ref _selectedPeriod, value)) Rebuild(); }
     }
+
+    // --- v61 (census 6.23): WHICH REGISTRATION this return is filed for. ---
+
+    /// <summary>
+    /// The registrations this company can file under (census 6.23) — the company's own first, then any
+    /// additional ones. A company with a single GSTIN gets exactly one entry, so the picker is a statement of
+    /// fact rather than a choice, and <see cref="ShowsRegistrationPicker"/> hides it.
+    /// </summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the registration picker is worth showing — only once the company holds more than one.</summary>
+    public bool ShowsRegistrationPicker => Registrations.Count > 1;
+
+    private GstRegistration? _selectedRegistration;
+
+    /// <summary>
+    /// 🔴 <b>The registration this return is filed for.</b> GST returns are filed per registration, so the
+    /// projection is scoped to this one; changing it re-projects. Never null on a GST company — the company's own
+    /// registration is the default — because an unscoped projection on a multi-registration company is REFUSED by
+    /// the engine rather than quietly aggregating two States into one filed document.
+    /// </summary>
+    public GstRegistration? SelectedRegistration
+    {
+        get => _selectedRegistration;
+        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+    }
+
+    /// <summary>The id to scope every projection on this screen by. Falls back to the primary rather than to
+    /// <c>null</c>, so the screen never asks the engine for the return the engine refuses to build.</summary>
+    private Guid ScopedRegistrationId => _selectedRegistration?.Id ?? GstRegistration.PrimaryId;
 
     /// <summary>The financial year's first day for the selected year (the company's FY start month, that year).</summary>
     private DateOnly FyFrom =>
@@ -341,7 +377,24 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         Subtitle = $"{_company.Name}  —  Form {SelectedReturn.Label} ({SelectedReturn.Description})  —  " +
                    $"{ApexDate.Format(from)} to {ApexDate.Format(to)}";
 
-        switch (SelectedReturn.Kind)
+        // v61 (census 6.23): the projections REFUSE an unscoped build on a multi-registration company, and the
+        // engines also throw for a company whose config cannot support the selected form. Surfacing that as the
+        // page's own status is the difference between a readable screen and an unhandled exception reaching the
+        // shell — the same treatment the GSTR-4 / ITC-gate pages already give it.
+        try
+        {
+            ProjectSelected(from, to);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Figures.Clear();
+            StatusText = ex.Message;
+        }
+    }
+
+    private void ProjectSelected(DateOnly from, DateOnly to)
+    {
+        switch (SelectedReturn!.Kind)
         {
             case GstOfflineReturnKind.Gstr1: ProjectGstr1(from, to); break;
             case GstOfflineReturnKind.Gstr3b: ProjectGstr3b(from, to); break;
@@ -367,7 +420,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr1(DateOnly from, DateOnly to)
     {
-        var r = Gstr1.Build(_company, from, to);
+        var r = Gstr1.Build(_company, from, to, ScopedRegistrationId);
         AddCount("B2B invoices", r.B2B.Count);
         Add("B2B taxable value", new Money(r.B2B.Sum(b => b.TaxableValue.Amount)));
         AddCount("B2C rate rows", r.B2C.Count);
@@ -386,7 +439,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr3b(DateOnly from, DateOnly to)
     {
-        var r = Gstr3b.Build(_company, from, to);
+        var r = Gstr3b.Build(_company, from, to, ScopedRegistrationId);
         Add("3.1(a) Taxable outward value", r.TaxableOutwardValue);
         Add("3.1(a) CGST", r.OutwardCgst);
         Add("3.1(a) SGST", r.OutwardSgst);
@@ -414,7 +467,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr9(DateOnly from, DateOnly to)
     {
-        var r = Gstr9.Build(_company, from, to);
+        var r = Gstr9.Build(_company, from, to, ScopedRegistrationId);
         Add("Table 4 taxable value", r.Table4TaxableValue);
         Add("Table 4 total tax", r.Table4TotalTax);
         Add("Table 5 exempt / nil / non-GST", r.Table5ExemptNilNonGst);
@@ -434,7 +487,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr9c(DateOnly from, DateOnly to)
     {
-        var r = Gstr9c.Build(_company, from, to);
+        var r = Gstr9c.Build(_company, from, to, ScopedRegistrationId);
         Add("5A Turnover as per books", r.Table5ABooksTurnover);
         Add("5Q Turnover as per annual return", r.Table5QReturnTurnover);
         Add("5R Unreconciled turnover", r.Table5RUnreconciledTurnover);
@@ -451,7 +504,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectCmp08(DateOnly from, DateOnly to)
     {
-        var r = Cmp08.Build(_company, from, to);
+        var r = Cmp08.Build(_company, from, to, ScopedRegistrationId);
         Add("Turnover base", r.TurnoverBase);
         Add("Outward turnover CGST", r.OutwardCgst);
         Add("Outward turnover SGST", r.OutwardSgst);
@@ -471,7 +524,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr4(DateOnly from, DateOnly to)
     {
-        var r = Gstr4.Build(_company, from, to);
+        var r = Gstr4.Build(_company, from, to, ScopedRegistrationId);
         AddCount("Table 5 quarters", r.Quarters.Count);
         Add("4A Registered inward value", r.Inward.RegisteredValue);
         Add("4B Reverse-charge inward value", r.Inward.ReverseChargeValue);
@@ -487,7 +540,7 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
 
     private void ProjectGstr9a(DateOnly from, DateOnly to)
     {
-        var r = Gstr9a.Build(_company, from, to);
+        var r = Gstr9a.Build(_company, from, to, ScopedRegistrationId);
         Add("Total turnover", r.TotalTurnover);
         Add("Taxable turnover", r.TaxableTurnover);
         Add("Tax paid CGST", r.TaxPaidCgst);
