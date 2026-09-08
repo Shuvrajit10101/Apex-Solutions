@@ -6486,7 +6486,7 @@ is half a day, needs no schema, blocks nothing and is blocked by nothing. **High
 | **W2-14 Go To (`Alt+G`) jump-anywhere overlay** — **`Key.G` is free, 0 hits** | 14.1 | no | — | M |
 | **W2-15 Voucher Duplicate (`Alt+2`) and Insert** | 5.4, 5.5 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-16 F11 Accounting Features group** | 1.7 | **YES** | — | **L → re-split** ⚠️ **ruling U-10 (`IntegrateAccountsWithInventory`)** |
-| **W2-17 F12 global configuration tree** | 1.8 | **YES** | W2-16 | **L** |
+| **W2-17 Global settings — F1 (Help) → Settings** 🔴 **RETITLED 2026-09-09 BY RULING 21 (was "F12 global configuration tree"); the reference product REMOVED the global Configuration menu and the F12 menu-context button, so the old target did not exist. Scope now: the F1: Help → Settings surface, PLUS gating the dead `F12` button at `MainWindowViewModel.cs:11298`.** | 1.8 | **YES** | W2-16 | **L** |
 | **W2-18 Company menu, rename, delete** — `CompanyStorage.Delete` exists with **zero callers**; rename does not exist | 1.4, 14.9 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-19 Voucher Class** | 2.6 | **YES** | W2-03 | **L** |
 | **W2-20 Multi-master create (Multi Ledger / Multi Group)** | 2.12 | no | — | M |
