@@ -209,14 +209,20 @@ public sealed record ProfitAndLoss(
                 ? LedgerBalances.SignedMovement(company, ledger, from, to)
                 : LedgerBalances.SignedClosing(company, ledger, to, scenario);
 
-            switch (primary.Name)
+            // Census 2.2 — "Does it affect Gross Profits" (schema v60). The four seeded trading heads are still
+            // matched by NAME exactly as they always were, so no figure on any existing book moves; the flag is
+            // an ADDITIONAL way in, for a primary head the operator has declared Direct. A head that is BOTH
+            // (say, Direct Expenses with the flag ticked) is counted once — this is an OR, not a sum.
+            if (!IsTradingHead(primary)) continue;
+
+            // Direction comes from the head's own nature, which is precisely what the four names encode:
+            // Sales Accounts / Direct Incomes are Income, Purchase Accounts / Direct Expenses are Expense.
+            switch (primary.Nature)
             {
-                case "Sales Accounts":
-                case "Direct Incomes":
+                case GroupNature.Income:
                     salesAndDirectIncome += -signed; // credit magnitude
                     break;
-                case "Purchase Accounts":
-                case "Direct Expenses":
+                case GroupNature.Expense:
                     purchasesAndDirectExpense += signed; // debit magnitude
                     break;
             }
@@ -224,4 +230,33 @@ public sealed record ProfitAndLoss(
 
         return salesAndDirectIncome - openingStock - purchasesAndDirectExpense;
     }
+
+    /// <summary>
+    /// The four seeded primary heads whose ledgers sit ABOVE the Gross Profit line. Matched by name because that
+    /// is how this computation has always worked and how every shipped book is classified; the census 2.2 flag
+    /// <see cref="Group.AffectsGrossProfits"/> adds a second way in without disturbing them.
+    /// </summary>
+    private static readonly IReadOnlySet<string> SeededTradingHeadNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Sales Accounts",
+            "Direct Incomes",
+            "Purchase Accounts",
+            "Direct Expenses",
+        };
+
+    /// <summary>
+    /// True iff <paramref name="primary"/> is a trading head — one of the four seeded names, OR a primary group
+    /// the operator has marked <i>"Does it affect Gross Profits"</i> (census 2.2; vendor:
+    /// <c>help.tallysolutions.com/groups-in-tallyprime/</c> — Yes ⇒ treat as a <b>Direct</b> expense/income, which
+    /// is what puts it above this line).
+    ///
+    /// <para>🔴 <b>THE ONLY WAY THIS MOVES AN EXISTING FIGURE IS IF SOMEONE TICKS THE FLAG.</b> Every group in
+    /// every pre-v60 book reads <c>AffectsGrossProfits = false</c> — the migration back-fills nothing, the four
+    /// seeded heads included — so this predicate returns exactly what the previous name-only <c>switch</c>
+    /// returned, ledger for ledger, on every book that exists today. The Robert and Bright regression fixtures
+    /// pin that.</para>
+    /// </summary>
+    private static bool IsTradingHead(Group primary)
+        => SeededTradingHeadNames.Contains(primary.Name) || primary.AffectsGrossProfits;
 }

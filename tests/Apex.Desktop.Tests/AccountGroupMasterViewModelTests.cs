@@ -98,7 +98,7 @@ public sealed class AccountGroupMasterViewModelTests : IDisposable
         var m = vm.AccountGroupMaster!;
 
         // Default parent is Current Liabilities → nature shows read-only as Liability.
-        Assert.Equal("Current Liabilities", m.SelectedParent!.Name);
+        Assert.Equal("Current Liabilities", m.SelectedParent!.Group!.Name);
         Assert.Equal("Liability", m.DerivedNature);
 
         m.Name = "Salary Payable";
@@ -155,20 +155,20 @@ public sealed class AccountGroupMasterViewModelTests : IDisposable
         vm.ShowAccountGroupMaster();
         var m = vm.AccountGroupMaster!;
 
-        m.SelectedParent = vm.Company!.FindGroupByName("Fixed Assets");
+        m.SelectedParent = m.ParentOptions.First(o => o.Group?.Name == "Fixed Assets");
         Assert.Equal("Asset", m.DerivedNature);
 
-        m.SelectedParent = vm.Company!.FindGroupByName("Sales Accounts");
+        m.SelectedParent = m.ParentOptions.First(o => o.Group?.Name == "Sales Accounts");
         Assert.Equal("Income", m.DerivedNature);
 
-        m.SelectedParent = vm.Company!.FindGroupByName("Indirect Expenses");
+        m.SelectedParent = m.ParentOptions.First(o => o.Group?.Name == "Indirect Expenses");
         Assert.Equal("Expense", m.DerivedNature);
 
-        m.SelectedParent = vm.Company!.FindGroupByName("Current Liabilities");
+        m.SelectedParent = m.ParentOptions.First(o => o.Group?.Name == "Current Liabilities");
         Assert.Equal("Liability", m.DerivedNature);
 
         // Creating under Fixed Assets yields an Asset group — the nature followed the parent, not any user input.
-        m.SelectedParent = vm.Company!.FindGroupByName("Fixed Assets");
+        m.SelectedParent = m.ParentOptions.First(o => o.Group?.Name == "Fixed Assets");
         m.Name = "Plant & Machinery — Custom";
         Assert.True(m.Create());
         Assert.Equal(GroupNature.Asset, vm.Company!.FindGroupByName("Plant & Machinery — Custom")!.Nature);

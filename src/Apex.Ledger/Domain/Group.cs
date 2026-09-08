@@ -44,6 +44,79 @@ public sealed class Group
     /// <summary>A primary group has no parent.</summary>
     public bool IsPrimary => ParentId is null;
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Census 2.2 — the five behavioural flags and the allocation method the vendor's Group master carries
+    // (schema v60). R7 SOURCE: help.tallysolutions.com/groups-in-tallyprime/ ("How to Create, Alter and Delete
+    // Groups in TallyPrime"), whose Group Creation / Alteration screen names every caption transcribed below
+    // VERBATIM. Nothing here is invented; where the vendor is silent about how a flag changes a report, this
+    // build says so on the property rather than guessing a behaviour (see each remark).
+    //
+    // 🔴 READ THIS BEFORE WIRING ANY OF THEM INTO A FIGURE. Only ONE of these is read by a report in this build
+    // — <see cref="AffectsGrossProfits"/>, and only for a CUSTOM primary group, which is a group no book could
+    // even contain before v60 (see GroupService.CreateGroup). The other three are captured master data with no
+    // reader, stated plainly here rather than left for a grep to discover. That is deliberate: each of them
+    // changes how a report GROUPS or NETS figures, the vendor pages reached do not specify the resulting
+    // arithmetic, and this project has had to strip out tax and reporting behaviour it could not source.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Vendor caption: <i>"Group behaves like a sub-ledger"</i> — "to treat group as ledger under parent".
+    /// <b>Captured, not read.</b> No report in this build collapses a group's ledgers into a single line on the
+    /// strength of it; the vendor page reached names the switch and its intent but not the resulting report
+    /// arithmetic, so nothing is inferred. Defaults <c>false</c>, which is what every pre-v60 group was.
+    /// </summary>
+    public bool BehavesLikeSubLedger { get; set; }
+
+    /// <summary>
+    /// Vendor caption: <i>"Nett Debit/Credit Balances for Reporting"</i> — "to display the net balance, either
+    /// debit or credit, whichever is higher". <b>Captured, not read</b> — same reason as
+    /// <see cref="BehavesLikeSubLedger"/>: netting a group's Dr and Cr sides changes printed figures, and the
+    /// exact rule (which totals net, and at which level) is not stated on the page reached. Defaults
+    /// <c>false</c>.
+    /// </summary>
+    public bool NettBalancesForReporting { get; set; }
+
+    /// <summary>
+    /// Vendor caption: <i>"Used for calculation (for example: taxes, discounts)"</i> — "to use percentage-based
+    /// calculations for ledgers under this Group". <b>Captured, not read.</b> Percentage-based automatic
+    /// calculation on an invoice is the general <b>Voucher Class</b> machinery (census 2.6), which this build
+    /// does not have; a flag that switched on a calculation with nothing to perform it would be worse than an
+    /// honest gap. Defaults <c>false</c>.
+    /// </summary>
+    public bool UsedForCalculation { get; set; }
+
+    /// <summary>
+    /// Vendor caption: <i>"Does it affect Gross Profits"</i> — set Yes to treat the head as a <b>Direct</b>
+    /// expense/income (it then lands above the Gross Profit line), No for an <b>Indirect</b> one.
+    ///
+    /// <para>🔴 <b>THE ONE FLAG HERE THAT MOVES A FIGURE, AND ITS REACH IS DELIBERATELY BOUNDED.</b>
+    /// <c>ProfitAndLoss.ComputeGrossProfit</c> reads it <b>only</b> for a group whose primary ancestor is a
+    /// CUSTOM primary group — i.e. one the operator created under <i>Primary</i>, which was impossible in this
+    /// product before v60 (defect T1-31). The four seeded trading heads — Sales Accounts, Direct Incomes,
+    /// Purchase Accounts, Direct Expenses — keep being matched by NAME exactly as before, so <b>no figure on
+    /// any existing book moves</b> and the Robert/Bright regression fixtures are untouched. Back-filling the
+    /// seeded heads to <c>true</c> would have been a silent data change to shipped books for no gain.</para>
+    ///
+    /// <para>The vendor shows this field <b>only under a Primary group</b>; it is meaningless on a child, whose
+    /// placement is decided by its ancestor. <see cref="Services.GroupService"/> refuses it on a child rather
+    /// than storing a value nothing will ever read.</para>
+    /// </summary>
+    public bool AffectsGrossProfits { get; set; }
+
+    /// <summary>
+    /// Vendor caption: <i>"Method to allocate when used in purchase invoice"</i>, options <i>Not Applicable</i>
+    /// / <i>Appropriate by Qty</i> / <i>Appropriate by Value</i>. <c>null</c> = <b>Not Applicable</b>, which is
+    /// what every pre-v60 group is.
+    ///
+    /// <para>🔴 <b>MEASURED DIVERGENCE, REPORTED RATHER THAN QUIETLY "FIXED".</b> This product already carries
+    /// <see cref="MethodOfAppropriation"/> — the same three-valued choice, with the same two named options — on
+    /// the <b>Ledger</b> master (<c>Ledger.MethodOfAppropriation</c>), which is where the additional-cost
+    /// apportionment actually reads it. The vendor puts the field on the <b>Group</b>. Both now exist; the
+    /// ledger one is still the only one an apportionment reads, so this is <b>captured, not read</b>, and the
+    /// same enum is reused so the two can never drift into different option sets.</para>
+    /// </summary>
+    public MethodOfAppropriation? PurchaseAllocationMethod { get; set; }
+
     public Group(
         Guid id,
         string name,

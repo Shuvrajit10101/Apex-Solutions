@@ -5526,6 +5526,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Census 3.13 — Ctrl+Enter on the Stock Group master's <b>existing-groups</b> list opens the highlighted
+    /// group for <b>alteration</b>. Returns false (and does nothing) on any other screen, or when no row is
+    /// highlighted, so the chord stays free everywhere else.
+    ///
+    /// <para>This route did not exist in any form: the Stock Group master shipped Create-only, so a stock group's
+    /// name, parent and — now — its GST rung could be set once and never corrected. That mattered the moment the
+    /// GST block became capturable, because <c>MasterAncestry.NearestStockGroupGst</c> reads that rung at
+    /// transaction time.</para>
+    /// </summary>
+    public bool AlterHighlightedStockGroupRow()
+    {
+        if (!IsStockGroupMasterScreen) return false;
+        if (StockGroupMaster!.HighlightedRow is not { } row) return false;
+
+        ShowStockGroupAlter(row.StockGroupId);
+        return true;
+    }
+
+    /// <summary>
+    /// Opens the Stock Group master in <b>Alter</b> mode over an existing group (census 3.13): the same form
+    /// pre-filled, saving against the group's stable Guid so a rename follows every item and child group that
+    /// references it. A no-op if the id does not resolve.
+    /// </summary>
+    public void ShowStockGroupAlter(Guid groupId)
+    {
+        if (Company is null) return;
+
+        var master = StockGroupMasterViewModel.ForAlter(Company, _storage, groupId, onChanged: () => { });
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Stock Group Alteration", master), Screen.StockGroupMaster,
+            "Stock Group Alteration", () => StockGroupMaster = master);
+    }
+
+    /// <summary>
     /// Opens the Stock Item master in <b>Alter</b> mode over an existing item (WI-3): the same form pre-filled,
     /// saving against the item's stable Guid so a rename follows every historical inventory entry. A no-op if the
     /// id does not resolve.
@@ -9287,6 +9322,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsStockItemMasterScreen =>
         CurrentScreen == Screen.StockItemMaster && StockItemMaster is not null;
 
+    /// <summary>True iff the Stock Group master is the live screen — the arrows then move its existing-groups
+    /// highlight and Ctrl+Enter opens the highlighted group for alteration (census 3.13). The Stock Group master
+    /// had NO alteration route at all before that row; a GST rung that could be set once and never corrected is
+    /// what made adding one part of the row rather than a nicety.</summary>
+    public bool IsStockGroupMasterScreen =>
+        CurrentScreen == Screen.StockGroupMaster && StockGroupMaster is not null;
+
     // ======================================================= census 7.16: Alter + Delete on the payroll masters
 
     /// <summary>
@@ -9656,6 +9698,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // census 3.13: the same rule on the Stock Group master's existing-groups list (Ctrl+Enter then opens that
+        // group for alteration). Same placement reason as the arm above.
+        if (IsStockGroupMasterScreen)
+        {
+            StockGroupMaster!.MoveHighlight(direction);
+            return;
+        }
+
         // 7.16: on any payroll master the arrows move the EXISTING-MASTERS highlight (Ctrl+Enter then opens that
         // master for alteration, Alt+D deletes it). Same placement rule as the two master arms above — these are
         // page columns, so the IsGatewayCascade branch below would swallow the keystroke and the list never move.
@@ -9770,7 +9820,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 CostCentreMaster?.Create();
                 return;
             case Screen.StockGroupMaster:
-                StockGroupMaster?.Create();
+                // census 3.13: the Stock Group master now has an Alter mode, so Ctrl+A must branch exactly as the
+                // Ledger and accounting-Group cases above do.
+                if (StockGroupMaster is { IsAltering: true }) StockGroupMaster.Alter();
+                else StockGroupMaster?.Create();
                 return;
             case Screen.StockCategoryMaster:
                 StockCategoryMaster?.Create();

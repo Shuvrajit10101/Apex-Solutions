@@ -660,6 +660,50 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV59ToV60"/> (census 2.2 Group behavioural flags / 3.6 Alternate units per
+    /// stock item): removes the five <c>groups</c> columns (<see cref="Schema.V60GroupBehaviourColumns"/>) and the
+    /// two <c>stock_items</c> columns (<see cref="Schema.V60AlternateUnitColumns"/>), then stamps
+    /// <c>schema_version</c> back to 59.
+    ///
+    /// <para><b>Not a true inverse, and the residual is data, not shape.</b> Every behavioural flag an operator
+    /// set on a group and every Alternate Unit and conversion factor keyed on a stock item is <b>discarded</b>,
+    /// because a v59 database has nowhere to keep one — the same honest loss <see cref="V52ToV51"/> records for
+    /// the edit log. 🔴 <b>NO POSTED FIGURE AND NO STOCK QUANTITY MOVES.</b> The alternate unit never stored a
+    /// quantity in the first place — every stock line keeps the single base-unit column it always had, and the
+    /// alternate expression was derived on display — so a downgraded book holds exactly the same stock, valued
+    /// identically, and simply stops being able to say it in boxes. Likewise <c>groups.nature</c> is NOT touched:
+    /// a custom primary group created at v60 survives the downgrade with its nature intact and keeps printing on
+    /// the same side of the Balance Sheet; only <c>affects_gross_profits</c> goes, which for such a group returns
+    /// its ledgers to the below-the-line half of the Profit &amp; Loss.</para>
+    ///
+    /// <para>🔴 <b>BOTH TABLES ARE REBUILT WITH <see cref="RebuildPreservingShape"/>, NOT
+    /// <see cref="DropColumns"/>, AND BOTH ARE FK PARENTS.</b> <c>groups</c> is the parent of
+    /// <c>ledgers.group_id</c>, of its own <c>parent_id</c> self-reference and of
+    /// <c>companies.profit_and_loss_head_id</c>; <c>stock_items</c> is the parent of every stock-line table. A
+    /// <c>CREATE … AS SELECT</c> rebuild loses the PRIMARY KEY, after which SQLite reports <c>foreign key
+    /// mismatch</c> on the next child insert — the measured failure <see cref="V56ToV55"/> documents.</para>
+    ///
+    /// <para><b>Order, and why there is no index to drop.</b> v60 adds NO index, so this downgrade has only
+    /// columns to undo. <c>stock_items</c> is rebuilt first purely for readability; the two tables are
+    /// independent of one another here (<c>alternate_unit_id</c> references <c>units</c>, not <c>groups</c>), and
+    /// the indexes each table already carried are read back and replayed by
+    /// <see cref="RebuildPreservingShape"/>.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing a v59 book out of a CURRENT one runs this FIRST and
+    /// the lower rungs after it. Calling <see cref="V59ToV58"/> alone on a v60 file stamps the marker 58 while
+    /// the v60 columns are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V60ToV59(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "stock_items", Schema.V60AlternateUnitColumns, "stock_items_v59");
+        RebuildPreservingShape(connection, "groups", Schema.V60GroupBehaviourColumns, "groups_v59");
+
+        Exec(connection, "UPDATE schema_version SET version = 59;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

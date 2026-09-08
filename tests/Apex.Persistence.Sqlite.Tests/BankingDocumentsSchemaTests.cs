@@ -70,7 +70,7 @@ public sealed class BankingDocumentsSchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Banking Co", FyStart));
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn);
+                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn);
                 SqliteConnection.ClearPool(conn);
             }
             Assert.Equal(56L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
@@ -319,7 +319,7 @@ public sealed class BankingDocumentsSchemaTests
 
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn);
+                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn);
                 SqliteConnection.ClearPool(conn);
             }
 
