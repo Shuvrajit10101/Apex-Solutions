@@ -47,7 +47,7 @@ public sealed class CreditLimitSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -91,7 +91,7 @@ public sealed class CreditLimitSchemaTests
             AddDebtor(legacy, "Acme Ltd");
             AddDebtor(legacy, "Beta Traders");
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -263,7 +263,7 @@ public sealed class CreditLimitSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
             Assert.Equal((long)ledgerCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM ledgers;"));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn); SchemaDowngrade.V54ToV53(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(53L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal((long)ledgerCountBefore, ReadScalar(path, "SELECT COUNT(*) FROM ledgers;"));

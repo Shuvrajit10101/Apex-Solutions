@@ -58,6 +58,17 @@ public sealed class GstTaxabilityOption
 }
 
 /// <summary>
+/// A <b>class of goods</b> option for the stock-item VAT picker (census 15.1 / 15.2) — the fact that decides
+/// whether State VAT and CST can reach the item at all. The captions are the statute's own words, from
+/// <see cref="NonGstGoods.Caption"/>, so the list can be matched against CGST Act s.9(1) / s.9(2).
+/// </summary>
+public sealed class NonGstGoodsClassOption
+{
+    public NonGstGoodsClass Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// A GST rate-slab option for the item's rate picker: a seeded slab (0/5/18/40%) or the "(none)" entry
 /// that leaves the item's rate unresolved (resolved from the sales/purchase ledger or company instead).
 /// </summary>
@@ -240,6 +251,62 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// <summary>True iff TCS is enabled for the company — the item-TCS nature field is only offered then.</summary>
     public bool TcsEnabled => _company.TcsEnabled;
 
+    // ------------------------------------------------------------------ W-N1 · census 15.1 / 15.2 — State VAT
+    // The item's CLASS OF GOODS and its VAT rate. The vendor's stock-item VAT fields are "VAT Applicable",
+    // "Set/Alter VAT details" and "Tax rate"
+    // (help.tallysolutions.com/tally-prime/getting-started/configuring-vat-masters-tally/).
+    //
+    // THE CLASS OF GOODS IS NOT A VENDOR FIELD AND IS LABELLED AS OURS. The reference product has no such
+    // picker; it lets a rate be set on anything. We add it because a VAT rate on ordinary GST goods invites an
+    // operator to compute a tax abolished for their trade, and because it is the only way this build can
+    // REFUSE rather than merely hide. That is a deliberate divergence in the direction of safety, recorded
+    // here and on NonGstGoodsClass.
+
+    /// <summary>Whether the VAT block is shown at all — only for a company that has enabled State VAT
+    /// (F11 "Enable Value Added Tax (VAT)"). A company that never enables it sees a byte-identical item
+    /// master (ER-13).</summary>
+    public bool ShowVatBlock => _company.VatEnabled;
+
+    /// <summary>The item's class of goods (census 15.1 gate).</summary>
+    [ObservableProperty] private NonGstGoodsClassOption? _selectedNonGstGoodsClass;
+
+    /// <summary>The vendor's item <i>"Tax rate"</i>, keyed as a PERCENT; blank = no VAT rate.</summary>
+    [ObservableProperty] private string _vatTaxRatePercentText = string.Empty;
+
+    /// <summary>Every class of goods, in statutory order — bound by the picker.</summary>
+    public IReadOnlyList<NonGstGoodsClassOption> NonGstGoodsClasses { get; } =
+        NonGstGoods.All.Select(c => new NonGstGoodsClassOption
+        {
+            Value = c,
+            Display = NonGstGoods.Caption(c),
+        }).ToList();
+
+    /// <summary>
+    /// True while the selected class is one State VAT can lawfully reach — the ONLY state in which the rate
+    /// field accepts a value. Bound by the screen so the rate box disables the moment the class changes back to
+    /// ordinary goods, and read by <see cref="VatRefusalReason"/> for the sentence beside it.
+    /// </summary>
+    public bool VatRateAllowed =>
+        NonGstGoods.IsOutsideGst(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+
+    /// <summary>Why a rate cannot be keyed for the selected class, or empty when it can. The SAME sentence the
+    /// engine throws with (<see cref="NonGstGoods.VatRefusalReason"/>), so the screen never explains the rule
+    /// differently from the service that enforces it.</summary>
+    public string VatRefusalReason =>
+        NonGstGoods.VatRefusalReason(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None) ?? string.Empty;
+
+    /// <summary>
+    /// Changing the class re-evaluates the gate. It also CLEARS a rate that is no longer permitted, mirroring
+    /// <see cref="VatService.SetItemGoodsClass"/> exactly — leaving a stale rate visible in a disabled box is
+    /// how an operator comes to believe a figure was saved that the engine has thrown away.
+    /// </summary>
+    partial void OnSelectedNonGstGoodsClassChanged(NonGstGoodsClassOption? value)
+    {
+        if (!VatRateAllowed) VatTaxRatePercentText = string.Empty;
+        OnPropertyChanged(nameof(VatRateAllowed));
+        OnPropertyChanged(nameof(VatRefusalReason));
+    }
+
     /// <summary>The item's default Nature of Goods (§206C) — "(none)" leaves it unset (no auto-TCS on its sale).</summary>
     [ObservableProperty] private NatureOfGoodsChoice? _selectedTcsNature;
 
@@ -329,6 +396,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         SetComponents = item.SetComponents;
         SelectedTcsNature = TcsNatureChoices.FirstOrDefault(c => c.NatureId == item.TcsNatureOfGoodsId)
             ?? SelectedTcsNature;
+
+        // W-N1 (census 15.1 / 15.2). Loading these HERE is what makes an altered item show its saved class and
+        // rate rather than defaulting back to ordinary goods — and defaulting back would then WIPE the rate on
+        // the next accept, because the class picker clears a rate it does not permit.
+        SelectedNonGstGoodsClass =
+            NonGstGoodsClasses.FirstOrDefault(o => o.Value == item.NonGstGoodsClass) ?? NonGstGoodsClasses[0];
+        VatTaxRatePercentText = item.VatTaxRateBasisPoints is { } vbp
+            ? (vbp / 100m).ToString("0.##", CultureInfo.InvariantCulture)
+            : string.Empty;
     }
 
     public StockItemMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
@@ -670,6 +746,37 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             if (TcsEnabled)
                 item.TcsNatureOfGoodsId = SelectedTcsNature?.NatureId;
 
+            // W-N1 (census 15.1 / 15.2) — the class of goods and the VAT rate, applied ONLY for a VAT company
+            // so a company that never enabled VAT writes a byte-identical item (ER-13).
+            //
+            // BOTH GO THROUGH VatService, WHICH IS THE THING THAT CAN REFUSE. Setting the properties directly
+            // here would put the gate in the UI alone, and a UI gate is exactly the one a later screen, an
+            // import or a test forgets. SetItemGoodsClass clears a rate the new class does not permit;
+            // SetItemVatRate throws on ordinary goods, and the catch below surfaces its sentence.
+            if (ShowVatBlock)
+            {
+                var vatService = new VatService(_company);
+                vatService.SetItemGoodsClass(
+                    item, SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+
+                var vatRateText = VatTaxRatePercentText?.Trim();
+                if (string.IsNullOrEmpty(vatRateText))
+                {
+                    vatService.SetItemVatRate(item, null);
+                }
+                else if (decimal.TryParse(vatRateText, NumberStyles.Number, CultureInfo.InvariantCulture,
+                                          out var vatPct) && vatPct >= 0m)
+                {
+                    vatService.SetItemVatRate(
+                        item, (int)Math.Round(vatPct * 100m, MidpointRounding.AwayFromZero));
+                }
+                else
+                {
+                    Message = "VAT Tax rate must be a percentage, for example 14.5 — or left blank.";
+                    return false;
+                }
+            }
+
             // Opening stock is a CREATE-only side effect. Re-running it on every alter would add a fresh opening
             // allocation each time the operator accepted, silently multiplying the item's opening quantity.
             if (!altering && wantsOpening && openingQty > 0m)
@@ -724,6 +831,9 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         TrackManufacturingDate = false;
         UseExpiryDates = false;
         SetComponents = false;
+        // W-N1: back to ordinary GST goods with no rate — the state every untouched item is in.
+        SelectedNonGstGoodsClass = NonGstGoodsClasses[0];
+        VatTaxRatePercentText = string.Empty;
         _onChanged();
         return true;
     }

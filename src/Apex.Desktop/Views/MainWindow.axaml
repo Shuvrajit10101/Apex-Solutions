@@ -867,6 +867,200 @@
                             </ScrollViewer>
                           </Grid>
 
+                          <!-- == W-N1 · census 15.5 — VAT Computation (the vendor's "Particulars of Computation
+                                  Details"): Particulars | Assessable Value | Tax | Transactions ==
+                               Section headings, the "computed, not posted" disclosure and the omitted-sections
+                               line all arrive as IsHeader rows and SPAN the full width, wrapping rather than
+                               trimming. A caveat cut at the column edge is the truncation class the payroll
+                               legibility invariants were written to catch, and here the truncated text would be
+                               the sentence that stops an operator treating an unposted figure as a ledger
+                               balance. -->
+                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsVatComputation}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,140,140,90">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Assessable Value" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="2" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Transactions" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,140,140,90" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="4"
+                                                   Text="{Binding Col1}" Margin="8,3"
+                                                   IsVisible="{Binding IsHeader}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center" FontSize="12.5" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+
+                          <!-- == W-N1 · census 15.6 — CST Declaration Forms (Forms Receivable and Forms Issuable
+                                  share this grid, because the two are the same projection with the counterparty
+                                  swapped): Date | Vch No. | Party | CST No. | Gross Amount | Form | Form No. |
+                                  Form Date ==
+                               The vendor's own columns: "the date of transaction, CST Sales ledger used, gross
+                               amount inclusive of CST, form types" plus the three fillable fields "Form Series
+                               Number, Form Number and Form Date"
+                               (help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/). The Series
+                               is captured and persisted but is NOT given a column here, and neither is the
+                               party's CST No. — BOTH live on the Set/Alter Form No. panel below, where an
+                               operator chasing a form actually needs them.
+
+                               🔴 THE COLUMN WIDTHS ARE A MEASURED FIX, NOT A GUESS. The first draft ran
+                               "86,60,*,110,120,70,100,86" — 632px of FIXED columns inside a 638px narrowest
+                               viewport, leaving the Party star column SIX PIXELS wide, i.e. every party name
+                               ellipsized to nothing on the report whose whole job is to tell you WHO owes you a
+                               form. XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read caught
+                               it. Dropping the CST No. column and retuning the rest leaves fixed = 486px and
+                               the party star = 152px, back over the 150px floor. Do not add a column here
+                               without re-running that test. -->
+                          <Grid RowDefinitions="Auto,*,Auto" IsVisible="{Binding IsCstForms}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="86,52,*,108,62,92,86">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Vch No." Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Gross Amount" Classes="colHdr" TextAlignment="Right" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="4" Text="Form" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Form No." Classes="colHdr"/>
+                                <TextBlock Grid.Column="6" Text="Form Date" Classes="colHdr" TextWrapping="Wrap"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="86,52,*,108,62,92,86" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="7"
+                                                   Text="{Binding Col1}" Margin="8,3"
+                                                   IsVisible="{Binding IsHeader}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center" FontSize="12.5" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col5}" TextAlignment="Right"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col6}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col7}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontFamily="Consolas,Menlo,monospace"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col8}" Margin="0,0,8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- SET / ALTER FORM NO. — the vendor's own Alt+S action on these two registers
+                                 ("Alt+S activates Set/Alter Form No to enter or modify the three form-related
+                                 fields", help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/).
+
+                                 🔴 THIS PANEL IS THE ONLY WRITER OF A CST DECLARATION FORM IN THE PRODUCT.
+                                 Without it census row 15.6 would be four storage columns and two reports with
+                                 no way for an operator to fill one in.
+
+                                 It names the transaction it is acting on (CstFormEditorCaption) rather than
+                                 relying on the highlight: an editor that silently follows the cursor is how an
+                                 operator writes a form number onto the wrong invoice. -->
+                            <Border Grid.Row="2" Background="#FBF7EE"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                    Padding="12,10" IsVisible="{Binding CstFormEditorOpen}">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Set / Alter Form No." FontWeight="SemiBold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding CstFormEditorCaption}" FontSize="11.5"
+                                           TextWrapping="Wrap" Foreground="#555555"/>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Form type" FontWeight="SemiBold"
+                                             Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CstFormTypeOptions}"
+                                            SelectedItem="{Binding CstEditFormType, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:CstFormTypeOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Series" FontWeight="SemiBold"
+                                             Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12.5"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CstEditSeries, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                  <TextBlock Grid.Column="2" Text="Form No." FontWeight="SemiBold"
+                                             Margin="12,0,8,0" VerticalAlignment="Center" FontSize="12.5"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding CstEditNumber, Mode=TwoWay}"
+                                           PlaceholderText="blank while pending"/>
+                                  <TextBlock Grid.Column="4" Text="Form date" FontWeight="SemiBold"
+                                             Margin="12,0,8,0" VerticalAlignment="Center" FontSize="12.5"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="5" Text="{Binding CstEditDateText, Mode=TwoWay}"
+                                           PlaceholderText="dd-MM-yyyy"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding CstFormEditorMessage}"
+                                             IsVisible="{Binding CstFormEditorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Cancel" Padding="14,6" Margin="0,0,8,0"
+                                          Click="OnCancelCstFormClick"/>
+                                  <Button Grid.Column="2" Content="Accept" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyCstFormClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+
                           <!-- == W-K1 · census 9.8 — Bills Pending (Purchase and Sales share this grid):
                                   Date | Tracking No. | Stock Item | Party | Received | Billed | Pending == -->
                           <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsBillsPending}">
@@ -5457,6 +5651,79 @@
                                   </StackPanel>
                                 </Border>
 
+                                <!-- W-N1 · census 15.2 — STATE VAT on the ledger master. TWO MUTUALLY EXCLUSIVE
+                                     blocks: the counterparty's VAT identity on a party group, and this
+                                     sales/purchase ledger's own treatment everywhere else. Both are hidden
+                                     unless the company has enabled VAT (F11), so a non-VAT company sees a
+                                     byte-identical ledger master.
+
+                                     Offering both on every ledger is how a customer master ends up carrying a
+                                     "Tax rate" nothing reads and a sales ledger a counterparty TIN. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowPartyVat}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="VAT Details (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="Auto,*">
+                                      <TextBlock Grid.Column="0" Text="Type of Dealer" FontWeight="SemiBold"
+                                                 Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding PartyVatDealerTypes}"
+                                                SelectedItem="{Binding PartyVatDealerType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:VatPartyDealerTypeOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                      <TextBlock Grid.Column="0" Text="TIN/Sales Tax No." FontWeight="SemiBold"
+                                                 Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                 TextWrapping="Wrap"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding PartyVatTin, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"/>
+                                      <TextBlock Grid.Column="2" Text="CST No." FontWeight="SemiBold"
+                                                 Margin="12,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding PartyCstNumber, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"/>
+                                    </Grid>
+                                    <TextBlock Text="Shown on the CST Forms Receivable and Forms Issuable registers, so a pending declaration form can be chased to the dealer who owes it."
+                                               FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowSalesPurchaseVat}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="VAT Details (sales / purchase ledger)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <CheckBox Content="VAT Applicable"
+                                              IsChecked="{Binding VatApplicable, Mode=TwoWay}" FontSize="12.5"/>
+                                    <Grid ColumnDefinitions="Auto,*">
+                                      <TextBlock Grid.Column="0" Text="Tax Rate %" FontWeight="SemiBold"
+                                                 Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding VatTaxRatePercentText, Mode=TwoWay}"
+                                               IsEnabled="{Binding VatApplicable}"
+                                               PlaceholderText="e.g. 14.5 — blank for none"/>
+                                    </Grid>
+                                    <!-- The honest limit of the accounts-only route: a ledger has no class of
+                                         goods, so nothing here can check that what this ledger sells is outside
+                                         GST. The VAT Computation report therefore uses a ledger rate ONLY for a
+                                         voucher with no item lines — the moment there are items, the items'
+                                         own classes decide. -->
+                                    <TextBlock Text="Used only for vouchers with no stock items. When an invoice has item lines, each item's own class of goods and rate decide — a ledger has no class of goods, so this rate cannot be checked against one."
+                                               FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party GST details (shown for a party group while GST is enabled; catalog §12) -->
                                 <Border Background="#FBF7EE"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -7850,6 +8117,55 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <!-- W-N1 · census 15.1 / 15.2 — STATE VAT on the stock item. Shown only for
+                                       a company that has enabled VAT (F11), so a non-VAT company sees a
+                                       byte-identical item master.
+
+                                       THE CLASS OF GOODS COMES FIRST AND THE RATE IS DISABLED UNTIL IT
+                                       PERMITS ONE. VAT and CST survive GST only for alcoholic liquor for human
+                                       consumption and the five petroleum products (CGST Act s.9(1)/s.9(2)); a
+                                       rate box an operator can fill in for ordinary goods is an invitation to
+                                       compute an abolished tax. The refusal sentence beside it is bound from
+                                       the SAME helper the engine throws with, so the screen cannot explain the
+                                       rule differently from the service that enforces it, and it WRAPS — a
+                                       refusal cut at the column edge explains nothing. -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding ShowVatBlock}">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="VAT Details (goods outside GST)" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Class of goods" FontWeight="SemiBold"
+                                                   Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding NonGstGoodsClasses}"
+                                                  SelectedItem="{Binding SelectedNonGstGoodsClass, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:NonGstGoodsClassOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Tax rate %" FontWeight="SemiBold"
+                                                   Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding VatTaxRatePercentText, Mode=TwoWay}"
+                                                 IsEnabled="{Binding VatRateAllowed}"
+                                                 PlaceholderText="e.g. 14.5 — blank for no VAT rate"/>
+                                      </Grid>
+                                      <TextBlock Text="{Binding VatRefusalReason}"
+                                                 IsVisible="{Binding !VatRateAllowed}"
+                                                 TextWrapping="Wrap" FontSize="11.5"
+                                                 Foreground="{StaticResource AlertRed}"/>
                                     </StackPanel>
                                   </Border>
 
@@ -11155,6 +11471,109 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </StackPanel>
+
+                            <!-- ================= STATE VAT & CST (W-N1; census 15.1 / 15.2 / 15.5 / 15.6) =========
+                                 The vendor's Company VAT Details screen, reached the vendor's own way: F11
+                                 (Features) > "Enable Value Added Tax (VAT)" > Yes opens the details
+                                 (help.tallysolutions.com/tally-prime/vat-masters/india-vat-enable-vat-tally/ and
+                                 .../india-vat-configuring-accounts-only-company-tally/, which names the
+                                 "Interstate sales tax number", the "VAT applicable from" date, the Monthly /
+                                 Quarterly periodicity and "CST Rate Against Form C").
+
+                                 THE SCOPE NOTICE IS THE FIRST THING IN THE SECTION AND MUST STAY THERE. VAT and
+                                 CST were subsumed by GST for ordinary goods in 2017; they survive only for
+                                 alcoholic liquor for human consumption and the five petroleum products. An
+                                 operator who meets a bare VAT switch on the statutory page will reasonably
+                                 conclude it applies to their trade. The text is bound from
+                                 GstConfigViewModel.VatScopeNotice so the screen and the test that measures it
+                                 read the SAME string, and it WRAPS rather than trimming — a scope warning cut at
+                                 39% is the defect class the Alt+K disclosure was caught in. -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="STATE VAT &amp; CENTRAL SALES TAX" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <TextBlock Text="{Binding VatScopeNoticeText}" TextWrapping="Wrap"
+                                           FontSize="11.5" Foreground="{StaticResource AlertRed}"/>
+
+                                <CheckBox Content="Enable Value Added Tax (VAT)"
+                                          IsChecked="{Binding VatEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding VatEnabled}">
+                                  <Grid ColumnDefinitions="150,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="TIN" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding VatTin, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"
+                                             PlaceholderText="state-issued TIN"/>
+                                    <TextBlock Grid.Column="2" Text="Interstate sales tax no." FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding VatInterstateSalesTaxNumber, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"
+                                             PlaceholderText="CST registration no."/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="150,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="Type of Dealer" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding VatDealerTypeOptions}"
+                                              SelectedItem="{Binding SelectedVatDealerType, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VatDealerTypeOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Periodicity" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding VatPeriodicityOptions}"
+                                              SelectedItem="{Binding SelectedVatPeriodicity, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VatPeriodicityOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="150,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="VAT applicable from" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding VatApplicableFromText, Mode=TwoWay}"
+                                             PlaceholderText="dd-MM-yyyy"/>
+                                    <TextBlock Grid.Column="2" Text="CST Rate Against Form C" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding VatCstRateAgainstFormCText, Mode=TwoWay}"
+                                             PlaceholderText="% — leave blank if not known"/>
+                                  </Grid>
+                                  <!-- The rate field ships EMPTY and is never pre-filled. The concessional
+                                       Form-C rate could not be retrieved from an official source for this
+                                       slice, and this project already carries an unresolved user decision about
+                                       a statutory rate it shipped on a source that did not hold up. The report
+                                       says the rate is unset rather than showing zero. -->
+                                  <TextBlock Text="No CST rate is pre-filled: enter the rate that applies to you. Leaving it blank is fine — the VAT Computation report will say the rate is not set rather than showing nil."
+                                             TextWrapping="Wrap" FontSize="11" Foreground="#777777"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding VatMessage}"
+                                             IsVisible="{Binding VatMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply VAT" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyVatClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
 
                             <!-- ================= TDS / TCS (Phase 7 slice 1) ================= -->
                             <Border Background="White"

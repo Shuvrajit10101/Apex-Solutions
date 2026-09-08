@@ -13,6 +13,18 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
+/// <summary>
+/// A CST declaration-form option for the <i>Set/Alter Form No.</i> picker (census 15.6). A <c>null</c>
+/// <see cref="Value"/> is the "no form" entry, which REMOVES the whole block from the voucher — an operator
+/// who marked the wrong transaction must be able to unmark it, and the only alternative would be leaving a
+/// wrong Form C on a transaction for ever.
+/// </summary>
+public sealed class CstFormTypeOption
+{
+    public CstDeclarationForm? Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
 /// <summary>The report kinds surfaced in the reports viewer — the four Phase-1 accounting reports, the
 /// nine Phase-3 inventory reports (slice 3.4b), and the three Phase-4 GST reports (slice 4d).</summary>
 public enum ReportKind
@@ -226,6 +238,29 @@ public enum ReportKind
     /// Revenue (Income) and Cost (Expenses) lines and the Nett Profit/Loss,
     /// help.tallysolutions.com/job-costing-tally/.</summary>
     JobWorkAnalysis,
+
+    // ---- W-N1: State VAT & Central Sales Tax, for the goods GST never absorbed (census 15.5 / 15.6) ----
+    // All three are ReportKinds rather than bespoke page Screens ON PURPOSE — a page Screen leaves the report
+    // context null and switches off Ctrl+P, export, F2 period, F12 config, Alt+F12 sort/filter and Alt+K saved
+    // views at once (docs/full-clone-census.md:612). A statutory working paper an operator cannot print is not
+    // a working paper.
+
+    /// <summary>Census 15.5 — <b>VAT Computation</b>, the vendor's <i>Particulars of Computation Details</i>
+    /// (help.tallysolutions.com/tally-prime/reports/vat-particulars-computation-tally/): Sales and Purchases
+    /// split local/inter-State × taxable/exempt, the net VAT position and CST Payable.
+    /// 🔴 The tax on it is COMPUTED, not posted — see <see cref="Apex.Ledger.Reports.VatComputation"/>. The ~30
+    /// state return FORMS are a separate half of row 15.5 and are deliberately not built.</summary>
+    VatComputation,
+
+    /// <summary>Census 15.6 — <b>Forms Receivable</b>: the CST declaration forms this dealer is waiting to
+    /// receive from customers against inter-State sales,
+    /// help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/.</summary>
+    CstFormsReceivable,
+
+    /// <summary>Census 15.6 — <b>Forms Issuable</b>: the mirror image, the forms this dealer owes its
+    /// suppliers against inter-State purchases,
+    /// help.tallysolutions.com/tally-prime/reports/forms-issuables-tally/.</summary>
+    CstFormsIssuable,
 }
 
 /// <summary>
@@ -369,6 +404,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>True for <b>Job Work Analysis</b> (census 9.6).</summary>
     public bool IsJobWorkAnalysis => Kind == ReportKind.JobWorkAnalysis;
+
+    /// <summary>True for <b>VAT Computation</b> (census 15.5) — its own five-column grid.</summary>
+    public bool IsVatComputation => Kind == ReportKind.VatComputation;
+
+    /// <summary>True for either <b>Declaration Forms</b> report (census 15.6). Both use ONE grid, because the
+    /// two are the same projection with the counterparty swapped; giving them separate grids is how the two
+    /// would drift into showing different columns for the same fact.</summary>
+    public bool IsCstForms =>
+        Kind is ReportKind.CstFormsReceivable or ReportKind.CstFormsIssuable;
 
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
@@ -712,6 +756,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The report's effective display-window start — the chosen period's From, else books-begin (RQ-7).</summary>
     public DateOnly DrillFrom => _options.Period?.From ?? _company.BooksBeginFrom;
+
+    /// <summary>
+    /// The window start the two VAT/CST projections run over (census 15.5 / 15.6): the F2 period when one is
+    /// set, otherwise the company's books-begin date.
+    ///
+    /// <para>Both are PERIOD reports, not as-at ones — a VAT computation and a pending-forms list are always
+    /// "for the quarter", never "as at a date" — so neither may use the bare <c>_asOf</c> that the balance
+    /// reports use. This is <see cref="DrillFrom"/>'s rule, named separately so the intent is legible where it
+    /// is used rather than borrowed from a drill-down accessor.</para>
+    /// </summary>
+    private DateOnly VatPeriodFrom => _options.Period?.From ?? _company.BooksBeginFrom;
 
     /// <summary>The report's effective display-window end — the chosen period end or the as-of date (RQ-7).</summary>
     public DateOnly DrillTo => _asOf;
@@ -1171,6 +1226,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PriceList: BuildPriceList(); break;
 
             // W-K1 (census 9.8 / 9.7 / 9.6): inventory costing & tracking.
+            case ReportKind.VatComputation: BuildVatComputation(); break;
+            case ReportKind.CstFormsReceivable: BuildCstForms(CstFormsSide.Receivable); break;
+            case ReportKind.CstFormsIssuable: BuildCstForms(CstFormsSide.Issuable); break;
             case ReportKind.PurchaseBillsPending: BuildBillsPending(purchase: true); break;
             case ReportKind.SalesBillsPending: BuildBillsPending(purchase: false); break;
             case ReportKind.StockItemCostAnalysis: BuildItemCostAnalysis(ReportKind.StockItemCostAnalysis); break;
@@ -1525,6 +1583,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.IncomeTaxComputation] = "IncomeTaxComputation",
         // W-K1 (census 9.8 / 9.7 / 9.6). Frozen tokens — see this map's doc comment: a saved view stores the
         // STRING, so renaming the enum member must never change what is written here.
+        [ReportKind.VatComputation] = "VatComputation",
+        [ReportKind.CstFormsReceivable] = "CstFormsReceivable",
+        [ReportKind.CstFormsIssuable] = "CstFormsIssuable",
         [ReportKind.PurchaseBillsPending] = "PurchaseBillsPending",
         [ReportKind.SalesBillsPending] = "SalesBillsPending",
         [ReportKind.StockItemCostAnalysis] = "StockItemCostAnalysis",
@@ -2142,6 +2203,229 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             Col1 = "Grand Total",
             Col4 = IndianFormat.AmountAlways(gs.TotalClosingValue),
+            IsTotal = true,
+        });
+    }
+
+    // ------------------------------------------ W-N1 · census 15.5 — VAT Computation
+    //   Particulars | Assessable Value | Tax | Transactions
+
+    /// <summary>
+    /// Builds <b>VAT Computation</b> (census 15.5) — the vendor's <i>Particulars of Computation Details</i>, in
+    /// the vendor's own sections: Sales, Purchases, VAT Payable or Refundable, CST Payable.
+    ///
+    /// <para>🔴 <b>The report states three limits ON ITSELF rather than leaving them to be discovered.</b> The
+    /// tax is computed here and is not posted to any ledger; the vendor's Adjustments sections are absent
+    /// because this build has no adjustment mechanism that could fill them; and the state return FORMS are not
+    /// built. All three go into the printed output, because a working paper that travels away from this screen
+    /// takes its caveats with it or it misleads whoever reads it next.</para>
+    ///
+    /// <para>🔴 <b>An empty section still prints its heading and an explicit "(none)".</b> Dropping it would
+    /// make "no inter-State sales" indistinguishable from "the report forgot to look" — and on a tax working
+    /// paper the empty answer is the one most often relied on.</para>
+    /// </summary>
+    private void BuildVatComputation()
+    {
+        Title = "VAT Computation";
+        Subtitle = $"{CompanyName}  —  {FormatDate(VatPeriodFrom)} to {FormatDate(_asOf)}";
+
+        if (_company.Vat is not { Enabled: true })
+        {
+            // The honest empty state, naming the vendor's own F11 caption so the operator knows which switch.
+            Rows.Add(new ReportRow
+            {
+                Col1 = "State VAT is not enabled. Turn on F11 → \"Enable Value Added Tax (VAT)\" to use this "
+                    + "report. VAT applies only to goods outside GST.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        var vc = Apex.Ledger.Reports.VatComputation.Build(_company, VatPeriodFrom, _asOf);
+
+        AddVatSection(Apex.Ledger.Reports.VatComputation.SalesCaption, vc.Sales);
+        AddVatSection(Apex.Ledger.Reports.VatComputation.PurchasesCaption, vc.Purchases);
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = Apex.Ledger.Reports.VatComputation.PayableCaption,
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = vc.IsPayable ? "VAT payable" : "VAT refundable",
+            Col3 = IndianFormat.AmountAlways(Abs(vc.PayableOrRefundable)),
+            IsTotal = true,
+        });
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = Apex.Ledger.Reports.VatComputation.CstPayableCaption,
+            IsHeader = true,
+        });
+        if (vc.CstPayable is { } cst)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = "CST on inter-State sales, against Form C",
+                Col3 = IndianFormat.AmountAlways(cst),
+                IsTotal = true,
+            });
+        }
+        else
+        {
+            // 🔴 NOT a zero row. Zero reads as "you owe nothing"; this says the rate was never supplied, which
+            // is the truth — no statutory Form-C rate is asserted anywhere in this build.
+            Rows.Add(new ReportRow
+            {
+                Col1 = "CST Rate Against Form C is not set (F11 → Enable Value Added Tax (VAT)). "
+                    + "No CST is computed.",
+            });
+        }
+
+        Rows.Add(new ReportRow { Col1 = Apex.Ledger.Reports.VatComputation.Disclosure, IsHeader = true });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Not in this build: "
+                + string.Join(" · ", Apex.Ledger.Reports.VatComputation.OmittedSections)
+                + " · the state VAT return forms.",
+        });
+    }
+
+    /// <summary>One half (Sales or Purchases) of the VAT Computation, in the vendor's four subsections.</summary>
+    private void AddVatSection(string heading, IReadOnlyList<VatComputationLine> lines)
+    {
+        Rows.Add(new ReportRow { Col1 = heading, IsHeader = true });
+
+        var value = Money.Zero;
+        var tax = Money.Zero;
+        var any = false;
+        foreach (var l in lines)
+        {
+            if (l.TransactionCount == 0) continue;
+            any = true;
+            value += l.AssessableValue;
+            tax += l.Tax;
+            Rows.Add(new ReportRow
+            {
+                Col1 = VatBucketCaption(l.Bucket),
+                Col2 = IndianFormat.AmountAlways(l.AssessableValue),
+                Col3 = IndianFormat.AmountAlways(l.Tax),
+                Col4 = l.TransactionCount.ToString(CultureInfo.InvariantCulture),
+            });
+        }
+
+        if (!any)
+        {
+            Rows.Add(new ReportRow { Col1 = "(none)" });
+            return;
+        }
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total",
+            Col2 = IndianFormat.AmountAlways(value),
+            Col3 = IndianFormat.AmountAlways(tax),
+            IsTotal = true,
+        });
+    }
+
+    /// <summary>The vendor's subsection captions, in the vendor's own words ("Local Sales / Interstate Sales
+    /// (divided into Taxable and Exempt)").</summary>
+    private static string VatBucketCaption(VatComputationBucket bucket) => bucket switch
+    {
+        VatComputationBucket.LocalTaxable => "Local — taxable",
+        VatComputationBucket.LocalExempt => "Local — exempt",
+        VatComputationBucket.InterstateTaxable => "Interstate — taxable",
+        VatComputationBucket.InterstateExempt => "Interstate — exempt",
+        _ => bucket.ToString(),
+    };
+
+    private static Money Abs(Money m) => m.Amount < 0m ? new Money(-m.Amount) : m;
+
+    // ------------------------------------------ W-N1 · census 15.6 — CST Declaration Forms
+    //   Date | Voucher No. | Party | CST No. | Gross Amount | Form | Form No. | Form Date
+
+    /// <summary>
+    /// Builds <b>Forms Receivable</b> or <b>Forms Issuable</b> (census 15.6) in two headed blocks: the PENDING
+    /// forms first, because they are what the report exists to surface, then the ones already received/issued.
+    ///
+    /// <para>🔴 <b>Pending comes FIRST and carries its own money total.</b> A declaration form that never
+    /// arrives costs the dealer the difference between the concessional inter-State rate and the full one, so
+    /// the exposure is the headline figure, not a subtotal buried under a completed list.</para>
+    /// </summary>
+    private void BuildCstForms(CstFormsSide side)
+    {
+        var report = CstDeclarationFormsReport.Build(_company, side, VatPeriodFrom, _asOf);
+
+        Title = report.Title;
+        Subtitle = $"{CompanyName}  —  {FormatDate(VatPeriodFrom)} to {FormatDate(_asOf)}";
+
+        if (_company.Vat is not { Enabled: true })
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = "State VAT is not enabled. Turn on F11 → \"Enable Value Added Tax (VAT)\" to use this "
+                    + "report. CST declaration forms apply only to inter-State trade in goods outside GST.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        // 🔴 ORDER IS DELIBERATE AND IS THE REPORT'S ARGUMENT. Pending first — an outstanding declaration form
+        // costs the dealer the difference between the concessional inter-State rate and the full one, so the
+        // exposure is the headline. Then the candidates an operator still has to mark. Completed last.
+        AddCstFormsSection(
+            side == CstFormsSide.Receivable ? "Forms pending from customers" : "Forms pending to suppliers",
+            report.Pending,
+            report.PendingValue);
+        AddCstFormsSection(
+            "No declaration form recorded — press Alt+S on a row to set one",
+            report.NotRecorded,
+            null);
+        AddCstFormsSection(
+            side == CstFormsSide.Receivable ? "Forms received" : "Forms issued",
+            report.Completed,
+            null);
+    }
+
+    private void AddCstFormsSection(string heading, IReadOnlyList<CstFormRow> rows, Money? total)
+    {
+        Rows.Add(new ReportRow { Col1 = heading, IsHeader = true });
+
+        if (rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "(none)" });
+            return;
+        }
+
+        var sum = Money.Zero;
+        foreach (var r in rows)
+        {
+            sum += r.GrossAmount;
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(r.Date),
+                Col2 = r.VoucherNumber.ToString(CultureInfo.InvariantCulture),
+                Col3 = r.PartyName ?? string.Empty,
+                // ⚠️ Col4 IS SKIPPED ON PURPOSE — do not "tidy" the numbering. It held the party's CST No.
+                // until XamlLayoutInvariantTests caught eight columns starving the party-name star column to
+                // 6px; the CST No. moved to the Set/Alter Form No. caption and this slot has no renderer.
+                // Renumbering would silently shift every column after it in the grid template.
+                Col5 = IndianFormat.AmountAlways(r.GrossAmount),
+                Col6 = r.FormType is { } ft ? CstDeclarationForms.Caption(ft) : string.Empty,
+                Col7 = r.FormNumber ?? string.Empty,
+                Col8 = r.FormDate is { } d ? FormatDate(d) : string.Empty,
+                // The drill key Alt+S acts on. Without it the Set/Alter editor has no way to resolve a row back
+                // to the voucher it stands for, which is exactly the gap that left Stock Item alteration with
+                // zero production callers (see StockItemListRow.StockItemId).
+                DrillVoucherId = r.VoucherId,
+            });
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total",
+            Col5 = IndianFormat.AmountAlways(total ?? sum),
             IsTotal = true,
         });
     }
@@ -3824,6 +4108,147 @@ public sealed partial class ReportsViewModel : ViewModelBase
         };
         _company.SetChequeStatus(leaf.Book, leaf.Leaf, next);
         message = $"Cheque No. {leaf.Leaf} is now {next}.";
+        Show(Kind);
+        return true;
+    }
+
+    // ============================================================ W-N1 · census 15.6 — Set/Alter Form No.
+    // The vendor's own action on these two reports: "Alt+S activates Set/Alter Form No to enter or modify the
+    // three form-related fields" (help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/).
+    //
+    // 🔴 THIS IS THE HALF OF ROW 15.6 THAT MAKES IT A FEATURE RATHER THAN A DISPLAY. Without a way in, the two
+    // reports could only ever show an empty list: nothing else in this build writes a declaration form. That is
+    // the dead-capability shape this project has filed three times, the largest of them ~625 lines of cheque
+    // rendering whose only writers were test files.
+
+    /// <summary>True while the Set/Alter Form No. editor is open over the highlighted row.</summary>
+    [ObservableProperty] private bool _cstFormEditorOpen;
+
+    /// <summary>Which row the editor is acting on, spelled out so the operator can see it has not drifted.</summary>
+    [ObservableProperty] private string _cstFormEditorCaption = string.Empty;
+
+    /// <summary>The picked form type; the "(no form)" entry removes the block.</summary>
+    [ObservableProperty] private CstFormTypeOption? _cstEditFormType;
+
+    /// <summary>Vendor field <i>"Form Series Number"</i>.</summary>
+    [ObservableProperty] private string _cstEditSeries = string.Empty;
+
+    /// <summary>Vendor field <i>"Form Number"</i>. Blank = the form has not changed hands yet, which is the
+    /// vendor's own pending state — NOT an error.</summary>
+    [ObservableProperty] private string _cstEditNumber = string.Empty;
+
+    /// <summary>Vendor field <i>"Form Date"</i>, keyed as <c>dd-MM-yyyy</c>; blank = not set.</summary>
+    [ObservableProperty] private string _cstEditDateText = string.Empty;
+
+    /// <summary>Operator feedback for the editor.</summary>
+    [ObservableProperty] private string? _cstFormEditorMessage;
+
+    /// <summary>The picker's entries: "(no form)" first, then the vendor's seven, each with the vendor's own
+    /// one-line description so the operator picks the right form rather than the first letter they know.</summary>
+    public IReadOnlyList<CstFormTypeOption> CstFormTypeOptions { get; } =
+        new[] { new CstFormTypeOption { Value = null, Display = "◦ (no form)" } }
+            .Concat(CstDeclarationForms.All.Select(f => new CstFormTypeOption
+            {
+                Value = f,
+                Display = $"{CstDeclarationForms.Caption(f)} — {CstDeclarationForms.Description(f)}",
+            }))
+            .ToList();
+
+    /// <summary>
+    /// Alt+S — opens the editor over the highlighted transaction, seeded from whatever it already carries.
+    /// Returns false with a message when there is no transaction under the cursor.
+    /// </summary>
+    public bool BeginSetCstForm(out string message)
+    {
+        message = string.Empty;
+        if (!IsCstForms) return false;
+        if (SelectedRow is not { } row || row.DrillVoucherId == Guid.Empty)
+        {
+            message = "Move to a transaction first — Alt+S sets or alters the declaration form on the "
+                    + "highlighted row.";
+            return false;
+        }
+
+        var voucher = _company.Vouchers.FirstOrDefault(v => v.Id == row.DrillVoucherId);
+        if (voucher is null)
+        {
+            message = "That transaction is no longer in the books.";
+            return false;
+        }
+
+        CstEditFormType = CstFormTypeOptions.FirstOrDefault(o => o.Value == voucher.CstFormType)
+            ?? CstFormTypeOptions[0];
+        CstEditSeries = voucher.CstFormSeriesNumber ?? string.Empty;
+        CstEditNumber = voucher.CstFormNumber ?? string.Empty;
+        CstEditDateText = voucher.CstFormDate is { } d
+            ? d.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture)
+            : string.Empty;
+        // 🔴 The party's CST No. is here rather than in the grid, and that is where it earns its place: the
+        // operator reads it while CHASING the form, not while scanning the list. It came off the grid because
+        // eight columns starved the party-name star column to 6px — see the note on that grid in
+        // MainWindow.axaml. Without this line ledgers.party_cst_number would have no reader at all.
+        var party = voucher.PartyId is { } pid
+            ? _company.Ledgers.FirstOrDefault(l => l.Id == pid)
+            : null;
+        var cstNo = string.IsNullOrWhiteSpace(party?.PartyCstNumber)
+            ? string.Empty
+            : $"  ·  CST No. {party!.PartyCstNumber}";
+        CstFormEditorCaption =
+            $"{FormatDate(voucher.Date)}  ·  Vch No. {voucher.Number}  ·  "
+            + $"{(row.Col3.Length > 0 ? row.Col3 : "(no party)")}{cstNo}";
+        CstFormEditorMessage = null;
+        CstFormEditorOpen = true;
+        return true;
+    }
+
+    /// <summary>Closes the editor without writing anything.</summary>
+    public void CancelSetCstForm()
+    {
+        CstFormEditorOpen = false;
+        CstFormEditorMessage = null;
+    }
+
+    /// <summary>
+    /// Applies the editor to the highlighted transaction through <see cref="VatService"/> and re-projects.
+    /// Returns false (with the reason in <see cref="CstFormEditorMessage"/>) when the input will not parse, so
+    /// the caller knows not to persist.
+    ///
+    /// <para>🔴 <b>It does NOT save.</b> Persisting is the shell's job — <c>ReportsViewModel</c> has no
+    /// storage, exactly as <see cref="AlterHighlightedChequeStatus"/> has none. Giving the report a storage
+    /// handle so it could save itself is how a read-only projection quietly becomes a writer.</para>
+    /// </summary>
+    public bool ApplySetCstForm()
+    {
+        CstFormEditorMessage = null;
+        if (!IsCstForms || !CstFormEditorOpen) return false;
+        if (SelectedRow is not { } row || row.DrillVoucherId == Guid.Empty) return false;
+
+        var voucher = _company.Vouchers.FirstOrDefault(v => v.Id == row.DrillVoucherId);
+        if (voucher is null) { CstFormEditorMessage = "That transaction is no longer in the books."; return false; }
+
+        DateOnly? formDate = null;
+        var dateText = CstEditDateText?.Trim();
+        if (!string.IsNullOrEmpty(dateText))
+        {
+            // InvariantCulture and an EXACT format: the gate runs on ubuntu and macos, where a bare
+            // DateOnly.Parse would read 03-04-2026 as 3 April or 4 March depending on the host culture.
+            if (!DateOnly.TryParseExact(dateText, "dd-MM-yyyy", CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None, out var parsed))
+            {
+                CstFormEditorMessage = "Form Date must be a date in dd-MM-yyyy form — or left blank.";
+                return false;
+            }
+            formDate = parsed;
+        }
+
+        new VatService(_company).SetCstDeclarationForm(
+            voucher,
+            CstEditFormType?.Value,
+            CstEditSeries,
+            CstEditNumber,
+            formDate);
+
+        CstFormEditorOpen = false;
         Show(Kind);
         return true;
     }
