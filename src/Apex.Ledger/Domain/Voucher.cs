@@ -28,6 +28,50 @@ public sealed class Voucher
     /// <summary>Optional party ledger (invoice types).</summary>
     public Guid? PartyId { get; set; }
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v59 — CST DECLARATION FORM (census 15.6). The four data the vendor's Forms Receivable / Forms Issuable
+    // reports show and let an operator fill: which form the transaction is covered by, and — once the physical
+    // form actually changes hands — its series, its number and its date.
+    //
+    // 🔴 ALL FOUR ARE NULL ON EVERY PRE-v59 VOUCHER AND ON EVERY ORDINARY VOUCHER (ER-13). A form covers an
+    // inter-State transaction in the goods GST never absorbed; on ordinary GST goods it is meaningless.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The CST declaration form this inter-State transaction is covered by (census 15.6). <c>null</c> ⇒ none —
+    /// the voucher does not appear on either Declaration Forms report.
+    ///
+    /// <para>⚠️ <b>A DOCUMENTED DIVERGENCE, LABELLED AS OURS.</b> The reference product derives the form type
+    /// from a <i>nature of transaction</i> master this product does not have, so here the operator picks it —
+    /// on the vendor's own <i>Set/Alter Form No</i> screen (Alt+S) inside the Forms Receivable / Forms Issuable
+    /// report, which is exactly where the vendor already has them filling the other three fields. Building a
+    /// nature-of-transaction master to derive one enum would have been a far larger invention than the
+    /// divergence it removes.</para>
+    /// </summary>
+    public CstDeclarationForm? CstFormType { get; set; }
+
+    /// <summary>Vendor field <i>"Form Series Number"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/</c>). <c>null</c> ⇒ the form is
+    /// still pending — which is the whole point of the two reports.</summary>
+    public string? CstFormSeriesNumber { get; set; }
+
+    /// <summary>Vendor field <i>"Form Number"</i> (same page). <c>null</c> ⇒ pending.</summary>
+    public string? CstFormNumber { get; set; }
+
+    /// <summary>Vendor field <i>"Form Date"</i> (same page) — the date the physical form was received or
+    /// issued. <c>null</c> ⇒ pending.</summary>
+    public DateOnly? CstFormDate { get; set; }
+
+    /// <summary>
+    /// True iff the declaration form has actually been received/issued, i.e. a form NUMBER has been recorded.
+    ///
+    /// <para>🔴 <b>The number alone decides, and that is deliberate.</b> Series is optional in practice (many
+    /// states issued unseried forms) and a date without a number records nothing, so keying either of those
+    /// must NOT flip a transaction out of the pending list. Every "pending" figure on both Declaration Forms
+    /// reports is the negation of this one property, so the rule cannot drift between them.</para>
+    /// </summary>
+    public bool CstFormReceived => !string.IsNullOrWhiteSpace(CstFormNumber);
+
     /// <summary>The entry lines; ≥ 2 and balanced for a valid voucher.</summary>
     public IReadOnlyList<EntryLine> Lines => _lines;
 

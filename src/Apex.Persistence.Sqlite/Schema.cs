@@ -152,12 +152,30 @@ namespace Apex.Persistence.Sqlite;
 /// <c>godowns</c> cost-centre link, two tracking columns on each of the two stock-line tables, and one
 /// additive <c>voucher_type_classes</c> table. Purely additive; every default is 0/NULL, so "column absent"
 /// and "feature off" coincide. See <see cref="MigrateV57ToV58"/>.
-/// <b><see cref="CurrentVersion"/> = 58</b> (v58 = Inventory costing &amp; tracking, see below); a fresh DB is always
+/// 🔴 v59 adds <b>State VAT &amp; Central Sales Tax</b> (census 15.1 · 15.2 · 15.5 · 15.6) for the narrow set of
+/// goods GST never absorbed: seven <c>companies</c> columns, five <c>ledgers</c> columns, two
+/// <c>stock_items</c> columns and four <c>vouchers</c> columns. Purely additive; every default is 0/NULL. See
+/// <see cref="MigrateV58ToV59"/>.
+/// <b><see cref="CurrentVersion"/> = 59</b> (v59 = State VAT &amp; CST, see below); a fresh DB is always
 /// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v58</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v59</b> is the latest bump
+    /// (<b>State VAT &amp; Central Sales Tax for the goods GST never absorbed</b>, census 15.1 State VAT / 15.2
+    /// Tax Rate on the masters / 15.5 VAT Computation / 15.6 CST declaration forms: seven <c>companies</c>
+    /// columns carrying the vendor's Company VAT Details screen, five <c>ledgers</c> columns (the sales/purchase
+    /// VAT block plus the party's TIN / CST No. / Type of Dealer), two <c>stock_items</c> columns — the
+    /// <c>non_gst_goods_class</c> GATE and the item VAT rate — and four <c>vouchers</c> columns holding the CST
+    /// declaration form, its series, its number and its date. 🔴 <b><c>stock_items.non_gst_goods_class</c> is the
+    /// load-bearing column of the whole version.</b> VAT and CST are alive ONLY for alcoholic liquor for human
+    /// consumption (Constitution Art. 366(12A); CGST Act s.9(1)) and the five petroleum products (CGST Act
+    /// s.9(2)); a VAT rate offered on ordinary GST goods invites an operator to compute an abolished tax, so
+    /// applicability is a property of the GOODS and not a free tick. Purely additive and it back-fills NOTHING —
+    /// every default is 0/NULL, which is the literal truth about every pre-v59 book: no company had VAT on, no
+    /// ledger a VAT rate, no item a goods class, no voucher a declaration form. See
+    /// <see cref="MigrateV58ToV59"/>).
+    /// v58 was the previous bump
     /// (<b>Inventory costing &amp; tracking</b>, census 9.6 Job Costing / 9.7 Item Cost Tracking / 9.8 Tracking
     /// Numbers / 9.9 Stock Journal Voucher Class: the three <c>companies</c> feature flags
     /// <c>use_tracking_numbers</c> / <c>enable_cost_tracking</c> / <c>enable_job_costing</c>, the
@@ -245,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 58;
+    public const int CurrentVersion = 59;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -434,7 +452,19 @@ public static class Schema
             -- these features, so "column absent" and "feature off" coincide.
             use_tracking_numbers           INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Use tracking numbers (enables delivery and receipt notes)"
             enable_cost_tracking           INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Enable Cost Tracking"
-            enable_job_costing             INTEGER NOT NULL DEFAULT 0   -- 0/1 F11 "Enable Job Costing"
+            enable_job_costing             INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Enable Job Costing"
+            -- v59 (census 15.1 State VAT · 15.6 CST): the vendor's Company VAT Details screen, reached from F11
+            -- "Enable Value Added Tax (VAT)". Declarations byte-identical to MigrateV58ToV59. vat_enabled = 0 for
+            -- every pre-v59 company, so a non-VAT company is byte-identical (ER-13).
+            -- 🔴 vat_cst_rate_form_c_bp carries NO seeded rate. The 2% concessional Form-C rate could not be
+            -- retrieved from an official source for this slice; see MigrateV58ToV59 for the full note.
+            vat_enabled                    INTEGER NOT NULL DEFAULT 0,  -- 0/1 F11 "Enable Value Added Tax (VAT)"
+            vat_tin                        TEXT        NULL,            -- vendor "TIN"; state-issued, format NOT validated
+            vat_interstate_st_number       TEXT        NULL,            -- vendor "Interstate sales tax number"
+            vat_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, vendor "VAT applicable from"
+            vat_periodicity                INTEGER     NULL,            -- VatReturnPeriodicity ordinal (0 = Monthly)
+            vat_dealer_type                INTEGER     NULL,            -- VatDealerType ordinal (0 = Regular, 1 = Composite)
+            vat_cst_rate_form_c_bp         INTEGER     NULL             -- vendor "CST Rate Against Form C", basis points
         );
 
         -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1016,7 +1046,20 @@ public static class Schema
             cheque_adjust_top_tmm    INTEGER NOT NULL DEFAULT 0,
             cheque_adjust_left_tmm   INTEGER NOT NULL DEFAULT 0,
             -- help.tallysolutions.com/cheque-payments-set-up/, "Disable Company Name in the Pre-printed Cheques".
-            print_company_name_on_cheque INTEGER NOT NULL DEFAULT 0   -- 0/1
+            print_company_name_on_cheque INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            -- v59 (census 15.2 State VAT masters). Declarations byte-identical to MigrateV58ToV59. TWO
+            -- INDEPENDENT BLOCKS that share a table: vat_applicable + vat_tax_rate_bp describe THIS
+            -- sales/purchase ledger's own VAT treatment, while party_vat_tin / party_cst_number /
+            -- party_vat_dealer_type record facts about the OTHER side on a Sundry Debtor/Creditor ledger.
+            -- All NULL/0 on every pre-v59 ledger (ER-13).
+            -- 🔴 There is deliberately NO "tax type" column: the vendor's field LABEL is attested but no
+            -- vendor page publishes its option list, and the Input/Output split the VAT Computation report
+            -- needs is derived from the voucher. See Ledger.VatTaxRateBasisPoints.
+            vat_applicable           INTEGER NOT NULL DEFAULT 0,  -- 0/1 vendor "VAT Applicable"
+            vat_tax_rate_bp          INTEGER     NULL,            -- vendor "Tax Rate", basis points
+            party_vat_tin            TEXT        NULL,            -- vendor "TIN/Sales Tax No." on a party ledger
+            party_cst_number         TEXT        NULL,            -- vendor "CST No." on a party ledger
+            party_vat_dealer_type    INTEGER     NULL             -- VatDealerType ordinal, vendor "Type of Dealer"
         );
 
         CREATE TABLE currencies (
@@ -1145,7 +1188,16 @@ public static class Schema
             reference_date TEXT    NULL,      -- ISO yyyy-MM-dd
             -- v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher —
             -- hand-keyed As-Voucher sales, item invoices, plain vouchers — so they print exactly as before.
-            is_accounting_invoice INTEGER NOT NULL DEFAULT 0
+            is_accounting_invoice INTEGER NOT NULL DEFAULT 0,
+            -- v59 (census 15.6 Central Sales Tax): the CST declaration form covering an inter-State transaction
+            -- in the goods GST never absorbed, and — once the physical form changes hands — its series, number
+            -- and date. Declarations byte-identical to MigrateV58ToV59. All four NULL on every pre-v59 voucher
+            -- and on every ordinary voucher (ER-13); a NULL cst_form_number is exactly what "pending" means on
+            -- the Forms Receivable / Forms Issuable reports.
+            cst_form_type       INTEGER     NULL,   -- CstDeclarationForm ordinal (FormC=0 … FormJ=6)
+            cst_form_series_no  TEXT        NULL,   -- vendor "Form Series Number"
+            cst_form_number     TEXT        NULL,   -- vendor "Form Number"; NULL = form not yet received/issued
+            cst_form_date       TEXT        NULL    -- ISO yyyy-MM-dd, vendor "Form Date"
         );
 
         CREATE TABLE entry_lines (
@@ -1442,7 +1494,15 @@ public static class Schema
             -- v43 (Phase 9 slice 6): §17(5) ITC-eligibility on the shared item/S-P GST block. DEFAULT 0/0 (Eligible/None)
             -- ⇒ byte-identical to a v42 item (ER-13). Used by the S6b ITC-gate; the columns land now.
             itc_eligibility           INTEGER NOT NULL DEFAULT 0, -- ItcEligibility ordinal (Eligible=0)
-            blocked_credit_category   INTEGER NOT NULL DEFAULT 0  -- BlockedCreditCategory ordinal (None=0)
+            blocked_credit_category   INTEGER NOT NULL DEFAULT 0, -- BlockedCreditCategory ordinal (None=0)
+            -- v59 (census 15.1/15.2/15.6): the pre-GST levy gate and the item VAT rate. Declarations
+            -- byte-identical to MigrateV58ToV59. Both DEFAULT 0 / NULL, so every pre-v59 item is ordinary GST
+            -- goods with no VAT rate — which is the literal truth about it (ER-13).
+            -- 🔴 non_gst_goods_class IS THE GATE, not a preference. VAT and CST survive GST only for alcoholic
+            -- liquor for human consumption (Constitution Art. 366(12A); CGST Act s.9(1)) and the five petroleum
+            -- products (CGST Act s.9(2)). 0 = None = ordinary GST goods, for which VatService REFUSES a rate.
+            non_gst_goods_class       INTEGER NOT NULL DEFAULT 0, -- NonGstGoodsClass ordinal (0 = None)
+            vat_tax_rate_bp           INTEGER     NULL            -- vendor "Tax rate" on the item VAT block, basis points
         );
 
         CREATE TABLE stock_opening_balances (
@@ -4791,5 +4851,144 @@ public static class Schema
             use_class_for_inter_godown_transfers INTEGER NOT NULL DEFAULT 0   -- 0/1
         );
         CREATE UNIQUE INDEX ux_voucher_type_classes_type_name ON voucher_type_classes(voucher_type_id, name);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v59 — STATE VAT & CENTRAL SALES TAX for the goods GST never absorbed (census 15.1 State VAT · 15.2 the Tax
+    // Rate on the ledger and stock-item masters · 15.5 VAT Computation · 15.6 CST declaration forms). Object names
+    // are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set
+    // and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The seven <c>companies</c> columns v59 adds — the vendor's Company VAT Details screen. The exact
+    /// set <see cref="MigrateV58ToV59"/> creates and <c>SchemaDowngrade.V59ToV58</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V59VatCompanyColumns = new[]
+    {
+        "vat_enabled", "vat_tin", "vat_interstate_st_number", "vat_applicable_from",
+        "vat_periodicity", "vat_dealer_type", "vat_cst_rate_form_c_bp",
+    };
+
+    /// <summary>The five <c>ledgers</c> columns v59 adds — two describing THIS sales/purchase ledger's VAT
+    /// treatment, three recording the counterparty's VAT identity on a party ledger.</summary>
+    public static readonly IReadOnlyList<string> V59VatLedgerColumns = new[]
+    {
+        "vat_applicable", "vat_tax_rate_bp", "party_vat_tin", "party_cst_number", "party_vat_dealer_type",
+    };
+
+    /// <summary>The two <c>stock_items</c> columns v59 adds. 🔴 <c>non_gst_goods_class</c> is the GATE the whole
+    /// of census area 15 hangs on — see <see cref="MigrateV58ToV59"/>.</summary>
+    public static readonly IReadOnlyList<string> V59VatStockItemColumns =
+        new[] { "non_gst_goods_class", "vat_tax_rate_bp" };
+
+    /// <summary>The four <c>vouchers</c> columns v59 adds — the CST declaration form and its series/number/date
+    /// (census 15.6).</summary>
+    public static readonly IReadOnlyList<string> V59CstVoucherColumns =
+        new[] { "cst_form_type", "cst_form_series_no", "cst_form_number", "cst_form_date" };
+
+    /// <summary>
+    /// v58 → v59 (census rows 15.1 / 15.2 / 15.5 / 15.6): <b>State VAT and Central Sales Tax</b> — the taxes GST
+    /// replaced everywhere EXCEPT on the narrow set of goods it never absorbed.
+    ///
+    /// <para>🔴 <b><c>stock_items.non_gst_goods_class</c> IS THE LOAD-BEARING COLUMN OF THIS WHOLE VERSION, AND
+    /// EVERY OTHER COLUMN HERE IS INERT WITHOUT IT.</b> VAT and CST did not die in 2017; they were subsumed for
+    /// ordinary goods and left standing for two classes that the Constitution and the CGST Act keep outside GST:
+    /// <b>alcoholic liquor for human consumption</b> — outside GST permanently by Art. 366(12A) and by CGST Act
+    /// s.9(1) ("<i>on all intra-State supplies of goods or services or both, <b>except on the supply of alcoholic
+    /// liquor for human consumption</b></i>") — and <b>the five petroleum products</b> of CGST Act s.9(2)
+    /// ("<i>The central tax on the supply of <b>petroleum crude, high speed diesel, motor spirit (commonly known
+    /// as petrol), natural gas and aviation turbine fuel</b> shall be levied with effect from such date as may be
+    /// notified…</i>"), both quoted from cbic-gst.gov.in's own copy of the Act. So a VAT rate field offered on an
+    /// ordinary GST item is <b>worse than no field at all</b>: it invites an operator to compute, and then to
+    /// file, a tax abolished for their trade. This column is why the product can refuse rather than merely hide.
+    /// It is <c>INTEGER NOT NULL DEFAULT 0</c> (= <c>NonGstGoodsClass.None</c>, ordinary goods) so every existing
+    /// item is correctly classified by the migration itself, without a back-fill.</para>
+    ///
+    /// <para><b>R7 — every column below is a vendor field, and the vendor page is named.</b> The Company VAT
+    /// Details screen (<c>vat_*</c> on <c>companies</c>) is
+    /// <c>help.tallysolutions.com/tally-prime/vat-masters/india-vat-enable-vat-tally/</c> — "<i>Press F11
+    /// (Features) &gt; set the option <b>Enable Value Added Tax (VAT)</b> to Yes, to open the <b>Company VAT
+    /// Details</b> screen … Enter the company <b>TIN</b> and <b>Interstate sales tax number</b></i>" — together
+    /// with <c>…/india-vat-configuring-accounts-only-company-tally/</c>, which adds "<i><b>VAT applicable
+    /// from</b> date</i>", the "<i>Periodicity … Monthly or Quarterly</i>" election and "<i><b>CST Rate Against
+    /// Form C</b></i>". The master fields (<c>ledgers</c>, <c>stock_items</c>) are
+    /// <c>…/getting-started/configuring-vat-masters-tally/</c> — "<i>VAT Applicable</i>", "<i>Set/Alter VAT
+    /// details</i>", "<i>Tax rate</i>" on both the Stock Item Master and the Ledger Master — and the party block
+    /// is <c>…/vat-masters/india-vat-party-ledger-tally/</c> ("<i>Type of Dealer</i>", "<i>TIN/Sales Tax
+    /// No.</i>", "<i>CST No.</i>"). The four <c>vouchers</c> columns are the three fillable fields of
+    /// <c>help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/</c> ("<i>Form Series Number</i>",
+    /// "<i>Form Number</i>", "<i>Form Date</i>") plus the form type enumerated on
+    /// <c>…/reports/vat-declaration-forms-tally/</c>.</para>
+    ///
+    /// <para>🔴 <b><c>vat_cst_rate_form_c_bp</c> CARRIES NO SEEDED RATE, AND THE OMISSION IS THE DISCIPLINE, NOT
+    /// AN OVERSIGHT.</b> The concessional inter-State rate against Form C is widely stated as 2% (CST Act 1956
+    /// s.8(1)). This slice could NOT retrieve that sentence from an official source — <c>indiacode.nic.in</c>
+    /// returned HTTP 403 on two PDF copies of the Act and refused the connection on a third — and a statutory
+    /// rate shipped on a source that did not hold up is already an OPEN, unresolved user decision on this project
+    /// (the 4% cess). So the column is NULLable with no DEFAULT, every VAT/CST figure in the product traces to a
+    /// rate a human keyed on the vendor's own field, and nothing is asserted from memory.</para>
+    ///
+    /// <para>🔴 <b>THERE IS DELIBERATELY NO "TAX TYPE" COLUMN.</b> The vendor's masters carry a <i>Tax Type</i>
+    /// beside <i>Tax Rate</i>, and its LABEL is attested — but no vendor page reached for this slice publishes
+    /// the VALUES it takes. Shipping a picker whose options this project invented would put fabricated
+    /// classifications into a statutory master. The Input-versus-Output distinction the VAT Computation report
+    /// actually needs is derived from the VOUCHER (a purchase gives credit, a sale creates liability), which is
+    /// how the vendor's own report is sectioned, so the omission costs the feature nothing.</para>
+    ///
+    /// <para><b>Purely additive, and it back-fills NOTHING.</b> Eighteen columns across four tables whose
+    /// defaults — 0, 0, 0 and NULL everywhere else — are the literal truth about every pre-v59 book: no company
+    /// had VAT enabled, no ledger carried a VAT rate or a counterparty TIN, every item was ordinary GST goods,
+    /// and no voucher was covered by a declaration form. "Column absent" and "not set" therefore coincide,
+    /// deliberately unlike <see cref="MigrateV49ToV50"/>'s <c>DEFAULT 1</c>.</para>
+    ///
+    /// <para>⚠️ <b>THIS VERSION DELIBERATELY ADDS NO INDEX, AND THE ONE IT NEARLY ADDED IS WORTH RECORDING.</b>
+    /// A composite <c>vouchers(company_id, cst_form_type)</c> index was written and then removed: <b>nothing in
+    /// this product queries a voucher by SQL predicate</b>. The store loads a company's whole aggregate and both
+    /// Declaration Forms reports are pure in-memory projections over <c>Company.Vouchers</c>, exactly like every
+    /// other report here — so the index would have cost every voucher INSERT a B-tree write to serve no reader.
+    /// It also broke twenty-one legacy migration fixtures, whose hand-written minimal <c>vouchers</c> table is
+    /// <c>(id TEXT NOT NULL PRIMARY KEY)</c> with no <c>company_id</c>; patching those to keep dead DDL alive
+    /// would have been the wrong repair. If a SQL-side reader ever appears, add the index then and with a
+    /// measurement.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 59. Every declaration below is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c>
+    /// compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk) AND the named indexes, so the two copies
+    /// must not drift.</para>
+    /// </summary>
+    public const string MigrateV58ToV59 = """
+        -- v59 (census 15.1/15.2/15.5/15.6): State VAT & Central Sales Tax, for the goods GST never absorbed.
+        -- Purely additive: eighteen columns across four tables, all 0/NULL, nothing back-filled.
+
+        -- 15.1: the vendor's Company VAT Details screen (F11 "Enable Value Added Tax (VAT)").
+        -- vat_cst_rate_form_c_bp is NULLable with NO default: no statutory rate is asserted anywhere in this
+        -- build. See this constant's doc comment.
+        ALTER TABLE companies ADD COLUMN vat_enabled              INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN vat_tin                  TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN vat_interstate_st_number TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN vat_applicable_from      TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN vat_periodicity          INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN vat_dealer_type          INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN vat_cst_rate_form_c_bp   INTEGER     NULL;
+
+        -- 15.2: the ledger master. Two INDEPENDENT blocks on one table — vat_applicable/vat_tax_rate_bp are
+        -- THIS ledger's own treatment; the party_* three record the OTHER side's VAT identity.
+        ALTER TABLE ledgers ADD COLUMN vat_applicable        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN vat_tax_rate_bp       INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN party_vat_tin         TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN party_cst_number      TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN party_vat_dealer_type INTEGER     NULL;
+
+        -- 15.2 + THE GATE. non_gst_goods_class DEFAULT 0 = NonGstGoodsClass.None = ordinary GST goods, which is
+        -- what every pre-v59 item is — so the migration classifies the whole existing catalogue correctly
+        -- without touching a single row, and VatService then REFUSES a VAT rate on any of them.
+        ALTER TABLE stock_items ADD COLUMN non_gst_goods_class INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN vat_tax_rate_bp     INTEGER     NULL;
+
+        -- 15.6: the CST declaration form on the voucher. A NULL cst_form_number is exactly what "pending" means
+        -- on the Forms Receivable / Forms Issuable reports.
+        ALTER TABLE vouchers ADD COLUMN cst_form_type      INTEGER     NULL;
+        ALTER TABLE vouchers ADD COLUMN cst_form_series_no TEXT        NULL;
+        ALTER TABLE vouchers ADD COLUMN cst_form_number    TEXT        NULL;
+        ALTER TABLE vouchers ADD COLUMN cst_form_date      TEXT        NULL;
         """;
 }

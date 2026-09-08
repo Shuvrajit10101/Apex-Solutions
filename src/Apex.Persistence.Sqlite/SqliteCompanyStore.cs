@@ -1462,6 +1462,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 58;
         }
 
+        // v58 → v59 (census 15.1/15.2/15.5/15.6): State VAT & Central Sales Tax — the seven companies columns of
+        // the vendor's Company VAT Details screen, five ledgers columns (this ledger's VAT treatment plus the
+        // counterparty's TIN / CST No. / Type of Dealer), two stock_items columns, and the four vouchers columns
+        // holding a CST declaration form. 🔴 stock_items.non_gst_goods_class DEFAULT 0 (= None, ordinary GST
+        // goods) is what makes this migration safe with no back-fill: VAT and CST survive GST only for alcoholic
+        // liquor for human consumption (Constitution Art. 366(12A); CGST Act s.9(1)) and the five petroleum
+        // products (CGST Act s.9(2)), and every existing item is correctly classified as neither. Purely
+        // additive and it back-fills NOTHING. See Schema.MigrateV58ToV59.
+        if (version == 58)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV58ToV59;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 59);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 59;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1501,7 +1529,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    gst_source_of_hsn_sac, gst_source_of_rate,
                    gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
                    use_user_access_control, password_min_length, password_expiry_days,
-                   use_tracking_numbers, enable_cost_tracking, enable_job_costing
+                   use_tracking_numbers, enable_cost_tracking, enable_job_costing,
+                   vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
+                   vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1560,6 +1590,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 MinimumLength = (int)r.GetInt64(90),
                 ExpiryDays = r.IsDBNull(91) ? null : (int)r.GetInt64(91),
             };
+            // v59 (census 15.1 State VAT · 15.6 CST): the Company VAT Details block. A company is VAT-enabled
+            // iff vat_enabled = 1; when off — the default for every pre-v59 company — Vat stays NULL and no VAT
+            // path activates anywhere (ER-13), exactly as Gst does above.
+            // 🔴 vat_cst_rate_form_c_bp is read verbatim and stays NULL when unset. There is no `?? 200` here
+            // and there must never be one: no statutory Form-C rate is asserted anywhere in this build. See
+            // Schema.MigrateV58ToV59.
+            if (r.GetInt64(95) != 0)
+            {
+                company.Vat = new VatConfig
+                {
+                    Enabled = true,
+                    Tin = r.IsDBNull(96) ? null : r.GetString(96),
+                    InterstateSalesTaxNumber = r.IsDBNull(97) ? null : r.GetString(97),
+                    ApplicableFrom = r.IsDBNull(98) ? null : ParseDate(r.GetString(98)),
+                    Periodicity = r.IsDBNull(99)
+                        ? VatReturnPeriodicity.Monthly
+                        : (VatReturnPeriodicity)r.GetInt64(99),
+                    DealerType = r.IsDBNull(100) ? VatDealerType.Regular : (VatDealerType)r.GetInt64(100),
+                    CstRateAgainstFormCBasisPoints = r.IsDBNull(101) ? null : (int)r.GetInt64(101),
+                };
+            }
+
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
             // v13 core GST config. A company is GST-enabled iff gst_enabled = 1; when off (default for every
@@ -2307,7 +2359,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    mailing_name, mailing_address, mailing_country, mailing_pincode,
                    credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated,
                    bank_account_number, bank_branch, bank_ifsc,
-                   cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque
+                   cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque,
+                   vat_applicable, vat_tax_rate_bp, party_vat_tin, party_cst_number, party_vat_dealer_type
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2366,6 +2419,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 ChequeAdjustTopTmm = (int)r.GetInt64(67),
                 ChequeAdjustLeftTmm = (int)r.GetInt64(68),
                 PrintCompanyNameOnCheque = r.GetInt64(69) != 0,
+                // v59 (census 15.2): the two INDEPENDENT VAT blocks (columns 70-74). vat_applicable +
+                // vat_tax_rate_bp are THIS sales/purchase ledger's own treatment; the party_* three are the
+                // counterparty's VAT identity on a Sundry Debtor/Creditor. All 0/NULL on every pre-v59 ledger,
+                // which is what "never captured" is (ER-13).
+                VatApplicable = r.GetInt64(70) != 0,
+                VatTaxRateBasisPoints = r.IsDBNull(71) ? null : (int)r.GetInt64(71),
+                PartyVatTin = r.IsDBNull(72) ? null : r.GetString(72),
+                PartyCstNumber = r.IsDBNull(73) ? null : r.GetString(73),
+                PartyVatDealerType = r.IsDBNull(74) ? null : (VatDealerType)r.GetInt64(74),
             });
         }
 
@@ -3930,7 +3992,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
                    cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
                    reverse_charge_applicable, gta_forward_charge, rcm_category_id,
-                   itc_eligibility, blocked_credit_category
+                   itc_eligibility, blocked_credit_category,
+                   non_gst_goods_class, vat_tax_rate_bp
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3960,6 +4023,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             item.SetComponents = r.GetInt64(19) != 0;
             // v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS) id (column 20), read verbatim.
             item.TcsNatureOfGoodsId = r.IsDBNull(20) ? (Guid?)null : Guid.Parse(r.GetString(20));
+            // v59 (census 15.1/15.2): the pre-GST levy gate and the item VAT rate (columns 33-34).
+            // non_gst_goods_class is NOT NULL DEFAULT 0, so "column absent" and "ordinary GST goods" coincide
+            // and every pre-v59 item reads back correctly classified (ER-13).
+            item.NonGstGoodsClass = (NonGstGoodsClass)(int)r.GetInt64(33);
+            item.VatTaxRateBasisPoints = r.IsDBNull(34) ? null : (int)r.GetInt64(34);
             list.Add(item);
         }
         return list;
@@ -4565,13 +4633,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
             Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto,
-            string? ReferenceNo, DateOnly? ReferenceDate, bool IsAccountingInvoice)>();
+            string? ReferenceNo, DateOnly? ReferenceDate, bool IsAccountingInvoice,
+            CstDeclarationForm? CstFormType, string? CstFormSeriesNumber, string? CstFormNumber,
+            DateOnly? CstFormDate)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                       applicable_upto, reference_no, reference_date, is_accounting_invoice
+                       applicable_upto, reference_no, reference_date, is_accounting_invoice,
+                       cst_form_type, cst_form_series_no, cst_form_number, cst_form_date
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4592,7 +4663,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.IsDBNull(10) ? null : r.GetString(10),
                     r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11)),
                     // v49: NOT NULL DEFAULT 0, so every pre-v49 row reads false = "not an accounting invoice".
-                    r.GetInt64(12) != 0));
+                    r.GetInt64(12) != 0,
+                    // v59 (census 15.6): the CST declaration form and its series/number/date (columns 13-16).
+                    // All NULL on every pre-v59 voucher and on every ordinary voucher (ER-13); a NULL
+                    // cst_form_number is exactly what "pending" means on the two Declaration Forms reports.
+                    r.IsDBNull(13) ? (CstDeclarationForm?)null : (CstDeclarationForm)r.GetInt64(13),
+                    r.IsDBNull(14) ? null : r.GetString(14),
+                    r.IsDBNull(15) ? null : r.GetString(15),
+                    r.IsDBNull(16) ? (DateOnly?)null : ParseDate(r.GetString(16))));
             }
         }
 
@@ -4602,7 +4680,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var lines = ReadEntryLines(h.Id);
             var inventoryLines = ReadVoucherInventoryLines(h.Id);
             var posTenders = ReadPosTenders(h.Id);
-            result.Add(new Voucher(
+            var voucher = new Voucher(
                 h.Id, h.TypeId, h.Date, lines,
                 number: h.Number,
                 narration: h.Narration,
@@ -4615,7 +4693,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 posTenders: posTenders.Count > 0 ? posTenders : null,
                 referenceNo: h.ReferenceNo,
                 referenceDate: h.ReferenceDate,
-                isAccountingInvoice: h.IsAccountingInvoice));
+                isAccountingInvoice: h.IsAccountingInvoice);
+            // v59 (census 15.6): the CST declaration form block. Set AFTER construction because it is
+            // operator-supplied metadata about a form changing hands, not part of what makes the voucher a
+            // valid posting — the constructor's invariants have nothing to say about it.
+            voucher.CstFormType = h.CstFormType;
+            voucher.CstFormSeriesNumber = h.CstFormSeriesNumber;
+            voucher.CstFormNumber = h.CstFormNumber;
+            voucher.CstFormDate = h.CstFormDate;
+            result.Add(voucher);
         }
         return result;
     }
@@ -5279,7 +5365,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  gst_source_of_hsn_sac, gst_source_of_rate,
                  gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type,
                  use_user_access_control, password_min_length, password_expiry_days,
-                 use_tracking_numbers, enable_cost_tracking, enable_job_costing)
+                 use_tracking_numbers, enable_cost_tracking, enable_job_costing,
+                 vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
+                 vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -5303,7 +5391,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $gstsrchsn, $gstsrcrate,
                  $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply,
                  $useuac, $pwdminlen, $pwdexpiry,
-                 $usetrack, $costtrack, $jobcost);
+                 $usetrack, $costtrack, $jobcost,
+                 $vaten, $vattin, $vatcstno, $vatfrom, $vatper, $vatdealer, $vatcstrate);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -5460,6 +5549,21 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$usetrack", c.UseTrackingNumbers ? 1 : 0);
         cmd.Parameters.AddWithValue("$costtrack", c.EnableCostTracking ? 1 : 0);
         cmd.Parameters.AddWithValue("$jobcost", c.EnableJobCosting ? 1 : 0);
+        // v59 (census 15.1 / 15.6): the Company VAT Details block, written verbatim. A null Vat writes exactly
+        // the defaults the schema column defaults carry, so a company that never enables VAT is byte-identical
+        // to a pre-v59 company (ER-13).
+        // 🔴 $vatcstrate writes NULL when the operator has not supplied a Form-C rate. It must NEVER acquire a
+        // `?? 200` fallback: no statutory rate is asserted anywhere in this build (Schema.MigrateV58ToV59).
+        var vat = c.Vat;
+        cmd.Parameters.AddWithValue("$vaten", (vat?.Enabled ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$vattin", (object?)vat?.Tin ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$vatcstno", (object?)vat?.InterstateSalesTaxNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$vatfrom",
+            vat?.ApplicableFrom is { } vaf ? FormatDate(vaf) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$vatper", vat is null ? DBNull.Value : (int)vat.Periodicity);
+        cmd.Parameters.AddWithValue("$vatdealer", vat is null ? DBNull.Value : (int)vat.DealerType);
+        cmd.Parameters.AddWithValue("$vatcstrate",
+            vat?.CstRateAgainstFormCBasisPoints is { } cbp ? cbp : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -5842,7 +5946,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      mailing_name, mailing_address, mailing_country, mailing_pincode,
                      credit_limit_paisa, check_credit_days_on_entry, override_credit_limit_post_dated,
                      bank_account_number, bank_branch, bank_ifsc,
-                     cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque)
+                     cheque_adjust_top_tmm, cheque_adjust_left_tmm, print_company_name_on_cheque,
+                     vat_applicable, vat_tax_rate_bp, party_vat_tin, party_cst_number, party_vat_dealer_type)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
@@ -5852,7 +5957,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         $spitcelig, $spblkcat,
                         $mailname, $mailaddr, $mailcountry, $mailpin,
                         $climit, $ccheckdays, $coverridepd,
-                        $bankacct, $bankbranch, $bankifsc, $chqadjtop, $chqadjleft, $chqprintcoy);
+                        $bankacct, $bankbranch, $bankifsc, $chqadjtop, $chqadjleft, $chqprintcoy,
+                        $vatap, $vatrate, $pvattin, $pcstno, $pvatdealer);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5965,6 +6071,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$chqadjtop", l.ChequeAdjustTopTmm);
             cmd.Parameters.AddWithValue("$chqadjleft", l.ChequeAdjustLeftTmm);
             cmd.Parameters.AddWithValue("$chqprintcoy", l.PrintCompanyNameOnCheque ? 1 : 0);
+            // v59 (census 15.2): the two VAT blocks, written verbatim. All 0 / NULL for a ledger that never
+            // captured them, so an untouched book writes exactly the bytes it wrote at v58 (ER-13).
+            cmd.Parameters.AddWithValue("$vatap", l.VatApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$vatrate",
+                l.VatTaxRateBasisPoints is { } vrb ? vrb : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$pvattin", (object?)l.PartyVatTin ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pcstno", (object?)l.PartyCstNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pvatdealer",
+                l.PartyVatDealerType is { } pvd ? (int)pvd : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 
@@ -7217,12 +7332,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
                      cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
                      reverse_charge_applicable, gta_forward_charge, rcm_category_id,
-                     itc_eligibility, blocked_credit_category)
+                     itc_eligibility, blocked_credit_category,
+                     non_gst_goods_class, vat_tax_rate_bp)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
                         $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
                         $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp,
                         $rca, $gtafc, $rcmcat,
-                        $itcelig, $blkcat);
+                        $itcelig, $blkcat,
+                        $ngclass, $itemvatrate);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7270,6 +7387,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$setc", item.SetComponents ? 1 : 0); // v18 Set-Components (RQ-10)
             // v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS) id, or NULL.
             cmd.Parameters.AddWithValue("$tcsnat", (object?)item.TcsNatureOfGoodsId?.ToString("D") ?? DBNull.Value);
+            // v59 (census 15.1/15.2): the class of goods and the item VAT rate, written verbatim. 0 (= None,
+            // ordinary GST goods) and NULL for every item nobody has classified (ER-13).
+            cmd.Parameters.AddWithValue("$ngclass", (int)item.NonGstGoodsClass);
+            cmd.Parameters.AddWithValue("$itemvatrate",
+                item.VatTaxRateBasisPoints is { } ivr ? ivr : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -7750,8 +7872,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO vouchers
                     (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                     applicable_upto, reference_no, reference_date, is_accounting_invoice)
-                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate, $acctinv);
+                     applicable_upto, reference_no, reference_date, is_accounting_invoice,
+                     cst_form_type, cst_form_series_no, cst_form_number, cst_form_date)
+                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate, $acctinv,
+                        $cstform, $cstseries, $cstnum, $cstdate);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -7769,6 +7893,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$refdate", (object?)(v.ReferenceDate is { } rd ? FormatDate(rd) : null) ?? DBNull.Value);
             // v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher (ER-13).
             cmd.Parameters.AddWithValue("$acctinv", v.IsAccountingInvoice ? 1 : 0);
+            // v59 (census 15.6): the CST declaration form, written verbatim. All four NULL for every voucher
+            // that is not covered by one, which is every voucher in a pre-v59 book (ER-13).
+            cmd.Parameters.AddWithValue("$cstform",
+                v.CstFormType is { } cft ? (int)cft : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$cstseries", (object?)v.CstFormSeriesNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cstnum", (object?)v.CstFormNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cstdate",
+                v.CstFormDate is { } cfd ? FormatDate(cfd) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -11,6 +12,17 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using DomainLedger = Apex.Ledger.Domain.Ledger;
 
 namespace Apex.Desktop.ViewModels;
+
+/// <summary>
+/// A party <i>"Type of Dealer"</i> option for the ledger master's VAT block (census 15.2). A <c>null</c>
+/// <see cref="Value"/> is the "(not stated)" entry, which is what every pre-v59 ledger is — the picker must be
+/// able to express "nobody has recorded this", or opening a ledger would silently assert Regular.
+/// </summary>
+public sealed class VatPartyDealerTypeOption
+{
+    public VatDealerType? Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
 
 /// <summary>A ledger row for the existing-ledgers list on the ledger-master screen.</summary>
 public sealed class LedgerListRow
@@ -383,6 +395,58 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// group (Sundry Debtors/Creditors). Off ⇒ no party-GST fields captured (a B2C/unregistered party).
     /// </summary>
     public bool ShowPartyGst => GstEnabled && IsPartyGroup;
+
+    // ------------------------------------------------------------------ W-N1 · census 15.2 — State VAT
+    // TWO INDEPENDENT BLOCKS THAT SHARE THIS MASTER, and conflating them is the trap. VatApplicable +
+    // VatTaxRatePercentText describe THIS sales/purchase ledger's own tax treatment; the three Party* fields
+    // record facts about SOMEONE ELSE on a Sundry Debtor/Creditor. A party ledger normally carries the second
+    // and not the first, and vice versa — so they are gated separately.
+    //
+    // R7: "VAT Applicable", "Set/Alter VAT details" and "Tax rate" on the Ledger Master
+    // (help.tallysolutions.com/tally-prime/getting-started/configuring-vat-masters-tally/); "Type of Dealer",
+    // "TIN/Sales Tax No." and "CST No." on a party ledger
+    // (help.tallysolutions.com/tally-prime/vat-masters/india-vat-party-ledger-tally/).
+
+    /// <summary>True iff State VAT is enabled for the company — neither VAT block is offered otherwise, so a
+    /// non-VAT company sees a byte-identical ledger master (ER-13).</summary>
+    public bool VatEnabled => _company.VatEnabled;
+
+    /// <summary>True iff the PARTY VAT block should be shown: VAT is on AND the group is a party group.</summary>
+    public bool ShowPartyVat => VatEnabled && IsPartyGroup;
+
+    /// <summary>
+    /// True iff the SALES/PURCHASE VAT block should be shown: VAT is on and the group is NOT a party group.
+    ///
+    /// <para>🔴 <b>The two blocks are mutually exclusive on purpose.</b> Offering both on every ledger is how a
+    /// customer master ends up carrying a "Tax rate" that nothing reads, and how a sales ledger ends up
+    /// carrying a counterparty TIN.</para>
+    /// </summary>
+    public bool ShowSalesPurchaseVat => VatEnabled && !IsPartyGroup;
+
+    /// <summary>Vendor field <i>"VAT Applicable"</i> on a sales/purchase ledger.</summary>
+    [ObservableProperty] private bool _vatApplicable;
+
+    /// <summary>Vendor field <i>"Tax Rate"</i> on a sales/purchase ledger, keyed as a PERCENT; blank = none.</summary>
+    [ObservableProperty] private string _vatTaxRatePercentText = string.Empty;
+
+    /// <summary>Vendor field <i>"TIN/Sales Tax No."</i> on a party ledger.</summary>
+    [ObservableProperty] private string _partyVatTin = string.Empty;
+
+    /// <summary>Vendor field <i>"CST No."</i> on a party ledger — shown on both Declaration Forms registers so
+    /// a pending form can be chased to the dealer who owes it.</summary>
+    [ObservableProperty] private string _partyCstNumber = string.Empty;
+
+    /// <summary>Vendor field <i>"Type of Dealer"</i> on a party ledger.</summary>
+    [ObservableProperty] private VatPartyDealerTypeOption? _partyVatDealerType;
+
+    /// <summary>The picker entries: "(not stated)" plus the two attested values. See
+    /// <see cref="VatDealerType"/> for why no other value ships.</summary>
+    public IReadOnlyList<VatPartyDealerTypeOption> PartyVatDealerTypes { get; } = new[]
+    {
+        new VatPartyDealerTypeOption { Value = null, Display = "◦ (not stated)" },
+        new VatPartyDealerTypeOption { Value = VatDealerType.Regular, Display = "Regular" },
+        new VatPartyDealerTypeOption { Value = VatDealerType.Composite, Display = "Composite" },
+    };
 
     /// <summary>The party GSTIN/UIN (validated on Create when set); blank ⇒ a B2C party.</summary>
     [ObservableProperty] private string _partyGstin = string.Empty;
@@ -1012,6 +1076,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             SetOpeningSideFromNature(value);
         OnPropertyChanged(nameof(IsPartyGroup));
         OnPropertyChanged(nameof(ShowPartyGst));
+        // W-N1: the two VAT blocks are gated on the same IsPartyGroup axis and must be re-evaluated with it —
+        // omitting them leaves the block hidden until the screen is reopened, the very defect the line above
+        // exists to fix.
+        OnPropertyChanged(nameof(ShowPartyVat));
+        OnPropertyChanged(nameof(ShowSalesPurchaseVat));
         OnPropertyChanged(nameof(IsDirectExpensesGroup));
         OnPropertyChanged(nameof(ShowAppropriation));
         OnPropertyChanged(nameof(ShowDefaultPriceLevel));
@@ -1253,6 +1322,17 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         // Party GST. The State is read through the SINGLE stored value (MailingStateCode == PartyGst.StateCode),
         // so the Mailing and GST sub-forms are loaded from one source and open in agreement by construction.
+        // W-N1 (census 15.2) — the two VAT blocks. Loading them HERE is what makes an altered ledger show its
+        // saved VAT data rather than blanks that the next accept would then write back over it.
+        VatApplicable = ledger.VatApplicable;
+        VatTaxRatePercentText = ledger.VatTaxRateBasisPoints is { } lvb
+            ? (lvb / 100m).ToString("0.##", CultureInfo.InvariantCulture)
+            : string.Empty;
+        PartyVatTin = ledger.PartyVatTin ?? string.Empty;
+        PartyCstNumber = ledger.PartyCstNumber ?? string.Empty;
+        PartyVatDealerType = PartyVatDealerTypes.FirstOrDefault(o => o.Value == ledger.PartyVatDealerType)
+            ?? PartyVatDealerTypes[0];
+
         var gst = ledger.PartyGst;
         PartyGstin = gst?.Gstin ?? string.Empty;
         PartyRegistrationType = PartyRegistrationTypes.FirstOrDefault(
@@ -1687,6 +1767,35 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // makes this a forex ledger whose lines carry forex amounts + rates.
         target.CurrencyId = SelectedCurrency?.CurrencyId;
 
+        // W-N1 (census 15.2) — the two VAT blocks, under the SAME hidden-sub-form rule as party GST below: a
+        // block that was never on screen is left exactly as it was, so switching VAT off and re-saving a ledger
+        // never silently erases a rate or a counterparty TIN.
+        //
+        // BOTH GO THROUGH VatService rather than setting the properties directly, so the rules live in ONE
+        // place. SetLedgerVat clears the rate when VAT Applicable is unticked — leaving a rate behind an
+        // unticked box is how a figure nobody can see goes on being read by a report.
+        if (ShowSalesPurchaseVat)
+        {
+            var rateText = (VatTaxRatePercentText ?? string.Empty).Trim();
+            int? ledgerVatBp = null;
+            if (rateText.Length > 0)
+            {
+                if (!decimal.TryParse(rateText, NumberStyles.Number, CultureInfo.InvariantCulture, out var pct)
+                    || pct < 0m)
+                {
+                    Message = "VAT Tax Rate must be a percentage, for example 14.5 — or left blank.";
+                    return false;
+                }
+                ledgerVatBp = (int)Math.Round(pct * 100m, MidpointRounding.AwayFromZero);
+            }
+            new VatService(_company).SetLedgerVat(target, VatApplicable, ledgerVatBp);
+        }
+        if (ShowPartyVat)
+        {
+            new VatService(_company).SetPartyVatDetails(
+                target, PartyVatDealerType?.Value, PartyVatTin, PartyCstNumber);
+        }
+
         // Party GST — hidden-sub-form rule. GST off (or a non-party group) ⇒ the block was never on screen and is
         // left EXACTLY as it was, GSTIN / registration type / RCM qualifiers and all.
         if (ShowPartyGst) target.PartyGst = partyGst;
@@ -1802,6 +1911,12 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         InterestRateText = string.Empty;
         SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry
         SelectedMethod = MethodChoices[0];     // reset to None for the next entry
+        // W-N1 (census 15.2): back to the state every untouched ledger is in.
+        VatApplicable = false;
+        VatTaxRatePercentText = string.Empty;
+        PartyVatTin = string.Empty;
+        PartyCstNumber = string.Empty;
+        PartyVatDealerType = PartyVatDealerTypes[0];       // (not stated)
         PartyGstin = string.Empty;
         PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
         PartyState = null;

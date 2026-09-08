@@ -616,6 +616,50 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV58ToV59"/>: removes the seven <c>companies</c> VAT columns, the five
+    /// <c>ledgers</c> VAT columns, the two <c>stock_items</c> columns and the four <c>vouchers</c> CST
+    /// declaration-form columns, and stamps <c>schema_version</c> back to 58.
+    ///
+    /// <para><b>Not a true inverse, and the residual is data, not shape.</b> Every company's VAT registration,
+    /// every captured Tax Rate, every counterparty TIN, every item's class of goods and every CST declaration
+    /// form number is <b>discarded</b>, because a v58 database has nowhere to keep one — the same honest loss
+    /// <see cref="V52ToV51"/> records for the edit log. 🔴 <b>The POSTED FIGURES are untouched</b>: no VAT
+    /// amount was ever a separate posted leg in this build (the VAT Computation report is a projection over the
+    /// same vouchers every other report reads), so a downgraded book still balances to the paisa and simply
+    /// stops being able to say which of its goods were outside GST.</para>
+    ///
+    /// <para>🔴 <b>ALL FOUR TABLES ARE REBUILT WITH <see cref="RebuildPreservingShape"/>, NOT
+    /// <see cref="DropColumns"/>, AND EVERY ONE OF THEM IS AN FK PARENT.</b> <c>companies</c> is the parent of
+    /// nearly every table in the schema; <c>ledgers</c> is the parent of <c>entry_lines</c>,
+    /// <c>vouchers.party_id</c> and more; <c>stock_items</c> is the parent of every stock-line table; and
+    /// <c>vouchers</c> is the parent of <c>entry_lines</c> and <c>voucher_inventory_lines</c>. A
+    /// <c>CREATE … AS SELECT</c> rebuild loses the PRIMARY KEY, after which SQLite reports <c>foreign key
+    /// mismatch</c> on the next child insert — the measured failure <see cref="V56ToV55"/> documents. There is
+    /// no child-table exception to make here, which is why this downgrade has only one idiom.</para>
+    ///
+    /// <para><b>Order, and why there is no index to drop.</b> v59 adds NO index — see
+    /// <see cref="Schema.MigrateV58ToV59"/> for why the one it nearly added was removed — so this downgrade has
+    /// only columns to undo. The four tables are independent of one another here (no v59 column is a foreign
+    /// key), so they are rebuilt in schema order for readability rather than out of necessity; the indexes each
+    /// table already carried are read back and replayed by <see cref="RebuildPreservingShape"/>.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing a v58 book out of a CURRENT one runs this FIRST and
+    /// the lower rungs after it. Calling <see cref="V58ToV57"/> alone on a v59 file stamps the marker 57 while
+    /// the v59 columns are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V59ToV58(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "vouchers", Schema.V59CstVoucherColumns, "vouchers_v58");
+        RebuildPreservingShape(connection, "stock_items", Schema.V59VatStockItemColumns, "stock_items_v58");
+        RebuildPreservingShape(connection, "ledgers", Schema.V59VatLedgerColumns, "ledgers_v58");
+        RebuildPreservingShape(connection, "companies", Schema.V59VatCompanyColumns, "companies_v58");
+
+        Exec(connection, "UPDATE schema_version SET version = 58;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

@@ -159,6 +159,21 @@ public sealed class Company
     /// <c>TdsTcsService.EnableTcs</c>.</summary>
     public TcsConfig? Tcs { get; set; }
 
+    /// <summary>
+    /// The company <b>State VAT / Central Sales Tax</b> configuration (census 15.1 · 15.6; schema v59).
+    /// <c>null</c> — or a config with <see cref="VatConfig.Enabled"/> false — means VAT is off, which is what
+    /// every existing company is, so every pre-v59 path is byte-for-byte unchanged (ER-13). Set by
+    /// <c>VatService.EnableVat</c>.
+    ///
+    /// <para>🔴 <b>Enabling this does NOT make VAT apply to anything.</b> VAT and CST survive GST only on the
+    /// goods of <see cref="NonGstGoodsClass"/>; applicability is decided per stock item. See
+    /// <see cref="VatConfig"/>.</para>
+    /// </summary>
+    public VatConfig? Vat { get; set; }
+
+    /// <summary>True iff State VAT is enabled for this company (census 15.1).</summary>
+    public bool VatEnabled => Vat is { Enabled: true };
+
     /// <summary>True iff TDS is enabled for this company.</summary>
     public bool TdsEnabled => Tds is { Enabled: true };
 
