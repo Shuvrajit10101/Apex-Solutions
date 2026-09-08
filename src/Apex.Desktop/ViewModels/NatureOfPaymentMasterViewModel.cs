@@ -167,6 +167,67 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         return true;
     }
 
+    /// <summary>
+    /// 🔴 <b>Ctrl+U — "Add missing predefined sections". THE ONLY ROUTE BY WHICH AN EXISTING BOOK CAN EVER SEE A
+    /// NEWLY SEEDED TDS SECTION, and it exists because the obvious alternative is wrong.</b>
+    ///
+    /// <para><b>The problem.</b> <c>TdsTcsService.EnableTds</c> seeds the predefined set only when the config has
+    /// <b>none</b> — "Preserve any natures already seeded on a prior enable (or supplied by import)". So a company
+    /// that enabled TDS before §194T/§194R/§194S were added to <c>SeedTdsTcsRates</c> holds the old eight and will
+    /// hold them forever: re-running F11 → Enable TDS changes nothing, because the count is not zero. Without this
+    /// action the three new sections would be reachable only in a <b>brand-new company</b> — which is precisely
+    /// the "a capability no user can reach is not complete" trap this project has filed three times.</para>
+    ///
+    /// <para>🔴 <b>WHY THE FIX IS NOT A TOP-UP INSIDE <c>EnableTds</c>, which is where it first looks like it
+    /// belongs.</b> <c>ImportPlan</c> builds a <see cref="TdsConfig"/> from the imported natures and <b>then</b>
+    /// calls <c>EnableTds</c>. A top-up there would inject the predefined set into every imported company —
+    /// including one that legitimately carries a curated or trimmed list — so an export → import → export cycle
+    /// would come back with rows the original never had, and the canonical round-trip would no longer be a
+    /// round trip. Making it an explicit, user-initiated action on this screen keeps import byte-faithful.</para>
+    ///
+    /// <para><b>Semantics.</b> Idempotent and additive-only, matched on <see cref="NatureOfPayment.SectionCode"/>
+    /// case-insensitively: a section already present — predefined, or hand-created by the operator under the same
+    /// code — is left <b>exactly</b> as it is and is never overwritten, so a user's edited figures survive. The
+    /// domain is add-only (there is no remove), so a missing code can only ever mean "seeded after this book was
+    /// created", never "deliberately deleted". Persists only when something was actually added.</para>
+    /// </summary>
+    public int AddMissingPredefined()
+    {
+        Message = null;
+
+        if (_company.Tds is not { Enabled: true } tds)
+        {
+            Message = "Enable TDS (F11 → Enable TDS) before adding the predefined Nature-of-Payment sections.";
+            return 0;
+        }
+
+        var present = new HashSet<string>(
+            _company.NaturesOfPayment.Select(n => n.SectionCode), StringComparer.OrdinalIgnoreCase);
+
+        var added = new List<string>();
+        foreach (var seeded in Apex.Ledger.Seed.SeedTdsTcsRates.BuildTdsDefaults())
+        {
+            if (!present.Add(seeded.SectionCode)) continue;
+            tds.AddNatureOfPayment(seeded);
+            added.Add(seeded.SectionCode);
+        }
+
+        if (added.Count == 0)
+        {
+            Message = "All predefined Nature-of-Payment sections are already present — nothing to add.";
+            return 0;
+        }
+
+        _storage.Save(_company);
+        RefreshList();
+        // Ordinal sort so the message reads the same on every host culture (the gate runs on ubuntu and macos,
+        // and a culture-sensitive compare orders section codes differently under e.g. tr-TR).
+        added.Sort(StringComparer.Ordinal);
+        Message = $"Added {added.Count} predefined section(s): {string.Join(", ", added)}.";
+        _onChanged();
+        return added.Count;
+    }
+
     /// <summary>Parses a percentage (e.g. "10" or "0.1") to basis points (1000 / 10); false if not a number ≥ 0.</summary>
     private static bool TryParseRateBp(string? text, out int basisPoints)
     {

@@ -1116,6 +1116,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Ctrl+U — the Nature-of-Payment master's SECONDARY action ("Add missing predefined sections").
+        // SCOPED TO THE ONE SCREEN BY NAME, and deliberately so: Ctrl+U is otherwise unbound anywhere in this
+        // handler, and binding it globally would put a persisting mutation on a free chord across ~157 screens.
+        // Placed ahead of the general Ctrl+<letter> arms below because it must not fall through to any of them.
+        // It is the only route by which a book created BEFORE a section was added to SeedTdsTcsRates can ever
+        // acquire that section — see NatureOfPaymentMasterViewModel.AddMissingPredefined.
+        if (e.Key == Key.U && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.NatureOfPaymentMaster)
+        {
+            vm.NatureOfPaymentMaster?.AddMissingPredefined();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+T toggles the in-progress voucher as post-dated (post-dated cheque handling).
         if (e.Key == Key.T && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -2341,6 +2355,11 @@ public partial class MainWindow : Window
 
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();
+
+    /// <summary>The Nature-of-Payment master's SECONDARY action — runs exactly what Ctrl+U runs, so the pointer
+    /// and the keyboard cannot diverge (the same rule W2-03 applies to the Voucher Type master's Accept).</summary>
+    private void OnAddMissingPredefinedNatureOfPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.NatureOfPaymentMaster?.AddMissingPredefined();
 
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfGoodsMaster?.Create();

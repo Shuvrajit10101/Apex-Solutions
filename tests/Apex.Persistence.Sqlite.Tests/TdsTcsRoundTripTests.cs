@@ -90,7 +90,8 @@ public sealed class TdsTcsRoundTripTests
             Assert.Equal(ValidTan, r.Tcs!.Tan);
 
             // Seeded masters survived count- and figure-exact.
-            Assert.Equal(8, r.NaturesOfPayment.Count);
+            // TDS is 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08); TCS is still 8.
+            Assert.Equal(11, r.NaturesOfPayment.Count);
             Assert.Equal(8, r.NaturesOfGoods.Count);
             var j = r.FindNatureOfPaymentByCode("194J(b)")!;
             Assert.Equal(1000, j.RateWithPanBp);
