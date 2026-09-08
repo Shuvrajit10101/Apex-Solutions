@@ -213,8 +213,10 @@ public sealed record Gstr1(
     /// <summary>Σ all output tax on the return (CGST + SGST + IGST). Includes the §34 CDN net (signed).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
-    /// <summary>Builds GSTR-1 for the whole company over <c>[from, to]</c>.</summary>
-    public static Gstr1 Build(Company company, DateOnly from, DateOnly to)
+    /// <summary>Builds GSTR-1 over <c>[from, to]</c> for the GST registration named by
+    /// <paramref name="registrationId"/> (census 6.23; <c>null</c> ⇒ the company's only registration — and a
+    /// multi-registration company REFUSES an unscoped build, see <c>GstReportSupport</c>).</summary>
+    public static Gstr1 Build(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         // Phase 9 slice 3 (RQ-16): a Composition dealer files CMP-08 / GSTR-4, NOT GSTR-1 — early-return an empty return
         // so it never emits an outward-supplies return (the Desktop routes it to the CMP-08/GSTR-4 screens). The inward
@@ -230,7 +232,7 @@ public sealed record Gstr1(
         var exempt = 0m;
         var totalCgst = 0m; var totalSgst = 0m; var totalIgst = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
+        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output, registrationId))
         {
             // Phase 9 slice 2b: a formalised §34 credit/debit note is a first-class outward document projected by Table 9B
             // (signed by note type) and folded — signed — into the output totals below. Exclude it from the ordinary
@@ -337,7 +339,7 @@ public sealed record Gstr1(
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
             new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst))
         {
-            Rcm4BOutwardValue = ComputeRcm4BOutwardValue(company, from, to),
+            Rcm4BOutwardValue = ComputeRcm4BOutwardValue(company, from, to, registrationId),
             Table9B = table9B,
             Table11A = table11A,
             Table11B = table11B,
@@ -366,12 +368,13 @@ public sealed record Gstr1(
         int Covered, int Tagged, int Pending, int Failed, int Cancelled, int Mismatched);
 
     /// <summary>Builds the e-invoice reconciliation view over the covered outward documents in <c>[from, to]</c>.</summary>
-    public static EInvoiceReconciliationView EInvoiceReconciliation(Company company, DateOnly from, DateOnly to)
+    public static EInvoiceReconciliationView EInvoiceReconciliation(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         var svc = new EInvoiceService(company);
         int covered = 0, tagged = 0, pending = 0, failed = 0, cancelled = 0, mismatched = 0;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
+        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output, registrationId))
         {
             if (svc.CoverageOf(voucher) != EInvoiceCoverage.Covered) continue;
             covered++;
@@ -499,11 +502,12 @@ public sealed record Gstr1(
     /// sales/expense ledger carries an <b>outward</b> reverse-charge flag (the recipient pays the tax, so the invoice bears
     /// none). Reads posted amounts only. A company with no such supply yields <c>Money.Zero</c> (byte-identical, ER-13).
     /// </summary>
-    private static Money ComputeRcm4BOutwardValue(Company company, DateOnly from, DateOnly to)
+    private static Money ComputeRcm4BOutwardValue(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         if (!company.GstEnabled) return Money.Zero;
         var total = 0m;
-        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
+        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output, registrationId))
         {
             // A Credit Note against an outward RCM supply REDUCES the 4B value (it nets the original supply down),
             // mirroring how an outward return nets down a rate row; a Sales voucher adds. Signing by base type (rather

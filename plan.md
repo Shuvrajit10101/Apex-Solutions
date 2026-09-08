@@ -2742,19 +2742,19 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
-     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:4243`** (re-pointed 2026-09-08 from ~~`:4228`~~, schema **v60** (W-O1 census 2.2 Group behavioural flags / 3.6 Alternate units) added the five `groups` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4168`~~, schema **v59** (W-N1 State VAT & CST) added lines above it; itself re-pointed the same day from
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:4294`** (re-pointed 2026-09-09 from ~~`:4243`~~, schema **v61** (W-P1 census 6.23 Multiple GSTIN registrations / 6.25 GST Classification master) added the `companies.gst_primary_registration_name` column to `CreateV1` and the two v61 tables above it; itself re-pointed 2026-09-08 from ~~`:4228`~~, schema **v60** (W-O1 census 2.2 Group behavioural flags / 3.6 Alternate units) added the five `groups` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4168`~~, schema **v59** (W-N1 State VAT & CST) added lines above it; itself re-pointed the same day from
      ~~`:4115`~~ — schema **v58**, W-K1 inventory costing & tracking, added lines above it; itself re-pointed
      2026-09-07 from
      ~~`:3958`~~ — schema **v56**, Security Control, added lines above it; itself re-pointed the same day from
      ~~`:3938`~~ — schema v55, the Karnataka PT back-fill).
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5576`** (re-pointed 2026-09-08 from ~~`:5529`~~, schema **v60** (W-O1) added the five `groups` behavioural columns to the group reader/writer above it; itself re-pointed the same day from ~~`:5440`~~, schema **v59** (W-N1) added the seven company VAT columns to this INSERT's parameter block above it)
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:5689`** (re-pointed 2026-09-09 from ~~`:5576`~~, schema **v61** (W-P1) added the v60→v61 ladder step and the GST registration / classification reader-writer above it; itself re-pointed 2026-09-08 from ~~`:5529`~~, schema **v60** (W-O1) added the five `groups` behavioural columns to the group reader/writer above it; itself re-pointed the same day from ~~`:5440`~~, schema **v59** (W-N1) added the seven company VAT columns to this INSERT's parameter block above it)
      (re-pointed 2026-09-08 from ~~`:5338`~~ — schema **v58**, W-K1, added lines above it; itself re-pointed
      2026-09-07 from ~~`:5065`~~ — the v56 Security Control writer added lines above it; itself
      re-pointed the same day from ~~`:5031`~~ — the v54→v55 ladder step),
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**
-     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:835`** (re-pointed 2026-09-08 from ~~`:791`~~, schema **v60**'s `V60ToV59` was added above it; itself re-pointed the same day from ~~`:747`~~, schema **v59**'s `V59ToV58` added lines above it; itself re-pointed the same day from
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:886`** (re-pointed 2026-09-09 from ~~`:835`~~, schema **v61**'s `V61ToV60` was added above it — this is the `DropColumns` copy of the replay, **not** the `RebuildPreservingShape` copy that now sits at `:816`; itself re-pointed 2026-09-08 from ~~`:791`~~, schema **v60**'s `V60ToV59` was added above it; itself re-pointed the same day from ~~`:747`~~, schema **v59**'s `V59ToV58` added lines above it; itself re-pointed the same day from
      ~~`:691`~~ — the new `V58ToV57` downgrade was added above it; itself re-pointed 2026-09-07 from
      ~~`:499`~~ — the new `V56ToV55` downgrade **and its `RebuildPreservingShape` helper**, which has an index
      replay of its own, were added above it; itself re-pointed the same day from ~~`:463`~~ — the `V55ToV54`

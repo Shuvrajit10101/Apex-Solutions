@@ -37,20 +37,21 @@ public sealed record TaxAnalysisSide(
 public sealed record TaxAnalysis(DateOnly From, DateOnly To, TaxAnalysisSide Outward, TaxAnalysisSide Inward)
 {
     /// <summary>Builds the Tax Analysis for the whole company over <c>[from, to]</c>.</summary>
-    public static TaxAnalysis Build(Company company, DateOnly from, DateOnly to)
+    public static TaxAnalysis Build(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
-        var outward = BuildSide(company, from, to, GstTaxDirection.Output);
-        var inward = BuildSide(company, from, to, GstTaxDirection.Input);
+        var outward = BuildSide(company, from, to, GstTaxDirection.Output, registrationId);
+        var inward = BuildSide(company, from, to, GstTaxDirection.Input, registrationId);
         return new TaxAnalysis(from, to, outward, inward);
     }
 
-    private static TaxAnalysisSide BuildSide(Company company, DateOnly from, DateOnly to, GstTaxDirection direction)
+    private static TaxAnalysisSide BuildSide(
+        Company company, DateOnly from, DateOnly to, GstTaxDirection direction, Guid? registrationId = null)
     {
         // Accumulate per (head, head-rate): taxable value + tax, read from the posted tax lines.
         var acc = new Dictionary<(GstTaxHead, int), (decimal Taxable, decimal Tax)>();
         var cgst = 0m; var sgst = 0m; var igst = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction))
+        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
         {
             foreach (var line in voucher.Lines)
             {

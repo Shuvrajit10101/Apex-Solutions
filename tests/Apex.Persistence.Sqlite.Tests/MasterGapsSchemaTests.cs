@@ -51,7 +51,7 @@ public sealed class MasterGapsSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Master Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V60ToV59(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(59L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             foreach (var col in Schema.V60GroupBehaviourColumns)
@@ -100,7 +100,7 @@ public sealed class MasterGapsSchemaTests
             inventory.CreateStockItem("Plain Widget", group.Id, unit.Id);
 
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -259,7 +259,7 @@ public sealed class MasterGapsSchemaTests
 
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V60ToV59(conn);
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn);
 
                 Assert.True(HasPrimaryKey(conn, "groups"));
                 Assert.True(HasPrimaryKey(conn, "stock_items"));

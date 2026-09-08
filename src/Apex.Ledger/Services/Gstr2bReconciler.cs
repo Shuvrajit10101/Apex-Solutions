@@ -31,12 +31,13 @@ public static class Gstr2bReconciler
     /// Deterministic and pure (ER-14) — posts nothing, mutates nothing.
     /// </summary>
     public static Gstr2bReconciliationReport Reconcile(
-        Company company, Gstr2bSnapshot snapshot, DateOnly from, DateOnly to, ReconTolerance tolerance)
+        Company company, Gstr2bSnapshot snapshot, DateOnly from, DateOnly to, ReconTolerance tolerance,
+        Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        var books = BuildBooksRegister(company, from, to);          // deterministically ordered; RCM + composition excluded
+        var books = BuildBooksRegister(company, from, to, registrationId);   // deterministically ordered; RCM + composition excluded
         var consumed = new bool[books.Count];
 
         var matched = new List<ReconMatch>();
@@ -156,13 +157,14 @@ public static class Gstr2bReconciler
     /// least one <b>forward</b> (non-RCM) GST line, keyed on the supplier GSTIN (B2C purchases with no GSTIN can never
     /// match a 2B line, so they are excluded). A composition dealer has no ITC ⇒ an empty register. Deterministically
     /// ordered so the greedy pass is reproducible.</summary>
-    private static List<BooksEntry> BuildBooksRegister(Company company, DateOnly from, DateOnly to)
+    private static List<BooksEntry> BuildBooksRegister(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         var register = new List<BooksEntry>();
         // Composition dealers take no ITC — there is no inward register to reconcile against (§2.7).
         if (company.Gst?.RegistrationType == GstRegistrationType.Composition) return register;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input))
+        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
             // Exclude a purely reverse-charge purchase: RCM inward bypasses 2B/IMS (§2.7). A voucher with no forward
             // (non-RCM) GST line never enters the reconcilable register (risk #6).

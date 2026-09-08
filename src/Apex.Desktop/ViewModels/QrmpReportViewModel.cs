@@ -96,7 +96,19 @@ public sealed partial class QrmpReportViewModel : ViewModelBase
         IffRows.Clear();
         Pmt06Rows.Clear();
 
-        Projection = GstQrmp.Build(_company, fyFrom, fyTo);
+        // v61 (census 6.23): GstQrmp folds through GSTR-1 / GSTR-3B, which REFUSE an unscoped build on a
+        // multi-registration company — QRMP is a per-registration election and its IFF/PMT-06 figures cannot be
+        // derived from a return combining two GSTINs. Surfaced as this page's status rather than as a crash.
+        try
+        {
+            Projection = GstQrmp.Build(_company, fyFrom, fyTo);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Applicable = false;
+            StatusText = ex.Message;
+            return;
+        }
         Applicable = Projection.Applicable;
         Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}";
 
