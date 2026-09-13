@@ -2405,6 +2405,35 @@ public partial class MainWindow : Window
             Vm?.VoucherTypeMaster?.RemoveClass(row.Id);
     }
 
+    // ---------------------------------- census 2.6 (v62): the selected class's accounting tables
+
+    /// <summary>Opens the census-2.6 tables — the vendor's Default Accounting Allocations and Additional
+    /// Accounting Entries — for the class whose row was pressed. Read from the button's own DataContext, like the
+    /// Remove handler above, so no selection concept is needed on the list.</summary>
+    private void OnSelectVoucherClassClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherClassListRow row })
+            Vm?.VoucherTypeMaster?.SelectClass(row.Id);
+    }
+
+    private void OnAddClassAllocationClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherTypeMaster?.AddAllocation();
+
+    private void OnRemoveClassAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherClassAllocationRow row })
+            Vm?.VoucherTypeMaster?.RemoveAllocation(row.Id);
+    }
+
+    private void OnAddClassEntryClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherTypeMaster?.AddAdditionalEntry();
+
+    private void OnRemoveClassEntryClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherClassEntryRow row })
+            Vm?.VoucherTypeMaster?.RemoveAdditionalEntry(row.Id);
+    }
+
     private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = false;
