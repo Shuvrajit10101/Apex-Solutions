@@ -15,8 +15,12 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// tables are children of TWO parents); and the downgrade drops exactly the two tables and their two indexes
 /// while every voucher-type and class ROW survives.
 ///
-/// <para>The "genuine v61 database" is manufactured with <see cref="SchemaDowngrade.V62ToV61"/> rather than
-/// hand-written DDL, so the migration is exercised against real rows.</para>
+/// <para>The "genuine v61 database" is manufactured by walking the ladder down from CURRENT —
+/// <see cref="SchemaDowngrade.V63ToV62"/> then <see cref="SchemaDowngrade.V62ToV61"/> — rather than from
+/// hand-written DDL, so the migration is exercised against real rows. 🔴 <b>BOTH rungs are required.</b> v63
+/// (census 7.19) landed above v62, so calling <c>V62ToV61</c> alone would stamp the marker 61 on a book still
+/// carrying v63's two <c>pay_head_computation_slabs</c> columns — a marker that lies about its own shape, which
+/// is precisely the class of defect this suite exists to catch.</para>
 ///
 /// <para><b>R7 — ATTESTED.</b> See <c>Apex.Ledger.Services.VoucherClassPosting</c> and
 /// <c>Schema.MigrateV61ToV62</c> for the per-field vendor citations
@@ -153,7 +157,7 @@ public sealed class VoucherClassSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Class Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
 
             // The manufactured book really is v61 — neither table exists on it yet.
             Assert.Equal(61L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
@@ -188,7 +192,7 @@ public sealed class VoucherClassSchemaTests
             var classesBefore = ReadScalar(path, "SELECT COUNT(*) FROM voucher_type_classes;");
             Assert.True(classesBefore > 0);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(61L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             foreach (var table in Schema.V62Tables) Assert.False(TableExists(path, table));

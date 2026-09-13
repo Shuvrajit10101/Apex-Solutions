@@ -95,6 +95,30 @@ public sealed class PayHeadSlabRow
     public Money? FromAmount { get; init; }
     public Money? ToAmount { get; init; }
 
+    /// <summary>The vendor's Computation Information "Effective From" (schema v63, census 7.19); null = perpetual.</summary>
+    public DateOnly? EffectiveFrom { get; init; }
+
+    /// <summary>The slab's last in-force date (schema v63); null = perpetual.</summary>
+    public DateOnly? EffectiveTo { get; init; }
+
+    /// <summary>
+    /// The effective window as the user sees it in the added-slabs list.
+    ///
+    /// <para>🔴 <b>THE UNDATED CASE SAYS "every period" IN WORDS, DELIBERATELY.</b> An undated slab reads as a
+    /// blank column on every other screen in this product, and a blank is exactly what a user configuring a
+    /// Labour Welfare Fund deduction would skim past — while the consequence of skimming past it is an annual
+    /// contribution coming off the payslip twelve times. Naming the perpetual case makes the dangerous default
+    /// visible instead of invisible.</para>
+    /// </summary>
+    public string EffectiveDisplay => (EffectiveFrom, EffectiveTo) switch
+    {
+        (null, null) => "every period",
+        ({ } f, null) => $"from {f:dd-MMM-yyyy}",
+        (null, { } t) => $"up to {t:dd-MMM-yyyy}",
+        ({ } f, { } t) when f == t => $"on {f:dd-MMM-yyyy}",
+        ({ } f, { } t) => $"{f:dd-MMM-yyyy} to {t:dd-MMM-yyyy}",
+    };
+
     public string Display
     {
         get
@@ -109,7 +133,7 @@ public sealed class PayHeadSlabRow
             var amount = SlabType == PayHeadComputationSlabType.Percentage
                 ? $"{(RateBasisPoints / 100m).ToString("0.###", CultureInfo.InvariantCulture)}%"
                 : IndianFormat.Amount(Value.Amount);
-            return $"{amount}  {band}";
+            return $"{amount}  {band}  ({EffectiveDisplay})";
         }
     }
 }
@@ -201,6 +225,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
     [ObservableProperty] private string _slabRateOrValueText = string.Empty;
     [ObservableProperty] private string _slabFromText = string.Empty;
     [ObservableProperty] private string _slabToText = string.Empty;
+
+    // v63 / census 7.19 — the vendor's Computation Information "Effective From" (plus an explicit end date).
+    // Blank in BOTH ⇒ the slab is in force in every payroll period, which is what every pre-v63 slab did.
+    [ObservableProperty] private string _slabEffectiveFromText = string.Empty;
+    [ObservableProperty] private string _slabEffectiveToText = string.Empty;
 
     [ObservableProperty] private string? _message;
 
@@ -385,6 +414,35 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             value = new Money(val);
         }
 
+        // v63 / census 7.19 — the effective window. Both blank ⇒ perpetual, i.e. exactly the pre-v63 slab.
+        DateOnly? effectiveFrom = null, effectiveTo = null;
+        if (!string.IsNullOrWhiteSpace(SlabEffectiveFromText))
+        {
+            if (!ApexDate.TryParse(SlabEffectiveFromText, out var ef))
+            {
+                Message = "The slab 'effective from' must be a date (or blank for every period).";
+                return;
+            }
+            effectiveFrom = ef;
+        }
+        if (!string.IsNullOrWhiteSpace(SlabEffectiveToText))
+        {
+            if (!ApexDate.TryParse(SlabEffectiveToText, out var et))
+            {
+                Message = "The slab 'effective to' must be a date (or blank for every period).";
+                return;
+            }
+            effectiveTo = et;
+        }
+        // Refused here as well as in the domain constructor, because an inverted window produces a slab that can
+        // never be in force — a deduction that silently never happens, which is invisible on the payslip and only
+        // shows up later as an unremitted statutory liability.
+        if (effectiveFrom is { } dFrom && effectiveTo is { } dTo && dTo < dFrom)
+        {
+            Message = "The slab 'effective to' must be on or after the 'effective from' date.";
+            return;
+        }
+
         Slabs.Add(new PayHeadSlabRow
         {
             SlabType = slabType.Value,
@@ -392,10 +450,14 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             Value = value,
             FromAmount = from,
             ToAmount = to,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = effectiveTo,
         });
         SlabRateOrValueText = string.Empty;
         SlabFromText = string.Empty;
         SlabToText = string.Empty;
+        SlabEffectiveFromText = string.Empty;
+        SlabEffectiveToText = string.Empty;
         Message = null;
     }
 
@@ -467,7 +529,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             }
             computation = new PayHeadComputation(
                 BasisComponents.Select(r => new PayHeadComputationComponent(r.PayHeadId, r.IsSubtraction)),
-                Slabs.Select(r => new PayHeadComputationSlab(r.SlabType, r.RateBasisPoints, r.Value, r.FromAmount, r.ToAmount)));
+                Slabs.Select(r => new PayHeadComputationSlab(
+                    r.SlabType, r.RateBasisPoints, r.Value, r.FromAmount, r.ToAmount,
+                    // v63 / census 7.19: carry the effective window into the domain. Dropping it here would let
+                    // the screen show "on 31-Dec-2026" while the saved head deducted in all twelve months.
+                    r.EffectiveFrom, r.EffectiveTo)));
         }
 
         // attendance / production link + per-day basis
@@ -549,6 +615,10 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
         SlabRateOrValueText = string.Empty;
         SlabFromText = string.Empty;
         SlabToText = string.Empty;
+        // v63 / census 7.19 — cleared with the rest of the slab editor, so a date typed for one pay head can
+        // never leak onto the next one the user creates.
+        SlabEffectiveFromText = string.Empty;
+        SlabEffectiveToText = string.Empty;
         BasisSubtract = false;
         BasisComponents.Clear();
         Slabs.Clear();
@@ -689,7 +759,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                     : first.SlabType == PayHeadComputationSlabType.Percentage
                         ? $"{(first.RateBasisPoints / 100m).ToString("0.###", CultureInfo.InvariantCulture)}% of "
                         : $"{IndianFormat.Amount(first.Value.Amount)} on ";
-                return $"{rate}{basis}";
+                // v63 / census 7.19 — say so in the LIST when any slab is dated. Without this the existing-heads
+                // list renders a once-a-year Labour Welfare Fund head and an every-month deduction identically,
+                // and the difference between them is eleven extra deductions a year.
+                var dated = c.Slabs.Any(s => s.IsDated) ? "  [dated]" : string.Empty;
+                return $"{rate}{basis}{dated}";
             }
             case PayHeadCalculationType.OnAttendance or PayHeadCalculationType.OnProduction
                 when ph.AttendanceTypeId is { } aid:

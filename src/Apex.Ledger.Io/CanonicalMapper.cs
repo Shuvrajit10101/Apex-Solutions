@@ -527,6 +527,8 @@ public static class CanonicalMapper
         SlabType = s.SlabType.ToString(), RateBasisPoints = s.RateBasisPoints,
         ValuePaisa = MoneyCodec.ToPaisa(s.Value),
         FromAmountPaisa = MoneyCodec.ToPaisa(s.FromAmount), ToAmountPaisa = MoneyCodec.ToPaisa(s.ToAmount),
+        // v63 (census 7.19): the effective window. Null stays null and is then omitted from the XML entirely.
+        EffectiveFrom = Iso(s.EffectiveFrom), EffectiveTo = Iso(s.EffectiveTo),
     };
 
     private static SalaryStructureDto MapSalaryStructure(SalaryStructure s) => new()

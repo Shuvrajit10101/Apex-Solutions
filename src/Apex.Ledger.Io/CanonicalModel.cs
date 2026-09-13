@@ -1268,6 +1268,16 @@ public sealed record PayHeadComputationSlabDto
     public long ValuePaisa { get; init; }
     public long? FromAmountPaisa { get; init; }
     public long? ToAmountPaisa { get; init; }
+
+    /// <summary>The slab's "Effective From" (ISO yyyy-MM-dd), schema v63 / census 7.19; <c>null</c> = no lower
+    /// bound. Both this and <see cref="EffectiveTo"/> are OMITTED from the XML when null, so a book whose pay
+    /// heads carry no dates exports byte-identically to a pre-v63 export (ER-13).</summary>
+    public string? EffectiveFrom { get; init; }
+
+    /// <summary>The slab's last in-force date (ISO yyyy-MM-dd); <c>null</c> = no upper bound. 🔴 Losing this on a
+    /// round-trip would turn a Labour Welfare Fund deduction taken in one month into one taken every month, so it
+    /// is carried through export, import and the SQLite store alike.</summary>
+    public string? EffectiveTo { get; init; }
 }
 
 /// <summary>A dated Salary Structure ("Salary Details") for an employee or employee group, with ordered lines.</summary>
