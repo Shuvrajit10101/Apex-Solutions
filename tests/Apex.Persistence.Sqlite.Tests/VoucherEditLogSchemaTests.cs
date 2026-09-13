@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -299,6 +299,13 @@ public sealed class VoucherEditLogSchemaTests
                 // the migration and the downgrade use, which is what keeps this expectation from drifting.
                 .Concat(Schema.V61Tables.Select(t => "table:" + t))
                 .Concat(Schema.V61Tables.Select(t => "index:ix_" + t + "_company"))
+                // v62 (census 2.6 Voucher Class — the general machinery) adds two tables and one index each, so
+                // the chain removes those too. Their indexes are per-CLASS lookups rather than per-company ones —
+                // neither table carries a company_id, because the company is reached through the class and its
+                // voucher type — so the suffix here is "_class", derived from the same published list the
+                // migration and the downgrade use.
+                .Concat(Schema.V62Tables.Select(t => "table:" + t))
+                .Concat(Schema.V62Tables.Select(t => "index:ix_" + t + "_class"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.Equal(

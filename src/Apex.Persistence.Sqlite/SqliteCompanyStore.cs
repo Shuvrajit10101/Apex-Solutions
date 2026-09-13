@@ -1545,6 +1545,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 61;
         }
 
+        // v61 → v62 (census row 2.6): the GENERAL voucher-class machinery — the vendor's Default Accounting
+        // Allocations (the ledger pre-map) and Additional Accounting Entries (freight, per-unit duty, the invoice
+        // round-off) as two CHILD tables of the voucher_type_classes row census 9.9 already created. Purely
+        // additive; no column is added to any existing table.
+        // 🔴 IT BACK-FILLS NOTHING, ON PURPOSE. Every class in a pre-v62 book is a Stock Journal transfer class,
+        // which posts no ledger entry at all, so "no allocations, no additional entries" is the literal truth
+        // about it rather than a placeholder. An UPDATE here would invent postings for books that never had them.
+        // See Schema.MigrateV61ToV62.
+        if (version == 61)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV61ToV62;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 62);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 62;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2793,6 +2821,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     private Dictionary<Guid, List<VoucherClass>> ReadVoucherTypeClasses(Guid companyId)
     {
         var byType = new Dictionary<Guid, List<VoucherClass>>();
+        var byId = new Dictionary<Guid, VoucherClass>();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT vc.voucher_type_id, vc.id, vc.name, vc.use_class_for_inter_godown_transfers
@@ -2810,8 +2839,83 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             if (!byType.TryGetValue(typeId, out var rows))
                 byType[typeId] = rows = new List<VoucherClass>();
             rows.Add(cls);
+            byId[cls.Id] = cls;
         }
+        r.Close();
+
+        // v62 (census 2.6): hang the class's own allocation and additional-entry tables off the rows just read.
+        // Both readers run AFTER the class reader is closed — one open reader per connection.
+        ReadVoucherClassAllocations(companyId, byId);
+        ReadVoucherClassAdditionalEntries(companyId, byId);
+
         return byType;
+    }
+
+    /// <summary>Loads the v62 <c>voucher_class_ledger_allocations</c> rows (census 2.6 — the vendor's "Default
+    /// Accounting Allocations for all items in Invoice") onto the classes already read.
+    /// <para>🔴 <b><c>ORDER BY allocation_order</c> IS LOAD-BEARING, NOT COSMETIC.</b>
+    /// <c>VoucherClassPosting.Allocate</c> gives the LAST allocation the remainder of the split, so a reader that
+    /// returned the rows in a different order would move a paisa between two ledgers. The ordering is done in SQL
+    /// rather than by a .NET sort for the same reason the class reader's is — a culture-sensitive comparison
+    /// orders differently on the ubuntu leg than on the windows leg, and the gate runs both.</para></summary>
+    private void ReadVoucherClassAllocations(Guid companyId, Dictionary<Guid, VoucherClass> byId)
+    {
+        if (byId.Count == 0) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT a.voucher_class_id, a.id, a.ledger_id, a.percent_bp, a.allocation_order
+            FROM voucher_class_ledger_allocations a
+            JOIN voucher_type_classes vc ON vc.id = a.voucher_class_id
+            JOIN voucher_types vt ON vt.id = vc.voucher_type_id
+            WHERE vt.company_id = $cid
+            ORDER BY a.voucher_class_id, a.allocation_order, a.id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var cls)) continue;
+            cls.AddLedgerAllocation(new VoucherClassLedgerAllocation(
+                Guid.Parse(r.GetString(1)),
+                Guid.Parse(r.GetString(2)),
+                (int)r.GetInt64(3),
+                (int)r.GetInt64(4)));
+        }
+    }
+
+    /// <summary>Loads the v62 <c>voucher_class_additional_entries</c> rows (census 2.6 — the vendor's "Additional
+    /// Accounting Entries") onto the classes already read. Money columns are INTEGER paisa, read back through
+    /// <see cref="PaisaConversion"/> exactly as every other money column in this store is.</summary>
+    private void ReadVoucherClassAdditionalEntries(Guid companyId, Dictionary<Guid, VoucherClass> byId)
+    {
+        if (byId.Count == 0) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT e.voucher_class_id, e.id, e.ledger_id, e.calculation_type, e.value_basis_paisa,
+                   e.rounding_method, e.rounding_limit_paisa, e.remove_if_zero, e.entry_order
+            FROM voucher_class_additional_entries e
+            JOIN voucher_type_classes vc ON vc.id = e.voucher_class_id
+            JOIN voucher_types vt ON vt.id = vc.voucher_type_id
+            WHERE vt.company_id = $cid
+            ORDER BY e.voucher_class_id, e.entry_order, e.id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var cls)) continue;
+            cls.AddAdditionalEntry(new VoucherClassAdditionalEntry(
+                Guid.Parse(r.GetString(1)),
+                Guid.Parse(r.GetString(2)),
+                (VoucherClassCalculationType)r.GetInt64(3),
+                PaisaConversion.ToMoney(r.GetInt64(4)),
+                (VoucherClassRoundingMethod)r.GetInt64(5),
+                PaisaConversion.ToMoney(r.GetInt64(6)),
+                r.GetInt64(7) != 0,
+                (int)r.GetInt64(8)));
+        }
     }
 
     /// <summary>Reads the POS retail-till config (v23; RQ-38/DP-4) for one voucher type — its
@@ -5375,6 +5479,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM cheque_layouts WHERE ledger_id IN (
                 SELECT id FROM ledgers WHERE company_id = $cid);
             """, ("$cid", cid));
+        // 🔴 v62 (census 2.6) voucher-class children MUST go here, BEFORE the ledgers delete on the next line —
+        // NOT down with the voucher_type_classes clear further below. Both tables carry a REFERENCES ledgers(id)
+        // as well as a REFERENCES voucher_type_classes(id), so they are children of BOTH parents and have to
+        // precede whichever is deleted first. Deleting them alongside their class row, as the affix tables are,
+        // would leave them pointing at ledgers already gone and FK-break the second Save of any company that has
+        // configured a class. Neither table carries a company_id of its own, so the company is reached through the
+        // class → voucher type, exactly as the cheque tables above reach it through the ledger.
+        ExecTx(tx, """
+            DELETE FROM voucher_class_ledger_allocations WHERE voucher_class_id IN (
+                SELECT vc.id FROM voucher_type_classes vc
+                JOIN voucher_types vt ON vt.id = vc.voucher_type_id
+                WHERE vt.company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM voucher_class_additional_entries WHERE voucher_class_id IN (
+                SELECT vc.id FROM voucher_type_classes vc
+                JOIN voucher_types vt ON vt.id = vc.voucher_type_id
+                WHERE vt.company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
@@ -6582,6 +6705,57 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
         cmd.Parameters.AddWithValue("$name", vc.Name);
         cmd.Parameters.AddWithValue("$inter", vc.UseClassForInterGodownTransfers ? 1 : 0);
+        cmd.ExecuteNonQuery();
+
+        // v62 (census 2.6) — the class's own two child tables. A class with neither writes no row at all, so a
+        // Stock Journal transfer class serialises byte-identically to how it did at v58 (ER-13).
+        foreach (var a in vc.LedgerAllocations) InsertVoucherClassAllocationRow(tx, vc.Id, a);
+        foreach (var e in vc.AdditionalEntries) InsertVoucherClassAdditionalEntryRow(tx, vc.Id, e);
+    }
+
+    /// <summary>Writes one v62 <c>voucher_class_ledger_allocations</c> row (census 2.6).</summary>
+    private void InsertVoucherClassAllocationRow(
+        SqliteTransaction tx, Guid voucherClassId, VoucherClassLedgerAllocation a)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO voucher_class_ledger_allocations
+                (id, voucher_class_id, ledger_id, percent_bp, allocation_order)
+            VALUES ($id, $vc, $led, $pct, $ord);
+            """;
+        cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$vc", voucherClassId.ToString("D"));
+        cmd.Parameters.AddWithValue("$led", a.LedgerId.ToString("D"));
+        cmd.Parameters.AddWithValue("$pct", a.PercentBasisPoints);
+        cmd.Parameters.AddWithValue("$ord", a.Order);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Writes one v62 <c>voucher_class_additional_entries</c> row (census 2.6). Both money fields go
+    /// through <see cref="PaisaConversion.ToPaisaExact(Money)"/>, which THROWS on a sub-paisa amount rather than
+    /// silently truncating it — a truncated Value Basis is a wrong per-unit rate on every voucher the class
+    /// touches.</summary>
+    private void InsertVoucherClassAdditionalEntryRow(
+        SqliteTransaction tx, Guid voucherClassId, VoucherClassAdditionalEntry e)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO voucher_class_additional_entries
+                (id, voucher_class_id, ledger_id, calculation_type, value_basis_paisa,
+                 rounding_method, rounding_limit_paisa, remove_if_zero, entry_order)
+            VALUES ($id, $vc, $led, $calc, $basis, $rm, $rl, $rz, $ord);
+            """;
+        cmd.Parameters.AddWithValue("$id", e.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$vc", voucherClassId.ToString("D"));
+        cmd.Parameters.AddWithValue("$led", e.LedgerId.ToString("D"));
+        cmd.Parameters.AddWithValue("$calc", (int)e.CalculationType);
+        cmd.Parameters.AddWithValue("$basis", PaisaConversion.ToPaisaExact(e.ValueBasis));
+        cmd.Parameters.AddWithValue("$rm", (int)e.RoundingMethod);
+        cmd.Parameters.AddWithValue("$rl", PaisaConversion.ToPaisaExact(e.RoundingLimit));
+        cmd.Parameters.AddWithValue("$rz", e.RemoveIfZero ? 1 : 0);
+        cmd.Parameters.AddWithValue("$ord", e.Order);
         cmd.ExecuteNonQuery();
     }
 

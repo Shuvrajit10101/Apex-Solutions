@@ -280,12 +280,17 @@ public sealed class InventoryCostingTrackingReachabilityTests
             var journal = vm.Company!.FindVoucherTypeByName("Stock Journal")!;
             var sales = vm.Company.FindVoucherTypeByName("Sales")!;
 
-            // Altering a SALES type offers no class fields — census row 2.6 (the general Voucher Class
-            // machinery) is absent and must not be advertised.
+            // 🔴 THIS ASSERTION WAS INVERTED AT SCHEMA v62, AND THE OLD ONE WAS CORRECT WHEN IT WAS WRITTEN.
+            // It read: Assert.False(HasVisibleLabel(window, "Name of Class")) on a Sales type, with the reason
+            // "census row 2.6 (the general Voucher Class machinery) is absent and must not be advertised."
+            // Row 2.6 now SHIPS — ledger pre-maps, default accounting allocations, additional-ledger rules and
+            // rounding — so a Sales class advertises something real, and refusing to draw it would now be the
+            // defect. The Inter-Godown box stays Stock-Journal-only, which is what keeps the two rows apart.
             AlterVoucherType(vm, sales.Id);
             Pump(window);
-            Assert.False(HasVisibleLabel(window, "Name of Class"),
-                "The Voucher Class fields are drawn on a Sales type, advertising census row 2.6 which is ABSENT.");
+            Assert.True(HasVisibleLabel(window, "Name of Class"),
+                "Altering a Sales type draws no \"Name of Class\" field, so census row 2.6's general voucher "
+                + "class cannot be created by any operator.");
 
             AlterVoucherType(vm, journal.Id);
             Pump(window);
