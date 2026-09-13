@@ -7552,6 +7552,7 @@
                                              PlaceholderText="e.g. Transfer"/>
                                     <CheckBox Grid.Column="2" Margin="14,0,10,0" FontSize="12.5"
                                               Content="Use Class for Inter-Godown Transfers"
+                                              IsVisible="{Binding ShowInterGodownOption}"
                                               IsChecked="{Binding NewClassInterGodownTransfers, Mode=TwoWay}"/>
                                     <Button Grid.Column="3" Content="Add class" Padding="12,5"
                                             Background="{StaticResource Panel}"
@@ -7568,14 +7569,135 @@
                                             <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11.5"
                                                        Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"
                                                        Text="{Binding InterGodownTransfers, StringFormat='Use Class for Inter-Godown Transfers: {0}'}"/>
-                                            <Button Grid.Column="2" Content="Remove" Padding="10,3"
-                                                    FontSize="11.5" Background="{StaticResource Panel}"
-                                                    Click="OnRemoveVoucherClassClick"/>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                              <Button Content="Accounting" Padding="10,3" FontSize="11.5"
+                                                      Background="{StaticResource Panel}"
+                                                      Click="OnSelectVoucherClassClick"/>
+                                              <Button Content="Remove" Padding="10,3"
+                                                      FontSize="11.5" Background="{StaticResource Panel}"
+                                                      Click="OnRemoveVoucherClassClick"/>
+                                            </StackPanel>
                                           </Grid>
                                         </Border>
                                       </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                   </ItemsControl>
+
+                                  <!-- census 2.6 (schema v62) — the GENERAL voucher-class machinery for the
+                                       selected class: the vendor's "Default Accounting Allocations for all items
+                                       in Invoice" (the ledger pre-map) and its "Additional Accounting Entries"
+                                       (freight, a per-unit duty, the invoice round-off).
+                                       Hidden on a Stock Journal, which posts no ledger entry at all and so has
+                                       nothing to pre-map or round.
+                                       help.tallysolutions.com/tally-prime/accounting/voucher-types-tally/
+                                       help.tallysolutions.com/tally-prime/importer-excise-masters/ei-configure-vch-class-customs-duty-tally/
+                                       help.tallysolutions.com/round-off-invoice-and-ledger-values/ -->
+                                  <StackPanel Spacing="6" Margin="0,8,0,0">
+                                    <StackPanel.IsVisible>
+                                      <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                        <Binding Path="ShowClassAccountingTables"/>
+                                        <Binding Path="HasSelectedClass"/>
+                                      </MultiBinding>
+                                    </StackPanel.IsVisible>
+
+                                    <TextBlock FontSize="11" FontWeight="Bold" Foreground="#9098A8"
+                                               LetterSpacing="1.5"
+                                               Text="{Binding SelectedClassName, StringFormat='CLASS: {0}'}"/>
+
+                                    <!-- Default Accounting Allocations for all items in Invoice -->
+                                    <TextBlock Text="Default Accounting Allocations for all items in Invoice"
+                                               FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="220,90,Auto,*">
+                                      <ComboBox Grid.Column="0" MinWidth="210"
+                                                ItemsSource="{Binding LedgerOptions}"
+                                                SelectedItem="{Binding NewAllocationLedger, Mode=TwoWay}"
+                                                PlaceholderText="Ledger"/>
+                                      <TextBox Grid.Column="1" Margin="6,0"
+                                               Text="{Binding NewAllocationPercentText, Mode=TwoWay}"
+                                               PlaceholderText="%"/>
+                                      <Button Grid.Column="2" Content="Add allocation" Padding="12,5"
+                                              Background="{StaticResource Panel}"
+                                              Click="OnAddClassAllocationClick"/>
+                                      <TextBlock Grid.Column="3" Margin="12,0,0,0" VerticalAlignment="Center"
+                                                 FontSize="11.5" Foreground="#6A6A6A" TextWrapping="Wrap"
+                                                 Text="{Binding AllocationTotalCaption}"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Allocations}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoucherClassAllocationRow">
+                                          <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                            <Grid ColumnDefinitions="220,90,*,Auto" Height="24">
+                                              <TextBlock Grid.Column="0" Text="{Binding Ledger}" Margin="8,0"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding Percent}"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <Button Grid.Column="3" Content="Remove" Padding="10,2"
+                                                      FontSize="11" Background="{StaticResource Panel}"
+                                                      Click="OnRemoveClassAllocationClick"/>
+                                            </Grid>
+                                          </Border>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- Additional Accounting Entries -->
+                                    <TextBlock Text="Additional Accounting Entries" FontWeight="SemiBold"
+                                               FontSize="12.5" Margin="0,8,0,0"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="200,170,90,150,90,Auto,Auto" >
+                                      <ComboBox Grid.Column="0" MinWidth="190"
+                                                ItemsSource="{Binding LedgerOptions}"
+                                                SelectedItem="{Binding NewEntryLedger, Mode=TwoWay}"
+                                                PlaceholderText="Ledger Name"/>
+                                      <ComboBox Grid.Column="1" Margin="6,0" MinWidth="160"
+                                                ItemsSource="{Binding CalculationTypes}"
+                                                SelectedItem="{Binding NewEntryCalculationType, Mode=TwoWay}"/>
+                                      <TextBox Grid.Column="2" Text="{Binding NewEntryValueBasisText, Mode=TwoWay}"
+                                               PlaceholderText="Value Basis"/>
+                                      <ComboBox Grid.Column="3" Margin="6,0" MinWidth="140"
+                                                ItemsSource="{Binding RoundingMethods}"
+                                                SelectedItem="{Binding NewEntryRoundingMethod, Mode=TwoWay}"/>
+                                      <TextBox Grid.Column="4" Text="{Binding NewEntryRoundingLimitText, Mode=TwoWay}"
+                                               PlaceholderText="Limit"/>
+                                      <CheckBox Grid.Column="5" Margin="10,0" FontSize="12"
+                                                Content="Remove if Zero"
+                                                IsChecked="{Binding NewEntryRemoveIfZero, Mode=TwoWay}"/>
+                                      <Button Grid.Column="6" Content="Add entry" Padding="12,5"
+                                              Background="{StaticResource Panel}"
+                                              Click="OnAddClassEntryClick"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding AdditionalEntries}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoucherClassEntryRow">
+                                          <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                            <Grid ColumnDefinitions="200,170,90,190,90,Auto" Height="24">
+                                              <TextBlock Grid.Column="0" Text="{Binding Ledger}" Margin="8,0"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding CalculationType}"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <TextBlock Grid.Column="2" Text="{Binding ValueBasis}"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <TextBlock Grid.Column="3" Text="{Binding Rounding}"
+                                                         VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"/>
+                                              <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
+                                                         TextTrimming="CharacterEllipsis"
+                                                         Text="{Binding RemoveIfZero, StringFormat='Zero: {0}'}"/>
+                                              <Button Grid.Column="5" Content="Remove" Padding="10,2"
+                                                      FontSize="11" Background="{StaticResource Panel}"
+                                                      Click="OnRemoveClassEntryClick"/>
+                                            </Grid>
+                                          </Border>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                  </StackPanel>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">

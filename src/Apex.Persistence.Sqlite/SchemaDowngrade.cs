@@ -791,6 +791,43 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV61ToV62"/> (census row 2.6 Voucher Class — the general machinery): drops
+    /// the two indexes (<see cref="Schema.V62Indexes"/>) and the two tables (<see cref="Schema.V62Tables"/>), then
+    /// stamps <c>schema_version</c> back to 61.
+    ///
+    /// <para>🔴 <b>THIS RUNG IS A PLAIN DROP, AND THAT IS BY DESIGN OF v62 RATHER THAN LUCK.</b> v62 adds no
+    /// column to any existing table, so neither <see cref="DropColumns"/> nor <see cref="RebuildPreservingShape"/>
+    /// is needed here. That matters because the tables v62 hangs off — <c>voucher_type_classes</c> and
+    /// <c>ledgers</c> — are FK PARENTS, and rebuilding either of them is the manoeuvre whose PK-losing
+    /// <c>foreign key mismatch</c> <see cref="V56ToV55"/> records. Dropping a CHILD table touches no parent's
+    /// shape at all.</para>
+    ///
+    /// <para>🔴 <b>NOT A TRUE INVERSE ONCE A CLASS HAS BEEN CONFIGURED — AND HERE THE RESIDUAL IS A MONEY
+    /// RESIDUAL.</b> On a book whose classes carry no allocations and no additional entries (every book that never
+    /// used row 2.6, including every book migrated up from v61) this restores v61 exactly. On a book where an
+    /// operator HAS configured a class, every default accounting allocation and every additional accounting entry
+    /// is <b>discarded</b>, because a v61 database has nowhere to keep one. <b>No posted figure moves and no
+    /// ledger balance changes</b> — a class computes legs at entry time and what it produced is already recorded
+    /// on each voucher as ordinary <c>entry_lines</c>, which this does not touch. What is lost is the RULE, so the
+    /// next voucher entered under that class posts nothing automatic: no pre-mapped ledgers, no freight, and
+    /// <b>no round-off leg</b>. A book that is downgraded and then kept in use will quietly start producing
+    /// unrounded invoices that its earlier ones rounded, and the two will not agree.</para>
+    ///
+    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing a v61 book out of a CURRENT one runs this FIRST and
+    /// the lower rungs after it. Calling <see cref="V61ToV60"/> alone on a v62 file stamps the marker 60 while the
+    /// v62 tables are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V62ToV61(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        foreach (var index in Schema.V62Indexes) Exec(connection, $"DROP INDEX IF EXISTS {index};");
+        foreach (var table in Schema.V62Tables) Exec(connection, $"DROP TABLE IF EXISTS {table};");
+
+        Exec(connection, "UPDATE schema_version SET version = 61;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

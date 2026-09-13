@@ -764,6 +764,51 @@ public static class Schema
         );
         CREATE INDEX ix_gst_classifications_company ON gst_classifications(company_id);
 
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+        -- v62 (census 2.6) — VOUCHER CLASS: the general machinery. Two additive CHILD tables of the
+        -- voucher_type_classes row that v58 (census 9.9) already created; NO column is added to any existing
+        -- table. Declarations byte-identical to MigrateV61ToV62.
+        -- 🔴 BOTH TABLES ARE EMPTY IN EVERY PRE-v62 BOOK and nothing is back-filled: a Stock Journal transfer
+        -- class — the only class v58 could express — allocates nothing and adds no ledger, so empty is the
+        -- literal truth about every class that already exists.
+        -- 🔴 THESE ROWS POST MONEY WITHOUT PROMPTING THE OPERATOR. See Apex.Ledger.Services.VoucherClassPosting
+        -- for the exact-split and running-total rules, and VoucherClassService for what is refused at save.
+        -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+        -- 2.6: the vendor's "Default Accounting Allocations for all items in Invoice" — the LEDGER PRE-MAP.
+        -- percent_bp is BASIS POINTS (10000 = 100%), never a decimal percentage: a third of an invoice is 33.33%
+        -- and two machines storing that as binary floating point disagree in the last place, which moves a posted
+        -- paisa. Same convention as vat_cst_rate_form_c_bp.
+        CREATE TABLE voucher_class_ledger_allocations (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            voucher_class_id TEXT    NOT NULL REFERENCES voucher_type_classes(id),
+            ledger_id        TEXT    NOT NULL REFERENCES ledgers(id),
+            percent_bp       INTEGER NOT NULL DEFAULT 0,  -- vendor "percentage" of allocation, basis points
+            allocation_order INTEGER NOT NULL DEFAULT 0   -- operator's declared order; the split's remainder
+                                                          -- lands on the LAST row, so this is load-bearing
+        );
+        CREATE INDEX ix_voucher_class_ledger_allocations_class
+            ON voucher_class_ledger_allocations(voucher_class_id);
+
+        -- 2.6: the vendor's "Additional Accounting Entries" — freight, a per-unit duty, the invoice round-off.
+        -- 🔴 NO APPORTIONMENT COLUMN, ON PURPOSE. Whether one of these amounts loads onto the item lines' stock
+        -- rate is ledgers.method_of_appropriation, which this product already has; a second class-level switch
+        -- would be a second source of truth for the same question. See VoucherClassAdditionalEntry.
+        CREATE TABLE voucher_class_additional_entries (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            voucher_class_id     TEXT    NOT NULL REFERENCES voucher_type_classes(id),
+            ledger_id            TEXT    NOT NULL REFERENCES ledgers(id),
+            calculation_type     INTEGER NOT NULL DEFAULT 0,  -- VoucherClassCalculationType ordinal (0 = N/A)
+            value_basis_paisa    INTEGER NOT NULL DEFAULT 0,  -- vendor "Value Basis"; per BASE UNIT for qty type
+            rounding_method      INTEGER NOT NULL DEFAULT 0,  -- VoucherClassRoundingMethod ordinal (0 = N/A)
+            rounding_limit_paisa INTEGER NOT NULL DEFAULT 0,  -- vendor "Rounding Limit"; 0 when method is N/A
+            remove_if_zero       INTEGER NOT NULL DEFAULT 0,  -- 0/1 vendor "Remove if Zero"
+            entry_order          INTEGER NOT NULL DEFAULT 0   -- declared order; the rounding entry posts LAST
+                                                              -- regardless, on the running total
+        );
+        CREATE INDEX ix_voucher_class_additional_entries_class
+            ON voucher_class_additional_entries(voucher_class_id);
+
         -- v43 (Phase 9 slice 6): the immutable dated GSTR-2B/2A statement (imported external portal data — NOT the app's
         -- postings). One row = one dated statement + its source-file hash. Empty when 2B is never imported (ER-13).
         CREATE TABLE gstr2b_snapshots (
@@ -5346,5 +5391,90 @@ public static class Schema
         -- did, so every existing payslip recomputes to the same paisa. See this constant's doc comment.
         ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_from TEXT NULL;
         ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_to   TEXT NULL;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v62 — VOUCHER CLASS, the general machinery (census row 2.6). Object names are published here ONCE so the
+    // migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The two tables v62 adds — the exact set <see cref="MigrateV61ToV62"/> creates and
+    /// <c>SchemaDowngrade.V62ToV61</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V62Tables =
+        new[] { "voucher_class_ledger_allocations", "voucher_class_additional_entries" };
+
+    /// <summary>The two indexes v62 adds, one per table (both are by-class lookups, which is the only way either
+    /// table is ever read).</summary>
+    public static readonly IReadOnlyList<string> V62Indexes =
+        new[] { "ix_voucher_class_ledger_allocations_class", "ix_voucher_class_additional_entries_class" };
+
+    /// <summary>
+    /// v61 → v62 (census row <b>2.6 Voucher Class</b>): the <b>general</b> voucher-class machinery — the vendor's
+    /// <b>Default Accounting Allocations for all items in Invoice</b> (the ledger pre-map) and its <b>Additional
+    /// Accounting Entries</b> (freight, a per-unit duty, the invoice round-off), with their Type of Calculation,
+    /// Value Basis, Rounding Method, Rounding Limit and Remove if Zero.
+    ///
+    /// <para>🔴 <b>THIS VERSION EXTENDS census 9.9's TABLE; IT DOES NOT START A SECOND CLASS SYSTEM.</b> v58
+    /// created <c>voucher_type_classes</c> and deliberately kept it to the two fields a Stock Journal transfer
+    /// class actually has. Both tables here are CHILDREN of that row, keyed by <c>voucher_class_id</c>, so a class
+    /// has one identity and one name however it is used. Nothing in <c>voucher_type_classes</c> changes.</para>
+    ///
+    /// <para>🔴 <b>PURELY ADDITIVE, AND IT ADDS NO COLUMN TO ANY EXISTING TABLE — which is why the downgrade is a
+    /// plain DROP.</b> A version that added a column to <c>voucher_types</c> or <c>ledgers</c> would force
+    /// <c>SchemaDowngrade.RebuildPreservingShape</c> on an FK PARENT, the manoeuvre whose PK-losing failure mode
+    /// <c>V56ToV55</c> records. Two new child tables need none of it: <c>V62ToV61</c> drops two indexes and two
+    /// tables and stamps the marker back, and that IS the true inverse for any book that has not yet written a
+    /// class allocation.</para>
+    ///
+    /// <para>🔴 <b>IT BACK-FILLS NOTHING, AND EMPTY IS THE TRUTH RATHER THAN A DEFAULT.</b> Every class that
+    /// exists in a pre-v62 book is a Stock Journal transfer class — the only kind v58 could express — and such a
+    /// class posts no ledger entry at all. So "no allocations, no additional entries" is not a placeholder
+    /// standing in for unknown data; it is exactly what those classes do, and any UPDATE here would invent
+    /// postings for books that never had them.</para>
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/tally-prime/accounting/voucher-types-tally/</c> for
+    /// the class itself and the <i>"Default Accounting Allocations for all items in Invoice"</i> table;
+    /// <c>help.tallysolutions.com/tally-prime/importer-excise-masters/ei-configure-vch-class-customs-duty-tally/</c>
+    /// for the <b>Additional Accounting Entries</b> columns (Ledger Name · Type of Calculation · Value Basis ·
+    /// Rounding Method · Rounding Limit · Remove if Zero); and
+    /// <c>help.tallysolutions.com/round-off-invoice-and-ledger-values/</c> for the four rounding methods, the
+    /// meaning of the rounding limit, and the round-off ledger that carries <i>"the difference between the
+    /// original and rounded amounts … automatically balancing the invoice"</i>. The per-option citations are on
+    /// <c>Apex.Ledger.Domain.VoucherClassCalculationType</c> and <c>VoucherClassRoundingMethod</c>.</para>
+    /// </summary>
+    public const string MigrateV61ToV62 = """
+        -- v62 (census 2.6): the general Voucher Class machinery. Purely additive: two CHILD tables of the
+        -- voucher_type_classes row v58 already created, two indexes, and NO column on any existing table.
+        -- NOTHING is back-filled and there is no UPDATE here — every pre-v62 class is a Stock Journal transfer
+        -- class, which posts no ledger entry, so empty is the literal truth about it. See this constant's
+        -- doc comment.
+
+        -- 2.6: the vendor's "Default Accounting Allocations for all items in Invoice" — the LEDGER PRE-MAP.
+        -- percent_bp is BASIS POINTS (10000 = 100%), never a decimal percentage. See CreateV1 for why.
+        CREATE TABLE voucher_class_ledger_allocations (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            voucher_class_id TEXT    NOT NULL REFERENCES voucher_type_classes(id),
+            ledger_id        TEXT    NOT NULL REFERENCES ledgers(id),
+            percent_bp       INTEGER NOT NULL DEFAULT 0,
+            allocation_order INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_voucher_class_ledger_allocations_class
+            ON voucher_class_ledger_allocations(voucher_class_id);
+
+        -- 2.6: the vendor's "Additional Accounting Entries". NO apportionment column, on purpose — that is
+        -- ledgers.method_of_appropriation, which this product already has. See VoucherClassAdditionalEntry.
+        CREATE TABLE voucher_class_additional_entries (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            voucher_class_id     TEXT    NOT NULL REFERENCES voucher_type_classes(id),
+            ledger_id            TEXT    NOT NULL REFERENCES ledgers(id),
+            calculation_type     INTEGER NOT NULL DEFAULT 0,
+            value_basis_paisa    INTEGER NOT NULL DEFAULT 0,
+            rounding_method      INTEGER NOT NULL DEFAULT 0,
+            rounding_limit_paisa INTEGER NOT NULL DEFAULT 0,
+            remove_if_zero       INTEGER NOT NULL DEFAULT 0,
+            entry_order          INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_voucher_class_additional_entries_class
+            ON voucher_class_additional_entries(voucher_class_id);
         """;
 }
