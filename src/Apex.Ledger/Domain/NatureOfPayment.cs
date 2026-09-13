@@ -105,7 +105,8 @@ public sealed class NatureOfPayment
     /// <para>🔴 <b>WHY THE STORED VALUE IS NOT REWRITTEN, AND WHAT A MIGRATION WOULD HAVE TO DO.</b> The code is
     /// persisted per nature (<c>natures_of_payment.fvu_section_code</c>), so correcting the seed alone would leave
     /// every book created before this change still holding <c>"4IA"</c> — and still filing it. Rewriting those rows
-    /// is a data migration, and this pass has <b>no schema budget</b> (v61 belongs to the GST track). Normalising at
+    /// is a data migration, and this pass has <b>no schema budget</b> (v61 has landed on main; the next free version
+    /// is v62 and it is allocated to the Voucher Class track). Normalising at
     /// the point of emission fixes the filed figure for <b>every</b> book, old and new, with no migration at all,
     /// and it is total: a legacy book and a freshly seeded book emit the identical code. The stored value is left
     /// untouched and inert, exactly as the superseded §194-I ₹6,00,000 <see cref="CumulativeThreshold"/> is.
@@ -181,7 +182,8 @@ public sealed class NatureOfPayment
     ///
     /// <para><b>Derived from <see cref="SectionCode"/>, not stored</b> — the same reason and the same precedent as
     /// <see cref="MonthlyThreshold"/> and <see cref="RateWithPanOtherThanIndividualBp"/>: a stored flag needs a
-    /// <c>natures_of_payment</c> column and therefore a schema migration, and v61 is allocated to the GST track.
+    /// <c>natures_of_payment</c> column and therefore a schema migration; v61 has landed on main and the next free
+    /// version, v62, is allocated to the Voucher Class track, so this pass has no schema budget.
     /// The section code is persisted, unique per company and already the lookup key, so deriving it round-trips
     /// exactly and a future promotion to a stored column back-fills figure-for-figure from this predicate.</para>
     /// </summary>

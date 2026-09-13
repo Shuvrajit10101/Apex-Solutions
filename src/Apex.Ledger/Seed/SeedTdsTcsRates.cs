@@ -209,7 +209,8 @@ public static class SeedTdsTcsRates
             //   so every §194-I rent deduction was reported to NSDL under a code the notified form does not carry.
             //   🔴 CORRECTING THE SEED IS ONLY HALF OF IT — the code is PERSISTED PER NATURE, so every book created
             //   before today still holds "4IA"/"4IB" and would keep filing it. There is no schema budget for a data
-            //   migration (v61 belongs to the GST track), so the fix is applied where it reaches the return instead:
+            //   migration (v61 has landed on main; the next free version v62 is allocated to the Voucher Class
+            //   track), so the fix is applied where it reaches the return instead:
             //   NatureOfPayment.NotifiedFvuSectionCode normalises both spellings to the notified one, Form26Q emits
             //   THAT, and a legacy book and a book seeded from this file today now file the identical code. The
             //   stored value is left untouched and inert. What a migration would still have to do — if the user
