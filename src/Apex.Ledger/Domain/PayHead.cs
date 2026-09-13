@@ -241,17 +241,69 @@ public sealed class PayHeadComputationSlab
     /// <see cref="Money.Zero"/> for a percentage slab.</summary>
     public Money Value { get; }
 
+    /// <summary>
+    /// The vendor's Computation Information <b>"Effective From"</b> — the first date this slab is in force
+    /// (schema v63; census 7.19). <c>null</c> ⇒ no lower bound.
+    ///
+    /// <para>🔴 <b>THIS FIELD IS THE DIFFERENCE BETWEEN A LABOUR-WELFARE-FUND DEDUCTION AND TWELVE OF THEM.</b>
+    /// LWF is a <b>state</b> levy collected annually or half-yearly — <b>not</b> monthly — and before v63 an
+    /// undated FlatValue deduction slab fired in every payroll period, so an annual contribution came off the
+    /// payslip twelve times a year. Pair this with <see cref="EffectiveTo"/> to confine a slab to the month the
+    /// levy actually falls in, which is what the vendor's note describes: "<i>The value will be deducted only for
+    /// the month (December) specified in the Pay Head</i>"
+    /// (<c>help.tallysolutions.com/tally-prime/payroll/payroll-faq/</c>, read 2026-09-14).</para>
+    /// </summary>
+    public DateOnly? EffectiveFrom { get; }
+
+    /// <summary>
+    /// The last date this slab is in force (schema v63); <c>null</c> ⇒ no upper bound, i.e. the vendor's
+    /// succession behaviour where a later-dated row supersedes this one going forward.
+    ///
+    /// <para>Giving the window an <b>explicit</b> upper bound is a deliberate divergence in <i>expressiveness</i>,
+    /// not in arithmetic: the vendor confines a deduction to one month by adding a <i>second</i> row that resets
+    /// the value afterwards, which works but leaves "deduct forever from December" as the state a user reaches by
+    /// forgetting the second row. An explicit <c>EffectiveTo</c> lets the same intent be stated in one row and be
+    /// wrong in no direction. Leaving it <c>null</c> reproduces the vendor's succession model exactly.</para>
+    /// </summary>
+    public DateOnly? EffectiveTo { get; }
+
+    /// <summary>
+    /// Whether this slab is in force for a payroll period ending on <paramref name="periodTo"/> — the ONE place
+    /// the window is interpreted, so the engine, the register and any future report cannot drift apart.
+    ///
+    /// <para><b>The anchor is the period END date</b>, matching this codebase's existing convention for resolving
+    /// the dated <see cref="SalaryStructure"/> in force ("the structure in force on the period-end date"). Both
+    /// bounds <c>null</c> ⇒ always in force, which is exactly what every pre-v63 slab did — so an undated slab
+    /// computes byte-identically to v61 (ER-13).</para>
+    /// </summary>
+    public bool IsInForceOn(DateOnly periodTo) =>
+        (EffectiveFrom is not { } from || from <= periodTo)
+        && (EffectiveTo is not { } to || periodTo <= to);
+
+    /// <summary>True iff this slab carries either bound — i.e. it is a dated (v63) slab rather than a
+    /// perpetual one. Used by the store and the exporter to keep an undated slab's bytes unchanged.</summary>
+    public bool IsDated => EffectiveFrom is not null || EffectiveTo is not null;
+
     public PayHeadComputationSlab(
         PayHeadComputationSlabType slabType,
         int rateBasisPoints = 0,
         Money value = default,
         Money? fromAmount = null,
-        Money? toAmount = null)
+        Money? toAmount = null,
+        DateOnly? effectiveFrom = null,
+        DateOnly? effectiveTo = null)
     {
         if (rateBasisPoints < 0)
             throw new ArgumentException("Slab rate basis points must be ≥ 0.", nameof(rateBasisPoints));
         if (fromAmount is { } f && toAmount is { } t && t <= f)
             throw new ArgumentException("Slab 'up to' amount must be greater than the 'greater than' amount.", nameof(toAmount));
+        // An inverted date window is refused here rather than silently yielding a slab that can never be in force
+        // — the failure mode that would otherwise reach a payslip is a deduction that simply never happens, which
+        // is invisible on the payslip itself and only shows up as an unremitted statutory liability.
+        if (effectiveFrom is { } df && effectiveTo is { } dt && dt < df)
+            throw new ArgumentException(
+                $"Slab 'effective to' ({dt:yyyy-MM-dd}) must be on or after 'effective from' ({df:yyyy-MM-dd}).",
+                nameof(effectiveTo));
         // All THREE of these are money and all three persist through Paisa.FromMoney
         // (SqliteCompanyStore.InsertPayHeadComputationSlabs writes value_paisa, from_amount_paisa and
         // to_amount_paisa), which THROWS on a sub-paisa figure. PayHeadService.ValidateComputation guards
@@ -268,6 +320,8 @@ public sealed class PayHeadComputationSlab
         Value = value;
         FromAmount = fromAmount;
         ToAmount = toAmount;
+        EffectiveFrom = effectiveFrom;
+        EffectiveTo = effectiveTo;
     }
 
     /// <summary>
@@ -291,6 +345,32 @@ public sealed class PayHeadComputationSlab
         new(PayHeadComputationSlabType.Percentage, rateBasisPoints);
 
     /// <summary>Convenience factory for a flat-value slab.</summary>
-    public static PayHeadComputationSlab FlatValue(Money value, Money? fromAmount = null, Money? toAmount = null) =>
-        new(PayHeadComputationSlabType.FlatValue, value: value, fromAmount: fromAmount, toAmount: toAmount);
+    public static PayHeadComputationSlab FlatValue(
+        Money value, Money? fromAmount = null, Money? toAmount = null,
+        DateOnly? effectiveFrom = null, DateOnly? effectiveTo = null) =>
+        new(PayHeadComputationSlabType.FlatValue, value: value, fromAmount: fromAmount, toAmount: toAmount,
+            effectiveFrom: effectiveFrom, effectiveTo: effectiveTo);
+
+    /// <summary>
+    /// Convenience factory for a <b>Labour Welfare Fund</b>-shaped slab (census 7.19): a flat contribution that is
+    /// in force for <b>one calendar month only</b> — the month the State's levy falls due.
+    ///
+    /// <para>This is a <b>shape</b>, not a rate. It asserts no amount, no wage ceiling and no periodicity for any
+    /// State: the caller supplies the figure their own State's Act prescribes, exactly as the reference product
+    /// has the user "<i>define the Effective From and Value as applicable</i>". Nothing in this product seeds an
+    /// LWF rate, because LWF rates are per-State law and inventing a national table on a path that deducts from a
+    /// salary is the most expensive defect class this project has.</para>
+    /// </summary>
+    /// <param name="value">The contribution the State prescribes, supplied by the user.</param>
+    /// <param name="year">The calendar year the levy falls due in.</param>
+    /// <param name="month">The calendar month (1–12) the levy falls due in.</param>
+    public static PayHeadComputationSlab ForSingleMonth(Money value, int year, int month)
+    {
+        if (month is < 1 or > 12)
+            throw new ArgumentOutOfRangeException(nameof(month), "A levy month must be a calendar month 1–12.");
+        var first = new DateOnly(year, month, 1);
+        var last = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
+        return new PayHeadComputationSlab(
+            PayHeadComputationSlabType.FlatValue, value: value, effectiveFrom: first, effectiveTo: last);
+    }
 }

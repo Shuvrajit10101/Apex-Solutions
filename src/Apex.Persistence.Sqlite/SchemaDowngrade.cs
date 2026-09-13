@@ -755,6 +755,42 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV61ToV63"/> (census 7.19 Labour Welfare Fund): drops the two
+    /// <c>pay_head_computation_slabs</c> columns (<see cref="Schema.V63SlabColumns"/>) and stamps
+    /// <c>schema_version</c> back to <b>61</b>, not 62 — this branch's ladder skips 62 by ruling 22 (see the v63
+    /// banner in <see cref="Schema"/>), so the inverse of a 61 → 63 step is a 63 → 61 step.
+    ///
+    /// <para>🔴 <b>WHAT IS LOST, STATED PLAINLY: THE DATE WINDOW, WHICH MEANS A DATED DEDUCTION SILENTLY BECOMES A
+    /// MONTHLY ONE.</b> Dropping <c>effective_from</c>/<c>effective_to</c> does not delete a slab — it deletes the
+    /// slab's <i>confinement</i>. A Labour Welfare Fund head configured to deduct in December alone will, on the
+    /// downgraded book, deduct in <b>every</b> period, because "no dates" has always meant "always in force". No
+    /// posted voucher changes and no balance moves (the window is read only when a payroll is <i>computed</i>), but
+    /// the next payroll run on a downgraded book will over-deduct. A book carrying any dated slab must not be
+    /// downgraded and then run. This residual is the reason the forward migration exists at all, so it is recorded
+    /// here rather than left to be rediscovered.</para>
+    ///
+    /// <para><b><see cref="RebuildPreservingShape"/>, not <see cref="DropColumns"/>.</b>
+    /// <c>pay_head_computation_slabs</c> is not an FK parent, but it <i>is</i> an FK <b>child</b>
+    /// (<c>pay_head_id REFERENCES pay_heads(id)</c>) and its own primary key is
+    /// <c>INTEGER … AUTOINCREMENT</c>; a <c>CREATE … AS SELECT</c> rebuild would drop both the outgoing foreign key
+    /// and the primary key, leaving a table that no longer declares the parent it depends on. Preserving the shape
+    /// costs nothing here and keeps the downgraded table comparable to a genuine v61 one.</para>
+    ///
+    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST
+    /// and the lower rungs after it. Calling <see cref="V61ToV60"/> alone on a v63 file stamps the marker 60 while
+    /// the v63 columns are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V63ToV61(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(
+            connection, "pay_head_computation_slabs", Schema.V63SlabColumns, "pay_head_computation_slabs_v61");
+
+        Exec(connection, "UPDATE schema_version SET version = 61;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

@@ -10848,12 +10848,36 @@
                                           <Button Grid.Column="5" Content="+ Slab" HorizontalAlignment="Right"
                                                   Margin="4,0,0,0" Padding="6,4" Click="OnAddSlabClick"/>
                                         </Grid>
+
+                                        <!-- v63 / census 7.19 — the vendor's Computation Information "Effective From"
+                                             (with an explicit end date). Its OWN row rather than two more columns on
+                                             the crowded picker row above, because two 100px date fields squeezed into
+                                             that Grid is exactly the fixed-track truncation this project keeps filing.
+                                             LEAVING BOTH BLANK MEANS EVERY PERIOD, which is what a Labour Welfare Fund
+                                             head must NOT be — hence the hint text rather than a bare pair of boxes. -->
+                                        <Grid ColumnDefinitions="52,100,100,*" Margin="0,4,0,0">
+                                          <TextBlock Grid.Column="0" Text="In force" FontWeight="SemiBold"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBox Grid.Column="1" Text="{Binding SlabEffectiveFromText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="from"
+                                                   ToolTip.Tip="Effective From (dd-MMM-yyyy). Blank = in force in every payroll period."/>
+                                          <TextBox Grid.Column="2" Text="{Binding SlabEffectiveToText, Mode=TwoWay}"
+                                                   TextAlignment="Right" Margin="4,0,0,0" PlaceholderText="to"
+                                                   ToolTip.Tip="Effective To (dd-MMM-yyyy). Blank = no end date."/>
+                                          <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                     FontSize="11.5" Opacity="0.75"
+                                                     TextWrapping="Wrap"
+                                                     Text="Leave both blank to deduct in every period. Date a once-a-year or half-yearly levy (e.g. Labour Welfare Fund) to the month it falls due."/>
+                                        </Grid>
+
                                         <ItemsControl ItemsSource="{Binding Slabs}">
                                           <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:PayHeadSlabRow">
                                               <Grid ColumnDefinitions="*,80" Height="24">
                                                 <TextBlock Grid.Column="0" Text="{Binding Display}"
-                                                           Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                           Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                           TextTrimming="CharacterEllipsis"/>
                                                 <Button Grid.Column="1" Content="Remove" Padding="6,2"
                                                         FontSize="11" HorizontalAlignment="Right"
                                                         Click="OnRemoveSlabClick"/>
