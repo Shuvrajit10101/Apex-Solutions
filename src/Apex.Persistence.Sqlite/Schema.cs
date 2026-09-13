@@ -2166,7 +2166,7 @@ public static class Schema
             -- v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From" window.
             -- BOTH NULL on every pre-v63 slab, and on every slab a user never dates, which means "in force in every
             -- period" — bit-for-bit today's behaviour, so no existing payslip moves by a paisa (ER-13).
-            -- Declarations byte-identical to MigrateV61ToV63. See that constant for why this row needed storage.
+            -- Declarations byte-identical to MigrateV62ToV63. See that constant for why this row needed storage.
             effective_from    TEXT        NULL,                     -- ISO yyyy-MM-dd; NULL = no lower bound
             effective_to      TEXT        NULL                      -- ISO yyyy-MM-dd; NULL = no upper bound
         );
@@ -5320,26 +5320,24 @@ public static class Schema
     // v63 — DATED PAY-HEAD COMPUTATION SLABS (census 7.19 Labour Welfare Fund). Object names are published here
     // ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
     //
-    // 🔴 WHY 63 AND NOT 62 — READ BEFORE MERGING. v62 (Voucher Class) was built by a SIBLING TRACK in the same
-    // wave and had not landed on origin/main when this branch was cut (origin/main was 87f79d4, CurrentVersion
-    // 61). Ruling 22 assigns THIS track v63, so 63 is taken deliberately and the ladder skips 62 in this branch
-    // ALONE. The runner step below is therefore guarded on `version == 61` and spans 61 → 63 in one move.
-    //
-    // 🔴 THE MERGE ACTION THIS CREATES, STATED SO IT CANNOT BE MISSED: once v62 lands on main, the 61 → 62 step
-    // must be re-inserted BEFORE this one and this step's guard re-pointed from `version == 61` to
-    // `version == 62` (and this constant renamed MigrateV62ToV63). Nothing in this migration's DDL depends on
-    // anything v62 adds — it touches one payroll child table and nothing else — so the re-point is mechanical and
-    // the two migrations commute. A12 owns that resolution at merge time; it is NOT optional, because leaving the
-    // guard on 61 would carry a v61 book straight to 63 without ever creating v62's objects.
+    // 🔴 THIS RUNG WAS BUILT AS 61 → 63 AND HAS BEEN RE-POINTED TO 62 → 63; THE HISTORY IS KEPT BECAUSE IT
+    // EXPLAINS THE NUMBERING. v62 (Voucher Class) was built by a SIBLING TRACK in the same wave and had not landed
+    // on origin/main when this branch was cut (origin/main was 87f79d4, CurrentVersion 61), so ruling 22 assigned
+    // THIS track v63 and the step originally spanned 61 → 63 in one move, guarded on `version == 61`. That was
+    // correct while it stood alone and is WRONG now: v62 landed on main (973d933), its step sits directly above
+    // this one in SqliteCompanyStore.MigrateIfNeeded, and a v61 book is already at 62 by the time this rung is
+    // reached. The guard is therefore `version == 62` and this constant is named for what it actually does. The
+    // two migrations commute — v63 touches one payroll child table and nothing v62 adds — so the re-point is
+    // exact rather than a reconciliation. Nothing about the DDL below changed.
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>The two <c>pay_head_computation_slabs</c> columns v63 adds — the exact set
-    /// <see cref="MigrateV61ToV63"/> creates and <c>SchemaDowngrade.V63ToV61</c> drops.</summary>
+    /// <see cref="MigrateV62ToV63"/> creates and <c>SchemaDowngrade.V63ToV62</c> drops.</summary>
     public static readonly IReadOnlyList<string> V63SlabColumns =
         new[] { "effective_from", "effective_to" };
 
     /// <summary>
-    /// v61 → v63 (census row 7.19, <b>Labour Welfare Fund deduction</b>): an <b>Effective From / Effective To</b>
+    /// v62 → v63 (census row 7.19, <b>Labour Welfare Fund deduction</b>): an <b>Effective From / Effective To</b>
     /// window on each pay-head computation slab.
     ///
     /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/tally-prime/payroll/payroll-faq/</c>, "How to create
@@ -5384,7 +5382,7 @@ public static class Schema
     /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift. Purely additive:
     /// two nullable columns on one payroll child table, no index, no back-fill, <b>no UPDATE</b>.</para>
     /// </summary>
-    public const string MigrateV61ToV63 = """
+    public const string MigrateV62ToV63 = """
         -- v63 (census 7.19): the vendor's Computation Information "Effective From" window on a computation slab.
         -- Purely additive: two nullable TEXT columns on one payroll child table. NOTHING is back-filled and there
         -- is no UPDATE here — BOTH NULL already means "in force in every period", which is what every pre-v63 slab

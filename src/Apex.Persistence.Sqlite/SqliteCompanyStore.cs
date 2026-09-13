@@ -1573,32 +1573,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 62;
         }
 
-        // 🔴🔴 A12 MERGE NOTE — STALE LADDER RUNG, LEFT DELIBERATELY UNREPAIRED. READ BEFORE TOUCHING THIS.
-        // The step below is this branch's own work, PRESERVED EXACTLY AS ITS AUTHOR LEFT IT: the constant is
-        // still named MigrateV61ToV63 and the guard still reads `version == 61`. That guard is now STALE,
-        // because the v61 → v62 step above landed from main and moves a v61 book to 62 BEFORE this line is
-        // reached. Consequence, stated plainly: this step NEVER FIRES, no book ever reaches 63, and the
-        // version check at the end of this method THROWS. That is the intended failure mode of this merge —
-        // ordering this step FIRST instead would have stamped 63 on a database that never received v62's
-        // objects, silently producing a book whose schema_version does not describe its own shape.
-        // 🔴 THE REPAIR — owned by the Repair agent, NOT performed here: re-point this guard to
-        // `version == 62`, rename the constant MigrateV62ToV63, then re-gate. The two migrations commute
-        // (v63 touches only pay_head_computation_slabs; v62 only adds two new child tables).
-        // v61 → v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From"
+        // v62 → v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From"
         // window — two nullable columns on pay_head_computation_slabs. Purely additive; it back-fills NOTHING,
         // because BOTH NULL already means "in force in every period", which is exactly what every pre-v63 slab
-        // did. Every existing payslip therefore recomputes to the same paisa. See Schema.MigrateV61ToV63.
-        // 🔴 THE GUARD IS 61, NOT 62, AND THAT IS DELIBERATE — v62 (Voucher Class) was landing on a SIBLING
-        // branch when this one was cut, so ruling 22 gave this track 63 and this branch's ladder skips 62. When
-        // v62 lands on main, the 61 → 62 step goes in ABOVE this one and this guard moves to `version == 62`.
-        // Leaving it on 61 after that merge would carry a v61 book to 63 without creating v62's objects.
-        if (version == 61)
+        // did. Every existing payslip therefore recomputes to the same paisa. See Schema.MigrateV62ToV63.
+        // 🔴 THIS RUNG WAS WRITTEN AS 61 → 63 AND HAS BEEN RE-POINTED TO 62 → 63. Ruling 22 assigned this track
+        // v63 while v62 (Voucher Class) was still being built on a sibling branch, so the original guard read
+        // `version == 61` and spanned 61 → 63 in one move — correct while it stood alone. v62 has since landed
+        // (origin/main 973d933) and its step sits directly ABOVE this one, so a v61 book is now already at 62 by
+        // the time control reaches here. Leaving the guard on 61 would have been the worse of the two failures:
+        // the step would never fire and the version check below would throw. Ordering it FIRST instead would have
+        // been worse still — a v61 book would have been stamped 63 without ever receiving v62's two child tables,
+        // producing a database whose schema_version does not describe its own shape. The two migrations commute
+        // (v63 touches only pay_head_computation_slabs; v62 only adds child tables), so the re-point is exact.
+        // The ladder is proved end-to-end by LabourWelfareFundSchemaTests.A_v61_book_climbs_the_whole_ladder_…
+        if (version == 62)
         {
             using var tx = _connection.BeginTransaction();
             using (var mig = _connection.CreateCommand())
             {
                 mig.Transaction = tx;
-                mig.CommandText = Schema.MigrateV61ToV63;
+                mig.CommandText = Schema.MigrateV62ToV63;
                 mig.ExecuteNonQuery();
             }
             using (var bump = _connection.CreateCommand())

@@ -755,10 +755,17 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
-    /// Reverses <see cref="Schema.MigrateV61ToV63"/> (census 7.19 Labour Welfare Fund): drops the two
-    /// <c>pay_head_computation_slabs</c> columns (<see cref="Schema.V63SlabColumns"/>) and stamps
-    /// <c>schema_version</c> back to <b>61</b>, not 62 — this branch's ladder skips 62 by ruling 22 (see the v63
-    /// banner in <see cref="Schema"/>), so the inverse of a 61 → 63 step is a 63 → 61 step.
+    /// Reverses <see cref="Schema.MigrateV62ToV63"/> (census 7.19 Labour Welfare Fund) <b>and nothing else</b>:
+    /// drops the two <c>pay_head_computation_slabs</c> columns (<see cref="Schema.V63SlabColumns"/>) and stamps
+    /// <c>schema_version</c> back to <b>62</b>.
+    ///
+    /// <para>🔴 <b>IT STAMPS 62, NOT 61, AND THAT IS THE WHOLE POINT OF THE RENAME.</b> This rung was written as
+    /// <c>V63ToV61</c> while ruling 22 had this track spanning 61 → 63 in one move, v62 (Voucher Class) not having
+    /// landed yet. v62 has since landed, so a 63 → 61 rung would now UNDO TWO VERSIONS' WORTH OF SHAPE IN ONE STEP
+    /// while dropping only ONE version's objects: it would stamp 61 on a book that still carried v62's
+    /// <c>voucher_class_ledger_allocations</c> and <c>voucher_class_additional_entries</c>, which is exactly the
+    /// marker-lies-about-shape failure the ladder exists to prevent. Reversing v62 is <see cref="V62ToV61"/>'s job
+    /// and is called separately, immediately after this one.</para>
     ///
     /// <para>🔴 <b>WHAT IS LOST, STATED PLAINLY: THE DATE WINDOW, WHICH MEANS A DATED DEDUCTION SILENTLY BECOMES A
     /// MONTHLY ONE.</b> Dropping <c>effective_from</c>/<c>effective_to</c> does not delete a slab — it deletes the
@@ -776,18 +783,19 @@ public static class SchemaDowngrade
     /// and the primary key, leaving a table that no longer declares the parent it depends on. Preserving the shape
     /// costs nothing here and keeps the downgraded table comparable to a genuine v61 one.</para>
     ///
-    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST
-    /// and the lower rungs after it. Calling <see cref="V61ToV60"/> alone on a v63 file stamps the marker 60 while
-    /// the v63 columns are still there, which is a lie the next open cannot detect.</para>
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
+    /// the lower rungs after it — to reach v61 the caller runs <c>V63ToV62</c> then <see cref="V62ToV61"/>.
+    /// Calling <see cref="V62ToV61"/> alone on a v63 file stamps the marker 61 while the v63 columns are still
+    /// there, which is a lie the next open cannot detect.</para>
     /// </summary>
-    public static void V63ToV61(SqliteConnection connection)
+    public static void V63ToV62(SqliteConnection connection)
     {
         ArgumentNullException.ThrowIfNull(connection);
 
         RebuildPreservingShape(
-            connection, "pay_head_computation_slabs", Schema.V63SlabColumns, "pay_head_computation_slabs_v61");
+            connection, "pay_head_computation_slabs", Schema.V63SlabColumns, "pay_head_computation_slabs_v62");
 
-        Exec(connection, "UPDATE schema_version SET version = 61;");
+        Exec(connection, "UPDATE schema_version SET version = 62;");
     }
 
     /// <summary>
@@ -813,9 +821,10 @@ public static class SchemaDowngrade
     /// <b>no round-off leg</b>. A book that is downgraded and then kept in use will quietly start producing
     /// unrounded invoices that its earlier ones rounded, and the two will not agree.</para>
     ///
-    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing a v61 book out of a CURRENT one runs this FIRST and
-    /// the lower rungs after it. Calling <see cref="V61ToV60"/> alone on a v62 file stamps the marker 60 while the
-    /// v62 tables are still there, which is a lie the next open cannot detect.</para>
+    /// <para>⚠️ <b>This is NO LONGER the top rung — <see cref="V63ToV62"/> is.</b> Manufacturing a v61 book out of
+    /// a CURRENT one runs <see cref="V63ToV62"/> FIRST, then this, then the lower rungs. Calling this one alone on
+    /// a v63 file stamps the marker 61 while v63's two <c>pay_head_computation_slabs</c> columns are still there,
+    /// which is a lie the next open cannot detect.</para>
     /// </summary>
     public static void V62ToV61(SqliteConnection connection)
     {
