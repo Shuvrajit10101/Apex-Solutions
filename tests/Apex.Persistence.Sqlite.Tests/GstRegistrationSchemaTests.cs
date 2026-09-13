@@ -53,7 +53,7 @@ public sealed class GstRegistrationSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy GST Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V61ToV60(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(60L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             foreach (var table in Schema.V61Tables)
@@ -115,7 +115,7 @@ public sealed class GstRegistrationSchemaTests
         {
             var legacy = BuildGstCompanyWithOneSale();
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V61ToV60(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -236,7 +236,7 @@ public sealed class GstRegistrationSchemaTests
 
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V61ToV60(conn);
+                SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn);
 
                 // Both rebuilt tables are FK PARENTS; losing a PK here surfaces as "foreign key mismatch" on the
                 // next child insert, not as anything this file could otherwise see.

@@ -158,6 +158,12 @@ public static class MasterDeletionRules
         "pos_tender_ledger_defaults.ledger_id",
         "pos_voucher_type_config.default_party_id",
         "rcm_documents.supplier_ledger_id",
+        // v62 (census 2.6): both voucher-class child tables name a ledger. A class belongs to a voucher TYPE, so
+        // neither row is enumerated from the ledger's own graph and neither leaves with it — guarded, like
+        // cheque_books and unlike cheque_layouts. See LedgerReferenceParts for why the refusal matters beyond the
+        // FK: these rows post money automatically.
+        "voucher_class_additional_entries.ledger_id",
+        "voucher_class_ledger_allocations.ledger_id",
         "vouchers.party_id",
 
         // ---- pointing at a GROUP (EnsureGroupDeletable)
@@ -637,6 +643,21 @@ public static class MasterDeletionRules
         // on this ledger object and leaves with it, so it can never dangle.
         AddPart(parts, company.ChequeBooks.Count(b => b.LedgerId == ledger.Id),
                 "cheque book", "cheque books");
+        // voucher_class_ledger_allocations.ledger_id (v62; census 2.6). A voucher class hangs off a voucher TYPE,
+        // not off this ledger, so its rows do NOT leave when the ledger does — which is why they are guarded and
+        // not in ForeignKeyColumnsThatDieWithTheirParent.
+        // 🔴 AND THE REFUSAL HERE IS WORTH MORE THAN THE SAVE IT PROTECTS. Deleting a pre-mapped ledger out from
+        // under a class does not merely risk an FK failure on the next Save: the class is a rule that posts money
+        // on every voucher entered under it, so a class left naming a ledger that no longer exists is a silent
+        // wrong-figure surface, not just a persistence problem.
+        AddPart(parts, company.VoucherTypes.Sum(
+                    t => t.Classes.Sum(c => c.LedgerAllocations.Count(a => a.LedgerId == ledger.Id))),
+                "voucher-class allocation", "voucher-class allocations");
+        // voucher_class_additional_entries.ledger_id (v62; census 2.6). Same reasoning — and this is the side that
+        // carries the invoice round-off, so losing its ledger would stop a configured class from balancing.
+        AddPart(parts, company.VoucherTypes.Sum(
+                    t => t.Classes.Sum(c => c.AdditionalEntries.Count(e => e.LedgerId == ledger.Id))),
+                "voucher-class additional entry", "voucher-class additional entries");
         return parts;
     }
 

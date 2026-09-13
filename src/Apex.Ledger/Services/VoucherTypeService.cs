@@ -163,6 +163,108 @@ public sealed class VoucherTypeService
         type.SetClasses(updated);
     }
 
+    // ──────────────────────────────────────────── census 2.6 (v62): the general voucher-class machinery
+
+    /// <summary>
+    /// Adds a row to a class's vendor <b>"Default Accounting Allocations for all items in Invoice"</b> (census
+    /// 2.6) — the ledger pre-map — and re-validates the WHOLE class through
+    /// <see cref="VoucherClassService.Validate"/>.
+    ///
+    /// <para>🔴 <b>THE RE-VALIDATION IS THE POINT, AND IT MEANS ADDING A ROW CAN LEGITIMATELY FAIL.</b> Some rules
+    /// are properties of the SET rather than of any one row — the same ledger must not take two allocations, for
+    /// instance — so the row is appended, the class is checked, and on refusal the append is ROLLED BACK before
+    /// the exception leaves: an operator told "no" must not be left with the bad row silently in place.</para>
+    ///
+    /// <para><b>What is deliberately NOT checked here is COMPLETENESS.</b> A 50/30/20 pre-map passes through 50%
+    /// and 80% on its way to 100%, so enforcing the total on every append would refuse the first row of almost
+    /// every class. <see cref="VoucherClassService.ValidateStructure"/> is used here and the 100% rule is enforced
+    /// where it cannot be evaded — at the master-save gate and inside
+    /// <see cref="VoucherClassPosting.Compute"/>, which refuses to post from an incomplete class.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No such type or class, or the resulting class is invalid.</exception>
+    public VoucherClassLedgerAllocation AddClassAllocation(
+        Guid typeId, Guid classId, Guid ledgerId, int percentBasisPoints)
+    {
+        var cls = RequireClass(typeId, classId);
+        var row = new VoucherClassLedgerAllocation(
+            Guid.NewGuid(), ledgerId, percentBasisPoints, cls.LedgerAllocations.Count);
+
+        cls.AddLedgerAllocation(row);
+        try { VoucherClassService.ValidateStructure(cls, id => _company.FindLedger(id) is not null); }
+        catch { RewriteAllocations(cls, cls.LedgerAllocations.Where(a => a.Id != row.Id).ToList()); throw; }
+        return row;
+    }
+
+    /// <summary>Removes one default accounting allocation. <b>Not</b> re-validated: a class on its way from three
+    /// allocations to two passes through a state that does not total 100%, and refusing the first removal would
+    /// make the table impossible to edit. The set is checked again when a row is ADDED and at save.</summary>
+    public void RemoveClassAllocation(Guid typeId, Guid classId, Guid allocationId)
+    {
+        var cls = RequireClass(typeId, classId);
+        RewriteAllocations(cls, cls.LedgerAllocations.Where(a => a.Id != allocationId).ToList());
+    }
+
+    /// <summary>
+    /// Adds a row to a class's vendor <b>"Additional Accounting Entries"</b> (census 2.6) — freight, a per-unit
+    /// duty, the invoice round-off — and re-validates the whole class, rolling the append back on refusal exactly
+    /// as <see cref="AddClassAllocation"/> does. The set-level rule here is that a class may carry at most ONE
+    /// total-amount-rounding entry.
+    /// </summary>
+    public VoucherClassAdditionalEntry AddClassAdditionalEntry(
+        Guid typeId,
+        Guid classId,
+        Guid ledgerId,
+        VoucherClassCalculationType calculationType,
+        Money valueBasis,
+        VoucherClassRoundingMethod roundingMethod,
+        Money roundingLimit,
+        bool removeIfZero)
+    {
+        var cls = RequireClass(typeId, classId);
+        var row = new VoucherClassAdditionalEntry(
+            Guid.NewGuid(), ledgerId, calculationType, valueBasis, roundingMethod, roundingLimit,
+            removeIfZero, cls.AdditionalEntries.Count);
+
+        cls.AddAdditionalEntry(row);
+        try { VoucherClassService.ValidateStructure(cls, id => _company.FindLedger(id) is not null); }
+        catch { RewriteEntries(cls, cls.AdditionalEntries.Where(e => e.Id != row.Id).ToList()); throw; }
+        return row;
+    }
+
+    /// <summary>Removes one additional accounting entry. Not re-validated, for the reason on
+    /// <see cref="RemoveClassAllocation"/>.</summary>
+    public void RemoveClassAdditionalEntry(Guid typeId, Guid classId, Guid entryId)
+    {
+        var cls = RequireClass(typeId, classId);
+        RewriteEntries(cls, cls.AdditionalEntries.Where(e => e.Id != entryId).ToList());
+    }
+
+    private VoucherClass RequireClass(Guid typeId, Guid classId)
+        => Require(typeId).Classes.FirstOrDefault(c => c.Id == classId)
+           ?? throw new InvalidOperationException("The voucher class no longer exists.");
+
+    /// <summary>Replaces a class's allocations, RENUMBERING <see cref="VoucherClassLedgerAllocation.Order"/> from
+    /// zero. The renumber is load-bearing: the split's remainder lands on the LAST allocation, so leaving a gap
+    /// after a removal would keep the order stable but is renumbered anyway so the stored order and the list
+    /// position can never disagree across a reload.</summary>
+    private static void RewriteAllocations(VoucherClass cls, IReadOnlyList<VoucherClassLedgerAllocation> rows)
+    {
+        var entries = cls.AdditionalEntries.ToList();
+        cls.ClearAllocationsAndEntries();
+        for (var i = 0; i < rows.Count; i++) { rows[i].Order = i; cls.AddLedgerAllocation(rows[i]); }
+        foreach (var e in entries) cls.AddAdditionalEntry(e);
+    }
+
+    /// <summary>Replaces a class's additional entries, renumbering <see cref="VoucherClassAdditionalEntry.Order"/>
+    /// from zero — see <see cref="RewriteAllocations"/>.</summary>
+    private static void RewriteEntries(VoucherClass cls, IReadOnlyList<VoucherClassAdditionalEntry> rows)
+    {
+        var allocations = cls.LedgerAllocations.ToList();
+        cls.ClearAllocationsAndEntries();
+        foreach (var a in allocations) cls.AddLedgerAllocation(a);
+        for (var i = 0; i < rows.Count; i++) { rows[i].Order = i; cls.AddAdditionalEntry(rows[i]); }
+    }
+
     // ────────────────────────────────────────────────────────────────────────── guards
 
     private VoucherType Require(Guid id)
