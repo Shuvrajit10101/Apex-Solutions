@@ -226,7 +226,7 @@ public sealed class ItemInvoiceRoundTripTests
         // 🔴 It runs BEFORE the PRAGMA below, not after: V58ToV57 re-enables foreign keys at the end of its own
         // drop step, so calling it later would silently switch them back ON for the rest of this helper and the
         // hand-written DROPs would then fail with "FOREIGN KEY constraint failed".
-        SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn);
+        SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
         // Drop the v52 voucher-edit-log table + its index so the reopen's v51->v52 CREATE TABLE does not
         // collide with an already-present table.

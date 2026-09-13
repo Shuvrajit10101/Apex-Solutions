@@ -138,7 +138,7 @@ public sealed record Gstr9(
     /// Builds GSTR-9 for a regular company over the FY <c>[fyFrom, fyTo]</c>; a Composition dealer (files 9A) and a
     /// GST-off company yield a not-applicable (all-zero) return.
     /// </summary>
-    public static Gstr9 Build(Company company, DateOnly fyFrom, DateOnly fyTo)
+    public static Gstr9 Build(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -156,7 +156,7 @@ public sealed record Gstr9(
         // added — so the annual figures CANNOT diverge from the monthly returns (the foot holds by construction).
         foreach (var (from, to) in PeriodWindows(company, fyFrom))
         {
-            var b = Gstr3b.Build(company, from, to);
+            var b = Gstr3b.Build(company, from, to, registrationId);
             outC += b.OutwardCgst.Amount; outS += b.OutwardSgst.Amount; outI += b.OutwardIgst.Amount;
             rcmC += b.RcmOutwardCgst.Amount; rcmS += b.RcmOutwardSgst.Amount;
             rcmI += b.RcmOutwardIgst.Amount; rcmCess += b.RcmOutwardCess.Amount;
@@ -168,7 +168,7 @@ public sealed record Gstr9(
             itcCess += b.RcmItcOtherCess.Amount;
             reclaimed += b.TotalItcReclaimed.Amount;
 
-            foreach (var h in Gstr1.Build(company, from, to).HsnSummary)
+            foreach (var h in Gstr1.Build(company, from, to, registrationId).HsnSummary)
             {
                 if (!hsn.TryGetValue(h.HsnSac, out var acc))
                     hsn[h.HsnSac] = acc = new HsnAcc

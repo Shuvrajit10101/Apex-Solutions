@@ -54,12 +54,12 @@ public sealed record Cmp08(
 
     /// <summary>Builds CMP-08 for a composition company over the quarter <c>[from, to]</c>; a non-composition company
     /// yields a not-applicable statement.</summary>
-    public static Cmp08 Build(Company company, DateOnly from, DateOnly to)
+    public static Cmp08 Build(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         if (company.Gst?.RegistrationType != GstRegistrationType.Composition)
             return NotApplicable(from, to);
 
-        var t = new CompositionTaxService(company).ComputeForPeriod(from, to);
+        var t = new CompositionTaxService(company).ComputeForPeriod(from, to, registrationId);
         return new Cmp08(from, to, true, t.SubType, t.RateBasisPoints, t.TurnoverBase,
             t.Cgst, t.Sgst, t.RcmInwardCgst, t.RcmInwardSgst, t.RcmInwardIgst, t.RcmInwardCess, Money.Zero);
     }

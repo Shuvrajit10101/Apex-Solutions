@@ -50,6 +50,32 @@ public sealed class Voucher
     /// </summary>
     public CstDeclarationForm? CstFormType { get; set; }
 
+    /// <summary>
+    /// The GST registration this voucher is recorded <b>under</b> (census row 6.23; schema v61) — the vendor's
+    /// F3 (Company/Tax Registration) selection. Verbatim, from
+    /// <c>help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/</c>: "<i>For TallyPrime 3.0 &amp;
+    /// later, if you have multiple registrations, press F3 (Company/Tax Registration) and select the registration
+    /// under which you want to create the voucher.</i>" The same page dates the capability — "<i>For TallyPrime
+    /// 2.1 or earlier, multiple registrations under the same company are not supported</i>".
+    /// <c>null</c> or <see cref="GstRegistration.PrimaryId"/> ⇒ the company's own first registration
+    /// (<see cref="GstConfig.PrimaryRegistration"/>).
+    ///
+    /// <para>🔴 <b>THIS FIELD IS WHY MULTI-GSTIN IS A SCHEMA CHANGE AND NOT A COLUMN ON A MASTER.</b> GST returns
+    /// are filed <b>per registration</b>, so each of GSTR-1, GSTR-3B, GSTR-9, GSTR-4, CMP-08 and the e-Invoice /
+    /// e-Way surfaces must fold over the vouchers of <b>one</b> registration. The attribution cannot be derived:
+    /// two registrations can bill the same party, on the same date, for the same goods, and only the operator
+    /// knows which GSTIN issued the invoice. <see cref="GstReportSupport"/> filters on it and <b>refuses</b> to
+    /// produce an unscoped return once the company holds more than one registration, because such a return would
+    /// be a wrong filed document rather than a merely wrong screen.</para>
+    ///
+    /// <para><b>NULL is the primary, so no book was back-filled.</b> Every voucher in every pre-v61 book reads
+    /// <c>null</c> and therefore attributes to the single registration that book has always had —
+    /// <c>Schema.MigrateV60ToV61</c> contains no <c>UPDATE vouchers</c> at all. See
+    /// <see cref="GstRegistration"/> for why the primary registration was deliberately left in
+    /// <see cref="GstConfig"/>'s scalar fields instead of being moved into a row.</para>
+    /// </summary>
+    public Guid? GstRegistrationId { get; set; }
+
     /// <summary>Vendor field <i>"Form Series Number"</i>
     /// (<c>help.tallysolutions.com/tally-prime/reports/forms-receivables-tally/</c>). <c>null</c> ⇒ the form is
     /// still pending — which is the whole point of the two reports.</summary>

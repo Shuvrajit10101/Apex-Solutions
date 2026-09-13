@@ -69,7 +69,7 @@ public sealed class SecurityControlSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
                 SqliteConnection.ClearPool(conn);
             }
             Assert.Equal(55L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
@@ -120,7 +120,7 @@ public sealed class SecurityControlSchemaTests
         {
             var c = CompanyFactory.CreateSeeded("Back-fill Co", FyStart);
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
-            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(c.Id)!;
@@ -337,7 +337,7 @@ public sealed class SecurityControlSchemaTests
             admin.SetPassword("pw-to-be-dropped", When, TestIterations);
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(55L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             var tables = TableNames(path);
@@ -369,7 +369,7 @@ public sealed class SecurityControlSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn);
                 SchemaDowngrade.V55ToV54(conn);
                 SchemaDowngrade.V54ToV53(conn);
                 SqliteConnection.ClearPool(conn);

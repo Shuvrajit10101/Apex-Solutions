@@ -54,7 +54,8 @@ public sealed record ItcGateView(
     /// the reconciler + GSTR-3B as read-only projections and surfaces the reversal candidates; posts nothing. The
     /// reconciliation tolerance is read from the company GST config (default exact ⇒ byte-identical when off, ER-13).
     /// </summary>
-    public static ItcGateView Build(Company company, Gstr2bSnapshot snapshot, DateOnly from, DateOnly to)
+    public static ItcGateView Build(
+        Company company, Gstr2bSnapshot snapshot, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -77,7 +78,7 @@ public sealed record ItcGateView(
         decimal npCgst = 0m, npSgst = 0m, npIgst = 0m;   // eligible not-in-portal (§16(2)(aa))
         var candidates = new List<ItcReversalCandidate>();
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input))
+        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
             // Per-head forward (non-RCM) input tax posted on this voucher — RCM ITC is its own 3B bucket (excluded here).
             // Cess is ring-fenced OUT of the CGST/SGST/IGST triple (ER-2) but IS accumulated here so a blocked / ineligible

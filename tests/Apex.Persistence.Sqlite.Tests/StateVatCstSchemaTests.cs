@@ -44,7 +44,7 @@ public sealed class StateVatCstSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Vat Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(58L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // Every v59 column really is absent from the manufactured v58 book.
@@ -108,7 +108,7 @@ public sealed class StateVatCstSchemaTests
             inventory.CreateStockItem("Ordinary Widget", group.Id, unit.Id);
 
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -334,7 +334,7 @@ public sealed class StateVatCstSchemaTests
             int beforeCompanies, beforeLedgers, beforeItems, beforeVouchers;
             using (var top = Open(path))
             {
-                SchemaDowngrade.V60ToV59(top);
+                SchemaDowngrade.V61ToV60(top); SchemaDowngrade.V60ToV59(top);
                 beforeCompanies = ColumnCount(top, "companies");
                 beforeLedgers = ColumnCount(top, "ledgers");
                 beforeItems = ColumnCount(top, "stock_items");

@@ -212,6 +212,15 @@ public enum Screen
 
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
+
+    /// <summary>Census 6.23 — Masters → Create → Statutory Masters → <b>GST Registration</b>: the vendor's
+    /// "Create another GST Registration for the Company". Lists every registration the company holds and creates
+    /// additional ones. Gated on <see cref="Company.GstEnabled"/>.</summary>
+    GstRegistrationsMaster,
+
+    /// <summary>Census 6.25 — Masters → Create → Statutory Masters → <b>GST Classification</b>: the vendor's
+    /// reusable HSN/SAC + rate bundle. Gated on <see cref="Company.GstEnabled"/>.</summary>
+    GstClassificationMaster,
     TdsStatPayment,
     ChallanReconciliation,
     Form26Q,
@@ -582,6 +591,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Nature-of-Goods (§206C TCS) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfGoodsMasterViewModel? _natureOfGoodsMaster;
 
+    /// <summary>Census 6.23 — the GST Registrations master page column.</summary>
+    [ObservableProperty] private GstRegistrationsMasterViewModel? _gstRegistrationsMaster;
+
+    /// <summary>Census 6.25 — the GST Classification master page column.</summary>
+    [ObservableProperty] private GstClassificationMasterViewModel? _gstClassificationMaster;
+
     /// <summary>The TDS Stat-Payment (deposit) page (Phase 7 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private TdsStatPaymentViewModel? _tdsStatPayment;
 
@@ -835,6 +850,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ImportGstr2b is null
         && GenerateEInvoice is null && GenerateEWayBill is null
         && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && GstRegistrationsMaster is null && GstClassificationMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
         && Form16A is null && Form27D is null && Form27A is null
@@ -907,6 +923,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGenerateEWayBillChanged(GenerateEWayBillViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstRegistrationsMasterChanged(GstRegistrationsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstClassificationMasterChanged(GstClassificationMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChallanReconciliationChanged(ChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm26QChanged(Form26QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1775,13 +1793,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Statutory Masters (Phase 7 slice 1; TDS/TCS) — the Nature-of-Payment (TDS section) master surfaces only
         // when the F11 feature "Enable TDS" is on; Nature-of-Goods (§206C) only when "Enable TCS" is on. A company
         // with neither is byte-identical (ER-13), so the whole header hides when both are off.
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        // v61 (census 6.23 / 6.25): the two GST masters join the SAME "Statutory Masters" section rather than
+        // starting a flat sibling list — the section already exists for TDS/TCS and the professional-hierarchy
+        // rule is that every item nests under a parent section. Both are gated on GstEnabled, so a non-GST
+        // company sees neither and the header still hides when nothing under it applies (ER-13).
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { GstEnabled: true })
         {
             col.Add(MenuItemViewModel.Header("Statutory Masters"));
             if (Company is { TdsEnabled: true })
                 col.Add(new MenuItemViewModel("Nature of Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             if (Company is { TcsEnabled: true })
                 col.Add(new MenuItemViewModel("Nature of Goods", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            if (Company is { GstEnabled: true })
+            {
+                col.Add(new MenuItemViewModel("GST Registration", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+                col.Add(new MenuItemViewModel("GST Classification", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            }
         }
 
         // Payroll Masters (Phase 8 slice 1; RQ-2/RQ-3) — the employee / payroll-unit / attendance-type masters,
@@ -6182,6 +6209,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
     }
 
+    // ======================================================= screen: GST masters (census 6.23 / 6.25; schema v61)
+
+    /// <summary>
+    /// Opens the GST Registrations master (Masters → Create → Statutory Masters → GST Registration; census 6.23)
+    /// as a page column — the vendor's "Create another GST Registration for the Company". A no-op unless GST is
+    /// enabled (the menu item is itself gated on <see cref="Company.GstEnabled"/>), so a non-GST company never
+    /// reaches it (ER-13).
+    /// </summary>
+    public void ShowGstRegistrationsMaster()
+    {
+        if (Company is not { GstEnabled: true }) return;
+
+        var master = new GstRegistrationsMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("GST Registration", master), Screen.GstRegistrationsMaster,
+            "GST Registrations", () => GstRegistrationsMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the GST Classification master (Masters → Create → Statutory Masters → GST Classification;
+    /// census 6.25) as a page column. A no-op unless GST is enabled (ER-13).
+    /// </summary>
+    public void ShowGstClassificationMaster()
+    {
+        if (Company is not { GstEnabled: true }) return;
+
+        var master = new GstClassificationMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("GST Classification", master), Screen.GstClassificationMaster,
+            "GST Classifications", () => GstClassificationMaster = master);
+    }
+
     // =============================================================== screen: payroll masters (Phase 8 slice 1)
 
     /// <summary>
@@ -7112,6 +7169,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GenerateEWayBill = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
+        GstRegistrationsMaster = null;
+        GstClassificationMaster = null;
         TdsStatPayment = null;
         ChallanReconciliation = null;
         Form26Q = null;
@@ -7232,6 +7291,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig or Screen.GstRateSetup
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+                 or Screen.GstRegistrationsMaster or Screen.GstClassificationMaster
                  or Screen.TdsStatPayment or Screen.TcsStatPayment
                  or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
                  or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
@@ -8519,6 +8579,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             or Screen.VoucherTypeMaster
             or Screen.BatchMaster or Screen.BomMaster or Screen.ReorderLevelsMaster
             or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+            or Screen.GstRegistrationsMaster or Screen.GstClassificationMaster
             or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
             or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
             or Screen.PayHeadMaster or Screen.SalaryStructureMaster
@@ -8687,6 +8748,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.ReorderLevelsMaster => "Reorder Level",
         Screen.NatureOfPaymentMaster => "Nature of Payment",
         Screen.NatureOfGoodsMaster => "Nature of Goods",
+        Screen.GstRegistrationsMaster => "GST Registration",
+        Screen.GstClassificationMaster => "GST Classification",
         Screen.EmployeeCategoryMaster => "Employee Category",
         Screen.EmployeeGroupMaster => "Employee Group",
         Screen.EmployeeMaster => "Employee",
@@ -9973,6 +10036,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.NatureOfGoodsMaster:
                 NatureOfGoodsMaster?.Create();
                 return;
+            // v61 (census 6.23/6.25): Ctrl+A accepts the master form, the same verb every other master here uses.
+            case Screen.GstRegistrationsMaster:
+                GstRegistrationsMaster?.Create();
+                return;
+            case Screen.GstClassificationMaster:
+                GstClassificationMaster?.Create();
+                return;
             case Screen.TdsStatPayment:
                 TdsStatPayment?.Deposit();
                 return;
@@ -10468,6 +10538,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Generate e-Way Bill": OpenGenerateEWayBill(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
+            // GST masters (census 6.23 / 6.25) — under Masters → Create → Statutory Masters, gated by F11 GST.
+            case "GST Registration": ShowGstRegistrationsMaster(); break;
+            case "GST Classification": ShowGstClassificationMaster(); break;
             // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
             case "Employee Category": ShowEmployeeCategoryMaster(); break;
             case "Employee Group": ShowEmployeeGroupMaster(); break;

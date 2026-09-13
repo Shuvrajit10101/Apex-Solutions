@@ -101,7 +101,20 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase
         var fyTo = fyFrom.AddYears(1).AddDays(-1);
         Lines.Clear();
 
-        var g3b = Gstr3b.Build(_company, fyFrom, fyTo);
+        // v61 (census 6.23): GSTR-3B REFUSES an unscoped build on a multi-registration company — a set-off run on
+        // a liability folded over two GSTINs would offset one registration's credit against another's tax. This
+        // screen does not yet carry a registration selector, so the refusal is surfaced as the page's own status
+        // rather than reaching the shell. See the sequenced-behind note on census row 6.23.
+        Gstr3b g3b;
+        try
+        {
+            g3b = Gstr3b.Build(_company, fyFrom, fyTo);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            StatusText = ex.Message;
+            return;
+        }
 
         // The credit side is the REAL Input-ledger pool, read from the same ElectronicLedgersView the Electronic
         // Ledgers screen projects — so the two screens agree on the available credit BY CONSTRUCTION. This is what the

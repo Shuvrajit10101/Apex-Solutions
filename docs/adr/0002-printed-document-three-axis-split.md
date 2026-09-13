@@ -37,7 +37,9 @@ invoice format"* and blames the print gate. **The symptom is real and worse than
 and the row bundles two different defects under one id.**
 
 **The symptom, verified end to end.** `GstReportSupport.IsTaxInvoice`
-(`src/Apex.Ledger/Reports/GstReportSupport.cs:1695`) returns false for anything whose base type is not Sales.
+(`src/Apex.Ledger/Reports/GstReportSupport.cs:1736`) returns false for anything whose base type is not Sales.
+<!-- re-pointed 2026-09-08 from :1695 — schema v61 (W-P1, census 6.23) added the registration scope and the
+     unscoped-return refusal guard to PostedDirectionalVouchers above it. -->
 The printer's wrapper is a **pure forward** to it (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:116-117`),
 so `BuildPrintPreview` (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:104-107`) takes the else branch
 into the plain voucher projection, whose only loop walks the accounting `Lines`. The voucher's
@@ -54,9 +56,10 @@ missing projection at three layers.**
    *dangerous* rather than merely wrong.** `IsTaxInvoice` has **three** consumers that move together:
    - the **printer**, through the pure forward above;
    - **`IsBillOfSupply`'s limb 2**, which gates on it at
-     `src/Apex.Ledger/Reports/GstReportSupport.cs:1399` (`if (!IsTaxInvoice(company, voucher)) return false;`);
+     `src/Apex.Ledger/Reports/GstReportSupport.cs:1440` (`if (!IsTaxInvoice(company, voucher)) return false;`);
+     <!-- re-pointed 2026-09-08 from :1399 — schema v61 (W-P1, census 6.23) added lines above it. -->
    - the **NIC e-Way portal document code**, because `IsBillOfSupplyForFiling`
-     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1449`) feeds `EWayBillService.PartACodesFor` at
+     (`src/Apex.Ledger/Reports/GstReportSupport.cs:1490`) feeds `EWayBillService.PartACodesFor` at
      `src/Apex.Ledger/Services/EWayBillService.cs:482`.
 
    So flipping the Sales gate would **also** title a wholly-exempt purchase **"BILL OF SUPPLY"** — a document

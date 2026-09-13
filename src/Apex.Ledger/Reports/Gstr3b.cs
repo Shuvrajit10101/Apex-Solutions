@@ -142,8 +142,10 @@ public sealed record Gstr3b(
     /// </summary>
     public Money TotalNetPayable => new(NetCgst.Amount + NetSgst.Amount + NetIgst.Amount);
 
-    /// <summary>Builds GSTR-3B for the whole company over <c>[from, to]</c>.</summary>
-    public static Gstr3b Build(Company company, DateOnly from, DateOnly to)
+    /// <summary>Builds GSTR-3B over <c>[from, to]</c> for the GST registration named by
+    /// <paramref name="registrationId"/> (census 6.23; <c>null</c> ⇒ the company's only registration — a
+    /// multi-registration company REFUSES an unscoped build, see <c>GstReportSupport</c>).</summary>
+    public static Gstr3b Build(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         // Phase 9 slice 3 (RQ-16): a Composition dealer files CMP-08 / GSTR-4, NOT GSTR-3B — early-return an empty
         // summary. The dealer's inward RCM is reported in CMP-08 Table 3(ii) (not 3.1(d) here), so no data is lost. A
@@ -152,15 +154,15 @@ public sealed record Gstr3b(
             return new Gstr3b(from, to, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero,
                 Money.Zero, Money.Zero, Money.Zero);
 
-        var (outCgst, outSgst, outIgst, taxable, exempt) = ReadSide(company, from, to, GstTaxDirection.Output);
-        var (itcCgst, itcSgst, itcIgst, _, _) = ReadSide(company, from, to, GstTaxDirection.Input);
+        var (outCgst, outSgst, outIgst, taxable, exempt) = ReadSide(company, from, to, GstTaxDirection.Output, registrationId);
+        var (itcCgst, itcSgst, itcIgst, _, _) = ReadSide(company, from, to, GstTaxDirection.Input, registrationId);
 
-        var rcm = ReadRcm(company, from, to);
+        var rcm = ReadRcm(company, from, to, registrationId);
 
         // Phase 9 slice 2b: fold the §34 CDN net (signed by note type) into 3.1(a) outward — a credit note reduces the
         // outward tax + taxable value, a debit note increases them. CDN-linked vouchers are excluded from ReadSide (both
         // directions) so they are counted here once, signed (risk #4). No CDN ⇒ zero delta (byte-identical, ER-13).
-        var cdn = ReadCdn(company, from, to);
+        var cdn = ReadCdn(company, from, to, registrationId);
         outCgst += cdn.Cgst; outSgst += cdn.Sgst; outIgst += cdn.Igst; taxable += cdn.Taxable;
 
         // Phase 9 slice 7b: Table 4(B)/4(D) ITC-reversal projection — Σ the posted stat-adjustment reversal/reclaim
@@ -256,12 +258,12 @@ public sealed record Gstr3b(
     /// </summary>
     private static (decimal OutCgst, decimal OutSgst, decimal OutIgst, decimal OutCess,
         decimal ImportIgst, decimal OtherCgst, decimal OtherSgst, decimal OtherIgst, decimal OtherCess) ReadRcm(
-        Company company, DateOnly from, DateOnly to)
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         decimal outCgst = 0m, outSgst = 0m, outIgst = 0m, outCess = 0m;
         decimal importIgst = 0m, otherCgst = 0m, otherSgst = 0m, otherIgst = 0m, otherCess = 0m;
 
-        foreach (var l in GstReportSupport.RcmLines(company, from, to))
+        foreach (var l in GstReportSupport.RcmLines(company, from, to, registrationId))
         {
             var amt = l.Amount.Amount;
             if (l.IsOutputLiability)
@@ -303,7 +305,7 @@ public sealed record Gstr3b(
     /// base type maps to Input) still nets the <b>output</b> tax up. A company with no §34 note yields a zero delta (ER-13).
     /// </summary>
     private static (decimal Cgst, decimal Sgst, decimal Igst, decimal Taxable) ReadCdn(
-        Company company, DateOnly from, DateOnly to)
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         if (company.CreditDebitNoteLinks.Count == 0) return (0m, 0m, 0m, 0m);
 
@@ -314,6 +316,10 @@ public sealed record Gstr3b(
             if (v is null || v.Date < from) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+            // v61 (census 6.23): §34 notes are walked off the LINK collection, not the voucher funnel, so the
+            // registration filter is applied here as well — a credit note issued under the Maharashtra GSTIN must
+            // not net down the Karnataka return's 3.1(a).
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
 
             var sign = link.CdnType == CdnType.Credit ? -1m : 1m;
             foreach (var line in v.Lines)
@@ -337,11 +343,11 @@ public sealed record Gstr3b(
     /// double-counting the CGST+SGST legs); an all-exempt/nil outward supply adds its stock value to exempt.
     /// </summary>
     private static (decimal Cgst, decimal Sgst, decimal Igst, decimal Taxable, decimal Exempt) ReadSide(
-        Company company, DateOnly from, DateOnly to, GstTaxDirection direction)
+        Company company, DateOnly from, DateOnly to, GstTaxDirection direction, Guid? registrationId = null)
     {
         var cgst = 0m; var sgst = 0m; var igst = 0m; var taxable = 0m; var exempt = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction))
+        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
         {
             // Phase 9 slice 2b: a formalised §34 credit/debit note is projected — signed — into 3.1(a) by ReadCdn; exclude
             // it from BOTH the ordinary outward and the "all other ITC" sweeps so it is never double-counted (risk #4). A
@@ -370,7 +376,7 @@ public sealed record Gstr3b(
         // Exempt/nil/non-GST outward value: outward vouchers with a stock/sales leg but NO tax line. These are
         // filtered out of PostedGstVouchers (which requires a tax line), so scan outward vouchers separately.
         if (direction == GstTaxDirection.Output)
-            exempt = ExemptOutwardValue(company, from, to);
+            exempt = ExemptOutwardValue(company, from, to, registrationId);
 
         return (cgst, sgst, igst, taxable, exempt);
     }
@@ -379,7 +385,8 @@ public sealed record Gstr3b(
     /// The exempt/nil/non-GST outward value: the stock value of outward (Sales/Credit-Note) vouchers that carry
     /// item lines but no tax line (an exempt supply posts zero tax). Reads posted stock-line values only.
     /// </summary>
-    private static decimal ExemptOutwardValue(Company company, DateOnly from, DateOnly to)
+    private static decimal ExemptOutwardValue(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         if (!company.GstEnabled) return 0m;
         var exempt = 0m;
@@ -389,6 +396,10 @@ public sealed record Gstr3b(
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || GstReportSupport.DirectionOf(type.BaseType) != GstTaxDirection.Output) continue;
             if (!LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+            // v61 (census 6.23): this sweep walks company.Vouchers DIRECTLY rather than through
+            // PostedDirectionalVouchers, so it needs the registration filter applied here too — otherwise a
+            // registration-scoped 3B would carry its own taxable supplies and EVERY registration's exempt ones.
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
             if (v.Lines.Any(l => l.HasGst)) continue;   // taxable vouchers already counted
             // An outward reverse-charge supply carries zero tax too, but it belongs only in 3.1(d)-value / GSTR-1 4B —
             // NOT the exempt/nil/non-GST bucket (else it is double-represented). Exclude it (Phase 9 slice 2; RQ-7).

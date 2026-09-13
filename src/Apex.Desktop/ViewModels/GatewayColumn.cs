@@ -184,6 +184,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Nature-of-Goods (§206C TCS) master (non-null only for that column; Phase 7 slice 1).</summary>
     public NatureOfGoodsMasterViewModel? NatureOfGoodsMaster => Page as NatureOfGoodsMasterViewModel;
 
+    /// <summary>The hosted GST Registrations master (non-null only for that column; census 6.23, schema v61).</summary>
+    public GstRegistrationsMasterViewModel? GstRegistrationsMaster => Page as GstRegistrationsMasterViewModel;
+
+    /// <summary>The hosted GST Classification master (non-null only for that column; census 6.25, schema v61).</summary>
+    public GstClassificationMasterViewModel? GstClassificationMaster => Page as GstClassificationMasterViewModel;
+
     /// <summary>The hosted TDS Stat-Payment deposit page (non-null only for that column; Phase 7 slice 3).</summary>
     public TdsStatPaymentViewModel? TdsStatPayment => Page as TdsStatPaymentViewModel;
 

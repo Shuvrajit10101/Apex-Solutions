@@ -37,11 +37,43 @@ public static class GstReportSupport
     /// (<see cref="GstLineTax"/>) line. GST-off companies yield nothing.
     /// </summary>
     public static IEnumerable<(Voucher Voucher, VoucherType Type)> PostedGstVouchers(
-        Company company, DateOnly from, DateOnly to, GstTaxDirection direction)
+        Company company, DateOnly from, DateOnly to, GstTaxDirection direction, Guid? registrationId = null)
     {
-        foreach (var pair in PostedDirectionalVouchers(company, from, to, direction))
+        foreach (var pair in PostedDirectionalVouchers(company, from, to, direction, registrationId))
             if (pair.Voucher.Lines.Any(l => l.HasGst))
                 yield return pair;
+    }
+
+    /// <summary>
+    /// The registration a voucher is recorded under (census 6.23), normalised: a <c>null</c>
+    /// <see cref="Voucher.GstRegistrationId"/> — which is every voucher in every pre-v61 book — reads as the
+    /// company's own first registration, <see cref="GstRegistration.PrimaryId"/>.
+    /// </summary>
+    public static Guid RegistrationOf(Voucher voucher) =>
+        voucher.GstRegistrationId ?? GstRegistration.PrimaryId;
+
+    /// <summary>
+    /// 🔴 <b>The guard that makes a wrong filed document impossible rather than merely unlikely (census 6.23).</b>
+    /// Once a company holds more than one GST registration, folding a return over ALL its vouchers would merge two
+    /// States' supplies into one document filed against one GSTIN. Every GST projection funnels through
+    /// <see cref="PostedDirectionalVouchers"/>, so the refusal is placed there, once, rather than trusted to each
+    /// report remembering to scope itself.
+    ///
+    /// <para><b>Single-registration books are completely unaffected</b> — <c>IsMultiRegistration</c> is false, so
+    /// this never throws and the unscoped call yields exactly what it yielded at v60 (ER-13).</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The company holds multiple registrations and the caller named
+    /// none.</exception>
+    private static void EnsureRegistrationScoped(Company company, Guid? registrationId)
+    {
+        if (registrationId is not null) return;
+        if (company.Gst is not { IsMultiRegistration: true }) return;
+
+        throw new InvalidOperationException(
+            "This company holds multiple GST registrations, so a GST return must name the registration it is " +
+            "filed for. Select a registration (F3 — Company/Tax Registration) and run the report again. " +
+            "A return folded over every registration would combine supplies made under different GSTINs into a " +
+            "single filed document.");
     }
 
     /// <summary>
@@ -52,9 +84,17 @@ public static class GstReportSupport
     /// bucket; the taxable ones are the subset with a tax line. GST-off companies yield nothing.
     /// </summary>
     public static IEnumerable<(Voucher Voucher, VoucherType Type)> PostedDirectionalVouchers(
-        Company company, DateOnly from, DateOnly to, GstTaxDirection direction)
+        Company company, DateOnly from, DateOnly to, GstTaxDirection direction, Guid? registrationId = null)
     {
         if (!company.GstEnabled) yield break;
+
+        // v61 (census 6.23): refuse an unscoped return on a multi-registration company BEFORE yielding anything,
+        // so no caller can consume a partially-correct sequence. Single-registration books never reach the throw.
+        EnsureRegistrationScoped(company, registrationId);
+
+        // Normalise the requested scope once: naming the primary explicitly and leaving it null mean the same
+        // thing, and every pre-v61 voucher stores null.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
 
         foreach (var v in company.Vouchers)
         {
@@ -63,6 +103,7 @@ public static class GstReportSupport
             if (type is null) continue;
             if (DirectionOf(type.BaseType) != direction) continue;
             if (!LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue; // cancelled/post-dated/date filter
+            if (scope is { } s && RegistrationOf(v) != s) continue;         // v61: fold over ONE registration
             yield return (v, type);
         }
     }
@@ -2024,9 +2065,15 @@ public static class GstReportSupport
     /// posting to an <c>IsReverseCharge</c> classification ledger is the output liability (→ 3.1(d)); an RCM-tagged line on
     /// an ordinary Input ledger is the ITC (→ 4A(2)/4A(3)). GST-off companies yield nothing.
     /// </summary>
-    public static IEnumerable<RcmLine> RcmLines(Company company, DateOnly from, DateOnly to)
+    public static IEnumerable<RcmLine> RcmLines(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         if (!company.GstEnabled) yield break;
+
+        // v61 (census 6.23): the RCM sweep walks company.Vouchers directly, so it carries the same refusal and the
+        // same filter as PostedDirectionalVouchers — a 3B section 3.1(d) that folded every registration's reverse
+        // charge into one registration's return would be a wrong filed figure, not a cosmetic one.
+        EnsureRegistrationScoped(company, registrationId);
 
         foreach (var v in company.Vouchers)
         {
@@ -2034,6 +2081,7 @@ public static class GstReportSupport
             var type = company.FindVoucherType(v.TypeId);
             if (type is null) continue;
             if (!LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue; // cancelled/post-dated/date filter
+            if (registrationId is { } reg && RegistrationOf(v) != reg) continue;
             foreach (var line in v.Lines)
             {
                 if (line.Gst is not { IsReverseCharge: true } g) continue;

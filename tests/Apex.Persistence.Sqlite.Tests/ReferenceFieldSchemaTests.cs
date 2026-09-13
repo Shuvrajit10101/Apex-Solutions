@@ -76,7 +76,7 @@ public sealed class ReferenceFieldSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log
@@ -128,7 +128,7 @@ public sealed class ReferenceFieldSchemaTests
             using (var conn = Open(dbPath))
             {
                 // Step down one version at a time from the current version to reach v47.
-                SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);   // v52 voucher edit log

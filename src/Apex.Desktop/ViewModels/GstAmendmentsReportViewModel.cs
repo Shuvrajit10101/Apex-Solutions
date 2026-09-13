@@ -104,8 +104,22 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
         Table9A.Clear();
         Table9C.Clear();
 
-        Amendments = Gstr1Amendments.Build(_company, fyFrom, fyTo);
-        Advisory = Gstr3bCorrectionAdvisory.Build(_company, fyFrom, fyTo);
+        // v61 (census 6.23): both projections fold through GSTR-1 / GSTR-3B, which REFUSE an unscoped build on a
+        // multi-registration company — amendments of one registration's prior periods cannot be derived from a
+        // return combining two GSTINs. This screen does not yet carry a registration selector, so the refusal is
+        // surfaced as its own status rather than reaching the shell as an unhandled exception.
+        try
+        {
+            Amendments = Gstr1Amendments.Build(_company, fyFrom, fyTo);
+            Advisory = Gstr3bCorrectionAdvisory.Build(_company, fyFrom, fyTo);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Applicable = false;
+            CorrectionCountText = "0"; CorrectionTaxText = CorrectionTaxableText = "0.00";
+            StatusText = ex.Message;
+            return;
+        }
         Applicable = Amendments.Applicable;
         MechanismText = Advisory.Mechanism;
         Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  —  amendments of prior periods declared this year";

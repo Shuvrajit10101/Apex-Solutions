@@ -101,7 +101,23 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase
 
         var tolerance = _company.Gst?.ReconTolerance ?? ReconTolerance.Exact;
         var (from, to) = GstAdvancedSnapshots.Window(snap.ReturnPeriod, _company.FinancialYearStart);
-        var report = Gstr2bReconciler.Reconcile(_company, snap, from, to, tolerance);
+        // v61 (census 6.23): the reconciler REFUSES an unscoped run on a multi-registration company, because a
+        // books register folded over two GSTINs cannot be matched against one registration's 2B. This screen does
+        // not yet carry a registration selector, so the refusal is surfaced as the page's own message rather than
+        // reaching the shell as an unhandled exception. See the sequenced-behind note on census row 6.23.
+        Gstr2bReconciliationReport report;
+        try
+        {
+            report = Gstr2bReconciler.Reconcile(_company, snap, from, to, tolerance);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Report = null;
+            Rows.Clear();
+            HighlightedIndex = -1;
+            Message = ex.Message;
+            return;
+        }
         Report = report;
 
         foreach (var m in report.Matched)

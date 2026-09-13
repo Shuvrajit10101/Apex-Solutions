@@ -120,7 +120,8 @@ public static class KeralaFloodCessReturnBuilder
     /// does not have; inventing a silent default in either direction would move money, so the reading is made
     /// explicit, its effect is reported as a separate figure, and the screen says so in words.</para>
     /// </summary>
-    public static KeralaFloodCessReturn Build(Company company, DateOnly from, DateOnly to)
+    public static KeralaFloodCessReturn Build(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -144,7 +145,7 @@ public static class KeralaFloodCessReturnBuilder
         var outsideSchedules = 0m;
 
         foreach (var (voucher, type) in
-                 GstReportSupport.PostedDirectionalVouchers(company, levyFrom, levyTo, GstTaxDirection.Output))
+                 GstReportSupport.PostedDirectionalVouchers(company, levyFrom, levyTo, GstTaxDirection.Output, registrationId))
         {
             // A Credit Note reduces the outward turnover it relates to; see the remarks above.
             var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;

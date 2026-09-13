@@ -704,6 +704,57 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV60ToV61"/> (census 6.23 Multiple GSTIN registrations / 6.25 GST
+    /// Classification master): drops the two tables (<see cref="Schema.V61Tables"/>) with their indexes, the one
+    /// <c>vouchers</c> column (<see cref="Schema.V61VoucherColumns"/>) and the one <c>companies</c> column
+    /// (<see cref="Schema.V61CompanyColumns"/>), then stamps <c>schema_version</c> back to 60.
+    ///
+    /// <para>🔴 <b>NOT A TRUE INVERSE, AND HERE THE RESIDUAL IS THE ONE THAT MATTERS — READ IT BEFORE RUNNING
+    /// THIS ON A REAL BOOK.</b> Every <b>additional</b> GST registration is discarded, because a v60 database has
+    /// nowhere to keep one. Consequently every voucher that was recorded under an additional registration
+    /// <b>silently reverts to the company's own first registration</b> — that is what dropping
+    /// <c>gst_registration_id</c> means, since NULL is the primary. <b>No posted figure moves and no ledger
+    /// balance changes</b> (the attribution never entered a debit or a credit; it selects which return a voucher
+    /// folds into), but the downgraded book will then fold every supply into ONE return again. A book that has
+    /// actually filed under two GSTINs must not be downgraded and then re-filed from.</para>
+    ///
+    /// <para><b>Every GST Classification is discarded, and nothing computed changes.</b> A classification was
+    /// only ever COPIED onto a master at assignment time (see <c>GstClassification</c>), so the masters keep the
+    /// HSN/SAC and rates they were given and every document continues to compute exactly as it did; what is lost
+    /// is the reusable definition, not any rate in use.</para>
+    ///
+    /// <para>🔴 <b>ORDER IS LOAD-BEARING, AND <c>vouchers</c> MUST BE REBUILT BEFORE <c>gst_registrations</c> IS
+    /// DROPPED.</b> <c>vouchers.gst_registration_id</c> carries a <c>REFERENCES gst_registrations(id)</c> clause,
+    /// so dropping the parent first would leave <c>vouchers</c> declaring a foreign key to a table that no longer
+    /// exists — which SQLite tolerates silently until the next write, then reports as
+    /// <c>foreign key mismatch</c>. Rebuilding <c>vouchers</c> without the column removes the clause along with
+    /// it, after which the parent is free.</para>
+    ///
+    /// <para>🔴 <b>AND BOTH REBUILDS USE <see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/>.</b>
+    /// <c>vouchers</c> is the FK PARENT of <c>entry_lines.voucher_id</c> and of most stock-line and statutory
+    /// child tables, and <c>companies</c> is the parent of nearly everything; a <c>CREATE … AS SELECT</c> rebuild
+    /// loses the PRIMARY KEY, after which SQLite reports <c>foreign key mismatch</c> on the next child insert —
+    /// the measured failure <see cref="V56ToV55"/> documents.</para>
+    ///
+    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing a v60 book out of a CURRENT one runs this FIRST
+    /// and the lower rungs after it. Calling <see cref="V60ToV59"/> alone on a v61 file stamps the marker 59
+    /// while the v61 objects are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V61ToV60(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        // The child column FIRST — it names gst_registrations in a REFERENCES clause. See the doc comment.
+        RebuildPreservingShape(connection, "vouchers", Schema.V61VoucherColumns, "vouchers_v60");
+        RebuildPreservingShape(connection, "companies", Schema.V61CompanyColumns, "companies_v60");
+
+        foreach (var index in Schema.V61Indexes) Exec(connection, $"DROP INDEX IF EXISTS {index};");
+        foreach (var table in Schema.V61Tables) Exec(connection, $"DROP TABLE IF EXISTS {table};");
+
+        Exec(connection, "UPDATE schema_version SET version = 60;");
+    }
+
+    /// <summary>
     /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, <b>reconstructing its declaration</b>
     /// from <c>PRAGMA table_info</c> and <c>PRAGMA foreign_key_list</c> rather than inferring it from a
     /// <c>CREATE … AS SELECT</c>. Unlike <see cref="DropColumns"/> this preserves the <b>primary key</b>, the

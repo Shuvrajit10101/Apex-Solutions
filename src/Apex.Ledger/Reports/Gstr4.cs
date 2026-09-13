@@ -52,7 +52,7 @@ public sealed record Gstr4(
 
     /// <summary>Builds GSTR-4 for a composition company over the FY <c>[fyFrom, fyTo]</c>; a non-composition company
     /// yields a not-applicable return. The four quarters are derived as 3-month windows from <paramref name="fyFrom"/>.</summary>
-    public static Gstr4 Build(Company company, DateOnly fyFrom, DateOnly fyTo)
+    public static Gstr4 Build(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId = null)
     {
         if (company.Gst?.RegistrationType != GstRegistrationType.Composition)
             return new Gstr4(fyFrom, fyTo, false, null, [], null,
@@ -66,8 +66,8 @@ public sealed record Gstr4(
             quarters.Add(Cmp08.Build(company, qFrom, qTo));
         }
 
-        var annual = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo);
-        var inward = BuildInward(company, fyFrom, fyTo);
+        var annual = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo, registrationId);
+        var inward = BuildInward(company, fyFrom, fyTo, registrationId);
         return new Gstr4(fyFrom, fyTo, true, annual.SubType, quarters, annual, inward);
     }
 
@@ -76,10 +76,11 @@ public sealed record Gstr4(
     /// ITC). A voucher that posts a reverse-charge liability is 4B (with its cash RCM tax); else a registered-supplier
     /// purchase is 4A, an unregistered-supplier purchase is 4C. Import-of-services (4D) is zero in S3 (carry-forward).
     /// </summary>
-    private static Gstr4Inward BuildInward(Company company, DateOnly from, DateOnly to)
+    private static Gstr4Inward BuildInward(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         var reg = 0m; var rc = 0m; var rcTax = 0m; var urp = 0m;
-        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Input))
+        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
             if (type.BaseType != VoucherBaseType.Purchase) continue;
 
@@ -159,12 +160,12 @@ public sealed record Gstr9a(
     /// mirroring the <see cref="Gstr4.AnnualCompositionTax"/> Σ-of-quarters template — so <b>9A reconciles to Σ CMP-08 by
     /// construction</b> (never a whole-FY <c>ComputeForPeriod</c> re-round that could diverge on odd-paisa turnover). The
     /// turnover figures are additive (no rounding), so they are taken from the whole-FY compute unchanged.</summary>
-    public static Gstr9a Build(Company company, DateOnly fyFrom, DateOnly fyTo)
+    public static Gstr9a Build(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId = null)
     {
         if (company.Gst?.RegistrationType != GstRegistrationType.Composition)
             return new Gstr9a(fyFrom, fyTo, false, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero);
 
-        var t = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo); // turnover (additive) only
+        var t = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo, registrationId); // turnover (additive) only
         decimal cgst = 0m, sgst = 0m, rcm = 0m;
         for (var i = 0; i < 4; i++)
         {
