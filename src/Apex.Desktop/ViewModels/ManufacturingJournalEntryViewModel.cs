@@ -450,7 +450,7 @@ public sealed partial class ManufacturingJournalEntryViewModel : ViewModelBase, 
     public void Cancel() => _onCancelled();
 
     private static string Rupees(Money m) =>
-        "₹" + m.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
+        "₹" + m.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture);
 
     private static string CarveOutLabel(BomLineType type) => type switch
     {

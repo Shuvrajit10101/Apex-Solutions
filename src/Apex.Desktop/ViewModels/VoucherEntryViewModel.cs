@@ -569,7 +569,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var allocated = InvoiceBillAllocatedTotal;
         var target = InvoicePartyTotal;
         var diff = target - allocated;
-        string F(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
+        string F(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture);
         InvoiceBillSummary = diff == 0m && target > 0m
             ? $"Allocated {F(allocated)} of {F(target)}  —  fully allocated"
             : diff > 0m
@@ -655,8 +655,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         Message = InvoiceBillAllocations.Any(a => !a.IsBlank && !a.IsComplete)
             ? "Every bill-wise row needs a positive amount and (except On Account) a bill reference name."
-            : $"The bill-wise allocation must total {InvoicePartyTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)} " +
-              $"— the party's invoice total. Currently allocated {InvoiceBillAllocatedTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)}.";
+            : $"The bill-wise allocation must total {InvoicePartyTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture)} " +
+              $"— the party's invoice total. Currently allocated {InvoiceBillAllocatedTotal.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture)}.";
 
         // The derived allocation is exact by construction, so this branch means something upstream desynced. With the
         // panel hidden the operator has nothing to correct, so name the switch that reveals it rather than stranding
