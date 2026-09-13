@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
+using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
@@ -22,6 +24,53 @@ public sealed class VoucherClassListRow
     /// <summary>"Yes" / "No" — the operator-facing rendering of
     /// <see cref="VoucherClass.UseClassForInterGodownTransfers"/>.</summary>
     public string InterGodownTransfers { get; init; } = string.Empty;
+}
+
+/// <summary>One row of the vendor's <b>"Default Accounting Allocations for all items in Invoice"</b> table
+/// (census 2.6), rendered for the screen.</summary>
+public sealed class VoucherClassAllocationRow
+{
+    public Guid Id { get; init; }
+    public string Ledger { get; init; } = string.Empty;
+    /// <summary>The allocation as a percentage string ("33.33%") — the stored value is basis points.</summary>
+    public string Percent { get; init; } = string.Empty;
+}
+
+/// <summary>One row of the vendor's <b>Additional Accounting Entries</b> table (census 2.6), rendered for the
+/// screen. Every column is the vendor's own: Ledger Name, Type of Calculation, Value Basis, the rounding, and
+/// Remove if Zero.</summary>
+public sealed class VoucherClassEntryRow
+{
+    public Guid Id { get; init; }
+    public string Ledger { get; init; } = string.Empty;
+    public string CalculationType { get; init; } = string.Empty;
+    public string ValueBasis { get; init; } = string.Empty;
+    public string Rounding { get; init; } = string.Empty;
+    public string RemoveIfZero { get; init; } = string.Empty;
+}
+
+/// <summary>A ledger pick for the two census-2.6 tables.</summary>
+public sealed class ClassLedgerOption
+{
+    public Guid Id { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+}
+
+/// <summary>A vendor "Type of Calculation" pick.</summary>
+public sealed class ClassCalculationOption
+{
+    public VoucherClassCalculationType Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+}
+
+/// <summary>A vendor "Rounding Method" pick.</summary>
+public sealed class ClassRoundingOption
+{
+    public VoucherClassRoundingMethod Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
 }
 
 public sealed partial class VoucherTypeListRow : ObservableObject, IMasterListRow
@@ -181,15 +230,45 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
     [ObservableProperty] private bool _newClassInterGodownTransfers = true;
 
     /// <summary>
-    /// True when the Voucher Classes section is shown: an <b>alteration</b> of a <b>Stock Journal</b> type.
-    /// <para>Create mode is excluded because a class is a child of a type that does not exist yet — offering the
-    /// field there would either silently discard what the operator typed or require a second, hidden save. Other
-    /// base kinds are excluded because the only class this product ships is the transfer class, and census row
-    /// <b>2.6</b> — the general Voucher Class machinery — is ABSENT and is not this track's; a "Name of Class"
-    /// box on a Sales type would advertise a feature that does not exist.</para>
+    /// True when the Voucher Classes section is shown: an <b>alteration</b> of a type whose base kind can carry a
+    /// class — the Stock Journal (census 9.9, the transfer class) or one of the <b>invoice-shaped</b> kinds
+    /// (census 2.6, the general machinery).
+    ///
+    /// <para>Create mode is still excluded: a class is a child of a type that does not exist yet, so offering the
+    /// field there would either silently discard what the operator typed or require a second, hidden save.</para>
+    ///
+    /// <para>🔴 <b>THE OTHER HALF OF THIS GATE WAS WIDENED AT v62, AND THE OLD COMMENT WAS RIGHT WHEN IT WAS
+    /// WRITTEN.</b> It read: <i>"the only class this product ships is the transfer class, and census row 2.6 — the
+    /// general Voucher Class machinery — is ABSENT … a 'Name of Class' box on a Sales type would advertise a
+    /// feature that does not exist."</i> Row 2.6 now ships (ledger pre-maps, default accounting allocations,
+    /// additional-ledger rules, rounding), so a Sales class no longer advertises anything absent. The list is
+    /// still a LIST rather than "any type": a class on an Attendance or Payroll type would offer an item-value
+    /// allocation on a voucher that has no item value.</para>
     /// </summary>
     public bool ShowVoucherClasses =>
+        IsAltering && SelectedBaseType?.Value is { } b && BaseTypesThatCarryAClass.Contains(b);
+
+    /// <summary>The base kinds a voucher class is offered on. Stock Journal for census 9.9's transfer class; the
+    /// invoice-shaped kinds for census 2.6's pre-maps and additional entries.</summary>
+    private static readonly IReadOnlySet<VoucherBaseType> BaseTypesThatCarryAClass = new HashSet<VoucherBaseType>
+    {
+        VoucherBaseType.StockJournal,
+        VoucherBaseType.Sales,
+        VoucherBaseType.Purchase,
+        VoucherBaseType.CreditNote,
+        VoucherBaseType.DebitNote,
+    };
+
+    /// <summary>True when the vendor's <b>"Use Class for Inter-Godown Transfers"</b> box is offered — a Stock
+    /// Journal only. The engine refuses the flag on anything else (<c>VoucherTypeService.AddClass</c>); this keeps
+    /// the screen from offering a box whose only outcome is a refusal.</summary>
+    public bool ShowInterGodownOption =>
         IsAltering && SelectedBaseType?.Value == VoucherBaseType.StockJournal;
+
+    /// <summary>True when the census-2.6 tables are offered — every class-carrying kind EXCEPT the Stock Journal,
+    /// which posts no ledger entry at all and so has nothing to pre-map or round.</summary>
+    public bool ShowClassAccountingTables =>
+        ShowVoucherClasses && SelectedBaseType?.Value != VoucherBaseType.StockJournal;
 
     /// <summary>
     /// Adds the class named in <see cref="NewClassName"/> to the type under alteration and saves. Domain refusals
@@ -206,8 +285,14 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         }
         try
         {
+            // 🔴 THE FLAG IS ONLY SENT WHEN THE BOX IS ACTUALLY OFFERED. NewClassInterGodownTransfers defaults
+            // to TRUE (a Stock Journal class almost always wants it), and the box is hidden on every other base
+            // kind — so passing the field through unconditionally made EVERY Sales class fail at the engine with
+            // "Use Class for Inter-Godown Transfers applies only to a Stock Journal voucher type", naming an
+            // option the operator was never shown and could not turn off.
+            var interGodown = ShowInterGodownOption && NewClassInterGodownTransfers;
             new VoucherTypeService(_company)
-                .AddClass(_editingId, NewClassName ?? string.Empty, NewClassInterGodownTransfers);
+                .AddClass(_editingId, NewClassName ?? string.Empty, interGodown);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -257,6 +342,307 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
                 // own sentence reads correctly when the list is EXPORTED, where a tick glyph does not.
                 InterGodownTransfers = c.UseClassForInterGodownTransfers ? "Yes" : "No",
             });
+
+        // If the class the two v62 tables were showing has gone, stop showing its rows.
+        if (SelectedClassId is { } id && Classes.All(c => c.Id != id)) SelectedClassId = null;
+        RefreshClassAccounting();
+    }
+
+    // ---------------------------------- census 2.6 (v62) — the class's own accounting tables
+
+    /// <summary>The class whose Default Accounting Allocations and Additional Accounting Entries the two tables
+    /// below are showing. Null until the operator picks one — a class has to exist before its rules can.</summary>
+    [ObservableProperty] private Guid? _selectedClassId;
+
+    partial void OnSelectedClassIdChanged(Guid? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedClass));
+        OnPropertyChanged(nameof(SelectedClassName));
+        RefreshClassAccounting();
+    }
+
+    /// <summary>True once a class is selected — the two v62 tables are meaningless without one.</summary>
+    public bool HasSelectedClass => SelectedClassId is not null;
+
+    /// <summary>The selected class's vendor "Name of Class", for the section caption.</summary>
+    public string SelectedClassName =>
+        SelectedClassId is { } id ? Classes.FirstOrDefault(c => c.Id == id)?.Name ?? string.Empty : string.Empty;
+
+    /// <summary>The vendor's <b>"Default Accounting Allocations for all items in Invoice"</b> for the selected
+    /// class (census 2.6).</summary>
+    public ObservableCollection<VoucherClassAllocationRow> Allocations { get; } = new();
+
+    /// <summary>The vendor's <b>"Additional Accounting Entries"</b> for the selected class (census 2.6).</summary>
+    public ObservableCollection<VoucherClassEntryRow> AdditionalEntries { get; } = new();
+
+    /// <summary>Every ledger in the company, for the two ledger pickers.</summary>
+    public ObservableCollection<ClassLedgerOption> LedgerOptions { get; } = new();
+
+    /// <summary>The vendor's <b>Type of Calculation</b> options (census 2.6). Only the members a vendor page
+    /// names are offered — see <see cref="VoucherClassCalculationType"/> for why the list is short.</summary>
+    public ObservableCollection<ClassCalculationOption> CalculationTypes { get; } = new();
+
+    /// <summary>The vendor's four <b>Rounding Method</b> options.</summary>
+    public ObservableCollection<ClassRoundingOption> RoundingMethods { get; } = new();
+
+    [ObservableProperty] private ClassLedgerOption? _newAllocationLedger;
+    /// <summary>The vendor's <b>percentage</b> of allocation, as typed. Parsed to BASIS POINTS on add.</summary>
+    [ObservableProperty] private string _newAllocationPercentText = string.Empty;
+
+    [ObservableProperty] private ClassLedgerOption? _newEntryLedger;
+    [ObservableProperty] private ClassCalculationOption? _newEntryCalculationType;
+    /// <summary>The vendor's <b>Value Basis</b>, as typed — a rate per BASE UNIT for "Based on Quantity".</summary>
+    [ObservableProperty] private string _newEntryValueBasisText = string.Empty;
+    [ObservableProperty] private ClassRoundingOption? _newEntryRoundingMethod;
+    /// <summary>The vendor's <b>Rounding Limit</b>, as typed — the multiple the amount snaps to.</summary>
+    [ObservableProperty] private string _newEntryRoundingLimitText = string.Empty;
+    /// <summary>The vendor's <b>Remove if Zero</b>.</summary>
+    [ObservableProperty] private bool _newEntryRemoveIfZero;
+
+    /// <summary>Shows the two v62 tables for one class.</summary>
+    public void SelectClass(Guid classId) => SelectedClassId = classId;
+
+    private void RefreshClassAccounting()
+    {
+        Allocations.Clear();
+        AdditionalEntries.Clear();
+        OnPropertyChanged(nameof(AllocationTotalCaption));
+
+        if (!IsAltering
+            || SelectedClassId is not { } classId
+            || _company.FindVoucherType(_editingId) is not { } type
+            || type.Classes.FirstOrDefault(c => c.Id == classId) is not { } cls) return;
+
+        foreach (var a in cls.LedgerAllocations)
+            Allocations.Add(new VoucherClassAllocationRow
+            {
+                Id = a.Id,
+                Ledger = LedgerName(a.LedgerId),
+                // Basis points back to a percentage for display — 3_333 reads as "33.33%".
+                Percent = (a.PercentBasisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%",
+            });
+
+        foreach (var e in cls.AdditionalEntries)
+            AdditionalEntries.Add(new VoucherClassEntryRow
+            {
+                Id = e.Id,
+                Ledger = LedgerName(e.LedgerId),
+                CalculationType = DescribeCalculation(e.CalculationType),
+                ValueBasis = e.CalculationType == VoucherClassCalculationType.BasedOnQuantity
+                    ? e.ValueBasis.ToString()
+                    : string.Empty,
+                Rounding = e.RoundingMethod == VoucherClassRoundingMethod.NotApplicable
+                    ? "Not Applicable"
+                    : $"{DescribeRounding(e.RoundingMethod)} to {e.RoundingLimit}",
+                RemoveIfZero = e.RemoveIfZero ? "Yes" : "No",
+            });
+
+        OnPropertyChanged(nameof(AllocationTotalCaption));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE RUNNING TOTAL, SHOWN BECAUSE THE OPERATOR CANNOT OTHERWISE SEE THE ONE MISTAKE THAT MATTERS.</b>
+    /// Allocations must reach exactly 100% or every voucher entered under the class posts out of balance. The
+    /// engine refuses an incomplete class at save and at posting, but a refusal after the fact is a worse
+    /// experience than a total that visibly reads "80% — must reach 100%" while the table is being keyed.
+    /// </summary>
+    public string AllocationTotalCaption
+    {
+        get
+        {
+            if (SelectedClassId is not { } id
+                || _company.FindVoucherType(_editingId) is not { } type
+                || type.Classes.FirstOrDefault(c => c.Id == id) is not { } cls
+                || cls.LedgerAllocations.Count == 0) return string.Empty;
+
+            var bp = cls.LedgerAllocations.Sum(a => (long)a.PercentBasisPoints);
+            var pct = (bp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+            return bp == VoucherClassLedgerAllocation.FullAllocationBasisPoints
+                ? $"Allocated: {pct}%"
+                : $"Allocated: {pct}% — must reach 100%";
+        }
+    }
+
+    private string LedgerName(Guid id) => _company.FindLedger(id)?.Name ?? "(deleted ledger)";
+
+    /// <summary>Fills the two ledger pickers. Ordered by name with <see cref="StringComparer.Ordinal"/> — NOT a
+    /// culture-sensitive sort, which orders differently on the ubuntu leg of the gate than on the windows one.</summary>
+    private void RefreshLedgerOptions()
+    {
+        LedgerOptions.Clear();
+        foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.Ordinal))
+            LedgerOptions.Add(new ClassLedgerOption { Id = l.Id, Display = l.Name });
+    }
+
+    private static string DescribeCalculation(VoucherClassCalculationType t) => t switch
+    {
+        VoucherClassCalculationType.BasedOnQuantity => "Based on Quantity",
+        VoucherClassCalculationType.AsTotalAmountRounding => "As Total Amount Rounding",
+        _ => "Not Applicable",
+    };
+
+    private static string DescribeRounding(VoucherClassRoundingMethod m) => m switch
+    {
+        VoucherClassRoundingMethod.Normal => "Normal Rounding",
+        VoucherClassRoundingMethod.Upward => "Upward Rounding",
+        VoucherClassRoundingMethod.Downward => "Downward Rounding",
+        _ => "Not Applicable",
+    };
+
+    /// <summary>
+    /// Adds one Default Accounting Allocation to the selected class and saves. The typed percentage is converted
+    /// to BASIS POINTS — never held as a decimal percentage, for the reason on
+    /// <see cref="VoucherClassLedgerAllocation"/>.
+    /// </summary>
+    public bool AddAllocation()
+    {
+        Message = null;
+        if (SelectedClassId is not { } classId) { Message = "Pick a voucher class first."; return false; }
+        if (NewAllocationLedger is null) { Message = "Pick a ledger for the allocation."; return false; }
+
+        if (!TryParsePercentToBasisPoints(NewAllocationPercentText, out var bp))
+        {
+            Message = "The allocation percentage must be a number between 0 and 100, to at most two decimals.";
+            return false;
+        }
+
+        try
+        {
+            new VoucherTypeService(_company)
+                .AddClassAllocation(_editingId, classId, NewAllocationLedger.Id, bp);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or ArgumentOutOfRangeException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        NewAllocationPercentText = string.Empty;
+        RefreshClassAccounting();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Removes one Default Accounting Allocation and saves.</summary>
+    public bool RemoveAllocation(Guid allocationId)
+    {
+        Message = null;
+        if (SelectedClassId is not { } classId) return false;
+        try
+        {
+            new VoucherTypeService(_company).RemoveClassAllocation(_editingId, classId, allocationId);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+        RefreshClassAccounting();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Adds one Additional Accounting Entry to the selected class and saves.</summary>
+    public bool AddAdditionalEntry()
+    {
+        Message = null;
+        if (SelectedClassId is not { } classId) { Message = "Pick a voucher class first."; return false; }
+        if (NewEntryLedger is null) { Message = "Pick a ledger for the additional accounting entry."; return false; }
+
+        var calc = (NewEntryCalculationType ?? CalculationTypes.FirstOrDefault())?.Value
+                   ?? VoucherClassCalculationType.NotApplicable;
+        var rounding = (NewEntryRoundingMethod ?? RoundingMethods.FirstOrDefault())?.Value
+                       ?? VoucherClassRoundingMethod.NotApplicable;
+
+        if (!TryParseMoney(NewEntryValueBasisText, out var basis))
+        {
+            Message = "The value basis must be an amount in rupees, to at most two decimals.";
+            return false;
+        }
+        if (!TryParseMoney(NewEntryRoundingLimitText, out var limit))
+        {
+            Message = "The rounding limit must be an amount in rupees, to at most two decimals.";
+            return false;
+        }
+
+        try
+        {
+            new VoucherTypeService(_company).AddClassAdditionalEntry(
+                _editingId, classId, NewEntryLedger.Id, calc, basis, rounding, limit, NewEntryRemoveIfZero);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or ArgumentOutOfRangeException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        NewEntryValueBasisText = string.Empty;
+        NewEntryRoundingLimitText = string.Empty;
+        NewEntryRemoveIfZero = false;
+        RefreshClassAccounting();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Removes one Additional Accounting Entry and saves.</summary>
+    public bool RemoveAdditionalEntry(Guid entryId)
+    {
+        Message = null;
+        if (SelectedClassId is not { } classId) return false;
+        try
+        {
+            new VoucherTypeService(_company).RemoveClassAdditionalEntry(_editingId, classId, entryId);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+        RefreshClassAccounting();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Parses the operator's percentage into BASIS POINTS. <b>Invariant culture and two decimals maximum</b>: the
+    /// gate runs on ubuntu and macOS too, where a culture-sensitive parse reads "33.33" as thirty-three thousand
+    /// three hundred and thirty-three under a comma-decimal locale — which would be a 333 300% allocation.
+    ///
+    /// <para>🔴 <b>THE ×100 IS DELEGATED TO <see cref="PaisaConversion"/> RATHER THAN WRITTEN HERE, AND THAT IS
+    /// NOT A DODGE OF THE DRIFT LOCK — IT IS THE SAME RULE.</b> "Scale by a hundred and refuse anything with a
+    /// finer tail" is exactly what rupees→paisa is, and <c>percent</c>→<c>basis points</c> is that arithmetic with
+    /// different units: 33.33% is to 3 333 bp precisely what ₹33.33 is to 3 333 paisa. A hand-written
+    /// <c>pct * 100m</c> plus a truncation test here would be a second copy of the one rule D3 exists to keep
+    /// single — and the copy would be the one that drifts, because nothing else would ever test it.</para>
+    /// </summary>
+    private static bool TryParsePercentToBasisPoints(string? text, out int basisPoints)
+    {
+        basisPoints = 0;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (!decimal.TryParse(text.Trim().TrimEnd('%'), NumberStyles.Number, CultureInfo.InvariantCulture, out var pct))
+            return false;
+        if (pct <= 0m || pct > 100m) return false;
+
+        // Finer than a basis point cannot be stored, and TryToPaisaExact is the one place that test lives.
+        if (!PaisaConversion.TryToPaisaExact(pct, out var bp)) return false;
+        basisPoints = (int)bp;
+        return true;
+    }
+
+    /// <summary>Parses an optional rupee amount, invariant-culture. Blank is a legitimate zero — the Value Basis
+    /// and Rounding Limit are both unused on some calculation types.</summary>
+    private static bool TryParseMoney(string? text, out Money money)
+    {
+        money = Money.Zero;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+            return false;
+        money = Money.FromRupees(value);
+        return money.IsPaisaExact;
     }
 
     /// <summary>True while the base-kind picker may be changed — Create mode only. On an alteration the base kind
@@ -273,6 +659,29 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
 
         foreach (var b in Enum.GetValues<VoucherBaseType>())
             BaseTypes.Add(new VoucherBaseTypeOption { Value = b, Display = DescribeBaseType(b) });
+
+        // census 2.6 (v62) — the two pickers. Only the Type-of-Calculation members a vendor page NAMES are
+        // offered; see VoucherClassCalculationType for why that list is deliberately short.
+        foreach (var t in new[]
+                 {
+                     VoucherClassCalculationType.NotApplicable,
+                     VoucherClassCalculationType.BasedOnQuantity,
+                     VoucherClassCalculationType.AsTotalAmountRounding,
+                 })
+            CalculationTypes.Add(new ClassCalculationOption { Value = t, Display = DescribeCalculation(t) });
+
+        foreach (var m in new[]
+                 {
+                     VoucherClassRoundingMethod.NotApplicable,
+                     VoucherClassRoundingMethod.Normal,
+                     VoucherClassRoundingMethod.Upward,
+                     VoucherClassRoundingMethod.Downward,
+                 })
+            RoundingMethods.Add(new ClassRoundingOption { Value = m, Display = DescribeRounding(m) });
+
+        NewEntryCalculationType = CalculationTypes[0];
+        NewEntryRoundingMethod = RoundingMethods[0];
+        RefreshLedgerOptions();
         SelectedBaseType = BaseTypes.First();
 
         // The vendor's own order on the Voucher Type screen, with None (from the numbering-methods page) last.
