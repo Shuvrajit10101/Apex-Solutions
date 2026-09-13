@@ -361,6 +361,45 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     public string VatRefusalReason =>
         NonGstGoods.VatRefusalReason(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None) ?? string.Empty;
 
+    // ------------------------------------------------------------- census 15.8 — the CENTRAL EXCISE position
+    // The SAME class of goods decides a SECOND question, and it decides it DIFFERENTLY. Until now this screen
+    // answered only "may State VAT reach these goods?" and left the operator to infer the excise position from
+    // silence — which, for the two classes that surprise people, leads them to infer the opposite of the truth:
+    //   · TOBACCO reads as an ordinary GST good here, yet it bears central excise as well as GST
+    //     (Constitution, Seventh Schedule, List I entry 84(f)); and
+    //   · ALCOHOLIC LIQUOR reads as the flagship "outside GST" class, yet central excise does NOT reach it —
+    //     entry 84 does not list it, and excise on it is a State subject.
+    // So the excise position is STATED, from the same published predicate the (eventual) excise slice will gate
+    // on, and it can never drift from it. See ExciseApplicability, which carries entry 84 verbatim.
+    //
+    // ⚠️ THIS IS A STATEMENT, NOT EXCISE SUPPORT, and the limit is deliberate and labelled. Neither half of
+    // census row 15.8 ships here — no excise invoice format at the voucher, no RG 23D, no Form 2 — because both
+    // need storage this slice had no budget for. Nothing below computes a duty or asserts a rate.
+
+    /// <summary>
+    /// The one-sentence CENTRAL EXCISE position of the selected class of goods (census 15.8) — shown for
+    /// <b>every</b> class, not only the excisable ones, because "excise does not reach these goods" is exactly
+    /// as load-bearing for an operator as "it does". Bound from
+    /// <see cref="ExciseApplicability.PositionStatement"/>, which delegates its predicate to
+    /// <see cref="NonGstGoods.AttractsCentralExcise"/>, so this screen cannot state a position the gate
+    /// disagrees with.
+    /// </summary>
+    public string ExcisePositionStatement =>
+        ExciseApplicability.PositionStatement(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+
+    /// <summary>The short badge for the same fact ("Excise: applies" / "Excise: does not apply").</summary>
+    public string ExcisePositionBadge =>
+        ExciseApplicability.PositionBadge(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+
+    /// <summary>
+    /// True while central excise reaches the selected class — the five petroleum products <b>and tobacco</b>.
+    /// 🔴 <b>Deliberately NOT the same predicate as <see cref="VatRateAllowed"/></b>: the two differ for
+    /// tobacco (excise yes, VAT no) and for alcoholic liquor (VAT yes, excise no). The screen colours the
+    /// statement from this, so the two blocks can visibly disagree — which is the truth.
+    /// </summary>
+    public bool ExciseAppliesToSelectedClass =>
+        ExciseApplicability.ReachesGoods(SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+
     /// <summary>
     /// Changing the class re-evaluates the gate. It also CLEARS a rate that is no longer permitted, mirroring
     /// <see cref="VatService.SetItemGoodsClass"/> exactly — leaving a stale rate visible in a disabled box is
@@ -371,6 +410,13 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         if (!VatRateAllowed) VatTaxRatePercentText = string.Empty;
         OnPropertyChanged(nameof(VatRateAllowed));
         OnPropertyChanged(nameof(VatRefusalReason));
+
+        // census 15.8 — the excise position moves with the SAME selection and must be re-raised here. Omitting
+        // these three is the classic silent half of this bug: the picker changes, VAT updates, and the excise
+        // sentence beside it keeps describing the PREVIOUS class.
+        OnPropertyChanged(nameof(ExcisePositionStatement));
+        OnPropertyChanged(nameof(ExcisePositionBadge));
+        OnPropertyChanged(nameof(ExciseAppliesToSelectedClass));
     }
 
     /// <summary>The item's default Nature of Goods (§206C) — "(none)" leaves it unset (no auto-TCS on its sale).</summary>

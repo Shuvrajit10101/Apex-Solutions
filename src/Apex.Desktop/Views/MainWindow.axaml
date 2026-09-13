@@ -8363,6 +8363,54 @@
                                     </StackPanel>
                                   </Border>
 
+                                  <!-- CENTRAL EXCISE POSITION (census 15.8) — the SECOND question the same
+                                       class of goods answers, and it answers it DIFFERENTLY from VAT.
+
+                                       IT IS ITS OWN BLOCK, NOT A LINE INSIDE THE VAT BOX ABOVE, and that is
+                                       the point rather than styling: the two sets genuinely disagree, so the
+                                       screen must be able to show "VAT: refused" and "Excise: applies" side by
+                                       side without one appearing to qualify the other. Tobacco is exactly that
+                                       case (GST + central excise, no VAT); alcoholic liquor is the mirror of
+                                       it (VAT yes, central excise no).
+
+                                       THE STATEMENT SHOWS FOR EVERY CLASS, including the ones excise does not
+                                       reach — "excise does not apply to these goods" is what stops an operator
+                                       inferring the opposite from an empty panel.
+
+                                       ⚠️ KNOWN LIMIT, RECORDED RATHER THAN HIDDEN: this block inherits
+                                       ShowVatBlock, so it is reachable only for a company that enabled VAT.
+                                       A tobacco dealer — inside GST, excisable, no VAT — cannot see it, because
+                                       there is no company-level excise flag to gate on and this slice had no
+                                       schema budget to add one. That flag is the first thing the excise slice
+                                       needs, and it is reported as owed rather than faked here. -->
+                                  <Border Background="#F4F1FB"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding ShowVatBlock}">
+                                    <StackPanel Spacing="6">
+                                      <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Text="Central Excise" FontWeight="SemiBold"
+                                                   FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding ExcisePositionBadge}"
+                                                   FontWeight="SemiBold" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                      </Grid>
+                                      <!-- WRAPS, never trims: a statement of law cut at the column edge is
+                                           worse than no statement — it can read as its own opposite. -->
+                                      <TextBlock Text="{Binding ExcisePositionStatement}"
+                                                 TextWrapping="Wrap" FontSize="11.5"
+                                                 Foreground="{StaticResource Ink}"/>
+                                      <!-- Shown ONLY when excise actually reaches the goods, because that is
+                                           the only case in which an operator would look for a duty field and
+                                           needs to be told plainly that there is none. -->
+                                      <TextBlock Text="This build records no excise duty, register or return. The class of goods is stated here only."
+                                                 IsVisible="{Binding ExciseAppliesToSelectedClass}"
+                                                 TextWrapping="Wrap" FontSize="11"
+                                                 Foreground="{StaticResource AlertRed}"/>
+                                    </StackPanel>
+                                  </Border>
+
                                   <!-- Batch switches (Phase 6 Cluster 1; RQ-2) — shown only when the company
                                        flag "Maintain Batch-wise details" is on (RQ-52). The three switches are
                                        independent (Use-Expiry may be on without Track-Mfg). -->
