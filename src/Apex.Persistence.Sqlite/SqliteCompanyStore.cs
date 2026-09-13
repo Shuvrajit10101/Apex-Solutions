@@ -1573,6 +1573,40 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 62;
         }
 
+        // v62 → v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From"
+        // window — two nullable columns on pay_head_computation_slabs. Purely additive; it back-fills NOTHING,
+        // because BOTH NULL already means "in force in every period", which is exactly what every pre-v63 slab
+        // did. Every existing payslip therefore recomputes to the same paisa. See Schema.MigrateV62ToV63.
+        // 🔴 THIS RUNG WAS WRITTEN AS 61 → 63 AND HAS BEEN RE-POINTED TO 62 → 63. Ruling 22 assigned this track
+        // v63 while v62 (Voucher Class) was still being built on a sibling branch, so the original guard read
+        // `version == 61` and spanned 61 → 63 in one move — correct while it stood alone. v62 has since landed
+        // (origin/main 973d933) and its step sits directly ABOVE this one, so a v61 book is now already at 62 by
+        // the time control reaches here. Leaving the guard on 61 would have been the worse of the two failures:
+        // the step would never fire and the version check below would throw. Ordering it FIRST instead would have
+        // been worse still — a v61 book would have been stamped 63 without ever receiving v62's two child tables,
+        // producing a database whose schema_version does not describe its own shape. The two migrations commute
+        // (v63 touches only pay_head_computation_slabs; v62 only adds child tables), so the re-point is exact.
+        // The ladder is proved end-to-end by LabourWelfareFundSchemaTests.A_v61_book_climbs_the_whole_ladder_…
+        if (version == 62)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV62ToV63;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 63);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 63;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -4020,7 +4054,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using (var cs = _connection.CreateCommand())
         {
             cs.CommandText = """
-                SELECT s.pay_head_id, s.from_amount_paisa, s.to_amount_paisa, s.slab_type, s.rate_basis_points, s.value_paisa
+                SELECT s.pay_head_id, s.from_amount_paisa, s.to_amount_paisa, s.slab_type, s.rate_basis_points, s.value_paisa,
+                       s.effective_from, s.effective_to
                 FROM pay_head_computation_slabs s
                 JOIN pay_heads p ON p.id = s.pay_head_id
                 WHERE p.company_id = $cid
@@ -4037,7 +4072,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     rateBasisPoints: (int)r.GetInt64(4),
                     value: Paisa.ToMoney(r.GetInt64(5)),
                     fromAmount: r.IsDBNull(1) ? (Money?)null : Paisa.ToMoney(r.GetInt64(1)),
-                    toAmount: r.IsDBNull(2) ? (Money?)null : Paisa.ToMoney(r.GetInt64(2))));
+                    toAmount: r.IsDBNull(2) ? (Money?)null : Paisa.ToMoney(r.GetInt64(2)),
+                    // v63 (census 7.19): NULL in either column is the perpetual bound, so a pre-v63 row rebuilds
+                    // into exactly the slab it always was.
+                    effectiveFrom: r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6)),
+                    effectiveTo: r.IsDBNull(7) ? (DateOnly?)null : ParseDate(r.GetString(7))));
             }
         }
 
@@ -7566,8 +7605,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT INTO pay_head_computation_slabs
-                        (pay_head_id, from_amount_paisa, to_amount_paisa, slab_type, rate_basis_points, value_paisa, ord)
-                    VALUES ($ph, $from, $to, $st, $rate, $val, $ord);
+                        (pay_head_id, from_amount_paisa, to_amount_paisa, slab_type, rate_basis_points, value_paisa, ord,
+                         effective_from, effective_to)
+                    VALUES ($ph, $from, $to, $st, $rate, $val, $ord, $effFrom, $effTo);
                     """;
                 cmd.Parameters.AddWithValue("$ph", p.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$from", slab.FromAmount is { } f ? Paisa.FromMoney(f) : (object)DBNull.Value);
@@ -7576,6 +7616,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$rate", slab.RateBasisPoints);
                 cmd.Parameters.AddWithValue("$val", Paisa.FromMoney(slab.Value));
                 cmd.Parameters.AddWithValue("$ord", ord++);
+                // v63 (census 7.19): the effective window. An UNDATED slab writes SQL NULL in both, which is
+                // what every pre-v63 row holds — so a book whose pay heads carry no dates serialises to the same
+                // bytes it did at v61 (ER-13).
+                cmd.Parameters.AddWithValue(
+                    "$effFrom", slab.EffectiveFrom is { } ef ? FormatDate(ef) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue(
+                    "$effTo", slab.EffectiveTo is { } et ? FormatDate(et) : (object)DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
         }
