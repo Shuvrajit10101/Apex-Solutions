@@ -74,15 +74,30 @@ public static class IndianMoneyFormat
     /// The MILLIONS alternative to <see cref="Culture"/> — a flat group size of 3, so ₹1000000 renders
     /// <c>1,000,000.00</c> rather than <c>10,00,000.00</c>.
     ///
-    /// <para><b>Sourced (R7, ruling 14) — the vendor's own documentation, not memory and not the corpus.</b>
-    /// TallyPrime carries this as an application setting at <b>F1 (Help) &gt; Settings &gt; Country &gt; Date and
-    /// Number Format</b>, captioned <i>"Show Quantity and Number in millions"</i>: <i>"once the option is set to
-    /// yes, you can see the amount as 1,000,000 instead of 10,00,000"</i>, and it applies <i>"in the book as well
-    /// as on cheques"</i> (help.tallysolutions.com — the F1 Settings / Date and Number Format documentation;
-    /// re-fetched 2026-09-13). That last clause is why the switch is resolved HERE rather than in the report
-    /// grids: this class is the one grouping rule the report cells, the tax invoice, the POS receipt, the printed
-    /// voucher, the certificates AND <c>ChequePdf</c> all format through, so one switch reaches exactly the
-    /// surfaces the vendor names and nothing has to be gated twice.</para>
+    /// <para>🔴 <b>Sourced (R7, ruling 14) — the vendor's own documentation, and the two vendor options behind
+    /// this one rule are named SEPARATELY because they are not the same option.</b> An earlier draft of this
+    /// comment spliced them into a single sentence attributed to "help.tallysolutions.com — the F1 Settings /
+    /// Date and Number Format documentation", which is a bare domain that resolves to no page and to which
+    /// neither of the quoted phrases belongs. Both citations below were re-fetched first-hand and resolve by
+    /// content:</para>
+    /// <list type="number">
+    /// <item><b>The application setting this build ships</b>, at <b>F1 (Help) &gt; Settings &gt; Country &gt;
+    /// Date and Number Format</b>, captioned <i>"Show Quantity and Number in millions"</i> = Yes —
+    /// <c>help.tallysolutions.com/stock-items-faq/</c>. That page gives the path and the caption; its stated
+    /// effect is that quantities and numbers render in the millions format throughout the product.</item>
+    /// <item><b>A DIFFERENT vendor option, quoted only for what millions grouping looks like and how wide it
+    /// reaches</b>: <i>"Show amount in millions?"</i> on the company's additional base-currency details (Alt+K
+    /// Company &gt; Alter &gt; F12 &gt; Provide Additional Base Currency details) —
+    /// <c>help.tallysolutions.com/cheque-payments-set-up/</c>, which is where <i>"1,000,000 instead of
+    /// 10,00,000"</i> and the "in the book as well as" on printed cheques wording actually come from.</item>
+    /// </list>
+    /// <para><b>Why one rule serves both.</b> Every vendor route to millions grouping is a single setting applied
+    /// to a whole rendering surface — never per report or per document — and the second citation shows the vendor
+    /// carrying it onto printed cheques as well as the book. This class is the one grouping rule the report
+    /// cells, the tax invoice, the POS receipt, the printed voucher, the certificates AND <c>ChequePdf</c> all
+    /// format through, so resolving the switch HERE reaches exactly those surfaces and nothing is gated twice.
+    /// <b>The divergence:</b> this build exposes the switch on the F1 page only — there is no per-currency copy
+    /// of it — so the two vendor options collapse into one here.</para>
     ///
     /// <para><b>Frozen for the same reason <see cref="Culture"/> is</b> — a writable clone published as a static
     /// would let any assembly, or any earlier-running test in the process, rewrite the grouping for every later

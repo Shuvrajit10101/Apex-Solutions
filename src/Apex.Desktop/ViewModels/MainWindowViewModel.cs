@@ -4560,13 +4560,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// got a stub sentence claiming "display options (Phase 1 defaults)" that configured nothing. A shipped
     /// button that does nothing is a DEAD KNOB, and this project has filed several.</para>
     ///
-    /// <para><b>The predicate is the union of the four arms that really fire</b>, taken from the two places F12
-    /// is dispatched so the badge and the key cannot drift: the print-preview arm and the report arm in the
-    /// window's key tunnel (<c>MainWindow.axaml.cs</c>, checked BEFORE the bar), and the numbering-pop / ledger /
-    /// voucher-numbering arms inside <see cref="F12Configure"/>. Disabling the row is safe for the first two —
-    /// the tunnel returns before it ever reaches <c>Fire</c> — and correct for the rest, because <c>Fire</c>
-    /// skips a disabled row, so where the badge is dim the KEY is inert too, which is exactly the truth the
-    /// badge is now telling.</para>
+    /// <para><b>The predicate is the union of the five arms that really fire, and every one of them is an arm of
+    /// <see cref="F12Configure"/>.</b> That one-for-one correspondence is load-bearing and was NOT true when this
+    /// gate was first written: the badge lit on <c>IsReportContext</c> and <see cref="Screen.PrintPreview"/>
+    /// because the window's key tunnel (<c>MainWindow.axaml.cs</c>) handles those two BEFORE the bar, but the bar
+    /// does not go through the tunnel — <see cref="ButtonBarItem.Invoke"/> calls the action directly — so a mouse
+    /// click on the lit badge fell through to the "this screen has no configuration" sentence on a report. Both
+    /// arms now exist in <see cref="F12Configure"/>; keep the two lists in step.</para>
+    ///
+    /// <para>Disabling the row disables the KEY too, because <c>Fire</c> skips a disabled row — so where the badge
+    /// is dim the bare F12 keystroke is inert as well, which is exactly the truth the badge is telling.</para>
     ///
     /// <para>F12 remains CONTEXTUAL and is not touched otherwise: ruling 21 changes where it is ADVERTISED, not
     /// what it does. The global layer it never carried lives at F1 (<see cref="OpenAppSettings"/>).</para>
@@ -11169,8 +11172,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== right button bar
 
     /// <summary>
-    /// F12 Configure — context-sensitive ledger-screen configuration (Book pp.133–141): on the Ledger master it
-    /// toggles the "Method of Appropriation" additional-cost field's visibility; elsewhere a Phase-1 hint.
+    /// <b>F12 Configure — the CONTEXT-SENSITIVE per-screen configuration, as the BAR fires it.</b> Every context
+    /// <see cref="CanConfigureCurrentScreen"/> lights the badge in has an arm here, one for one.
+    ///
+    /// <para>🔴 <b>Why the report and print-preview arms are here even though the key tunnel handles them.</b>
+    /// The bar badge is <c>&lt;Button Command="{Binding Invoke}"&gt;</c> and <see cref="ButtonBarItem.Invoke"/>
+    /// wraps the row's action directly — so a MOUSE CLICK on the badge arrives HERE and never passes through the
+    /// window's key tunnel at all. The first cut of ruling 21's gate lit the badge on
+    /// <c>IsReportContext</c> and <see cref="Screen.PrintPreview"/> (because the KEY works there) while this
+    /// method had no arm for either, so clicking the lit badge on a report — the most common F12 context in this
+    /// application — opened nothing and told the operator, falsely, that the screen had no configuration. The two
+    /// arms below close that, in the tunnel's own order (print preview is checked before the report, because a
+    /// preview opened over a report leaves <see cref="Reports"/> bound beneath it).</para>
+    ///
+    /// <para>The openers are idempotent — <see cref="OpenReportConfig"/> and <see cref="OpenPrintConfig"/> both
+    /// return early when their panel is already up — so the bar route inherits the same no-stacking guard the key
+    /// route has.</para>
     /// </summary>
     private void F12Configure()
     {
@@ -11188,19 +11205,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         // On a voucher-entry context F12 opens the per-type voucher-numbering configuration (numbering-design-v2 §5.1),
-        // pushed as a cascade column to the right (prior panes persist). Every other F12 context is unchanged: the
-        // report-F12 (OpenReportConfig) and print-preview-F12 (OpenPrintConfig) are handled earlier in the key tunnel.
+        // pushed as a cascade column to the right (prior panes persist).
         if (Company is not null && IsVoucherNumberingContext(out var preselectTypeId))
         {
             OpenVoucherNumberingConfig(preselectTypeId);
             return;
         }
 
+        // The print-config panel (RQ-12). Checked BEFORE the report arm, mirroring MainWindow.axaml.cs's tunnel:
+        // a preview opened over a report keeps Reports bound, so the report test would otherwise win here.
+        if (CurrentScreen == Screen.PrintPreview && PrintPreview is not null)
+        {
+            OpenPrintConfig();
+            return;
+        }
+
+        // The report configuration panel (RQ-1/2/6) — the context an operator reaches for F12 in most often.
+        if (IsReportContext)
+        {
+            OpenReportConfig();
+            return;
+        }
+
         // 🔴 UNREACHABLE FROM THE BAR AND FROM THE KEY, and kept only as a defensive arm (ruling 21). The badge is
-        // now gated on CanConfigureCurrentScreen, which is the union of the four arms above, and Fire() skips a
-        // disabled row — so no operator can land here. It used to claim "F12 Configure — display options (Phase 1
-        // defaults)", which was a FALSE CAPTION: there were no display options behind it, and the global layer it
-        // implied is the very thing the reference product moved to F1 (Help) > Settings.
+        // gated on CanConfigureCurrentScreen, whose five disjuncts are exactly the five arms above, and Fire()
+        // skips a disabled row — so no operator can land here. It used to claim "F12 Configure — display options
+        // (Phase 1 defaults)", which was a FALSE CAPTION: there were no display options behind it, and the global
+        // layer it implied is the very thing the reference product moved to F1 (Help) > Settings.
         Message = "F12 Configure acts on the screen you are on, and this screen has no configuration. "
                 + "Press F1 for the application settings.";
     }

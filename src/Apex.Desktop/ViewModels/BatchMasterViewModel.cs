@@ -327,7 +327,9 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
                   + (b.ExpiryPeriod is { } p ? $" ({p.RawText})" : string.Empty)
                 : "—";
             var openingValue = b.InwardQuantity is { } iq && b.InwardRate is { } ir && iq > 0m
-                ? "₹" + Money.ForexBase(ir, iq).Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture)
+                // Through IndianMoneyFormat.Amount, not a second copy of "#,##0.00" + the culture: that pairing is
+                // the one grouping rule (drift lock D2), and a hand-rolled copy of it is how the two drifted apart.
+                ? "₹" + Apex.Ledger.IndianMoneyFormat.Amount(Money.ForexBase(ir, iq))
                 : "—";
             Existing.Add(new BatchListRow
             {

@@ -36,11 +36,18 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para><b>The vendor's Settings groups, from the vendor's own pages.</b> <i>Display</i> (including <i>"You can
 /// set Show bottom bar to No if you need to disable the bottom bar to increase viewing space on your
-/// screen."</i>), <i>Country &gt; Date and Number Format</i> (<i>"Show Quantity and Number in millions"</i> —
-/// <i>"once the option is set to yes, you can see the amount as 1,000,000 instead of 10,00,000"</i>, applying
-/// <i>"in the book as well as on cheques"</i>), plus <i>Startup</i>, <i>Language</i>, <i>Connectivity</i> and
-/// <i>Licence</i>. Only the first two ship: this build has no startup company-loading step, no second language,
-/// no client/server mode and no licence, so the rest could only be knobs with nothing behind them.</para>
+/// screen."</i>), <i>Country &gt; Date and Number Format</i> — <c>help.tallysolutions.com/stock-items-faq/</c>:
+/// <i>"Press F1 (Help) &gt; Settings &gt; Country &gt; select Date and Number Format"</i> and set <i>"Show
+/// Quantity and Number in millions"</i> to Yes — plus <i>Startup</i>, <i>Language</i>, <i>Connectivity</i> and
+/// <i>Licence</i>. Only the first two ship, and the second only in part: this build has no startup
+/// company-loading step, no second language, no client/server mode, no licence, and no date-format switch (dates
+/// are the fixed <c>ApexDate.Canonical</c>), so the rest could only be knobs with nothing behind them.</para>
+///
+/// <para>🔴 <b>The "1,000,000 instead of 10,00,000" / printed-cheques wording is NOT from that page</b> and is
+/// deliberately not quoted here as if it were: it belongs to the separate <i>"Show amount in millions?"</i>
+/// base-currency option at <c>help.tallysolutions.com/cheque-payments-set-up/</c>. See
+/// <c>IndianMoneyFormat.MillionsCulture</c>, where both citations are recorded and the collapse of the two
+/// vendor options into this build's one rule is stated as a divergence.</para>
 ///
 /// <para>🔴 <b>WHY THESE TESTS ASK THE REALISED VISUAL TREE.</b> Asserting <c>vm.ShowBottomBar == false</c> is
 /// precisely the test that passes on a build where the flag is bound to nothing. Each case below flips the
@@ -550,6 +557,97 @@ public sealed class AppSettingsF1Tests
 
             foreach (var caption in new[] { "Display", "Country" })
                 Assert.True(groups.Single(g => g.Caption == caption).IsAvailable);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>AND THE UNAVAILABLE GROUPS REALLY ARE DIMMED ON SCREEN.</b> The case above asserts view-model
+    /// booleans, which is exactly the test that passes on a build where the flags are bound to nothing — and that
+    /// is not hypothetical here: the first cut of this page carried <c>IsAvailable</c> / <c>IsUnavailable</c> and
+    /// a doc comment promising a dimmed row, with no binding anywhere in the repo, so all six rows rendered
+    /// identically at full opacity and enabled. This case asks the REALISED tree instead: opacity, effective
+    /// enabled state, and the "Not in this build" tag, on both halves — because a row style that dimmed
+    /// everything, or a tag that always showed, would tell the operator just as little.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_unavailable_setting_groups_render_dimmed_disabled_and_tagged()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.F1, RawInputModifiers.None);
+            Pump(window);
+
+            var rows = Descendants(window)
+                .OfType<Grid>()
+                .Where(g => g.DataContext is AppSettingGroup)
+                .ToDictionary(g => ((AppSettingGroup)g.DataContext!).Caption, g => g, StringComparer.Ordinal);
+
+            Assert.True(rows.Count == 6,
+                $"Expected the six vendor group rows to be realised on screen; found {rows.Count}.");
+
+            foreach (var caption in new[] { "Display", "Country" })
+            {
+                Assert.Equal(1.0, rows[caption].Opacity, 3);
+                Assert.True(rows[caption].IsEffectivelyEnabled,
+                    $"\"{caption}\" is a group this build CARRIES and it renders disabled.");
+                Assert.False(
+                    Descendants(rows[caption]).OfType<TextBlock>()
+                        .Any(t => t.Name == "GroupUnavailableTag" && t.IsEffectivelyVisible),
+                    $"\"{caption}\" IS carried in this build but wears the \"Not in this build\" tag. A tag that "
+                  + "shows on every row says nothing.");
+            }
+
+            foreach (var caption in new[] { "Startup", "Language", "Connectivity", "Licence" })
+            {
+                Assert.True(rows[caption].Opacity < 1.0,
+                    $"\"{caption}\" is documented as \"shown DIMMED\" but renders at full opacity — the flag "
+                  + "behind that promise is bound to nothing, which is the dead-knob shape this page exists to close.");
+                Assert.False(rows[caption].IsEffectivelyEnabled,
+                    $"\"{caption}\" has no behaviour in this build but renders as an operable row.");
+
+                var tag = Descendants(rows[caption])
+                    .OfType<TextBlock>()
+                    .Where(t => t.Name == "GroupUnavailableTag"
+                                && t.IsEffectivelyVisible && t.Bounds.Width > 0 && t.Bounds.Height > 0)
+                    .ToList();
+                Assert.True(tag.Count == 1,
+                    $"\"{caption}\" carries no visible \"Not in this build\" tag (found {tag.Count}). Opacity alone "
+                  + "is not a statement an operator can read.");
+            }
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE "Country — Date and Number Format" ROW MUST NOT ADVERTISE A HALF IT HAS NOT GOT.</b> The vendor's
+    /// group is Date <i>and</i> Number Format; this build ships only the number half — dates render through the
+    /// single <c>ApexDate.Canonical</c> constant and there is no switch for them anywhere. Marking the whole group
+    /// available would be the same half-truth the four unavailable rows exist to avoid, so the row names its own
+    /// limit and the limit is pinned to the constant it describes: change the date format and this fails.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_country_group_says_it_carries_only_the_number_half()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            window.KeyPressQwerty(PhysicalKey.F1, RawInputModifiers.None);
+            Pump(window);
+
+            var country = vm.AppSettings!.Groups.Single(g => g.Caption == "Country");
+            Assert.True(country.IsAvailable, "The number half IS carried, so the row is available.");
+            Assert.Contains("number half", country.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(ApexDate.Canonical, country.Detail, StringComparison.Ordinal);
+
+            var onScreen = Descendants(window)
+                .OfType<TextBlock>()
+                .Any(t => t.IsEffectivelyVisible && t.Bounds.Height > 0
+                          && string.Equals(t.Text, country.Detail, StringComparison.Ordinal));
+            Assert.True(onScreen,
+                "The Country row's stated limit is in the view model but never reaches the screen, so the operator "
+              + "still reads a group that claims both halves.");
         }
         finally { Cleanup(window, dir); }
     }

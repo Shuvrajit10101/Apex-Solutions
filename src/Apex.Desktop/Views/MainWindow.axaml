@@ -20133,12 +20133,24 @@
                                 <ItemsControl Name="AppSettingsGroups" ItemsSource="{Binding Groups}">
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:AppSettingGroup">
-                                      <Grid ColumnDefinitions="120,*" Margin="0,2">
+                                      <!-- 🔴 THE THREE BINDINGS BELOW ARE WHAT MAKES "shown DIMMED" TRUE. This row
+                                           previously bound Caption and Detail only, with a hard-coded Foreground,
+                                           while AppSettingGroup.IsAvailable / IsUnavailable carried the dimming
+                                           claim in a comment and were bound NOWHERE in the repo — six identical
+                                           full-opacity rows. Opacity dims it, IsEnabled makes it inoperable, and
+                                           the tag says so in words for anyone who cannot read a 55% grey. -->
+                                      <Grid ColumnDefinitions="120,Auto,*" Margin="0,2"
+                                            Opacity="{Binding RowOpacity}"
+                                            IsEnabled="{Binding IsAvailable}">
                                         <TextBlock Grid.Column="0" Text="{Binding Caption}" FontSize="12"
                                                    FontWeight="SemiBold"
                                                    Foreground="{StaticResource BrandNavy}"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Detail}" FontSize="11"
+                                        <TextBlock Grid.Column="1" Name="GroupUnavailableTag"
+                                                   Text="Not in this build — " FontSize="11"
+                                                   IsVisible="{Binding IsUnavailable}"
+                                                   Foreground="#8A8A8A"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="11"
                                                    Foreground="#8A8A8A" TextWrapping="Wrap"/>
                                       </Grid>
                                     </DataTemplate>

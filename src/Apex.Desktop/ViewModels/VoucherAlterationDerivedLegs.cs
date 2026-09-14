@@ -421,8 +421,9 @@ public static class VoucherAlterationDerivedLegs
              + $"credit note and a fresh {documentWord}.";
     }
 
-    /// <summary>Money as the operator sees it on the screen this refusal is shown on.</summary>
-    private static string F(Money m) => m.Amount.ToString("#,##0.00", IndianMoneyFormat.ActiveCulture);
+    /// <summary>Money as the operator sees it on the screen this refusal is shown on — through the ONE grouping
+    /// rule (drift lock D2), never a local copy of the format string and the culture.</summary>
+    private static string F(Money m) => IndianMoneyFormat.Amount(m);
 
     /// <summary>
     /// 🔴 <b>THE TAX-MAGNITUDE PIN — the other half of what <see cref="TaxHeadSignature"/> structurally cannot do,

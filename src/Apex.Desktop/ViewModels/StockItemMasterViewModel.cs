@@ -1081,7 +1081,8 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 Valuation = ValuationLabel(item.ValuationMethod),
                 OpeningValue = opening == Money.Zero
                     ? "—"
-                    : "₹" + opening.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture),
+                    // The one grouping rule (drift lock D2), not a local copy of "#,##0.00" + the culture.
+                    : "₹" + Apex.Ledger.IndianMoneyFormat.Amount(opening),
             });
         }
 

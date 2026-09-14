@@ -63,14 +63,21 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
     // ------------------------------------------------------------------ Country → Date and Number Format
 
     /// <summary>
-    /// <b>Country &gt; Date and Number Format &gt; Show Quantity and Number in millions.</b> Vendor: <i>"once the
-    /// option is set to yes, you can see the amount as 1,000,000 instead of 10,00,000"</i>, applying <i>"in the
-    /// book as well as on cheques"</i>.
+    /// <b>Country &gt; Date and Number Format &gt; Show Quantity and Number in millions.</b>
+    ///
+    /// <para><b>Sourced (R7, ruling 14) — and the two vendor pages are kept apart on purpose.</b> The PATH and the
+    /// CAPTION are the vendor's, from <c>help.tallysolutions.com/stock-items-faq/</c>: <i>"Press F1 (Help) &gt;
+    /// Settings &gt; Country &gt; select Date and Number Format"</i>, then set <i>"Show Quantity and Number in
+    /// millions"</i> to Yes. The worked example <i>"1,000,000 instead of 10,00,000"</i> and the phrase <i>"in the
+    /// book as well as on cheques"</i> belong to a DIFFERENT vendor option — <i>"Show amount in millions?"</i> on
+    /// the company's additional base-currency details (<c>help.tallysolutions.com/cheque-payments-set-up/</c>) —
+    /// and are quoted here only as the vendor's own statement of what millions grouping renders as. See
+    /// <see cref="IndianMoneyFormat.MillionsCulture"/> for why this build resolves both through one rule.</para>
     ///
     /// <para><b>What it gates HERE:</b> <see cref="IndianMoneyFormat.ActiveCulture"/> — the ONE grouping rule
     /// every rendered amount and quantity in the application formats through: the report grids and ledger books
     /// (via <c>IndianFormat</c>), the voucher and invoice entry screens, and the printed tax invoice, POS
-    /// receipt, voucher, certificates and cheque. One switch, exactly the surfaces the vendor names.</para>
+    /// receipt, voucher, certificates and cheque.</para>
     /// </summary>
     [ObservableProperty] private bool _showAmountsInMillions;
 
@@ -98,7 +105,9 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
     /// <summary>
     /// The vendor's Settings groups, listed so the page reads as the vendor's surface rather than as two loose
     /// checkboxes — and so the groups this build does NOT carry are named on screen instead of being silently
-    /// missing. <see cref="AppSettingGroup.IsAvailable"/> is false for a group with no behaviour here.
+    /// missing. <see cref="AppSettingGroup.IsAvailable"/> is false for a group with no behaviour here, and the
+    /// group DataTemplate binds it (opacity + enabled state) and <see cref="AppSettingGroup.IsUnavailable"/> (the
+    /// "Not in this build" tag) — see that type for why both must stay bound.
     /// </summary>
     public ObservableCollection<AppSettingGroup> Groups { get; } = new();
 
@@ -111,11 +120,16 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
         ShowAmountsInMillions = AmountDisplay.Grouping == AmountDigitGrouping.Millions;
 
         Groups.Add(new AppSettingGroup("Display", "Show bottom bar", true));
-        Groups.Add(new AppSettingGroup("Country", "Date and Number Format", true));
-        Groups.Add(new AppSettingGroup("Startup", "Not available in this build — there is no startup company-loading step", false));
-        Groups.Add(new AppSettingGroup("Language", "Not available in this build — the interface ships in one language", false));
-        Groups.Add(new AppSettingGroup("Connectivity", "Not available in this build — there is no client/server mode", false));
-        Groups.Add(new AppSettingGroup("Licence", "Not available in this build — the application is not licensed", false));
+        // 🔴 The vendor's group is "Date AND Number Format" and this build carries only the NUMBER half: the date
+        // rendering is the fixed ApexDate.Canonical constant (dd-MMM-yyyy), with no switch anywhere. Advertising
+        // the whole group as available would be the same half-truth the unavailable rows below exist to avoid, so
+        // the row names what it carries and what it does not.
+        Groups.Add(new AppSettingGroup(
+            "Country", "Date and Number Format — the number half only; dates are fixed at dd-MMM-yyyy", true));
+        Groups.Add(new AppSettingGroup("Startup", "there is no startup company-loading step", false));
+        Groups.Add(new AppSettingGroup("Language", "the interface ships in one language", false));
+        Groups.Add(new AppSettingGroup("Connectivity", "there is no client/server mode", false));
+        Groups.Add(new AppSettingGroup("Licence", "the application is not licensed", false));
     }
 
     /// <summary>
@@ -141,8 +155,18 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
 
 /// <summary>
 /// One row in the Settings group list: the vendor's group caption, what it carries here, and whether this build
-/// actually has it. A group marked unavailable is shown DIMMED with its reason, never as an operable row —
-/// a switch with nothing behind it is the defect this page exists to avoid.
+/// actually has it. A group marked unavailable is shown DIMMED and disabled, tagged "Not in this build" and
+/// followed by its reason — never as an operable row, because a switch with nothing behind it is the defect this
+/// page exists to avoid.
+///
+/// <para>🔴 <b>ALL THREE PRESENTATION MEMBERS ARE BOUND BY THE GROUP DataTemplate, AND THE COMMENT ABOVE IS ONLY
+/// TRUE WHILE THEY ARE.</b> The first cut of this page shipped <see cref="IsAvailable"/> and
+/// <see cref="IsUnavailable"/> with the sentence "is shown DIMMED" above them and <b>no binding anywhere in the
+/// repo</b> — all six rows rendered identically at full opacity, enabled. That is precisely the dead-knob shape
+/// this row was chartered to close, and a test that asserts the booleans alone passes on exactly that build. The
+/// template binds <see cref="RowOpacity"/> (dimming), <see cref="IsAvailable"/> (enabled state) and
+/// <see cref="IsUnavailable"/> (the tag's visibility); <c>AppSettingsF1Tests</c> asserts all three off the
+/// REALISED visual tree.</para>
 /// </summary>
 public sealed class AppSettingGroup
 {
@@ -150,6 +174,13 @@ public sealed class AppSettingGroup
     public string Detail { get; }
     public bool IsAvailable { get; }
     public bool IsUnavailable => !IsAvailable;
+
+    /// <summary>
+    /// The row's rendered opacity — this is what "shown DIMMED" actually means on screen. Expressed as a plain
+    /// double the template can bind directly, rather than as a converter, so there is no second place for the
+    /// rule to live and nothing to register.
+    /// </summary>
+    public double RowOpacity => IsAvailable ? 1.0 : 0.55;
 
     public AppSettingGroup(string caption, string detail, bool isAvailable)
     {

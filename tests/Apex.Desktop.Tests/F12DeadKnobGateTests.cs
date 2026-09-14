@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Apex.Ledger.Reports;
@@ -32,9 +33,15 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para>🔴 <b>DISABLING THE ROW DISABLES THE KEY TOO, AND THAT IS THE POINT.</b> The window's
 /// <c>Fire()</c> helper runs a bar row's action only when the row is enabled, so where the badge is dim the bare
-/// F12 keystroke is inert as well — the badge now tells the truth about the key. The two contexts the key tunnel
-/// handles BEFORE the bar (a report page, a print preview) are unaffected, because the tunnel returns before it
-/// reaches <c>Fire</c>; the ON cases below prove those doors still open.</para>
+/// F12 keystroke is inert as well — the badge now tells the truth about the key.</para>
+///
+/// <para>🔴 <b>AND THE BADGE HAS A SECOND ROUTE THE KEY TESTS CANNOT SEE.</b> The badge is
+/// <c>&lt;Button Command="{Binding Invoke}"/&gt;</c>, and <c>ButtonBarItem.Invoke</c> wraps the row's action
+/// directly — a MOUSE CLICK therefore lands in <c>F12Configure()</c> without passing through
+/// <c>MainWindow.axaml.cs</c> at all. The first cut of this gate reasoned that the report and print-preview arms
+/// needed no entry in <c>F12Configure()</c> because "the tunnel returns before it reaches <c>Fire</c>"; that is
+/// true of the KEY and false of the CLICK, so the lit badge on a report opened nothing and answered "this screen
+/// has no configuration". Every context below is therefore exercised through <c>Invoke</c> as well as the key.</para>
 /// </summary>
 public sealed class F12DeadKnobGateTests
 {
@@ -202,6 +209,183 @@ public sealed class F12DeadKnobGateTests
             Assert.NotNull(vm.VoucherNumberingConfig);
         }
         finally { Cleanup(window, dir); }
+    }
+
+    // ==========================================================================================
+    // 🔴 THE BAR ROUTE — A MOUSE CLICK, WHICH NEVER PASSES THROUGH THE WINDOW'S KEY TUNNEL.
+    //
+    // The cases above press the KEY. The badge is `<Button Command="{Binding Invoke}"/>` and
+    // ButtonBarItem.Invoke wraps the row's action directly, so a click lands in F12Configure() without
+    // ever reaching MainWindow.axaml.cs. The first cut of this gate lit the badge on a report and on a
+    // print preview — correctly, the key works there — while F12Configure() had no arm for either, so a
+    // click on the lit badge opened nothing and answered "this screen has no configuration. Press F1".
+    // That was a REGRESSION against main on the most common F12 screen, and the key-only cases above
+    // could not see it. Every case below goes through Invoke.
+    // ==========================================================================================
+
+    /// <summary>Every F12 context, and what the badge must say about it. Both halves in one table so a gate that
+    /// dimmed — or lit — everything cannot satisfy one half on its own.</summary>
+    public static IEnumerable<object[]> EveryF12Context() => new[]
+    {
+        new object[] { "Gateway", false },
+        new object[] { "CurrencyMaster", false },
+        new object[] { "LedgerMaster", true },
+        new object[] { "Report", true },
+        new object[] { "PrintPreview", true },
+        new object[] { "VoucherEntry", true },
+    };
+
+    private static void Arrange(MainWindowViewModel vm, MainWindow window, string context)
+    {
+        switch (context)
+        {
+            case "Gateway": break;                                    // Open() already leaves us here
+            case "CurrencyMaster": vm.ShowCurrencyMaster(); break;
+            case "LedgerMaster": vm.ShowLedgerMaster(); break;
+            case "Report": vm.OpenReport(ReportKind.TrialBalance); break;
+            case "PrintPreview":
+                vm.OpenReport(ReportKind.TrialBalance);
+                Pump(window);
+                vm.OpenPrintPreview();
+                break;
+            case "VoucherEntry": vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Payment); break;
+            default: throw new ArgumentOutOfRangeException(nameof(context), context, "unknown F12 context");
+        }
+        Pump(window);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE INVARIANT, not four examples of it: the badge never lies about the screen it is on.</b> Where it
+    /// is DIM the key must be inert and silent; where it is LIT the BAR route must configure something and must
+    /// never answer with the "this screen has no configuration" refusal. The expected lit/dim value is asserted
+    /// first, so a gate that collapsed to a constant cannot pass this by accident.
+    /// </summary>
+    [AvaloniaTheory]
+    [MemberData(nameof(EveryF12Context))]
+    public void The_F12_badge_never_lies_about_the_screen_it_is_on(string context, bool expectedLit)
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            Arrange(vm, window, context);
+
+            var row = F12Row(vm);
+            Assert.True(row.Enabled == expectedLit,
+                $"On {context} the F12 badge is {(row.Enabled ? "LIT" : "DIM")} and should be "
+              + $"{(expectedLit ? "LIT" : "DIM")}.");
+
+            vm.Message = string.Empty;
+
+            if (!expectedLit)
+            {
+                window.KeyPressQwerty(PhysicalKey.F12, RawInputModifiers.None);
+                Pump(window);
+                Assert.True(string.IsNullOrEmpty(vm.Message),
+                    $"On {context} the badge is dim, so the key must be inert and silent; it said \"{vm.Message}\".");
+                return;
+            }
+
+            row.Invoke.Execute(null);   // the MOUSE route
+            Pump(window);
+
+            var said = vm.Message ?? string.Empty;
+            Assert.False(said.Contains("no configuration", StringComparison.Ordinal),
+                $"On {context} the badge is LIT, but clicking it answered \"{said}\". A lit badge that refuses is "
+              + "worse than a dim one: it is a dead knob that also misinforms.");
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE REGRESSION ITSELF.</b> An operator on a report clicks the lit "F12 Configure" badge with the
+    /// mouse. Before the fix the report configuration panel never opened and the application told them, falsely,
+    /// that the screen had no configuration and to press F1 — worse than main, on the single most common F12
+    /// context in this application.
+    /// </summary>
+    [AvaloniaFact]
+    public void Clicking_the_lit_F12_badge_on_a_report_opens_the_report_configuration()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            vm.OpenReport(ReportKind.TrialBalance);
+            Pump(window);
+            Assert.True(F12Row(vm).Enabled, "Fixture guard: the badge must be lit here or the click proves nothing.");
+            Assert.Null(vm.ReportConfig);
+
+            vm.Message = string.Empty;
+            F12Row(vm).Invoke.Execute(null);
+            Pump(window);
+
+            Assert.True(vm.ReportConfig != null,
+                "Clicking the lit 'F12 Configure' badge on a report opened no configuration panel. The bar does "
+              + "not pass through the window's key tunnel, so an arm that exists only in the tunnel leaves the "
+              + "badge inert — lit, clickable and dead.");
+            Assert.True(string.IsNullOrEmpty(vm.Message),
+                $"The badge answered \"{vm.Message}\" on a screen that HAS a configuration.");
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>The same shape on a print preview — the second tunnel-only arm (RQ-12 print config).</summary>
+    [AvaloniaFact]
+    public void Clicking_the_lit_F12_badge_on_a_print_preview_opens_the_print_configuration()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            vm.OpenReport(ReportKind.TrialBalance);
+            Pump(window);
+            vm.OpenPrintPreview();
+            Pump(window);
+
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+            Assert.True(F12Row(vm).Enabled, "Fixture guard: the badge must be lit on a print preview.");
+            Assert.Null(vm.PrintConfigPanel);
+
+            vm.Message = string.Empty;
+            F12Row(vm).Invoke.Execute(null);
+            Pump(window);
+
+            Assert.True(vm.PrintConfigPanel != null,
+                "Clicking the lit 'F12 Configure' badge on a print preview opened no print-config panel.");
+            Assert.True(string.IsNullOrEmpty(vm.Message),
+                $"The badge answered \"{vm.Message}\" on a print preview, which HAS a configuration.");
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// The two arms that always lived in <c>F12Configure</c> must keep working from the bar as well as from the
+    /// key — otherwise a later "tidy-up" of the method could close the report hole and open these two.
+    /// </summary>
+    [AvaloniaFact]
+    public void Clicking_the_lit_F12_badge_still_serves_the_ledger_master_and_a_voucher_entry()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            vm.ShowLedgerMaster();
+            Pump(window);
+            var before = vm.LedgerMaster!.ShowConfiguration;
+            F12Row(vm).Invoke.Execute(null);
+            Pump(window);
+            Assert.NotEqual(before, vm.LedgerMaster!.ShowConfiguration);
+        }
+        finally { Cleanup(window, dir); }
+
+        var (window2, vm2, dir2) = Open();
+        try
+        {
+            vm2.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Payment);
+            Pump(window2);
+            F12Row(vm2).Invoke.Execute(null);
+            Pump(window2);
+            Assert.True(vm2.VoucherNumberingConfig != null,
+                "The bar route no longer opens the per-type voucher-numbering configuration.");
+        }
+        finally { Cleanup(window2, dir2); }
     }
 
     // ==========================================================================================
