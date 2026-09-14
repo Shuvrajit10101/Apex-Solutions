@@ -263,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 62;
+    public const int CurrentVersion = 63;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -2162,7 +2162,13 @@ public static class Schema
             slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
             rate_basis_points INTEGER NOT NULL DEFAULT 0,
             value_paisa       INTEGER NOT NULL DEFAULT 0,
-            ord               INTEGER NOT NULL
+            ord               INTEGER NOT NULL,
+            -- v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From" window.
+            -- BOTH NULL on every pre-v63 slab, and on every slab a user never dates, which means "in force in every
+            -- period" — bit-for-bit today's behaviour, so no existing payslip moves by a paisa (ER-13).
+            -- Declarations byte-identical to MigrateV62ToV63. See that constant for why this row needed storage.
+            effective_from    TEXT        NULL,                     -- ISO yyyy-MM-dd; NULL = no lower bound
+            effective_to      TEXT        NULL                      -- ISO yyyy-MM-dd; NULL = no upper bound
         );
         CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
 
@@ -5308,6 +5314,81 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v63 — DATED PAY-HEAD COMPUTATION SLABS (census 7.19 Labour Welfare Fund). Object names are published here
+    // ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
+    //
+    // 🔴 THIS RUNG WAS BUILT AS 61 → 63 AND HAS BEEN RE-POINTED TO 62 → 63; THE HISTORY IS KEPT BECAUSE IT
+    // EXPLAINS THE NUMBERING. v62 (Voucher Class) was built by a SIBLING TRACK in the same wave and had not landed
+    // on origin/main when this branch was cut (origin/main was 87f79d4, CurrentVersion 61), so ruling 22 assigned
+    // THIS track v63 and the step originally spanned 61 → 63 in one move, guarded on `version == 61`. That was
+    // correct while it stood alone and is WRONG now: v62 landed on main (973d933), its step sits directly above
+    // this one in SqliteCompanyStore.MigrateIfNeeded, and a v61 book is already at 62 by the time this rung is
+    // reached. The guard is therefore `version == 62` and this constant is named for what it actually does. The
+    // two migrations commute — v63 touches one payroll child table and nothing v62 adds — so the re-point is
+    // exact rather than a reconciliation. Nothing about the DDL below changed.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The two <c>pay_head_computation_slabs</c> columns v63 adds — the exact set
+    /// <see cref="MigrateV62ToV63"/> creates and <c>SchemaDowngrade.V63ToV62</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V63SlabColumns =
+        new[] { "effective_from", "effective_to" };
+
+    /// <summary>
+    /// v62 → v63 (census row 7.19, <b>Labour Welfare Fund deduction</b>): an <b>Effective From / Effective To</b>
+    /// window on each pay-head computation slab.
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/tally-prime/payroll/payroll-faq/</c>, "How to create
+    /// Labour Welfare Fund Pay Head?": "<i>Select <b>Deductions From Employees</b> in the <b>Pay head type</b>
+    /// field. In <b>Computation Information</b> section, define the <b>Effective From</b> and <b>Value</b> as
+    /// applicable.</i>" with the load-bearing note "<i><b>Note</b>: The value will be deducted only for the month
+    /// (December) specified in the Pay Head.</i>" (retrieved and read 2026-09-14). So in the reference product LWF
+    /// is an <b>ordinary user-defined pay head</b> whose computation rows are <b>dated</b>, and the dating is what
+    /// confines the deduction to the month the levy actually falls in.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS NEEDED STORAGE AT ALL — THE DEFECT IT PREVENTS IS A TWELVE-FOLD OVER-DEDUCTION FROM A
+    /// LIVE PAYSLIP.</b> Before v63 a <c>pay_head_computation_slabs</c> row carried
+    /// <c>from_amount_paisa</c>/<c>to_amount_paisa</c>/<c>slab_type</c>/<c>rate_basis_points</c>/<c>value_paisa</c>/<c>ord</c>
+    /// and <b>no date of any kind</b>, and there was no month gate anywhere on a pay head — so a FlatValue
+    /// deduction head fired in <b>every</b> payroll period. An LWF head carrying an <b>annual</b> or
+    /// <b>half-yearly</b> contribution would therefore have been deducted <b>twelve times a year</b>. That is a
+    /// strictly worse instance of the Karnataka professional-tax over-charge (₹100 per employee per year) which
+    /// already cost this project a Tier 0 fix plus the v55 back-fill migration. The salary structure's own
+    /// <c>EffectiveFrom</c> does <b>not</b> rescue it: a structure is superseded <i>forward</i>, so a December
+    /// structure deducts from December <i>onward, forever</i>. There is no zero-storage construction that is
+    /// correct, which is why census 7.19 was held ABSENT — <b>blocked on storage</b> — rather than guessed at.</para>
+    ///
+    /// <para>🔴 <b>NO STATE RATE TABLE IS SEEDED, AND THAT IS THE FAITHFUL CLONE, NOT A SHORTFALL.</b> The
+    /// reference product ships <b>no</b> LWF rate data: its own documentation has the user "<i>define the Effective
+    /// From and Value as applicable</i>". LWF is a <b>state</b> levy whose amount, wage ceiling, employer/employee
+    /// split and <b>periodicity</b> (several states collect <b>half-yearly</b>, others annually — not monthly) are
+    /// fixed by each State's own Act and notifications. Seeding a national-looking table would be <b>inventing</b>
+    /// something the reference product does not have, on a path that takes money off somebody's salary. So v63
+    /// ships the <b>mechanism</b> and the user supplies their State's figure — which is exactly what the vendor
+    /// does. No rate, ceiling or periodicity is asserted anywhere in this change.</para>
+    ///
+    /// <para><b>Semantics, anchored on the period END date.</b> A slab is in force for a payroll period iff
+    /// <c>(effective_from IS NULL OR effective_from &lt;= periodTo)</c> AND
+    /// <c>(effective_to IS NULL OR periodTo &lt;= effective_to)</c>. The anchor is <c>periodTo</c> because that is
+    /// already this engine's convention for resolving the dated <c>SalaryStructure</c> in force ("the structure in
+    /// force on the period-end date"), so the two cannot disagree about which period a date belongs to. Both
+    /// columns NULL ⇒ in force in every period ⇒ <b>byte-identical arithmetic to v61</b> for every pay head that
+    /// exists today (ER-13); the dated window is opt-in per slab.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 63. Both declarations are byte-identical
+    /// to their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift. Purely additive:
+    /// two nullable columns on one payroll child table, no index, no back-fill, <b>no UPDATE</b>.</para>
+    /// </summary>
+    public const string MigrateV62ToV63 = """
+        -- v63 (census 7.19): the vendor's Computation Information "Effective From" window on a computation slab.
+        -- Purely additive: two nullable TEXT columns on one payroll child table. NOTHING is back-filled and there
+        -- is no UPDATE here — BOTH NULL already means "in force in every period", which is what every pre-v63 slab
+        -- did, so every existing payslip recomputes to the same paisa. See this constant's doc comment.
+        ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_from TEXT NULL;
+        ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_to   TEXT NULL;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -69,8 +69,15 @@ public sealed class LoadBearingCitationContentTests
             "export–import round-trip**",
             "CanonicalMapper.cs",
             "State = c.State"),
+        // 🔴 THE CONTEXT PHRASE NO LONGER CARRIES THE CITED LINE NUMBER. It used to read
+        // "(read), `ImportPlan.cs:1208-1209` (assign)", which broke this table's own stated rule — "never by a
+        // hard-coded line number, which would itself drift" — and is the SECOND time that mistake has been made
+        // here (the VoucherPrintProjector anchor above records the first). Schema v63 (W-R1, census 7.19 Labour
+        // Welfare Fund) added lines to ImportPlan.cs above this citation; re-pointing the citation in plan.md —
+        // the correct fix — then made the anchor unfindable and the guard went dark on the claim it exists to
+        // protect. The phrase below is the surrounding PROSE, which does not move when a line number does.
         new("plan.md",
-            "(read), `ImportPlan.cs:1208-1209` (assign)",
+            "(assign) — and",
             "ImportPlan.cs",
             "t.State = c.State"),
 

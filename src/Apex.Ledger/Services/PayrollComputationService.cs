@@ -633,7 +633,7 @@ public sealed class PayrollComputationService
                         var value = Evaluate(component.PayHeadId).Amount;
                         basis += component.IsSubtraction ? -value : value;
                     }
-                    return EvaluateSlabs(basis, computation);
+                    return EvaluateSlabs(basis, computation, _to);
                 }
 
                 case PayHeadCalculationType.OnAttendance:
@@ -715,12 +715,25 @@ public sealed class PayrollComputationService
         /// <c>12% × min(basis, 15000)</c>. <b>Value</b> slabs are select-one-band (PT style): the band whose
         /// <c>(from, to]</c> range contains the basis contributes its flat value. The two aggregate additively so
         /// a mixed set is well-defined.
+        ///
+        /// <para>🔴 <b>SLABS OUT OF THEIR EFFECTIVE WINDOW ARE SKIPPED BEFORE ANY ARITHMETIC (schema v63, census
+        /// 7.19).</b> <paramref name="periodTo"/> is the payroll period's END date — the same anchor
+        /// <see cref="ResolveStructureInForce"/> uses — and a slab contributes only when
+        /// <see cref="PayHeadComputationSlab.IsInForceOn"/> says it is in force on it. This is the whole mechanism
+        /// that lets a <b>Labour Welfare Fund</b> deduction be taken in the ONE month its State collects it
+        /// instead of in all twelve: an annual or half-yearly contribution on an undated slab would be deducted
+        /// every period, which is the defect this gate exists to make impossible. A slab with <b>no</b> dates is
+        /// in force in every period, so every pay head that existed before v63 evaluates to the same paisa.</para>
         /// </summary>
-        private static decimal EvaluateSlabs(decimal basis, PayHeadComputation computation)
+        private static decimal EvaluateSlabs(decimal basis, PayHeadComputation computation, DateOnly periodTo)
         {
             decimal total = 0m;
             foreach (var slab in computation.Slabs)
             {
+                // The date gate comes FIRST and applies to BOTH slab types. Putting it inside either branch would
+                // leave the other silently perpetual, which is the exact bug this column set was added to prevent.
+                if (!slab.IsInForceOn(periodTo)) continue;
+
                 var from = slab.FromAmount?.Amount ?? 0m;
                 if (slab.SlabType == PayHeadComputationSlabType.Percentage)
                 {

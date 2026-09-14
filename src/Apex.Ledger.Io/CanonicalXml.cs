@@ -390,7 +390,9 @@ public static class CanonicalXml
         foreach (var s in p.ComputationSlabs)
             slabs.Add(new XElement("slab", Attr("slabType", s.SlabType), Attr("rateBasisPoints", s.RateBasisPoints),
                 Attr("valuePaisa", s.ValuePaisa), OptLong("fromAmountPaisa", s.FromAmountPaisa),
-                OptLong("toAmountPaisa", s.ToAmountPaisa)));
+                OptLong("toAmountPaisa", s.ToAmountPaisa),
+                // v63 (census 7.19): omitted when null, so an undated slab's element is unchanged from pre-v63.
+                Opt("effectiveFrom", s.EffectiveFrom), Opt("effectiveTo", s.EffectiveTo)));
         el.Add(comps, slabs);
         return el;
     }
@@ -1366,6 +1368,8 @@ public static class CanonicalXml
                 SlabType = Str(s, "slabType")!, RateBasisPoints = Int(s, "rateBasisPoints"),
                 ValuePaisa = Long(s, "valuePaisa"),
                 FromAmountPaisa = OptLong(s, "fromAmountPaisa"), ToAmountPaisa = OptLong(s, "toAmountPaisa"),
+                // v63 (census 7.19): absent attribute ⇒ null ⇒ perpetual, which is the pre-v63 meaning.
+                EffectiveFrom = Str(s, "effectiveFrom"), EffectiveTo = Str(s, "effectiveTo"),
             }).ToList(),
     };
 
