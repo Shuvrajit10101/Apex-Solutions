@@ -146,7 +146,10 @@ public sealed class LoadBearingCitationContentTests
         // The desktop layer's single validation floor. The census row claims the write half is "safe" BECAUSE
         // this call exists; delete it and the claim is false while the reach check stays green.
         new("docs/full-clone-census.md",
-            "**The floor that made the write half safe - `CompanyStorage.cs:142`**",
+            // Re-pointed 2026-09-14 by A12 at the W-T1 vault merge, from `:142`. The vault inserted the
+            // vault-aware OpenFor routing and its remarks above Save, so the choke point moved to :220.
+            // A SECOND EnsureValid() lives at :386 in SaveTo — this anchor is the one inside Save.
+            "**The floor that made the write half safe - `CompanyStorage.cs:220`**",
             "CompanyStorage.cs",
             "company.EnsureValid()"),
 

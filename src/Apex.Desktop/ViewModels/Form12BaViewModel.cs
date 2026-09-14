@@ -75,7 +75,7 @@ public sealed class Form12BaEmployeeOptionVm : ViewModelBase
 /// gate the Form 16 row carries (ER-13). MVVM boundary: engine only, no Avalonia types (headlessly testable);
 /// deterministic (no clock/RNG).</para>
 /// </summary>
-public sealed partial class Form12BaViewModel : ViewModelBase
+public sealed partial class Form12BaViewModel : ViewModelBase, IMasterListExportSource
 {
     /// <summary>
     /// The Rule 26A(2)(b) salary threshold above which the statement is required, <b>in rupees</b>: ₹1,50,000.
@@ -312,6 +312,67 @@ public sealed partial class Form12BaViewModel : ViewModelBase
         // table up and the empty state disappears on its own.
         IsEmpty = true;
         StatusText = ThresholdText + "  Perquisite values are not maintained in this book — see the note below.";
+    }
+
+    /// <summary>
+    /// <b>Census 6.42 — and of the six "output dead end" rows this is the one where the dead end was the whole
+    /// point of the form.</b> A Form 12BA exists to be <i>handed to an employee</i>; §192(2C) and Rule 26A(2)(b)
+    /// require the employer to furnish it. A statement that can only be read on the operator's own screen has
+    /// not been furnished to anyone. E / Alt+E and P / Ctrl+P are what make this screen a form rather than a
+    /// lookup.
+    ///
+    /// <para>🔴 <b><see cref="EmptyStateText"/> rides in the snapshot, and it is the load-bearing row.</b> This
+    /// book maintains no §17(2) perquisite capture, so the prescribed four-column table is always empty. Export
+    /// the four captions with no rows beneath them and the recipient reads a <b>nil perquisite declaration</b> —
+    /// a positive statement that no perquisite was provided, which the book has no basis whatever to make and
+    /// which the employee may rely on in their own return. The on-screen sentence exists to stop exactly that
+    /// misreading; stripping it at the export boundary would put the misreading into a document that leaves the
+    /// building. It is carried verbatim, not paraphrased.</para>
+    ///
+    /// <para><b>The threshold verdict is carried for the same reason</b> — it is the one figure on this screen
+    /// the book genuinely computes, and where there is no §192 activity the screen states an <i>unmeasured</i>
+    /// gross and gives no verdict in either direction. That distinction survives into the export, because
+    /// "unmeasured" and "below the threshold" are different claims and only one of them is safe to act on.</para>
+    ///
+    /// <para><b>Two columns, matching the statutory blocks.</b> The perquisite table's own four captions are
+    /// emitted as a labelled block rather than as the snapshot's columns: with no rows to put under them they
+    /// describe a shape, and promoting them to real columns would produce a table that looks filled-in and is
+    /// not.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Statement", Title },
+            new[] { "Period", Subtitle },
+
+            // Employer (issuer) block — the same source as Form 16's deductor block.
+            new[] { "Employer TAN", EmployerTan },
+            new[] { "Person responsible for deduction", ResponsiblePerson },
+            new[] { PeriodCaptionShort, PeriodValue },
+
+            // Employee (recipient) block.
+            new[] { "Employee name", EmployeeName },
+            new[] { "Employee PAN", EmployeePan },
+            new[] { "Designation", EmployeeDesignation },
+            new[] { "Gross salary (section 192)", GrossSalaryText },
+
+            // The one computed verdict — carried in words, including the "unmeasured" case.
+            new[] { "Rule 26A(2)(b) verdict", ThresholdText },
+        };
+
+        // The prescribed perquisite table: its shape, explicitly labelled as a shape.
+        rows.Add(new[] { "Perquisite table (prescribed columns — no rows are held in this book)", string.Empty });
+        for (var i = 0; i < PrescribedColumns.Length; i++)
+            rows.Add(new[] { $"  Col. {i + 1}", PrescribedColumns[i] });
+
+        // 🔴 Never drop this row. See the remarks above.
+        rows.Add(new[] { "Note", EmptyStateText });
+
+        return new MasterListSnapshot(
+            Title,
+            new[] { MasterListColumn.Text("Particulars"), MasterListColumn.Text("Details") },
+            rows);
     }
 
     private static string BuildResponsibleLine(Form24QDeductor d)
