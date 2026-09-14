@@ -199,7 +199,11 @@ public static class ReportTabularProjector
                                        => new[] { "Date", "Order No.", "Party", "Item", "Track", "Ordered", "Fulfilled", "Pending" },
         ReportKind.TaxAnalysis         => new[] { "Rate / Head", "CGST", "SGST", "IGST", "Taxable", "Tax" },
         ReportKind.Gstr1               => new[] { "Party / HSN", "GSTIN / Description", "Invoice / UQC", "POS / Qty", "Taxable", "CGST", "SGST", "IGST" },
-        ReportKind.Gstr3b              => new[] { "Particulars", "Taxable Value", "CGST", "SGST", "IGST" },
+        // Census 6.9 — Cess is a real column of the form (Table 3.1(d) and Table 4(B) both carry Compensation
+        // Cess and the projection computes them). It was missing here as well as on the grid, so an exported or
+        // e-mailed GSTR-3B dropped a cess figure the screen had computed. Kept in step with the GSTR-3B grid's
+        // own six columns in MainWindow.axaml — the two must not drift, which is what the export test pins.
+        ReportKind.Gstr3b              => new[] { "Particulars", "Taxable Value", "CGST", "SGST", "IGST", "Cess" },
         _                              => System.Array.Empty<string>(),
     };
 
