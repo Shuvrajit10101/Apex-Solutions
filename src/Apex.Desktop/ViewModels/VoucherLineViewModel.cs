@@ -257,7 +257,11 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             BillSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  over-allocated by {Fmt(-diff)}";
     }
 
-    private static string Fmt(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture);
+    // Through IndianMoneyFormat.Amount, not a second copy of "#,##0.00" + the culture (drift lock D2). The pairing
+    // is character-for-character the same operation, so this is a no-behaviour-change consolidation — but the rule
+    // this codebase had to enforce once already, after one assembly printed money two ways, is that the grouping
+    // rule has exactly ONE home. A hand-paired literal is a site the next grouping change has to be remembered at.
+    private static string Fmt(decimal v) => Apex.Ledger.IndianMoneyFormat.Amount(v);
 
     /// <summary>
     /// The domain bill allocations for this line — the complete rows turned into <see cref="BillAllocation"/>.
@@ -599,7 +603,8 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         // Snap to the paisa (the same rounding ForexInfo.BaseValue uses) so the base the engine sees is
         // paisa-exact even on a non-round rate — an unrounded sub-paisa base cannot persist (INTEGER paisa).
         var baseValue = Money.ForexBase(new Money(forex), rate).Amount;
-        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.ActiveCulture)}";
+        // The one grouping rule (drift lock D2), not a local copy of "#,##0.00" + the culture.
+        ForexBaseText = $"₹ {Apex.Ledger.IndianMoneyFormat.Amount(baseValue)}";
         // Drive the authoritative base amount (the engine enforces base == forex × rate rounded to the paisa).
         AmountText = baseValue.ToString(CultureInfo.InvariantCulture);
     }
