@@ -115,11 +115,18 @@ public static class DayBook
             var byNumber = a.Number.CompareTo(b.Number);
             if (byNumber != 0) return byNumber;
             // 🔴 THE TIE-BREAK IS NOT DECORATION. The two aggregates number INDEPENDENTLY — an accounting
-            // Receipt #1 and a Stock Journal #1 on one date are ordinary — so (Date, Number) alone is no longer
-            // a total order and `List.Sort` is UNSTABLE. Without a third key the row order of a book containing
-            // both kinds varied between runs and between platforms, which would have made every Day Book
-            // assertion in the suite intermittently red on ubuntu/macos while staying green here. Type name then
-            // id: both are deterministic, and the id makes the order total even for two same-named types.
+            // Receipt #1 and a Delivery Note #1 on one date are ordinary — so (Date, Number) alone stopped being
+            // a total order the moment both kinds listed here, and `List.Sort` is UNSTABLE. Type name then id:
+            // both are deterministic, and the id makes the order total even for two same-named types.
+            //
+            // ⚠️ CORRECTED — the rationale written here first claimed the order "varied between runs and between
+            // platforms" and would go "intermittently red on ubuntu/macos". THAT IS NOT TRUE and was never
+            // measured: .NET's introsort is deterministic for a given input, so without this key the order would
+            // have been stable — just meaningless, an artefact of which of the two loops above appended first.
+            // The claim mattered because a test was written to the false premise (rebuild the book twelve times,
+            // assert the order matches) and it could not fail: it survived reducing this comparator to
+            // `return 0`. The honest reason to keep the key is that the order should be PREDICTABLE FROM THE ROW,
+            // not from the loop order in this method — and that is what the test now pins.
             var byType = string.Compare(a.VoucherTypeName, b.VoucherTypeName, StringComparison.Ordinal);
             return byType != 0 ? byType : a.VoucherId.CompareTo(b.VoucherId);
         });

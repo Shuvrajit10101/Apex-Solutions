@@ -3183,8 +3183,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     ///
     /// <para><b>KEYBOARD ROUTE, stated end to end because a capability no user can reach is not complete:</b>
     /// Gateway → Reports → Day Book (or the bare <c>D</c> quick-jump), arrow to the Stock Journal / Physical
-    /// Stock / Delivery Note / Receipt Note / order / Rejection row, <b>Enter</b> to open this pane;
-    /// <b>Alt+X</b> cancels it and <b>Alt+D</b> deletes it, from either the Day Book row or this column.</para>
+    /// Stock / Delivery Note / Receipt Note / order / Rejection row, <b>Enter</b> to open this pane.
+    /// <b>Alt+X</b> cancels it and <b>Alt+D</b> deletes it <b>from the Day Book row</b>; Alt+D additionally works
+    /// from inside this column.</para>
+    ///
+    /// <para>⚠️ <b>CORRECTED — the two verbs are NOT symmetric here, and the sentence above used to say they
+    /// were.</b> It claimed both worked "from either the Day Book row or this column". Measured: Alt+X's key arm
+    /// is gated on <c>vm.IsLiveReportPage</c>, which is <c>Reports is not null &amp;&amp; CurrentScreen ==
+    /// Screen.Report</c> — so Alt+X does not fire from ANY drill column. <b>That asymmetry is pre-existing and
+    /// applies identically to the accounting <see cref="Screen.VoucherDetail"/> column</b>, so it is reported
+    /// rather than quietly fixed for this aggregate alone: widening it here would make a stock voucher MORE
+    /// cancellable than an ordinary one, which is a worse inconsistency than the one it removes. Widening Alt+X
+    /// to both detail columns together is a small, separate change and is owed to the user as a decision.</para>
     /// </summary>
     public void OpenInventoryVoucherDetail(Guid voucherId)
     {
@@ -7587,36 +7597,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// "Y" on the cancellation confirmation: marks the armed voucher cancelled through the engine, persists, and
-    /// rebuilds the live report so the row greys immediately.
-    ///
-    /// <para>The engine call is <c>LedgerService.Cancel</c> and NOTHING else — S3 adds no engine semantics. The
-    /// voucher keeps its number (the engine sets a flag and never touches <c>Number</c>) and drops out of every
-    /// balance because <c>LedgerBalances.CountsAsOf</c> and <c>ItemInvoiceStock.Counts</c> already exclude
-    /// cancelled vouchers. Persisting through <c>_storage.Save</c> is the same route
-    /// <see cref="ConvertMemorandum"/> takes; the store is a snapshot, so a save is how the flag survives.</para>
-    ///
-    /// <para>🔴 <b>A FAILED SAVE ROLLS THE FLAG BACK.</b> The engine mutates the in-memory aggregate and the save
-    /// happens after it, so a save that throws used to leave the books cancelled in memory, nothing on disk, the
-    /// report un-rebuilt and the row still black — the aggregate silently AHEAD of the store, which is the state
-    /// every later save then carries. Two things were wrong and both are fixed here: the flag is restored in the
-    /// catch, and the catch actually catches what <c>_storage.Save</c> throws. <c>CompanyStorage.Save</c> opens
-    /// with <c>company.EnsureValid()</c>, and <c>Company.EnsureValid</c> throws <b>ArgumentException</b> (a bad
-    /// PIN, or books-begin before the year start — its own doc says such a book "loads without complaint … and
-    /// then the next save on any screen throws"). The old <c>catch (InvalidOperationException)</c> never saw it, so
-    /// the one genuinely reachable failure on this path was an unhandled exception out of the window's key handler
-    /// with the voucher already flagged. Restoring <c>Cancelled = false</c> is a ROLLBACK of a transaction that did
-    /// not commit — it is NOT an un-cancel feature (ORCHESTRATOR RULING 3 ships none) and no UI route reaches
-    /// it.</para>
-    ///
-    /// <para>🔴 <b>v52 — THE ROLLBACK NOW UNDOES BOTH HALVES.</b> <c>LedgerService.Cancel</c> also appends a
-    /// <c>VoucherEditLogEntry</c>, and a rollback that put the flag back while leaving the log line standing would
-    /// have left this company asserting a cancellation that never reached disk — which the NEXT successful save on
-    /// any screen would then persist. So the failure arm calls <c>LedgerService.DiscardUncommittedCancel</c>,
-    /// which clears the flag and drops that one entry together. It is also now the ONLY way this screen can clear
-    /// the flag at all: <c>Voucher.Cancelled</c>'s setter is <c>internal</c>.</para>
-    /// </summary>
-    /// <summary>
     /// <b>Alt+X on a Day Book row standing for a PURE-STOCK voucher</b> — census rows 4.9–4.16. Raises the SAME
     /// single Y/N confirmation the accounting verb raises, on the SAME one channel.
     ///
@@ -7717,6 +7697,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (InventoryVoucherDetail is { } pane && pane.VoucherId == voucherId) pane.Refresh();
     }
 
+    /// <summary>
+    /// "Y" on the cancellation confirmation: marks the armed voucher cancelled through the engine, persists, and
+    /// rebuilds the live report so the row greys immediately.
+    ///
+    /// <para>⚠️ <b>THIS DOC COMMENT WAS RE-ATTACHED, NOT REWRITTEN.</b> The wave-29 inventory slice inserted a new
+    /// member between this block and its method, leaving the text below describing
+    /// <see cref="RequestCancelInventoryVoucher"/> — an unrelated method — while this one carried no
+    /// documentation at all. The words are the original author's; only their position changed.</para>
+    ///
+    /// <para>The engine call is <c>LedgerService.Cancel</c> and NOTHING else — S3 adds no engine semantics. The
+    /// voucher keeps its number (the engine sets a flag and never touches <c>Number</c>) and drops out of every
+    /// balance because <c>LedgerBalances.CountsAsOf</c> and <c>ItemInvoiceStock.Counts</c> already exclude
+    /// cancelled vouchers. Persisting through <c>_storage.Save</c> is the same route
+    /// <see cref="ConvertMemorandum"/> takes; the store is a snapshot, so a save is how the flag survives.</para>
+    ///
+    /// <para>🔴 <b>A FAILED SAVE ROLLS THE FLAG BACK.</b> The engine mutates the in-memory aggregate and the save
+    /// happens after it, so a save that throws used to leave the books cancelled in memory, nothing on disk, the
+    /// report un-rebuilt and the row still black — the aggregate silently AHEAD of the store, which is the state
+    /// every later save then carries. Two things were wrong and both are fixed here: the flag is restored in the
+    /// catch, and the catch actually catches what <c>_storage.Save</c> throws. <c>CompanyStorage.Save</c> opens
+    /// with <c>company.EnsureValid()</c>, and <c>Company.EnsureValid</c> throws <b>ArgumentException</b> (a bad
+    /// PIN, or books-begin before the year start — its own doc says such a book "loads without complaint … and
+    /// then the next save on any screen throws"). The old <c>catch (InvalidOperationException)</c> never saw it, so
+    /// the one genuinely reachable failure on this path was an unhandled exception out of the window's key handler
+    /// with the voucher already flagged. Restoring <c>Cancelled = false</c> is a ROLLBACK of a transaction that did
+    /// not commit — it is NOT an un-cancel feature (ORCHESTRATOR RULING 3 ships none) and no UI route reaches
+    /// it.</para>
+    ///
+    /// <para>🔴 <b>v52 — THE ROLLBACK NOW UNDOES BOTH HALVES.</b> <c>LedgerService.Cancel</c> also appends a
+    /// <c>VoucherEditLogEntry</c>, and a rollback that put the flag back while leaving the log line standing would
+    /// have left this company asserting a cancellation that never reached disk — which the NEXT successful save on
+    /// any screen would then persist. So the failure arm calls <c>LedgerService.DiscardUncommittedCancel</c>,
+    /// which clears the flag and drops that one entry together. It is also now the ONLY way this screen can clear
+    /// the flag at all: <c>Voucher.Cancelled</c>'s setter is <c>internal</c>.</para>
+    /// </summary>
     private void CancelPendingVoucher(Guid voucherId)
     {
         if (Company is null) return;
@@ -7805,11 +7820,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// restored by hand at the merge. Neither is redundant: <see cref="PayrollMaster"/> is the payroll-master
     /// arm of census row 7.16, and <see cref="Company"/> is the delete half of row 1.4. If a later merge ever
     /// presents this line as a conflict again, the answer is to keep EVERY member, never to pick a side.</para>
+    ///
+    /// <para><see cref="InventoryVoucher"/> is census 4.9–4.16's pure-stock aggregate — its own member rather
+    /// than a reuse of <see cref="Voucher"/> because <see cref="PerformPendingDeletion"/> must resolve the id
+    /// through a different lookup and call a different service, and a shared member would make that a guess from
+    /// the current screen. (Folded into this block rather than left as the SECOND <c>&lt;summary&gt;</c> the
+    /// interrupted wave-29 write left stacked here: two summary elements on one member is malformed doc XML, and
+    /// the paragraph above — which exists precisely to stop members being lost — would have been the one a tool
+    /// dropped.)</para>
     /// </summary>
-    /// <summary>What an armed Alt+D confirmation will destroy. <see cref="InventoryVoucher"/> is census
-    /// 4.9–4.16's pure-stock aggregate — its own member rather than a reuse of <see cref="Voucher"/> because
-    /// <c>PerformPendingDeletion</c> must resolve the id through a different lookup and call a different
-    /// service, and a shared member would make that a guess from the current screen.</summary>
     private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company, InventoryVoucher }
 
     /// <summary>
@@ -8470,6 +8489,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
 
     /// <summary>
+    /// 🔴 <b>Census 4.9–4.16 — the verb the operator just pressed has NO pure-stock implementation, so SAY SO
+    /// rather than do nothing.</b> Returns <c>true</c> (having written the sentence to the notice bar) iff the
+    /// Day Book row under the highlight stands for a pure-stock voucher.
+    ///
+    /// <para><b>THIS EXISTS BECAUSE THE DAY BOOK LISTING CREATED A DEAD KEY THAT DID NOT EXIST BEFORE IT.</b>
+    /// Ctrl+Enter (alter) and Alt+2 (duplicate) both resolve through <c>ReportRow.DrillVoucherId</c>, which is
+    /// deliberately <see cref="Guid.Empty"/> on an inventory row, so both returned <c>NoVoucherHere</c> — a
+    /// documented QUIET no-op. That was the right answer while no such row existed. The moment a Stock Journal
+    /// appears in the Day Book it is the wrong one: the operator sees a voucher, presses the verb they use on
+    /// every other voucher, and NOTHING HAPPENS AND NOTHING IS SAID. "Honestly unavailable" is not a property a
+    /// silent key can have — it is the exact defect class this project has filed three times.</para>
+    ///
+    /// <para><b>Alteration really is unavailable, and the message is the truth rather than a placeholder.</b>
+    /// <c>VoucherEntryViewModel.ForAlter</c> refuses every inventory-aggregate voucher by design
+    /// (<c>VoucherAlterRefusalTests</c> pins that for all twelve base kinds) because no
+    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice;
+    /// naming the limit costs nothing and is owed now. The sentence points at the two routes that DO work.</para>
+    ///
+    /// <para>Scoped to <see cref="Screen.Report"/> alone, which is the only surface that can carry such a row:
+    /// <see cref="IsVoucherAlterTargetPage"/>'s other two arms are the register drill and the ACCOUNTING
+    /// voucher-detail column, and <see cref="Screen.InventoryVoucherDetail"/> is not one of its arms at all, so
+    /// neither verb can reach this from there. A guard for a surface no keystroke arrives from would be
+    /// unfalsifiable.</para>
+    /// </summary>
+    private bool RefuseVoucherVerbOnStockRow(string verb)
+    {
+        if (CurrentScreen != Screen.Report) return false;
+        if (Reports?.SelectedRow?.DrillInventoryVoucherId is not { } stockId || stockId == Guid.Empty)
+            return false;
+
+        RaiseLifecycleNotice(
+            $"{verb} is not available for a stock voucher. Cancel it with Alt+X or delete it with Alt+D, "
+            + "then re-enter it from the inventory voucher screen.");
+        return true;
+    }
+
+    /// <summary>
     /// <b>Ctrl+Enter — open the highlighted posted voucher for ALTERATION.</b> Returns the THREE-VALUED
     /// <see cref="VoucherAlterationRequest"/>: <c>Opened</c>, <c>NoVoucherHere</c> (a quiet no-op — the caller
     /// MUST fall through so the row still drills), or <c>Refused</c> (terminal, with a NAMED refusal already on
@@ -8557,9 +8613,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
-        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+        // Census 4.9–4.16 — asked BEFORE the fall-through so a pure-stock row gets a sentence instead of a dead
+        // key. Refused (not NoVoucherHere) so the keystroke is CONSUMED: falling through to the drill below would
+        // change screens, and OnCurrentScreenChanged wipes the notice bar on the way past — the operator would
+        // watch the explanation they were just given disappear.
+        if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
+            return RefuseVoucherVerbOnStockRow("Alteration (Ctrl+Enter)")
+                ? VoucherAlterationRequest.Refused
+                : VoucherAlterationRequest.NoVoucherHere;
 
+        var voucher = Company.FindVoucher(id)!;
         return ShowVoucherAlteration(voucher);
     }
 
@@ -8684,9 +8747,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
-        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+        // Census 4.9–4.16 — the duplicate sibling of the clause in RequestAlterHighlightedVoucher, and for its
+        // reasons exactly. Alt+2 is the worse of the two to leave silent: it is not followed by a fall-through
+        // arm of any kind, so on a stock row it was a key that did nothing at all and said nothing at all.
+        if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
+            return RefuseVoucherVerbOnStockRow("Duplicate (Alt+2)")
+                ? VoucherAlterationRequest.Refused
+                : VoucherAlterationRequest.NoVoucherHere;
 
+        var voucher = Company.FindVoucher(id)!;
         return ShowVoucherDuplicate(voucher);
     }
 

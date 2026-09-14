@@ -93,8 +93,8 @@ public class InventoryVoucherLifecycleTests
             Guid.NewGuid(), c.FindVoucherTypeByName("Receipt")!.Id, new DateOnly(2025, 4, 5),
             new[]
             {
-                new EntryLine(cash.Id, DrCr.Debit, Money.FromRupees(5000m)),
-                new EntryLine(c.FindLedgerByName("Profit & Loss A/c")?.Id ?? cash.Id, DrCr.Credit, Money.FromRupees(5000m)),
+                new EntryLine(cash.Id, Money.FromRupees(5000m), DrCr.Debit),
+                new EntryLine(c.FindLedgerByName("Profit & Loss A/c")?.Id ?? cash.Id, Money.FromRupees(5000m), DrCr.Credit),
             }));
 
         var receipt = PostReceipt(b, qty: 4m, rate: 25m, date: new DateOnly(2025, 4, 12));
@@ -111,30 +111,53 @@ public class InventoryVoucherLifecycleTests
 
     /// <summary>
     /// 🔴 <b>THE ORDER MUST BE TOTAL, and this is the case that proves it.</b> The two aggregates number
-    /// INDEPENDENTLY, so an accounting Receipt No. 1 and a Receipt Note No. 1 on one date are ordinary. Sorting
-    /// by (Date, Number) alone leaves those two rows tied, and <c>List.Sort</c> is UNSTABLE — the row order
-    /// would vary run to run and platform to platform, turning every Day Book assertion in the suite
-    /// intermittently red on ubuntu/macos while staying green on this machine.
+    /// INDEPENDENTLY, so an accounting Receipt No. 1 and a Delivery Note No. 1 on one date are ordinary. Sorting
+    /// by (Date, Number) alone leaves those two rows tied and <c>List.Sort</c> is UNSTABLE, so what an operator
+    /// sees would be an artefact of which loop happened to append first rather than anything they could predict.
+    ///
+    /// <para>🔴 <b>THIS TEST REPLACES ONE THAT COULD NOT FAIL, and the replacement is the whole point.</b> The
+    /// version written here first built the book, rebuilt it twelve times and asserted the id order matched. It
+    /// SURVIVED deleting the entire tie-break (measured: comparator reduced to <c>return 0</c>, suite still
+    /// green), because .NET's introsort is deterministic for one identical input — repeating the same call in
+    /// one process can never detect an unstable sort. It was a test that asserted a property of the runtime, not
+    /// of this code.</para>
+    ///
+    /// <para><b>What discriminates instead: a tie whose tie-break DISAGREES with insertion order.</b> The
+    /// accounting loop appends first, so insertion order is Receipt-then-Delivery Note; ordinal type name puts
+    /// "Delivery Note" BEFORE "Receipt". Asserting the stock row comes first therefore fails on any comparator
+    /// that drops the third key, and would fail again on one that sorted by aggregate instead of by name.</para>
     /// </summary>
     [Fact]
-    public void Two_vouchers_that_tie_on_date_and_number_still_sort_deterministically()
+    public void A_tie_on_date_and_number_is_broken_by_type_name_not_by_which_loop_ran_first()
     {
         var b = Seed("Tie Break Co");
         var c = b.Company;
 
+        // Stock to deliver, dated a day earlier so it is not itself part of the tie.
+        PostReceipt(b, qty: 50m, rate: 10m, date: On.AddDays(-1));
+
         var cash = c.FindLedgerByName("Cash")!;
-        new LedgerService(c).Post(new Voucher(
+        var accounting = new LedgerService(c).Post(new Voucher(
             Guid.NewGuid(), c.FindVoucherTypeByName("Receipt")!.Id, On,
             new[]
             {
-                new EntryLine(cash.Id, DrCr.Debit, Money.FromRupees(100m)),
-                new EntryLine(cash.Id, DrCr.Credit, Money.FromRupees(100m)),
+                new EntryLine(cash.Id, Money.FromRupees(100m), DrCr.Debit),
+                new EntryLine(cash.Id, Money.FromRupees(100m), DrCr.Credit),
             }));
-        PostReceipt(b, qty: 1m, rate: 1m);
 
-        var first = DayBook.Build(c, FyStart, AsOf).Select(r => r.VoucherId).ToList();
-        for (var i = 0; i < 12; i++)
-            Assert.Equal(first, DayBook.Build(c, FyStart, AsOf).Select(r => r.VoucherId).ToList());
+        var deliveryType = c.FindVoucherTypeByName("Delivery Note")!;
+        var stock = new InventoryPostingService(c).Post(new InventoryVoucher(
+            Guid.NewGuid(), deliveryType.Id, On,
+            new[] { new InventoryAllocation(b.ItemId, b.GodownId, 5m, StockDirection.Outward, Money.FromRupees(10m)) }));
+
+        // The premise: they really do tie. If seeding ever stops producing No. 1 for both, this test is measuring
+        // nothing and says so here rather than passing quietly.
+        Assert.Equal(accounting.Number, stock.Number);
+
+        var ids = DayBook.Build(c, FyStart, AsOf).Select(r => r.VoucherId).ToList();
+        Assert.True(ids.IndexOf(stock.Id) < ids.IndexOf(accounting.Id),
+            "The (Date, Number) tie was not broken by type name: 'Delivery Note' sorts before 'Receipt' "
+            + "ordinally, so dropping the third sort key leaves the order at whichever loop appended first.");
     }
 
     /// <summary>
@@ -181,11 +204,11 @@ public class InventoryVoucherLifecycleTests
         var receipt = PostReceipt(b, qty: 10m, rate: 50m);
 
         var ledger = new InventoryLedger(b.Company);
-        Assert.Equal(10m, ledger.ClosingQuantity(b.ItemId, AsOf));
+        Assert.Equal(10m, ledger.OnHand(b.ItemId, AsOf));
 
         new InventoryPostingService(b.Company).Cancel(receipt.Id);
 
-        Assert.Equal(0m, ledger.ClosingQuantity(b.ItemId, AsOf));
+        Assert.Equal(0m, ledger.OnHand(b.ItemId, AsOf));
         Assert.True(b.Company.FindInventoryVoucher(receipt.Id)!.Cancelled);
     }
 
@@ -196,11 +219,11 @@ public class InventoryVoucherLifecycleTests
         var b = Seed("Delete Consequence Co");
         var receipt = PostReceipt(b, qty: 6m, rate: 20m);
         var ledger = new InventoryLedger(b.Company);
-        Assert.Equal(6m, ledger.ClosingQuantity(b.ItemId, AsOf));
+        Assert.Equal(6m, ledger.OnHand(b.ItemId, AsOf));
 
         new InventoryPostingService(b.Company).Delete(receipt.Id);
 
-        Assert.Equal(0m, ledger.ClosingQuantity(b.ItemId, AsOf));
+        Assert.Equal(0m, ledger.OnHand(b.ItemId, AsOf));
         Assert.Null(b.Company.FindInventoryVoucher(receipt.Id));
         Assert.DoesNotContain(DayBook.Build(b.Company, FyStart, AsOf), r => r.VoucherId == receipt.Id);
     }
@@ -299,7 +322,7 @@ public class InventoryVoucherLifecycleTests
         Assert.False(b.Company.FindInventoryVoucher(receipt.Id)!.Cancelled);
         Assert.Empty(b.Company.VoucherEditLog);
         // …and the stock is back on the shelf, which is the half a flag-only rollback would have missed.
-        Assert.Equal(9m, new InventoryLedger(b.Company).ClosingQuantity(b.ItemId, AsOf));
+        Assert.Equal(9m, new InventoryLedger(b.Company).OnHand(b.ItemId, AsOf));
     }
 
     /// <summary>The rollback refuses an entry that does not describe this voucher's cancel, rather than removing
