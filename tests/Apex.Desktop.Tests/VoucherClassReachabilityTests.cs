@@ -190,7 +190,10 @@ public sealed class VoucherClassReachabilityTests
     /// had no caller in <c>src/</c> at all, so there was no picker at voucher entry and no code path from a class
     /// to a posted leg. This walks the realised visual tree of a Sales item invoice and proves the vendor's
     /// <i>"Voucher Class"</i> field is drawn and visible there, and that choosing a class takes the Sales
-    /// value-ledger field off the screen the way the vendor's own sales-class pages describe.</para>
+    /// value-ledger field off the screen. The vendor states that hiding on <c>help.tallysolutions.com/accounting-faq/</c>
+    /// and states it CONDITIONALLY — a class selected AND F12 "Select common ledger account for Item allocation" set
+    /// to No. We do not model that F12 flag, so this asserts OUR narrower rule (hide whenever the class pre-maps),
+    /// which matches the vendor at its shipped default. See <c>ShowStockLedgerPicker</c> for the recorded divergence.</para>
     ///
     /// <para>Asserting <c>ShowVoucherClassSelector</c> instead would pass on a build whose XAML never binds it —
     /// which is the whole reason this file inspects controls rather than flags.</para>
@@ -246,6 +249,17 @@ public sealed class VoucherClassReachabilityTests
                 + "operator is shown a field whose answer the class has already overridden.");
             Assert.True(HasVisibleCombo(window, "Voucher class…"),
                 "…and the class picker itself must stay, or the choice cannot be undone.");
+
+            // 🔴 DRAWN IS NOT REACHED. This product's keyboard-first contract makes Tab the way an operator moves
+            // across the invoice header, and a control with Focusable = false is skipped by it entirely — it would
+            // be visible, mouse-operable, and unreachable for the keyboard-only operator the contract is written
+            // for. Census 2.6 is only complete if the class can be CHOSEN without leaving the keyboard.
+            var picker = VisibleCombo(window, "Voucher class…");
+            Assert.NotNull(picker);
+            Assert.True(picker!.Focusable,
+                "The Voucher Class picker cannot be Tab-reached, so a keyboard-only operator cannot apply a class.");
+            Assert.True(picker.IsEnabled,
+                "The Voucher Class picker is drawn but disabled, so the class can never be chosen.");
         }
         finally { Cleanup(window, dir); }
     }
@@ -262,8 +276,12 @@ public sealed class VoucherClassReachabilityTests
 
     /// <summary>A REALISED, visible ComboBox carrying this placeholder — the control, not its caption.</summary>
     private static bool HasVisibleCombo(MainWindow w, string placeholder) =>
-        Descendants(w).Any(v =>
-            v is ComboBox { IsEffectivelyVisible: true } c
+        VisibleCombo(w, placeholder) is not null;
+
+    /// <summary>The realised, visible ComboBox itself, so a caller can interrogate more than its existence.</summary>
+    private static ComboBox? VisibleCombo(MainWindow w, string placeholder) =>
+        Descendants(w).OfType<ComboBox>().FirstOrDefault(c =>
+            c.IsEffectivelyVisible
             && c.Bounds.Width > 0 && c.Bounds.Height > 0
             && string.Equals(c.PlaceholderText, placeholder, StringComparison.Ordinal));
 

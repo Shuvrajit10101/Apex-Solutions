@@ -3269,10 +3269,13 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                   <!-- CENSUS 2.6 — Voucher Class. Sits BEFORE the value ledger because it governs
-                                       it: a class that pre-maps ledgers takes that field off the screen (vendor:
-                                       with a class selected "the field to select the Sales ledger is not
-                                       available"). Hidden entirely on a type that defines no class, so an
-                                       ordinary invoice header is unchanged. -->
+                                       it: a class that pre-maps ledgers takes that field off the screen. The
+                                       vendor states that on help.tallysolutions.com/accounting-faq/ and states it
+                                       CONDITIONALLY (a class selected AND F12 "Select common ledger account for
+                                       Item allocation" = No); we do not model that F12 flag, so our rule is the
+                                       narrower one — see ShowStockLedgerPicker for the divergence, recorded as
+                                       ours. Hidden entirely on a type that defines no class, so an ordinary
+                                       invoice header is unchanged. -->
                                   <TextBlock Grid.Column="2" Text="Voucher Class" FontWeight="SemiBold"
                                              IsVisible="{Binding ShowVoucherClassSelector}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"

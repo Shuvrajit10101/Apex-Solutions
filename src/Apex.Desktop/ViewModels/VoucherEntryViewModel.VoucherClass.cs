@@ -36,11 +36,21 @@ public sealed class VoucherClassOption
 /// <c>help.tallysolutions.com/tally-prime/accounting/voucher-types-tally/</c> — <i>"Use a Voucher Class when you
 /// regularly record similar transactions and want to automate entries"</i>, and for a Sales type <i>"you can also
 /// specify the ledgers to be allocated automatically for inventory items under <b>Default Accounting Allocations
-/// for all items in Invoice</b>"</i>. The class is chosen at entry and, when it is, the vendor's own sales-class
-/// pages record that <i>"the field to select the Sales ledger is not available"</i> — the class supplies those
-/// ledgers, which is why <see cref="ShowStockLedgerPicker"/> hides that field rather than leaving a second,
-/// contradicting source of the same answer on screen. Rounding vocabulary:
+/// for all items in Invoice</b>"</i>. Rounding vocabulary — the four method names, the <i>"Rounding limit"</i> field
+/// and the round-off ledger carrying the difference as a positive or negative value, with the worked example that
+/// rounds an invoice of <b>125.60 down to 125 leaving (-)0.60</b> on the round-off ledger:
 /// <c>help.tallysolutions.com/tally-prime/accounting/round-off-invoice-and-ledger-values/</c>.</para>
+///
+/// <para>🔴 <b>HIDING THE SALES-LEDGER FIELD — THE CITATION, AND THE DIVERGENCE IT EXPOSES.</b> The vendor's
+/// statement is on <c>help.tallysolutions.com/accounting-faq/</c>, NOT on the voucher-types page, and it is
+/// CONDITIONAL on two things, not one: the field to select the Sales ledger is not available <i>if you have
+/// selected a voucher class</i> to automate the sales details <b>AND</b> if <c>F12 &gt; "Select common ledger
+/// account for Item allocation"</c> is set to <b>No</b>. This application does not model that F12 configuration at
+/// all, so <see cref="ShowStockLedgerPicker"/> implements only the first condition and hides the field whenever the
+/// class pre-maps ledgers. That is the vendor's behaviour at the shipped default and never contradicts it, but it
+/// is a NARROWER rule than the vendor's — an operator who, in the reference application, had turned that F12 flag
+/// ON would there keep a common-ledger field this screen does not offer. <b>Recorded as OURS, not as attested.</b>
+/// Modelling the F12 flag is the work that would close it.</para>
 ///
 /// <para>🔴 <b>THE GST ANCHOR, AND WHY IT IS NOT A GUESS.</b> Without a class the GST resolver falls back to the
 /// single Sales/Purchases ledger when the item itself carries no rate. A class replaces that one ledger with a

@@ -180,9 +180,21 @@ public sealed class VoucherClassPostedLegsTests : IDisposable
     private static void AddEntry(
         Kit k, VoucherClass cls, Guid ledgerId,
         VoucherClassCalculationType calc, Money basis,
-        VoucherClassRoundingMethod rounding, Money limit) =>
+        VoucherClassRoundingMethod rounding, Money limit, Guid? typeId = null) =>
         new VoucherTypeService(k.Vm.Company!).AddClassAdditionalEntry(
-            k.SalesType.Id, cls.Id, ledgerId, calc, basis, rounding, limit, removeIfZero: true);
+            typeId ?? k.SalesType.Id, cls.Id, ledgerId, calc, basis, rounding, limit, removeIfZero: true);
+
+    /// <summary>A Direct-Expenses ledger that IS an additional cost of purchase — i.e. one carrying a non-null
+    /// <see cref="MethodOfAppropriation"/>. The kit's plain "Freight Outward" deliberately has none (RQ-19).</summary>
+    private static DomainLedger AddApportioningLedger(Company c, string name, MethodOfAppropriation method)
+    {
+        var group = c.FindGroupByName("Direct Expenses")
+                    ?? throw new InvalidOperationException("No 'Direct Expenses' group.");
+        var ledger = new DomainLedger(Guid.NewGuid(), name, group.Id, Money.Zero, openingIsDebit: true,
+            methodOfAppropriation: method);
+        c.AddLedger(ledger);
+        return ledger;
+    }
 
     /// <summary>The Purchase counterpart of <see cref="OpenInvoice"/> — same shape, supplier party, Purchases
     /// value ledger.</summary>
@@ -671,12 +683,180 @@ public sealed class VoucherClassPostedLegsTests : IDisposable
         altering.SelectedVoucherClass =
             altering.VoucherClassOptions.Single(o => o.Class?.Id == cls.Id);
 
-        Assert.False(altering.Accept());
+        // 🔴 ACCEPT-ALTERATION IS THE VERB, AND USING THE WRONG ONE HID THIS GUARD COMPLETELY. The first draft of
+        // this test called Accept(), which refuses EVERY altering screen at its first line ("accepting it as a new
+        // entry would post a second voucher") before item-invoice code runs at all. It therefore went green on a
+        // refusal that had nothing to do with voucher classes, and would have stayed green with the class guard
+        // deleted. AcceptAlteration routes _alteringPostedAsItemInvoice through AcceptItemInvoiceAlteration into
+        // BuildItemInvoice, which is where the guard lives and the only path that reaches it.
+        Assert.False(altering.AcceptAlteration());
         Assert.Contains("voucher class cannot be applied", altering.Message!, StringComparison.OrdinalIgnoreCase);
 
         // The posted voucher is unchanged — still the single ordinary value leg.
         Assert.Equal(500m, Leg(PostedPurchase(k), k.PurchasesLedgerId, DrCr.Debit));
     }
+
+    /// <summary>
+    /// 🔴 <b>A CLASS'S ADDITIONAL LEDGER LOADS ONTO STOCK VALUATION — THE ONE REUSE CLAIM NOTHING TESTED.</b>
+    ///
+    /// <para><c>VoucherClassPosting</c>'s remarks assert that appropriation "is not decided here": the class computes
+    /// an additional ledger's AMOUNT and stops, and whether that amount then loads onto the item lines' stock rate is
+    /// the ledger master's <see cref="Ledger.MethodOfAppropriation"/>, "read by the existing
+    /// <c>AdditionalCostApportionment</c> exactly as it is for an operator-keyed line". That is a claim about a
+    /// WRONG-MONEY surface — freight that loads changes closing stock and therefore the Balance Sheet — and NO test
+    /// anywhere exercised it. It is true only because <see cref="AdditionalCostApportionment.TrackedCostLegs"/>
+    /// sweeps the POSTED <c>Voucher.Lines</c> by ledger rather than reading any screen-side collection, so a
+    /// class-posted leg is indistinguishable from a hand-keyed one by the time valuation runs. Untested, that is a
+    /// coincidence of two engines; tested, it is the documented contract.</para>
+    ///
+    /// <para><b>THE FIGURES.</b> 100 Nos @ ₹10.00 = ₹1 000.00 of goods, and the class adds ₹2.00/unit of freight on
+    /// a By-Value ledger = ₹200.00. The landed unit rate must therefore be ₹12.00, not the ₹10.00 the operator
+    /// keyed — and the freight must be a genuine Dr leg on the posted voucher for the sweep to see it at all.</para>
+    ///
+    /// <para><b>The two-method question the row owes an answer to.</b> The LEDGER's method is what decides, and the
+    /// Account Group's "method to allocate when used in purchase invoice" reaches this path only through the ledger
+    /// that inherits it — there is deliberately no class-level apportionment field, so a class can never contradict
+    /// either. The assertion below pins that: the class names the ledger and the amount, the LEDGER names the method.</para>
+    /// </summary>
+    [Fact]
+    public void A_class_additional_ledger_loads_onto_stock_valuation_through_the_existing_apportionment()
+    {
+        var k = NewKit("Class Apportionment Co");
+        var company = k.Vm.Company!;
+
+        // A By-Value additional-cost ledger — the method lives on the LEDGER, never on the class.
+        var freightByValue = AddApportioningLedger(company, "Freight Inward (by Value)", MethodOfAppropriation.ByValue);
+
+        var cls = DefineClass(k, "Landed Import", k.PurchaseType.Id);
+        Allocate(k, cls, k.PurchasesLedgerId, 10_000, k.PurchaseType.Id);
+        AddEntry(k, cls, freightByValue.Id, VoucherClassCalculationType.BasedOnQuantity,
+            Money.FromRupees(2m), VoucherClassRoundingMethod.NotApplicable, Money.Zero, k.PurchaseType.Id);
+
+        var entry = OpenPurchase(k, qty: 100m, rate: "10.00", className: "Landed Import");
+        entry.TrackAdditionalCosts = true;
+        Assert.True(entry.Accept(), entry.Message);
+
+        var posted = PostedPurchase(k);
+
+        // 1 — the class's freight really posted as a Dr leg (without this the sweep has nothing to find).
+        Assert.Equal(200m, Leg(posted, freightByValue.Id, DrCr.Debit));
+        Assert.Equal(1_000m, Leg(posted, k.PurchasesLedgerId, DrCr.Debit));
+        Assert.Equal(1_200m, Leg(posted, k.SupplierId, DrCr.Credit));
+
+        // 2 — …and the EXISTING apportionment engine, which never heard of voucher classes, picks that leg up
+        //     purely from the ledger's method and loads it onto the item.
+        var tracked = AdditionalCostApportionment.TrackedCostLegs(company, posted);
+        var freightLeg = Assert.Single(tracked, t => t.Ledger.Id == freightByValue.Id);
+        Assert.Equal(MethodOfAppropriation.ByValue, freightLeg.Method);
+        Assert.Equal(200m, freightLeg.Amount.Amount);
+
+        var landed = AdditionalCostApportionment.ForPurchase(company, posted);
+        var line = Assert.Single(landed);
+        Assert.True(line.HasLoad, "The class's freight did not load onto the item at all.");
+        Assert.Equal(12m, line.LandedUnitRate);
+    }
+
+    /// <summary>
+    /// The inverse, and the fidelity trap it protects (RQ-19): the SAME class, the SAME ₹200 of freight, on a
+    /// Direct-Expenses ledger carrying NO method. It must still post as a real ledger leg — the supplier is owed the
+    /// money either way — and must NOT touch the item's valuation. If a class-posted leg were swept into the pool by
+    /// virtue of coming from a class rather than by its ledger's method, this is the test that goes red.
+    /// </summary>
+    [Fact]
+    public void A_class_additional_ledger_with_no_method_posts_but_does_not_load_the_stock()
+    {
+        var k = NewKit("Class No Method Co");
+        var company = k.Vm.Company!;
+
+        var plainFreight = AddLedger(company, "Freight Inward (plain)", "Direct Expenses");
+        Assert.Null(plainFreight.MethodOfAppropriation);
+
+        var cls = DefineClass(k, "Plain Freight", k.PurchaseType.Id);
+        Allocate(k, cls, k.PurchasesLedgerId, 10_000, k.PurchaseType.Id);
+        AddEntry(k, cls, plainFreight.Id, VoucherClassCalculationType.BasedOnQuantity,
+            Money.FromRupees(2m), VoucherClassRoundingMethod.NotApplicable, Money.Zero, k.PurchaseType.Id);
+
+        var entry = OpenPurchase(k, qty: 100m, rate: "10.00", className: "Plain Freight");
+        entry.TrackAdditionalCosts = true;
+        Assert.True(entry.Accept(), entry.Message);
+
+        var posted = PostedPurchase(k);
+
+        // The money still moves — the freight is owed and the party total carries it.
+        Assert.Equal(200m, Leg(posted, plainFreight.Id, DrCr.Debit));
+        Assert.Equal(1_200m, Leg(posted, k.SupplierId, DrCr.Credit));
+
+        // …but the stock is valued at what was paid for the GOODS, exactly as RQ-19 requires.
+        Assert.Empty(AdditionalCostApportionment.TrackedCostLegs(company, posted));
+        var landed = AdditionalCostApportionment.ForPurchase(company, posted);
+        Assert.All(landed, l => Assert.False(l.HasLoad, "A method-less freight ledger loaded the stock."));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE GST ANCHOR IS A TAX-RATE DECISION, NOT A COSMETIC ONE — AND ONLY ITS EASY ARM WAS TESTED.</b>
+    ///
+    /// <para>The shipped rate hierarchy is the vendor's <c>Ledger → Accounting Group → Stock Item → Stock Group →
+    /// Company</c> walk, which every company created on schema v51 or later carries. The LEDGER rung therefore
+    /// OUTRANKS the stock item: whichever ledger is handed to <c>ResolveRate</c> as the anchor decides the rate even
+    /// when the item declares one of its own. <c>GstAnchorLedger</c> changes that anchor, so it moves tax.</para>
+    ///
+    /// <para>The rule it implements: ONE pre-mapped ledger is still an unambiguous anchor and keeps the old
+    /// behaviour; SEVERAL deliberately have NO anchor, because the invoice value is being split across ledgers that
+    /// may disagree and no one of them can be the right answer. Dropping the anchor lets the item speak. Picking the
+    /// first row (or the largest) would be silent, arbitrary, and OURS rather than the vendor's.</para>
+    ///
+    /// <para><b>THE FIGURES SEPARATE THE ARMS.</b> The value ledger says 5%, the Widget says 18%. Under a
+    /// single-ledger class the invoice must bear the LEDGER's 5% (₹50.00 on ₹1 000); under a two-ledger class the
+    /// anchor is gone and the ITEM's 18% must apply (₹180.00). Identical masters, identical keystrokes, and the only
+    /// difference is how many ledgers the class names.</para>
+    /// </summary>
+    [Fact]
+    public void A_multi_ledger_class_drops_the_gst_anchor_so_the_item_rate_applies()
+    {
+        // ── Arm 1: ONE pre-mapped ledger — the anchor survives and the LEDGER's 5% wins.
+        var single = NewKit("Class Anchor One Co", withGst: true);
+        SetLedgerGst(single, single.SalesLedgerId, rateBasisPoints: 500);
+        var clsOne = DefineClass(single, "Single");
+        Allocate(single, clsOne, single.SalesLedgerId, 10_000);
+
+        var e1 = OpenInvoice(single, qty: 1m, rate: "1000.00", className: "Single");
+        Assert.True(e1.Accept(), e1.Message);
+        var v1 = PostedSale(single);
+
+        var tax1 = v1.Lines.Where(l => l.Side == DrCr.Credit && l.Gst is not null).Sum(l => l.Amount.Amount);
+        Assert.Equal(50.00m, tax1);                                       // 5% — the anchor ledger's own rate
+        Assert.Equal(1_050.00m, Leg(v1, single.CustomerId, DrCr.Debit));
+
+        // ── Arm 2: the SAME masters, but the class names TWO ledgers. No ledger can be the anchor, so the rate
+        //    falls through to the Widget's own 18%.
+        var multi = NewKit("Class Anchor Many Co", withGst: true);
+        SetLedgerGst(multi, multi.SalesLedgerId, rateBasisPoints: 500);
+        SetLedgerGst(multi, multi.ExportSalesId, rateBasisPoints: 500);
+        var clsMany = DefineClass(multi, "Split");
+        Allocate(multi, clsMany, multi.SalesLedgerId, 6_000);
+        Allocate(multi, clsMany, multi.ExportSalesId, 4_000);
+
+        var e2 = OpenInvoice(multi, qty: 1m, rate: "1000.00", className: "Split");
+        Assert.True(e2.Accept(), e2.Message);
+        var v2 = PostedSale(multi);
+
+        // The split itself posted…
+        Assert.Equal(600m, Leg(v2, multi.SalesLedgerId, DrCr.Credit));
+        Assert.Equal(400m, Leg(v2, multi.ExportSalesId, DrCr.Credit));
+
+        // …and the tax is the ITEM's 18%, not either ledger's 5%.
+        var tax2 = v2.Lines.Where(l => l.Side == DrCr.Credit && l.Gst is not null).Sum(l => l.Amount.Amount);
+        Assert.Equal(180.00m, tax2);
+        Assert.Equal(1_180.00m, Leg(v2, multi.CustomerId, DrCr.Debit));
+        Assert.Equal(v2.TotalDebit.Amount, v2.TotalCredit.Amount);
+    }
+
+    /// <summary>Puts a GST block on a Sales/Purchase ledger — the TOP rung of the shipped rate hierarchy.</summary>
+    private static void SetLedgerGst(Kit k, Guid ledgerId, int rateBasisPoints) =>
+        k.Vm.Company!.FindLedger(ledgerId)!.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "9973", Taxability = GstTaxability.Taxable, RateBasisPoints = rateBasisPoints,
+        };
 
     public void Dispose()
     {
