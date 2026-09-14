@@ -41,7 +41,7 @@ public sealed class CompositionQuarterOption
 /// <c>Gst.RegistrationType == Composition</c>), so a Regular company is byte-identical (ER-13). MVVM boundary:
 /// engine only, no Avalonia types (headlessly testable); deterministic (no clock/RNG).</para>
 /// </summary>
-public sealed partial class Cmp08ReportViewModel : ViewModelBase
+public sealed partial class Cmp08ReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -122,6 +122,55 @@ public sealed partial class Cmp08ReportViewModel : ViewModelBase
 
     /// <summary>The currently-built CMP-08 (rebuilt on selection change). Never null after construction.</summary>
     public Cmp08 Statement { get; private set; } = default!;
+
+    /// <summary>
+    /// <b>Census 6.11 — CMP-08 can now be printed and exported.</b> Implementing
+    /// <see cref="IMasterListExportSource"/> gives the page E / Alt+E (CSV / XLSX / PDF / HTML / XML / JSON /
+    /// ASCII) and P / Ctrl+P, which is the whole of this row's recorded gap: the projection and the screen were
+    /// already right, and the offline-JSON writer behind it is reachable from the Offline Return Files picker,
+    /// but the statement an operator reads here could not be taken anywhere.
+    ///
+    /// <para><b>The period and the sub-type lead the snapshot, and that is not decoration.</b> CMP-08 is
+    /// quarterly and the rate depends on the composition sub-type, so a page of figures with neither is
+    /// ambiguous the moment it leaves this screen — two quarters of the same year export to files that cannot
+    /// be told apart. They ride as leading text rows rather than as a file-name convention, because the
+    /// operator chooses the file name.</para>
+    ///
+    /// <para><b>Cess stays on its own line</b> (ER-2): it is a Central head and must not be folded into the
+    /// CGST/SGST figures a composition dealer pays.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Period", Subtitle },
+            new[] { "Composition sub-type", SubTypeText },
+            new[] { "Tax on turnover rate", RateText },
+            new[] { "Turnover base", TurnoverBaseText },
+
+            new[] { "3(i) Outward tax on turnover — CGST", OutwardCgstText },
+            new[] { "3(i) Outward tax on turnover — SGST/UTGST", OutwardSgstText },
+            new[] { "3(i) Outward tax on turnover — total", OutwardTurnoverTaxText },
+
+            new[] { "3(ii) Inward reverse charge (paid in cash) — CGST", InwardRcmCgstText },
+            new[] { "3(ii) Inward reverse charge (paid in cash) — SGST/UTGST", InwardRcmSgstText },
+            new[] { "3(ii) Inward reverse charge (paid in cash) — IGST", InwardRcmIgstText },
+            new[] { "3(ii) Inward reverse charge (paid in cash) — Cess", InwardRcmCessText },
+
+            new[] { "3(iii) Tax payable — CGST", PayableCgstText },
+            new[] { "3(iii) Tax payable — SGST/UTGST", PayableSgstText },
+            new[] { "3(iii) Tax payable — IGST", PayableIgstText },
+            new[] { "3(iii) Tax payable — Cess", PayableCessText },
+            new[] { "3(iii) Tax payable — total", TotalTaxPayableText },
+
+            new[] { "3(iv) Interest", InterestText },
+        };
+
+        return new MasterListSnapshot(
+            Title,
+            new[] { MasterListColumn.Text("Particulars"), MasterListColumn.Number("Amount") },
+            rows);
+    }
 
     /// <summary>Re-derives the four quarter windows for the selected financial year (Apr–Jun … Jan–Mar).</summary>
     private void RebuildQuarters()

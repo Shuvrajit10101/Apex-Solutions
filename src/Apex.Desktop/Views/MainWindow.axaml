@@ -1800,25 +1800,35 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST ==
+                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST | Cess ==
                                Wide "Particulars" (MinWidth) so labels like "3.1 Details of outward
-                               supplies…" / "Net payable / (credit carried forward)" show in full;
-                               numeric columns trimmed. The grid stretches to fill the pane but has a
-                               floor width — a horizontal scrollbar appears only if the pane is narrower
-                               than that floor, so labels are never clipped. Header + rows share the same
-                               widths and scroll together. -->
+                               supplies…" / "(A)(3) ITC available — inward supplies liable to reverse
+                               charge…" show in full; numeric columns trimmed. The grid stretches to fill
+                               the pane but has a floor width — a horizontal scrollbar appears only if the
+                               pane is narrower than that floor, so labels are never clipped. Header +
+                               rows share the same widths and scroll together.
+
+                               🔴 CESS IS A REAL COLUMN OF THE FORM AND WAS MISSING (census 6.9). Table
+                               3.1(d) and Table 4(B) both carry Compensation Cess, the projection has
+                               always computed them (RcmOutwardCess / ItcReversed4B*Cess), and with only
+                               five columns there was nowhere on screen for the figure to land — so a cess
+                               amount was computed and then dropped. The Particulars floor also rises with
+                               the longer statutory captions this grid now carries: 700 → 1040, of which
+                               the six fixed numeric columns take 100+95+95+95+95 = 480, leaving the label
+                               column a 560px floor rather than 700's 220. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr3b}">
-                          <Grid RowDefinitions="Auto,*" MinWidth="700"
+                          <Grid RowDefinitions="Auto,*" MinWidth="1040"
                                 Width="{Binding #GstReportPane.Bounds.Width}"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700">
+                              <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Taxable Value" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1826,10 +1836,10 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700" Height="24">
-                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                      <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,3"
                                                    VerticalAlignment="Center" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
@@ -1840,6 +1850,9 @@
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
