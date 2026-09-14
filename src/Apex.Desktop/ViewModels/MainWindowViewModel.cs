@@ -3420,10 +3420,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsDayBookReport => Reports is { Kind: ReportKind.DayBook }
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
-    /// <summary>True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, or a drilled
-    /// voucher-detail (which prints the voucher / tax invoice). Used to gate the Print shortcut.</summary>
+    /// <summary>
+    /// True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, a drilled voucher-detail
+    /// (which prints the voucher / tax invoice), or a page that snapshots itself through
+    /// <see cref="IMasterListExportSource"/>. Used to gate the Print shortcut.
+    ///
+    /// <para>🔴 <b>The third arm was added for census 6.31 / 6.38 and is deliberately the GENERAL one.</b> Those
+    /// two rows — the TDS and TCS Challan Reconciliations — were filed as "output dead ends": real statutory
+    /// pages an operator reads and then cannot get off the screen, because they are not report pages and so
+    /// neither E (Export) nor P (Print) had anything to act on. The narrow fix would have been to name those two
+    /// screens here. That was rejected: the same dead end is recorded against rows 6.11, 6.12, 6.19 and 6.42 as
+    /// well, and a per-screen list is exactly how four of them came to be dead in the first place. Gating on the
+    /// snapshot interface instead means a page becomes printable the moment it can describe its own grid — the
+    /// same rule <see cref="IsExportablePage"/> already used for E.</para>
+    ///
+    /// <para>This widens Print to every master list too (Groups, Cost Centres, Godowns, Units, Currencies, …),
+    /// which is the vendor's behaviour and was already true of Export.</para>
+    /// </summary>
     public bool IsPrintablePage =>
-        IsReportContext || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null);
+        IsReportContext
+        || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+        || TopMasterExportSource() is not null;
 
     /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
@@ -4193,6 +4210,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 advice.CurrentSupplierAdvices, Company?.Name ?? string.Empty, Company?.Address, advice.Title);
         else if (Reports is not null)
             preview = new PrintPreviewViewModel(Reports);
+        // Census 6.31 / 6.38 — a page that can snapshot its own grid prints that snapshot, laid out by the SAME
+        // ExportViewModel.TabularToPrint the Export → PDF path uses, so Print and Export yield one document and
+        // cannot drift. Tested LAST so a live report always wins: a master column can sit on top of a stale
+        // Reports, and BuildExportPanel resolves that collision the other way round (master first) because E
+        // acts on the top column while P has always meant "print the report I am looking at".
+        else if (TopMasterExportSource() is { } printable)
+        {
+            var snapshot = MasterListTabularProjector.ProjectSource(printable);
+            preview = new PrintPreviewViewModel(ExportViewModel.TabularToPrint(snapshot), snapshot.Title);
+        }
         else
             return;                               // nothing to print
 

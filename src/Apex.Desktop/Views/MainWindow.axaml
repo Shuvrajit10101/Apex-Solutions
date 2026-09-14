@@ -1841,25 +1841,35 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST ==
+                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST | Cess ==
                                Wide "Particulars" (MinWidth) so labels like "3.1 Details of outward
-                               supplies…" / "Net payable / (credit carried forward)" show in full;
-                               numeric columns trimmed. The grid stretches to fill the pane but has a
-                               floor width — a horizontal scrollbar appears only if the pane is narrower
-                               than that floor, so labels are never clipped. Header + rows share the same
-                               widths and scroll together. -->
+                               supplies…" / "(A)(3) ITC available — inward supplies liable to reverse
+                               charge…" show in full; numeric columns trimmed. The grid stretches to fill
+                               the pane but has a floor width — a horizontal scrollbar appears only if the
+                               pane is narrower than that floor, so labels are never clipped. Header +
+                               rows share the same widths and scroll together.
+
+                               🔴 CESS IS A REAL COLUMN OF THE FORM AND WAS MISSING (census 6.9). Table
+                               3.1(d) and Table 4(B) both carry Compensation Cess, the projection has
+                               always computed them (RcmOutwardCess / ItcReversed4B*Cess), and with only
+                               five columns there was nowhere on screen for the figure to land — so a cess
+                               amount was computed and then dropped. The Particulars floor also rises with
+                               the longer statutory captions this grid now carries: 700 → 1040, of which
+                               the six fixed numeric columns take 100+95+95+95+95 = 480, leaving the label
+                               column a 560px floor rather than 700's 220. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr3b}">
-                          <Grid RowDefinitions="Auto,*" MinWidth="700"
+                          <Grid RowDefinitions="Auto,*" MinWidth="1040"
                                 Width="{Binding #GstReportPane.Bounds.Width}"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700">
+                              <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Taxable Value" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1867,10 +1877,10 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700" Height="24">
-                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                      <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,3"
                                                    VerticalAlignment="Center" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
@@ -1881,6 +1891,9 @@
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
@@ -3293,7 +3306,8 @@
                               <Border Grid.Row="0" Background="{StaticResource Cream}"
                                       BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                       Padding="10,6">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                                <StackPanel Orientation="Vertical" Spacing="4">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding PartyCaption}" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="0,0,8,0"/>
@@ -3308,15 +3322,38 @@
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
+                                  <!-- CENSUS 2.6 — Voucher Class. Sits BEFORE the value ledger because it governs
+                                       it: a class that pre-maps ledgers takes that field off the screen. The
+                                       vendor states that on help.tallysolutions.com/accounting-faq/ and states it
+                                       CONDITIONALLY (a class selected AND F12 "Select common ledger account for
+                                       Item allocation" = No); we do not model that F12 flag, so our rule is the
+                                       narrower one — see ShowStockLedgerPicker for the divergence, recorded as
+                                       ours. Hidden entirely on a type that defines no class, so an ordinary
+                                       invoice header is unchanged. -->
+                                  <TextBlock Grid.Column="2" Text="Voucher Class" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowVoucherClassSelector}"
+                                             Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
+                                             Margin="16,0,8,0"/>
+                                  <ComboBox Grid.Column="3" Width="200"
+                                            IsVisible="{Binding ShowVoucherClassSelector}"
+                                            ItemsSource="{Binding VoucherClassOptions}"
+                                            SelectedItem="{Binding SelectedVoucherClass, Mode=TwoWay}"
+                                            PlaceholderText="Voucher class…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:VoucherClassOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
                                   <!-- Item-invoice value ledger (Purchases/Sales) — hidden in Accounting mode, where
                                        each Particulars line carries its OWN income/expense ledger (there is no single
                                        value leg). The party picker to the left stays shared across both modes. -->
-                                  <TextBlock Grid.Column="2" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
-                                             IsVisible="{Binding IsItemInvoice}"
+                                  <TextBlock Grid.Column="4" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowStockLedgerPicker}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0"/>
-                                  <ComboBox Grid.Column="3" Width="220"
-                                            IsVisible="{Binding IsItemInvoice}"
+                                  <ComboBox Grid.Column="5" Width="220"
+                                            IsVisible="{Binding ShowStockLedgerPicker}"
                                             ItemsSource="{Binding StockLedgers}"
                                             views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
@@ -3330,10 +3367,10 @@
                                   <!-- Price Level header (slice 5; RQ-30) — Sales item-invoice + F11 flag on only
                                        (ShowPriceLevelSelector). Auto-fills each line's Rate/Discount from the resolver;
                                        an operator override sticks. A trailing gated column ⇒ byte-identical when off. -->
-                                  <TextBlock Grid.Column="4" Text="Price Level" FontWeight="SemiBold"
+                                  <TextBlock Grid.Column="6" Text="Price Level" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0" IsVisible="{Binding ShowPriceLevelSelector}"/>
-                                  <ComboBox Grid.Column="5" Width="180"
+                                  <ComboBox Grid.Column="7" Width="180"
                                             IsVisible="{Binding ShowPriceLevelSelector}"
                                             ItemsSource="{Binding PriceLevelOptions}"
                                             SelectedItem="{Binding SelectedPriceLevel, Mode=TwoWay}"
@@ -3345,6 +3382,15 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <!-- CENSUS 2.6 — what the chosen class will post WITHOUT ASKING. A voucher class
+                                     writes ledger entries with no prompt, so the ledgers it will hit and the
+                                     percentages it will hit them with are stated before Accept rather than
+                                     discovered afterwards in the day book. Empty string ⇒ collapsed, so an invoice
+                                     with no class shows nothing new. -->
+                                <TextBlock Text="{Binding VoucherClassSummary}" FontSize="11"
+                                           Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding VoucherClassSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
                               </Border>
 
                               <!-- 🔴 HEADER BAND + LINES SHARE ONE HORIZONTAL SCROLLER — do not split them again.
