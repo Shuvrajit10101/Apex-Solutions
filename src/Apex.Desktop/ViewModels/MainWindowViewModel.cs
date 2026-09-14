@@ -73,6 +73,15 @@ public enum Screen
     /// A sibling of <see cref="SecurityUsers"/> on the same Alt+K family.</summary>
     PasswordPolicy,
 
+    /// <summary>🔴 Census 16.1 — Alt+K (Company) &gt; <b>Data Vault</b>: set, change or remove the passphrase
+    /// that encrypts the open company's whole book. A third sibling on the same Alt+K family.</summary>
+    DataVault,
+
+    /// <summary>🔴 Census 16.1 — the passphrase prompt reached by choosing a VAULTED company on Company
+    /// Select. Its own screen id rather than a mode on <see cref="DataVault"/>, because it is reached with NO
+    /// company open and its Ctrl+A means "open this book", not "change its passphrase".</summary>
+    CompanyUnlock,
+
     // 14.4 — More Details (Ctrl+I): the vendor's per-instance optional-field panel, pushed as a cascade column
     // OVER the live voucher exactly like the F12 report-config column sits over its report. The voucher
     // underneath stays bound (BindPageColumn re-hydrates it on Escape), because More Details edits THAT
@@ -826,6 +835,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// that column is open.</summary>
     [ObservableProperty] private PasswordPolicyViewModel? _passwordPolicy;
 
+    /// <summary>🔴 Census 16.1 — the "Data Vault" panel (Alt+K &gt; Data Vault), non-null only while that
+    /// column is open.</summary>
+    [ObservableProperty] private CompanyVaultViewModel? _dataVault;
+
+    /// <summary>🔴 Census 16.1 — the passphrase prompt for a VAULTED company chosen on Company Select,
+    /// non-null only while it is up. Unlike every other panel here it is reached with NO company open.</summary>
+    [ObservableProperty] private CompanyUnlockViewModel? _companyUnlock;
+
     /// <summary>The W "Share via WhatsApp" panel (census row 14.10), non-null only while that column is open.</summary>
     [ObservableProperty] private WhatsAppShareViewModel? _whatsAppShare;
 
@@ -888,7 +905,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && VerifyDataPanel is null && SplitCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null && AppSettings is null
-        && SecurityUsers is null && PasswordPolicy is null
+        && SecurityUsers is null && PasswordPolicy is null && DataVault is null && CompanyUnlock is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1003,6 +1020,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAppSettingsChanged(AppSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSecurityUsersChanged(SecurityUsersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPasswordPolicyChanged(PasswordPolicyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnDataVaultChanged(CompanyVaultViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnCompanyUnlockChanged(CompanyUnlockViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1299,6 +1318,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void ReleaseOpenCompany()
     {
         Company = null;
+        OpenEntry = null;
+        // 🔴 Census 16.1 — the held passphrase must not outlive the book it opens. Shutting a vaulted company
+        // and opening a DIFFERENT one would otherwise leave the vault session pointing at the old file, and
+        // every save on the new company would land in the old company's encrypted book.
+        _storage.CloseVault();
         StatusCompany = "No company loaded";
         StatusDate = string.Empty;
         ShowCompanySelect();
@@ -1325,12 +1349,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return $"{baseName} {Guid.NewGuid():N}";
     }
 
+    /// <summary>
+    /// 🔴 <b>Census 16.1 — WHICH FILE the open company came from.</b> Null when no company is open, or when
+    /// the open one is a demo that has never been written to disk.
+    ///
+    /// <para>It had to be introduced because the file is no longer derivable from the name: a vaulted book
+    /// lives under an opaque filename with no name in it at all. Every screen that acts on the FILE rather
+    /// than the aggregate — today that is the Data Vault — reads it, and the vault re-points it whenever an
+    /// operation MOVES the book.</para>
+    /// </summary>
+    public CompanyEntry? OpenEntry { get; private set; }
+
+    /// <summary>
+    /// Opens a company chosen on Company Select.
+    ///
+    /// <para>🔴 <b>Census 16.1 — a VAULTED company diverts to the passphrase prompt instead of opening.</b>
+    /// Without this the row is listed (as asterisks) and Enter on it simply fails, which is the "listed but
+    /// unopenable" half-feature this row's design explicitly refused to ship.</para>
+    /// </summary>
     private void OpenExisting(CompanyEntry entry)
     {
+        if (entry.IsVaulted)
+        {
+            ShowCompanyUnlock(entry);
+            return;
+        }
+
         try
         {
             var company = _storage.Load(entry);
-            OpenCompany(company);
+            OpenCompany(company, entry);
         }
         catch (Exception ex)
         {
@@ -1338,10 +1386,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Puts up the passphrase prompt for a vaulted company (census 16.1).</summary>
+    private void ShowCompanyUnlock(CompanyEntry entry)
+    {
+        var prompt = new CompanyUnlockViewModel(entry);
+        CurrentScreen = Screen.CompanyUnlock;
+        ScreenTitle = prompt.Title;
+        Message = null;
+        Menu.Clear();
+        LeaveCascade();
+        CompanyUnlock = prompt;
+        BuildButtonBar();
+    }
+
     // =============================================================== screen: gateway (cascade)
 
-    private void OpenCompany(Company company)
+    /// <param name="entry">
+    /// 🔴 Census 16.1 — WHICH FILE this company came from. Supplied by the two paths that opened a book that
+    /// already existed (<see cref="OpenExisting"/> and <see cref="UnlockCompany"/>); left null by creation and
+    /// by the demo loader, which have just written a PLAIN book at the name-derived path and so can have it
+    /// derived. Deriving it unconditionally would be wrong for a vaulted book, whose file is not named after
+    /// it — and setting it here rather than at each call site is what stops a stale entry from a previously
+    /// open company surviving into this one.
+    /// </param>
+    private void OpenCompany(Company company, CompanyEntry? entry = null)
     {
+        OpenEntry = entry ?? new CompanyEntry(company.Name, _storage.PathForName(company.Name));
         Company = company;
         StatusCompany = company.Name;
         StatusDate = ApexDate.Format(company.FinancialYearStart);
@@ -4021,7 +4091,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             shut: ShutCompany,
             // Census 16.2 — the vendor reaches both of these from exactly here.
             usersAndPasswords: OpenSecurityUsers,
-            passwordPolicy: OpenPasswordPolicy);
+            passwordPolicy: OpenPasswordPolicy,
+            // Census 16.1 — the vendor reaches its data vault from exactly here too.
+            dataVault: OpenDataVault);
 
         Columns.Add(column);
         column.SelectFirstSelectable();
@@ -4663,6 +4735,91 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Ctrl+A on the Password Policy screen: write the policy and persist. Returns success.</summary>
     public bool SavePasswordPolicy() => PasswordPolicy?.Save() ?? false;
+
+    // =============================================================== screen: Data Vault (census row 16.1)
+
+    /// <summary>
+    /// 🔴 <b>Alt+K (Company) &gt; Data Vault</b> (census row 16.1) — set, change or remove the passphrase that
+    /// encrypts the open company's whole book. A third sibling of <see cref="OpenSecurityUsers"/> and
+    /// <see cref="OpenPasswordPolicy"/> on the same Alt+K family and the same cascade-column shape.
+    ///
+    /// <para><b>It needs the company's ENTRY, not just its aggregate</b>, because the vault operates on the
+    /// FILE — and after census 16.1 the file is no longer derivable from the name. <see cref="OpenEntry"/> is
+    /// what the open path records for exactly this.</para>
+    /// </summary>
+    public void OpenDataVault()
+    {
+        if (DataVault is not null) return;
+        if (Company is null) return;
+        if (OpenEntry is null)
+        {
+            // A demo company loaded into memory has never been written to a file, so there is nothing to
+            // encrypt. Saying so is better than opening a screen whose every action would fail.
+            RaiseLifecycleNotice(
+                "This company has not been saved to disk yet, so there is nothing to encrypt. Save it first.");
+            return;
+        }
+
+        var panel = new CompanyVaultViewModel(_storage, Company, OpenEntry);
+        DataVault = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.DataVault;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A on the Data Vault screen: set or change the passphrase. 🔴 On success the company's FILE has
+    /// moved, so <see cref="OpenEntry"/> is re-pointed — without that the next save would look for the book at
+    /// the path it no longer occupies.
+    /// </summary>
+    public bool ApplyDataVault()
+    {
+        var ok = DataVault?.Apply() ?? false;
+        if (ok && DataVault?.UpdatedEntry is not null)
+        {
+            OpenEntry = DataVault.UpdatedEntry;
+            Message = DataVault.Message;
+        }
+        return ok;
+    }
+
+    /// <summary>Alt+D on the Data Vault screen: take the company back out of the vault. Same re-point.</summary>
+    public bool RemoveDataVault()
+    {
+        var ok = DataVault?.Remove() ?? false;
+        if (ok && DataVault?.UpdatedEntry is not null)
+        {
+            OpenEntry = DataVault.UpdatedEntry;
+            Message = DataVault.Message;
+        }
+        return ok;
+    }
+
+    /// <summary>
+    /// Ctrl+A on the passphrase prompt: open the vaulted company. A wrong passphrase leaves the prompt up with
+    /// its refusal showing, because there is nothing else the operator can usefully do.
+    /// </summary>
+    public bool UnlockCompany()
+    {
+        var prompt = CompanyUnlock;
+        if (prompt is null) return false;
+
+        try
+        {
+            var company = _storage.Load(prompt.Entry, prompt.Passphrase);
+            CompanyUnlock = null;
+            OpenCompany(company, prompt.Entry);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            prompt.Message = ex.Message;
+            return false;
+        }
+    }
 
     // =============================================================== screen: export data (canonical backup)
 
@@ -7355,6 +7512,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // re-reads the aggregate rather than showing a stale user list.
         SecurityUsers = null;
         PasswordPolicy = null;
+        DataVault = null;
+        CompanyUnlock = null;
         WhatsAppShare = null;
         Dashboard = null;
         LedgerVouchers = null;
