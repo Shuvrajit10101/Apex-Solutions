@@ -452,6 +452,11 @@ public partial class MainWindow : Window
             // voucher the operator was still adding a field to.
             else if (vm.CurrentScreen == Screen.MoreDetails)
                 vm.TakeMoreDetailsRow();
+            // Census 1.8 — Ctrl+A on the F1 (Help) > Settings page APPLIES the settings. Same reasoning as the
+            // Switch To and More Details arms above: without it Ctrl+A would fall through to the voucher/company
+            // accept below and act on whatever page the settings column was opened over.
+            else if (vm.CurrentScreen == Screen.AppSettings)
+                vm.ApplyAppSettings();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -2670,6 +2675,10 @@ public partial class MainWindow : Window
 
     private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveSmtpSettings();
+
+    /// <summary>The Apply button on the F1 (Help) &gt; Settings page (census row 1.8). Same door Ctrl+A runs.</summary>
+    private void OnApplyAppSettingsClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyAppSettings();
 
     // Census 16.2 — the Security Control screens' buttons. Each is a one-line hand-off to the view model, which
     // holds every rule; nothing about a password is decided in the view. 🔴 None of these ever reads a password

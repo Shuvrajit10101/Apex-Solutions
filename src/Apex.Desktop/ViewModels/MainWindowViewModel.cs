@@ -114,6 +114,15 @@ public enum Screen
     SmtpSettings,
 
     /// <summary>
+    /// Census row 1.8 — <b>F1 (Help) &gt; Settings</b>: the APPLICATION-wide configuration surface, pushed as a
+    /// cascade column exactly like the F12 report-config panel. Its own screen id (not a mode on the Gateway)
+    /// because Ctrl+A means "apply these settings" while it is up, and Escape must pop back to what was beneath.
+    /// <para>🔴 This is the F1 surface the vendor ships, NOT the removed F12 global Configuration tree — see
+    /// <see cref="AppSettingsViewModel"/> for the vendor quotes and user ruling 21.</para>
+    /// </summary>
+    AppSettings,
+
+    /// <summary>
     /// W / the "WhatsApp" badge (census row 14.10) — the "Share via WhatsApp" panel: save the document, then
     /// open a prepared <c>wa.me</c> link. It is a SIBLING of <see cref="EmailCompose"/> on the same share
     /// family and carries the same offline contract: nothing is sent, and (WhatsApp's link scheme carrying
@@ -794,6 +803,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
     [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
 
+    /// <summary>Census 1.8 — the F1 (Help) &gt; Settings page, non-null only while that column is open.</summary>
+    [ObservableProperty] private AppSettingsViewModel? _appSettings;
+
+    /// <summary>
+    /// <b>F1 (Help) &gt; Settings &gt; Display &gt; Show bottom bar.</b> Drives the window's status strip (the
+    /// "Company: … Current Date: …" navy bar). Vendor: <i>"You can set Show bottom bar to No if you need to
+    /// disable the bottom bar to increase viewing space on your screen."</i>
+    ///
+    /// <para>🔴 <b>Scoped to the STATUS STRIP alone.</b> The notice line and the Accept? (Y/N) prompt share that
+    /// same grid row but are bound to their own conditions and are deliberately NOT gated by this flag: the
+    /// vendor's sentence buys viewing space, and a switch that could silence a refusal the operator must read
+    /// would be a different — and much worse — feature wearing this one's caption.</para>
+    /// </summary>
+    [ObservableProperty] private bool _showBottomBar = true;
+
     /// <summary>Census 16.2 — the "Users for Company" panel (Alt+K &gt; Users and Passwords), non-null only
     /// while that column is open.</summary>
     [ObservableProperty] private SecurityUsersViewModel? _securityUsers;
@@ -863,7 +887,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && VerifyDataPanel is null && SplitCompanyPanel is null
-        && EmailCompose is null && SmtpSettings is null
+        && EmailCompose is null && SmtpSettings is null && AppSettings is null
         && SecurityUsers is null && PasswordPolicy is null
         && LedgerVouchers is null && VoucherDetail is null;
 
@@ -976,6 +1000,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSplitCompanyPanelChanged(SplitCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAppSettingsChanged(AppSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSecurityUsersChanged(SecurityUsersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPasswordPolicyChanged(PasswordPolicyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -4483,6 +4508,79 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Save button on the SMTP settings panel: upsert the captured profile. Returns success.</summary>
     public bool SaveSmtpSettings() => SmtpSettings?.Save() ?? false;
 
+    // =============================================================== screen: F1 (Help) > Settings (census 1.8)
+
+    /// <summary>
+    /// <b>F1 — the application-wide Settings page</b> (census row 1.8, user ruling 21). Vendor, verbatim:
+    /// <i>"the items in the General Configuration have now been placed in the Popup Menu, F1: Help invoked from
+    /// the top buttons (F1: Help &gt; Settings)"</i>
+    /// (help.tallysolutions.com/developer-reference/release-notes-whats-new-in-tdl/working-of-tally-erp-9-customisations-with-tallyprime/).
+    ///
+    /// <para>Pushed as its own cascade column, mirroring <see cref="OpenSmtpSettings"/> and
+    /// <see cref="OpenReportConfig"/>: arrow-reachable, Escape pops back to whatever it opened over, and nothing
+    /// beneath it is torn down. Re-pressing F1 while it is open is a no-op (there is already a settings column).</para>
+    ///
+    /// <para>🔴 <b>Why it needs the cascade, and why the F1 badge is dimmed before there is one.</b> The column
+    /// strip only renders under <see cref="IsGatewayCascade"/>; before a company is opened the shell shows the
+    /// centred pre-company menu instead, and a column pushed there would exist in the view model and be invisible
+    /// on screen — the dead-feature shape this project has filed three times. <b>This is a DIVERGENCE and it is
+    /// recorded as one:</b> the vendor's F1 popup opens from anywhere, including its company-select screen.</para>
+    /// </summary>
+    public void OpenAppSettings()
+    {
+        if (AppSettings is not null) return;   // already open — don't stack a second column
+        if (!IsGatewayCascade) return;         // nothing to push a column onto (see the note above)
+
+        var page = new AppSettingsViewModel(ShowBottomBar, shown => ShowBottomBar = shown);
+        AppSettings = page;
+        Columns.Add(new GatewayColumn(page.Title, page));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AppSettings;
+        ScreenTitle = page.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the Settings page: push both settings into the application.</summary>
+    public void ApplyAppSettings() => AppSettings?.Apply();
+
+    /// <summary>
+    /// True where the <b>F1</b> badge can actually open the Settings page — i.e. the cascade is live. Dimmed
+    /// elsewhere rather than enabled-and-inert, the same IV-31 rule every other conditional badge on the bar
+    /// follows.
+    /// </summary>
+    public bool CanOpenAppSettings => IsGatewayCascade && AppSettings is null;
+
+    /// <summary>
+    /// 🔴 <b>The contexts in which the F12 badge actually does something</b> — user ruling 21's dead-knob gate.
+    ///
+    /// <para><b>The defect.</b> The bar carried <c>ButtonBarItem("F12", "Configure", F12Configure)</c> with no
+    /// enable predicate at all, so on the Gateway, on every master screen except the Ledger, and on every page
+    /// with no <c>Reports</c> object, an operator read an ENABLED badge captioned "Configure", pressed it, and
+    /// got a stub sentence claiming "display options (Phase 1 defaults)" that configured nothing. A shipped
+    /// button that does nothing is a DEAD KNOB, and this project has filed several.</para>
+    ///
+    /// <para><b>The predicate is the union of the five arms that really fire, and every one of them is an arm of
+    /// <see cref="F12Configure"/>.</b> That one-for-one correspondence is load-bearing and was NOT true when this
+    /// gate was first written: the badge lit on <c>IsReportContext</c> and <see cref="Screen.PrintPreview"/>
+    /// because the window's key tunnel (<c>MainWindow.axaml.cs</c>) handles those two BEFORE the bar, but the bar
+    /// does not go through the tunnel — <see cref="ButtonBarItem.Invoke"/> calls the action directly — so a mouse
+    /// click on the lit badge fell through to the "this screen has no configuration" sentence on a report. Both
+    /// arms now exist in <see cref="F12Configure"/>; keep the two lists in step.</para>
+    ///
+    /// <para>Disabling the row disables the KEY too, because <c>Fire</c> skips a disabled row — so where the badge
+    /// is dim the bare F12 keystroke is inert as well, which is exactly the truth the badge is telling.</para>
+    ///
+    /// <para>F12 remains CONTEXTUAL and is not touched otherwise: ruling 21 changes where it is ADVERTISED, not
+    /// what it does. The global layer it never carried lives at F1 (<see cref="OpenAppSettings"/>).</para>
+    /// </summary>
+    public bool CanConfigureCurrentScreen =>
+        IsReportContext                                                        // report F12 (RQ-6), via the tunnel
+        || (CurrentScreen == Screen.PrintPreview && PrintPreview is not null)  // print-config F12 (RQ-12), via the tunnel
+        || CurrentScreen == Screen.VoucherNumberingConfig                      // F12 pops the open numbering column
+        || (CurrentScreen == Screen.LedgerMaster && LedgerMaster is not null)  // the ledger master's own config block
+        || (Company is not null && IsVoucherNumberingContext(out _));          // per-type voucher numbering
+
     // =============================================================== screens: Security Control (census 16.2)
 
     /// <summary>
@@ -7225,6 +7323,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SplitCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
+        AppSettings = null;
         // Census 16.2 — the two Security Control panels. Cleared like every other sub-screen so a re-open
         // re-reads the aggregate rather than showing a stale user list.
         SecurityUsers = null;
@@ -11073,8 +11172,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== right button bar
 
     /// <summary>
-    /// F12 Configure — context-sensitive ledger-screen configuration (Book pp.133–141): on the Ledger master it
-    /// toggles the "Method of Appropriation" additional-cost field's visibility; elsewhere a Phase-1 hint.
+    /// <b>F12 Configure — the CONTEXT-SENSITIVE per-screen configuration, as the BAR fires it.</b> Every context
+    /// <see cref="CanConfigureCurrentScreen"/> lights the badge in has an arm here, one for one.
+    ///
+    /// <para>🔴 <b>Why the report and print-preview arms are here even though the key tunnel handles them.</b>
+    /// The bar badge is <c>&lt;Button Command="{Binding Invoke}"&gt;</c> and <see cref="ButtonBarItem.Invoke"/>
+    /// wraps the row's action directly — so a MOUSE CLICK on the badge arrives HERE and never passes through the
+    /// window's key tunnel at all. The first cut of ruling 21's gate lit the badge on
+    /// <c>IsReportContext</c> and <see cref="Screen.PrintPreview"/> (because the KEY works there) while this
+    /// method had no arm for either, so clicking the lit badge on a report — the most common F12 context in this
+    /// application — opened nothing and told the operator, falsely, that the screen had no configuration. The two
+    /// arms below close that, in the tunnel's own order (print preview is checked before the report, because a
+    /// preview opened over a report leaves <see cref="Reports"/> bound beneath it).</para>
+    ///
+    /// <para>The openers are idempotent — <see cref="OpenReportConfig"/> and <see cref="OpenPrintConfig"/> both
+    /// return early when their panel is already up — so the bar route inherits the same no-stacking guard the key
+    /// route has.</para>
     /// </summary>
     private void F12Configure()
     {
@@ -11092,15 +11205,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         // On a voucher-entry context F12 opens the per-type voucher-numbering configuration (numbering-design-v2 §5.1),
-        // pushed as a cascade column to the right (prior panes persist). Every other F12 context is unchanged: the
-        // report-F12 (OpenReportConfig) and print-preview-F12 (OpenPrintConfig) are handled earlier in the key tunnel.
+        // pushed as a cascade column to the right (prior panes persist).
         if (Company is not null && IsVoucherNumberingContext(out var preselectTypeId))
         {
             OpenVoucherNumberingConfig(preselectTypeId);
             return;
         }
 
-        Message = "F12 Configure — display options (Phase 1 defaults).";
+        // The print-config panel (RQ-12). Checked BEFORE the report arm, mirroring MainWindow.axaml.cs's tunnel:
+        // a preview opened over a report keeps Reports bound, so the report test would otherwise win here.
+        if (CurrentScreen == Screen.PrintPreview && PrintPreview is not null)
+        {
+            OpenPrintConfig();
+            return;
+        }
+
+        // The report configuration panel (RQ-1/2/6) — the context an operator reaches for F12 in most often.
+        if (IsReportContext)
+        {
+            OpenReportConfig();
+            return;
+        }
+
+        // 🔴 UNREACHABLE FROM THE BAR AND FROM THE KEY, and kept only as a defensive arm (ruling 21). The badge is
+        // gated on CanConfigureCurrentScreen, whose five disjuncts are exactly the five arms above, and Fire()
+        // skips a disabled row — so no operator can land here. It used to claim "F12 Configure — display options
+        // (Phase 1 defaults)", which was a FALSE CAPTION: there were no display options behind it, and the global
+        // layer it implied is the very thing the reference product moved to F1 (Help) > Settings.
+        Message = "F12 Configure acts on the screen you are on, and this screen has no configuration. "
+                + "Press F1 for the application settings.";
     }
 
     /// <summary>
@@ -11202,7 +11335,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Clear();
 
         // The core accounting F-keys. Report/voucher shortcuts are wired where implemented.
-        ButtonBar.Add(new ButtonBarItem("F1", "Help", () => Message = "Apex Solutions — accounting (Phase 1)."));
+        // F1 — Help. Census row 1.8 / ruling 21: the badge now OPENS the application-wide Settings page, which is
+        // where the reference product put the former General Configuration ("F1: Help > Settings"). It used to set
+        // a stub string ("Apex Solutions — accounting (Phase 1).") and configure nothing.
+        ButtonBar.Add(new ButtonBarItem("F1", "Help", OpenAppSettings, CanOpenAppSettings));
         // F2 — Date. On an entry screen this now SETS the working date (caret into the date field, keyboard-only);
         // elsewhere it reports the current date. It used to unconditionally print the never-updated FY-start.
         ButtonBar.Add(new ButtonBarItem("F2", "Date", SetWorkingDate));
@@ -11368,6 +11504,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F12", "Configure", F12Configure));
+        // F12 Configure — CONTEXT-SENSITIVE, and now advertised only where it acts (ruling 21's dead-knob gate).
+        // See CanConfigureCurrentScreen for the four arms and for why disabling the row is also correct for the key.
+        ButtonBar.Add(new ButtonBarItem("F12", "Configure", F12Configure, CanConfigureCurrentScreen));
     }
 }

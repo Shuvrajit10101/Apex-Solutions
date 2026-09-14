@@ -11,12 +11,17 @@ namespace Apex.Desktop.Services;
 /// </summary>
 public static class IndianFormat
 {
-    /// <summary>The ONE Indian-grouping culture (<see cref="IndianMoneyFormat.Culture"/>, drift lock D2). This
+    /// <summary>The ONE grouping culture (<see cref="IndianMoneyFormat.ActiveCulture"/>, drift lock D2). This
     /// class previously built its own identical copy; the grouping rule now has a single home in Apex.Ledger so
     /// the report grids, the PDF certificates and the PDF invoices cannot group money three different ways.
     /// The blank-at-zero and Dr/Cr conventions below remain this class's own — they are grid conventions, not
-    /// grouping.</summary>
-    private static CultureInfo Indian => IndianMoneyFormat.Culture;
+    /// grouping.
+    /// <para>🔴 <b><see cref="IndianMoneyFormat.ActiveCulture"/>, not <c>Culture</c>.</b> The latter is the Indian
+    /// rule unconditionally; the former is the Indian rule UNLESS the operator has set F1 (Help) &gt; Settings
+    /// &gt; Country &gt; "Show Quantity and Number in millions" to Yes. Every cell this class renders — the
+    /// report grids, the ledger-book running balances, the whole-rupee statutory columns — must follow that
+    /// setting, or the switch would re-group the PDFs and leave the screen behind.</para></summary>
+    private static CultureInfo Indian => IndianMoneyFormat.ActiveCulture;
 
     /// <summary>Formats a decimal as "1,05,000.00"; empty string for exactly zero.</summary>
     public static string Amount(decimal value)

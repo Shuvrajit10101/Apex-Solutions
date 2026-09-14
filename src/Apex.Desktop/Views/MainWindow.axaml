@@ -20094,6 +20094,109 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F1 (Help) > Settings — the APPLICATION-wide configuration surface (census row 1.8,
+                         user ruling 21). A Miller-column page beside whatever it was opened over, never a stacked
+                         overlay, exactly like the F12 config panel above.
+
+                         🔴 THIS IS F1, NOT A RESURRECTED F12 TREE. The reference product removed the global
+                         Configuration menu outright ("Button F12 has been removed from Menu context."; "The menu
+                         'Configuration' has been removed.") and moved the General Configuration items into this
+                         popup. F12 stays per-screen and contextual and is untouched here.
+
+                         Every switch below gates behaviour that really renders — the status strip at the foot of
+                         this window, and the one digit-grouping rule every amount and quantity in the application
+                         formats through. The vendor groups with no behaviour in this build (Startup, Language,
+                         Connectivity, Licence) are listed DIMMED with their reason rather than shipped as knobs
+                         with nothing behind them. -->
+                    <ContentControl IsVisible="{Binding AppSettings, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AppSettings}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AppSettingsViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <!-- Session-scoped honesty notice: these settings are not persisted. -->
+                                <TextBlock Name="AppSettingsNotice" Text="{Binding Notice}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Group: Display -->
+                                <TextBlock Text="Display" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Name="ShowBottomBarCheck" Content="Show bottom bar"
+                                          IsChecked="{Binding ShowBottomBar, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="Clear this to hide the status bar at the foot of the window and gain viewing space. Notices and prompts are never hidden."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Group: Country, Date and Number Format -->
+                                <TextBlock Text="Country — Date and Number Format" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,6,0,0"/>
+                                <CheckBox Name="ShowMillionsCheck" Content="Show Quantity and Number in millions"
+                                          IsChecked="{Binding ShowAmountsInMillions, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Example:" FontSize="11" Foreground="#8A8A8A"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <TextBlock Grid.Column="1" Name="NumberPreviewText" Text="{Binding NumberPreview}"
+                                             FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"
+                                             VerticalAlignment="Center"
+                                             TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+
+                                <!-- The vendor's Settings groups, including the ones this build has not got -->
+                                <TextBlock Text="Settings groups" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,6,0,0"/>
+                                <ItemsControl Name="AppSettingsGroups" ItemsSource="{Binding Groups}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AppSettingGroup">
+                                      <!-- 🔴 THE THREE BINDINGS BELOW ARE WHAT MAKES "shown DIMMED" TRUE. This row
+                                           previously bound Caption and Detail only, with a hard-coded Foreground,
+                                           while AppSettingGroup.IsAvailable / IsUnavailable carried the dimming
+                                           claim in a comment and were bound NOWHERE in the repo — six identical
+                                           full-opacity rows. Opacity dims it, IsEnabled makes it inoperable, and
+                                           the tag says so in words for anyone who cannot read a 55% grey. -->
+                                      <Grid ColumnDefinitions="120,Auto,*" Margin="0,2"
+                                            Opacity="{Binding RowOpacity}"
+                                            IsEnabled="{Binding IsAvailable}">
+                                        <TextBlock Grid.Column="0" Text="{Binding Caption}" FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource BrandNavy}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Name="GroupUnavailableTag"
+                                                   Text="Not in this build — " FontSize="11"
+                                                   IsVisible="{Binding IsUnavailable}"
+                                                   Foreground="#8A8A8A"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="11"
+                                                   Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Name="AppSettingsStatus" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyAppSettingsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: "Users for Company" — Alt+K (Company) > Users and Passwords (census 16.2).
                          🔴 R13: this screen SETS passwords and can never SHOW one. The password box is
                          PasswordChar-masked, it is cleared the moment the verb runs, and the list column says
@@ -21629,8 +21732,14 @@
             </Border>
         </Grid>
 
-        <!-- ============ STATUS BAR (navy) ============ -->
-        <Border Grid.Row="3" Background="{StaticResource BrandNavy}" Height="26">
+        <!-- ============ STATUS BAR (navy) ============
+             🔴 GATED BY F1 (Help) > Settings > Display > "Show bottom bar" (census row 1.8). Vendor: "You can set
+             Show bottom bar to No if you need to disable the bottom bar to increase viewing space on your
+             screen." The row is Auto-height, so hiding this Border really does give the cascade the 26px back.
+             The notice line and the Accept? (Y/N) prompt below share this grid row and are DELIBERATELY NOT
+             gated by the flag — they are messages the operator must not be able to switch off. -->
+        <Border Grid.Row="3" Name="StatusBar" Background="{StaticResource BrandNavy}" Height="26"
+                IsVisible="{Binding ShowBottomBar}">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF"
                            TextTrimming="CharacterEllipsis">

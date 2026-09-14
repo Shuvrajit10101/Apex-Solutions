@@ -449,8 +449,8 @@ public sealed partial class ManufacturingJournalEntryViewModel : ViewModelBase, 
     /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 
-    private static string Rupees(Money m) =>
-        "₹" + m.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
+    /// <summary>Rupees through the ONE grouping rule (drift lock D2) — never a local copy of the format string.</summary>
+    private static string Rupees(Money m) => "₹" + Apex.Ledger.IndianMoneyFormat.Amount(m);
 
     private static string CarveOutLabel(BomLineType type) => type switch
     {

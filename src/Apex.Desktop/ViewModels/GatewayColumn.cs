@@ -304,6 +304,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
     public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
 
+    /// <summary>The hosted F1 (Help) &gt; Settings page (non-null only for that column; census 1.8).</summary>
+    public AppSettingsViewModel? AppSettings => Page as AppSettingsViewModel;
+
     /// <summary>The hosted "Users for Company" panel — Alt+K &gt; Users and Passwords (non-null only for that
     /// census-16.2 column). 🔴 Without this accessor the page template's compiled binding does not resolve:
     /// the whole PAGE region of <c>MainWindow.axaml</c> sits inside the <c>x:DataType="vm:GatewayColumn"</c>
