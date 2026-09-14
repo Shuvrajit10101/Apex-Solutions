@@ -3296,6 +3296,31 @@ public sealed partial class ReportsViewModel : ViewModelBase
     // --------------------------------------------------------------- GSTR-3B (summary return)
     //   3.1 Outward supplies; 4 Eligible ITC; Net tax payable per head (display-only, no set-off).
 
+    /// <summary>
+    /// <b>GSTR-3B on screen (census 6.9).</b> Renders Table 3.1 and Table 4 of the form.
+    ///
+    /// <para>🔴 <b>WHAT THIS METHOD USED TO DO, AND WHY IT WAS A MONEY DEFECT RATHER THAN A MISSING FEATURE.</b>
+    /// It rendered six figures and captioned two of them <i>"Total output tax"</i> and <i>"Total eligible ITC"</i>.
+    /// Neither caption was true of the figure beneath it. The first summed Table 3.1(a) ONLY, silently dropping the
+    /// whole of 3.1(d) — the reverse-charge liability, which the projection has always carried in
+    /// <c>RcmOutward*</c> and which <c>Gstr3b.ReadRcm</c> deliberately keeps OUT of <c>ReadSide</c>, so it could
+    /// never have reached the old total. The second summed Table 4(A)(5) ONLY, dropping 4(A)(2), 4(A)(3) and —
+    /// the expensive half — every ITC reversal in 4(B)(1)/(2). An operator reading this screen to key a return
+    /// into the portal therefore <b>under-declared output tax and over-claimed input credit</b>, in both
+    /// directions at once, with nothing on the screen to hint that a figure was missing.</para>
+    ///
+    /// <para><b>Sources, both retrieved by content.</b> Table-4 arithmetic: CBIC Circular No. 170/02/2022-GST
+    /// (<c>cbic-gst.gov.in/pdf/Circular-170-02-2022-GST.pdf</c>) — para 4.3(D) and the Annexure row
+    /// <i>"(C) Net ITC Available (A)-(B)"</i>, whose formula column reads <c>C=A1+A2+A3+A4+A5-B1-B2</c>; and para
+    /// 4.3(C) for the reclaim being reported inside 4(A)(5) as well as in 4(D)(1). The cash-only character of the
+    /// 3.1(d) liability: CGST Act §2(82) + §49(4), quoted on <see cref="Gstr3b.OutwardAndRcmTaxCgst"/>.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS STILL NOT MODELLED IS SAID IN WORDS, NOT RENDERED AS A ZERO.</b> 3.1(b) zero-rated,
+    /// 3.1(e) non-GST, 3.1.1, 3.2, 4(A)(1), 4(A)(4), 4(D)(2), Table 5 and Table 5.1 have no figure in this book.
+    /// A blank cell under a real caption reads as "nil" to an operator, which is the same failure in the other
+    /// direction; so the unmodelled tables are named on an advisory line and given no row of their own. Census
+    /// row 6.9 therefore stays <b>PARTIAL</b> — this slice removes the wrong figures, it does not complete the form.</para>
+    /// </summary>
     private void BuildGstr3b()
     {
         if (GstOffGuard("GSTR-3B")) return;
@@ -3303,11 +3328,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var r = Report.BuildGstr3b(_company, BooksFrom, _asOf);
         Title = "GSTR-3B";
 
-        // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST.
-        Rows.Add(new ReportRow { Col1 = "3.1  Details of outward supplies", IsHeader = true });
+        // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST | Col6 Cess.
         Rows.Add(new ReportRow
         {
-            Col1 = "(a) Taxable outward supplies",
+            Col1 = "3.1  Details of outward supplies and inward supplies liable to reverse charge",
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(a) Outward taxable supplies (other than zero rated, nil rated and exempted)",
             Col2 = IndianFormat.Amount(r.TaxableOutwardValue),
             Col3 = IndianFormat.Amount(r.OutwardCgst),
             Col4 = IndianFormat.Amount(r.OutwardSgst),
@@ -3315,45 +3344,121 @@ public sealed partial class ReportsViewModel : ViewModelBase
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "(c) Exempt / Nil-rated / Non-GST outward",
+            Col1 = "(c) Other outward supplies (nil rated, exempted)",
             Col2 = IndianFormat.Amount(r.ExemptNilNonGstOutward),
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "Total output tax",
-            Col3 = IndianFormat.AmountAlways(r.OutwardCgst),
-            Col4 = IndianFormat.AmountAlways(r.OutwardSgst),
-            Col5 = IndianFormat.AmountAlways(r.OutwardIgst),
+            Col1 = "(d) Inward supplies (liable to reverse charge)",
+            Col3 = IndianFormat.Amount(r.RcmOutwardCgst),
+            Col4 = IndianFormat.Amount(r.RcmOutwardSgst),
+            Col5 = IndianFormat.Amount(r.RcmOutwardIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total tax payable  3.1(a) + 3.1(d)",
+            Col3 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxCgst),
+            Col4 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxSgst),
+            Col5 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
             IsTotal = true,
         });
+        Rows.Add(new ReportRow { Col1 = NotModelled31, IsHeader = true });
 
         Rows.Add(new ReportRow { Col1 = "4  Eligible ITC", IsHeader = true });
         Rows.Add(new ReportRow
         {
-            Col1 = "(A) ITC available (inward supplies)",
-            Col3 = IndianFormat.Amount(r.ItcCgst),
-            Col4 = IndianFormat.Amount(r.ItcSgst),
-            Col5 = IndianFormat.Amount(r.ItcIgst),
+            Col1 = "(A)(2) ITC available — import of services",
+            Col5 = IndianFormat.Amount(r.RcmItcImportIgst),
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "Total eligible ITC",
-            Col3 = IndianFormat.AmountAlways(r.ItcCgst),
-            Col4 = IndianFormat.AmountAlways(r.ItcSgst),
-            Col5 = IndianFormat.AmountAlways(r.ItcIgst),
+            Col1 = "(A)(3) ITC available — inward supplies liable to reverse charge (other than 1 & 2 above)",
+            Col3 = IndianFormat.Amount(r.RcmItcOtherCgst),
+            Col4 = IndianFormat.Amount(r.RcmItcOtherSgst),
+            Col5 = IndianFormat.Amount(r.RcmItcOtherIgst),
+            Col6 = IndianFormat.Amount(r.RcmItcOtherCess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(A)(5) ITC available — all other ITC",
+            Col3 = IndianFormat.Amount(r.ItcReportedAllOtherCgst),
+            Col4 = IndianFormat.Amount(r.ItcReportedAllOtherSgst),
+            Col5 = IndianFormat.Amount(r.ItcReportedAllOtherIgst),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(B)(1) ITC reversed — rules 38, 42 and 43 and section 17(5)",
+            Col3 = IndianFormat.Amount(r.ItcReversed4B1Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReversed4B1Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReversed4B1Igst),
+            Col6 = IndianFormat.Amount(r.ItcReversed4B1Cess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(B)(2) ITC reversed — others (rule 37 / 37A)",
+            Col3 = IndianFormat.Amount(r.ItcReversed4B2Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReversed4B2Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReversed4B2Igst),
+            Col6 = IndianFormat.Amount(r.ItcReversed4B2Cess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(C) Net ITC available  (A) − (B)",
+            Col3 = IndianFormat.AmountAlways(r.NetItcAvailableCgst),
+            Col4 = IndianFormat.AmountAlways(r.NetItcAvailableSgst),
+            Col5 = IndianFormat.AmountAlways(r.NetItcAvailableIgst),
             IsTotal = true,
         });
-
-        Rows.Add(new ReportRow { Col1 = "Net tax payable  (output − ITC; indicative, no set-off)", IsHeader = true });
         Rows.Add(new ReportRow
         {
-            Col1 = "Net payable / (credit carried forward)",
-            Col3 = IndianFormat.AmountAlways(r.NetCgst),
-            Col4 = IndianFormat.AmountAlways(r.NetSgst),
-            Col5 = IndianFormat.AmountAlways(r.NetIgst),
+            Col1 = "(D)(1) ITC reclaimed, reversed under 4(B)(2) in an earlier period (information only)",
+            Col3 = IndianFormat.Amount(r.ItcReclaimed4D1Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReclaimed4D1Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReclaimed4D1Igst),
+            Col6 = IndianFormat.Amount(r.ItcReclaimed4D1Cess),
+        });
+        Rows.Add(new ReportRow { Col1 = NotModelled4, IsHeader = true });
+
+        // The indicative discharge. Split because the two halves are paid differently: only the 3.1(a) half can be
+        // met from the credit ledger (CGST Act §2(82) + §49(4) — reverse-charge tax is not "output tax"), so
+        // netting the two together would offer the operator a set-off the statute does not allow.
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Indicative discharge  (no Rule-88A set-off is applied here)",
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Payable other than reverse charge  3.1(a) − 4(C)",
+            Col3 = IndianFormat.AmountAlways(new Money(r.OutwardCgst.Amount - r.NetItcAvailableCgst.Amount)),
+            Col4 = IndianFormat.AmountAlways(new Money(r.OutwardSgst.Amount - r.NetItcAvailableSgst.Amount)),
+            Col5 = IndianFormat.AmountAlways(new Money(r.OutwardIgst.Amount - r.NetItcAvailableIgst.Amount)),
+            IsTotal = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Payable under reverse charge, in cash  3.1(d)",
+            Col3 = IndianFormat.AmountAlways(r.RcmOutwardCgst),
+            Col4 = IndianFormat.AmountAlways(r.RcmOutwardSgst),
+            Col5 = IndianFormat.AmountAlways(r.RcmOutwardIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
             IsTotal = true,
         });
     }
+
+    /// <summary>The Table-3.1 tables this book does not model, named in words rather than shown as a blank row
+    /// an operator would read as nil (census 6.9). Public so the test asserts the SHIPPED text, not a copy.</summary>
+    public const string NotModelled31 =
+        "Not modelled in this book — 3.1(b) zero rated, 3.1(e) non-GST outward, 3.1.1 supplies u/s 9(5), " +
+        "3.2 inter-State supplies to unregistered / composition / UIN holders. These are NOT nil; they are absent.";
+
+    /// <summary>The Table-4 / Table-5 rows this book does not model (census 6.9). See <see cref="NotModelled31"/>.</summary>
+    public const string NotModelled4 =
+        "Not modelled in this book — 4(A)(1) import of goods, 4(A)(4) inward supplies from an ISD, " +
+        "4(D)(2) ITC unavailable u/s 16(4), Table 5 exempt/nil/non-GST inward, Table 5.1 interest and late fee. " +
+        "These are NOT nil; they are absent.";
 
     // =============================================================== statutory TDS/TCS reports (Phase 7 slice 8)
     //   Pure projections over the S8 Report facades; every amount renders in WHOLE rupees (the returns are filed so).

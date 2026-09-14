@@ -93,6 +93,11 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted chart-of-accounts view model (non-null only for the Chart-of-Accounts column).</summary>
     public ChartOfAccountsViewModel? Chart => Page as ChartOfAccountsViewModel;
 
+    /// <summary>🔴 Census 16.1 — the hosted Data Vault panel (non-null only for the Alt+K &gt; Data Vault
+    /// column). The cascade's page region binds panels through these typed accessors rather than through the
+    /// shell view model, so a panel without one here renders as a blank column.</summary>
+    public CompanyVaultViewModel? DataVault => Page as CompanyVaultViewModel;
+
     /// <summary>The hosted Outstandings view model (non-null only for a Receivables/Payables column).</summary>
     public OutstandingsViewModel? Outstanding => Page as OutstandingsViewModel;
 

@@ -142,6 +142,86 @@ public sealed record Gstr3b(
     /// </summary>
     public Money TotalNetPayable => new(NetCgst.Amount + NetSgst.Amount + NetIgst.Amount);
 
+    // ================================================================= census 6.9 — the AS-REPORTED Table-4 figures
+    //
+    // 🔴 WHY THESE EXIST ALONGSIDE Itc* AND Net*, RATHER THAN REPLACING THEM. The positional Itc* members are the
+    // ENGINE's reading of the Input tax-ledger postings, and Net* is the outward−ITC arithmetic; both are consumed
+    // by the offline-JSON writer (GstReturnJson) and by GstQrmp, so their meaning is load-bearing and is NOT
+    // changed here. What the FORM asks for in Table 4 is a different arithmetic, and the screen was rendering the
+    // engine's reading under the form's caption. These additive derived members give the screen the form's figures
+    // without moving a single existing one. No new state, no schema.
+    //
+    // SOURCE, retrieved by content and quoted: CBIC Circular No. 170/02/2022-GST (cbic-gst.gov.in), para 4.3(C)
+    // and para 4.3(D), with the worked Annexure.
+
+    /// <summary>
+    /// <b>Table 4(A)(5) "All other ITC" AS REPORTED</b> — the ordinary input credit PLUS any reclaim of an earlier
+    /// Rule-37/37A reversal, CGST.
+    /// <para><b>Why the reclaim is added.</b> CBIC Circular No. 170/02/2022-GST, para 4.3(C), on ITC reversed into
+    /// Table 4(B)(2): <i>"Such ITC may be reclaimed in Table 4(A)(5) on fulfilment of necessary conditions. Further,
+    /// all such reclaimed ITC shall also be shown in Table 4(D)(1)."</i> The reclaim is therefore reported TWICE —
+    /// once inside 4(A)(5) and once, for information, in 4(D)(1). This engine posts a reclaim as a Journal-base
+    /// stat-adjustment voucher, which <c>ReadSide</c> excludes, so <see cref="ItcCgst"/> alone omits it and would
+    /// under-state 4(A)(5) by exactly the reclaimed amount.</para>
+    /// </summary>
+    public Money ItcReportedAllOtherCgst => new(ItcCgst.Amount + ItcReclaimed4D1Cgst.Amount);
+
+    /// <summary>Table 4(A)(5) "All other ITC" as reported, SGST/UTGST — see <see cref="ItcReportedAllOtherCgst"/>.</summary>
+    public Money ItcReportedAllOtherSgst => new(ItcSgst.Amount + ItcReclaimed4D1Sgst.Amount);
+
+    /// <summary>Table 4(A)(5) "All other ITC" as reported, IGST — see <see cref="ItcReportedAllOtherCgst"/>.</summary>
+    public Money ItcReportedAllOtherIgst => new(ItcIgst.Amount + ItcReclaimed4D1Igst.Amount);
+
+    /// <summary>
+    /// <b>Table 4(C) "Net ITC Available (A) − (B)"</b>, CGST — the figure actually credited to the Electronic
+    /// Credit Ledger.
+    /// <para><b>Formula, verbatim from the source.</b> CBIC Circular No. 170/02/2022-GST, Annexure, row
+    /// <i>"(C) Net ITC Available (A)-(B)"</i>, carries the formula <c>C=A1+A2+A3+A4+A5-B1-B2</c>; para 4.3(D)
+    /// states it as <i>"(4A - [4B (1) + 4B (2)])"</i>. <b>Table 4(D) does not enter it</b> — para 4.3(E)/(F) make
+    /// 4(D) an information row, which is why the reclaim is added through 4(A)(5) above and NOT a second time here.</para>
+    /// <para><b>A1 (import of goods) and A4 (inward supplies from ISD) are structurally zero in this book:</b> there
+    /// is no import-of-goods bill-of-entry capture and no ISD (census 6.24 is ABSENT). They are omitted rather than
+    /// rendered as a fabricated zero; the screen says so in words.</para>
+    /// </summary>
+    public Money NetItcAvailableCgst => new(
+        RcmItcOtherCgst.Amount + ItcReportedAllOtherCgst.Amount
+        - ItcReversed4B1Cgst.Amount - ItcReversed4B2Cgst.Amount);
+
+    /// <summary>Table 4(C) Net ITC Available, SGST/UTGST — see <see cref="NetItcAvailableCgst"/>.</summary>
+    public Money NetItcAvailableSgst => new(
+        RcmItcOtherSgst.Amount + ItcReportedAllOtherSgst.Amount
+        - ItcReversed4B1Sgst.Amount - ItcReversed4B2Sgst.Amount);
+
+    /// <summary>
+    /// Table 4(C) Net ITC Available, IGST — see <see cref="NetItcAvailableCgst"/>. This is the only head that
+    /// carries <b>A2</b> (<see cref="RcmItcImportIgst"/>): import of services is always IGST.
+    /// </summary>
+    public Money NetItcAvailableIgst => new(
+        RcmItcImportIgst.Amount + RcmItcOtherIgst.Amount + ItcReportedAllOtherIgst.Amount
+        - ItcReversed4B1Igst.Amount - ItcReversed4B2Igst.Amount);
+
+    /// <summary>
+    /// <b>Tax on outward supplies AND on inward supplies liable to reverse charge</b>, CGST — Table 3.1(a) plus
+    /// Table 3.1(d).
+    /// <para>🔴 <b>This is what the caption "Total output tax" has to mean.</b> <see cref="OutwardCgst"/> alone is
+    /// 3.1(a) only: <c>ReadRcm</c>'s lines are deliberately excluded from <c>ReadSide</c> (no double count), so a
+    /// total built from <see cref="OutwardCgst"/> silently omits the entire reverse-charge liability.</para>
+    /// <para><b>And that liability is cash-only, which is why omitting it is a money error rather than a
+    /// presentation one.</b> CGST Act 2017 <b>§2(82)</b>: <i>"output tax in relation to a taxable person, means the
+    /// tax chargeable under this Act on taxable supply of goods or services or both made by him or by his agent but
+    /// excludes tax payable by him on reverse charge basis"</i>; <b>§49(4)</b>: <i>"The amount available in the
+    /// electronic credit ledger may be used for making any payment towards output tax …"</i>. Reverse-charge tax is
+    /// therefore not "output tax", so the credit ledger cannot discharge it. Both quoted from the CGST Act as
+    /// published on <c>cbic-gst.gov.in</c> (CGST-Act-Updated-30092020.pdf), read by content.</para>
+    /// </summary>
+    public Money OutwardAndRcmTaxCgst => new(OutwardCgst.Amount + RcmOutwardCgst.Amount);
+
+    /// <summary>Table 3.1(a) + 3.1(d) tax, SGST/UTGST — see <see cref="OutwardAndRcmTaxCgst"/>.</summary>
+    public Money OutwardAndRcmTaxSgst => new(OutwardSgst.Amount + RcmOutwardSgst.Amount);
+
+    /// <summary>Table 3.1(a) + 3.1(d) tax, IGST — see <see cref="OutwardAndRcmTaxCgst"/>.</summary>
+    public Money OutwardAndRcmTaxIgst => new(OutwardIgst.Amount + RcmOutwardIgst.Amount);
+
     /// <summary>Builds GSTR-3B over <c>[from, to]</c> for the GST registration named by
     /// <paramref name="registrationId"/> (census 6.23; <c>null</c> ⇒ the company's only registration — a
     /// multi-registration company REFUSES an unscoped build, see <c>GstReportSupport</c>).</summary>

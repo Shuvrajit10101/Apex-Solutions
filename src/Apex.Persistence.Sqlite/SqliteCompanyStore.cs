@@ -36,8 +36,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     /// Opens (or creates) the company database at <paramref name="databasePath"/> and ensures the
     /// schema is present and at the expected version. A single long-lived connection is held for the
     /// lifetime of the store; dispose it to release the file handle.
+    ///
+    /// <para>🔴 <b><paramref name="passphrase"/> — census row 16.1, the Data Vault.</b> Supply it to open a
+    /// VAULTED book; leave it <c>null</c> (the default) for a plain one, which is every book this application
+    /// has ever written and every fixture in the suite. That default is what kept this change from touching
+    /// the ~40 schema and migration tests that construct a store directly: the native provider is now
+    /// <c>e_sqlcipher</c> rather than <c>e_sqlite3</c>, and an UNKEYED database opens under it byte-for-byte
+    /// as before.</para>
+    ///
+    /// <para>🔴 <b>A WRONG PASSPHRASE THROWS FROM THIS CONSTRUCTOR, NOT FROM THE FIRST QUERY, AND THAT IS
+    /// LOAD-BEARING.</b> SQLCipher defers the key check to the first page actually read, so
+    /// <c>SqliteConnection.Open()</c> on a wrong key SUCCEEDS and the failure surfaces later, wherever the
+    /// caller happened to read first. <see cref="EnsureSchema"/> reads immediately, so the throw lands here —
+    /// where the caller is still holding a passphrase it can re-prompt for — rather than deep inside a screen.
+    /// It arrives as <c>SqliteException</c> "file is not a database" (SQLite error 26), which is also what a
+    /// genuinely corrupt file raises; the two cannot be told apart from inside, which is why
+    /// <c>CompanyVault.TryOpen</c> exists for callers that need to ask before committing to an open.</para>
     /// </summary>
-    public SqliteCompanyStore(string databasePath)
+    public SqliteCompanyStore(string databasePath, string? passphrase = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
             throw new ArgumentException("A database path is required.", nameof(databasePath));
@@ -48,11 +64,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        var connStr = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-        }.ToString();
+        var connStr = CompanyVault.ConnectionString(
+            databasePath, passphrase, SqliteOpenMode.ReadWriteCreate);
 
         _connection = new SqliteConnection(connStr);
 
