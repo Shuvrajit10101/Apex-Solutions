@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 

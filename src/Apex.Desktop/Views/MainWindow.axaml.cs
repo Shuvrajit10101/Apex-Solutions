@@ -270,6 +270,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W29 U1 (census 2.7, 2.8, 3.2, 3.5, 3.7) — THE SAME CHORD, THE SAME RULE, on the Godown, Unit, Stock
+        // Category, Cost Category and Cost Centre masters' existing-lists. ONE arm for all five: the VM resolves
+        // which of them is open and returns false on every other screen, so this is inert everywhere else.
+        //
+        // 🔴 ORDER IS LOAD-BEARING AND IT IS BELOW THE STOCK-GROUP ARM ON PURPOSE. Census 3.13 already wired
+        // Ctrl+Enter on Screen.StockGroupMaster, so that screen is handled by the arm at the top of this block and
+        // AlterHighlightedMasterListRow deliberately has no case for it. Two arms racing for one screen is exactly
+        // how a master silently ends up gated differently from its siblings, so the absence is documented on the
+        // VM method rather than left for a reader to rediscover.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedMasterListRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘

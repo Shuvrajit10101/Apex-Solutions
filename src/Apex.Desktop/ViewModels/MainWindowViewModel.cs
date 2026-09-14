@@ -7707,11 +7707,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
             || IsChartOfAccountsScreen
             || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false })
-            // 7.16 — the payroll masters, on the SAME rule as the Stock Item master: the existing-list is a
-            // delete surface, an OPEN ALTERATION of one of its rows is not.
-            || PayrollMasterScreen is { IsAltering: false }
-            // W2-03 (census 2.4) — the Voucher Type master's existing-list, on the SAME rule.
-            || (CurrentScreen == Screen.VoucherTypeMaster && VoucherTypeMaster is { IsAltering: false }));
+            // 7.16 (the payroll masters) + W2-03 (census 2.4, the Voucher Type master) + W29 U1 (cluster C2, the
+            // Godown, Unit, Stock Group, Stock Category, Cost Category and Cost Centre masters) — every screen the
+            // shared IMasterListScreen arm resolves, on the SAME rule as the Stock Item master above: the
+            // existing-list IS a delete surface, an OPEN ALTERATION of one of its rows is not.
+            //
+            // 🔴 ONE CLAUSE, NOT THREE, AND THAT IS THE POINT. Until W29 this read as two separate clauses — a
+            // payroll one and a voucher-type one — each naming its own screens; adding a third would have made
+            // this predicate and RequestDeleteHighlighted two hand-maintained lists of the same screens, which is
+            // precisely how one master ends up gated differently from its siblings. Both now ask the SAME
+            // property the SAME question, so a screen added to MasterListScreen cannot arrive with the
+            // accelerator half-wired. The collapse is behaviour-preserving: MasterListScreen falls back to
+            // PayrollMasterScreen, so it is a strict superset of what the two clauses matched.
+            //
+            // 🔴 The `IsAltering: false` half is load-bearing exactly as it is for the Stock Item master —
+            // ForAlter opens the alteration column under the SAME Screen value, so without it Alt+D would delete
+            // the very master the open form is editing, discard the operator's unsaved keystrokes, and leave the
+            // caption still reading "… Alteration" over a master that no longer exists.
+            || MasterListScreen is { IsAltering: false });
 
     /// <summary>
     /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
@@ -7806,6 +7819,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 => RequestDeletePayrollMasterRow(),
             // W2-03 (census 2.4) — the Voucher Type master, through the SAME shared IMasterListScreen arm.
             Screen.VoucherTypeMaster => RequestDeleteMasterListRow(),
+
+            // W29 U1 (cluster C2) — the six accounting/inventory masters, through that same shared arm. Six of
+            // these delete services existed in Apex.Ledger with ZERO callers in Apex.Desktop, and two (the cost
+            // masters) had no delete service at all; this line is the only thing that makes any of them reachable.
+            // 🔴 The refusal is the point, not the success: MasterDeletionRules now counts every foreign key the
+            // schema declares into these six parents, and MasterDeletionForeignKeyCoverageTests fails if a future
+            // column is added without a bucket. A godown that holds stock, a unit that measures a posted line, a
+            // group or category with masters filed under it, a cost category with centres under it and a cost
+            // centre with allocations are all refused BY NAME, with the count and the remedy.
+            Screen.GodownMaster or Screen.UnitMaster or Screen.StockGroupMaster
+                or Screen.StockCategoryMaster or Screen.CostCategoryMaster or Screen.CostCentreMaster
+                => RequestDeleteMasterListRow(),
+
             _ => false,
         };
     }
@@ -9542,8 +9568,102 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public IMasterListScreen? MasterListScreen => CurrentScreen switch
     {
         Screen.VoucherTypeMaster => VoucherTypeMaster,
+
+        // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+        // W29 U1 (clusters C2 + C3) — the SIX accounting/inventory masters join the same arm.
+        //
+        // 🔴 WHAT THIS LINE-BLOCK ACTUALLY DOES, because it looks like six words and is the whole capability.
+        // Appearing here is what grants a screen the arrows, Alt+D and the post-delete refresh in ONE step. Before
+        // it, all six view models already implemented every member of IMasterListScreen — the predecessor build
+        // wrote them — and NOTHING resolved them, so no arrow moved their list, no Alt+D saw a highlighted row,
+        // and `ViewModelAlterEntryPointReachabilityTests` was red with five unreachable ForAlter factories. That
+        // test is the standing lock, and it named exactly these screens; it is green because of this switch and
+        // the Ctrl+Enter arm in AlterHighlightedMasterListRow, not because anything was allow-listed.
+        //
+        // FIDELITY (R7 / ruling 14). The vendor attests Alt+D deletion on the Godown master by name
+        // (help.tallysolutions.com/…/inventory-storage-using-godowns-locations-tally/) and states the cost-master
+        // deletion conditions outright (help.tallysolutions.com/cost-centre-or-profit-centre-tally/). The chord
+        // itself is this application's single master-delete accelerator and is unchanged.
+        Screen.GodownMaster => GodownMaster,
+        Screen.UnitMaster => UnitMaster,
+        Screen.StockGroupMaster => StockGroupMaster,
+        Screen.StockCategoryMaster => StockCategoryMaster,
+        Screen.CostCategoryMaster => CostCategoryMaster,
+        Screen.CostCentreMaster => CostCentreMaster,
+
         _ => PayrollMasterScreen,
     };
+
+    /// <summary>
+    /// <b>Ctrl+Enter on one of the six W29 master lists — open the highlighted master for ALTERATION.</b> Returns
+    /// false (a quiet no-op) on every other screen, and while the screen is already mid-alteration, so the chord
+    /// stays free elsewhere.
+    ///
+    /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
+    /// <see cref="AlterHighlightedPayrollMasterRow"/>'s remarks give: <c>ForAlter</c> is a static factory per type
+    /// that builds a whole screen with its own pickers, so alteration is the one verb that cannot be shared
+    /// through the interface. Every OTHER verb these six gained IS shared, through the switch above.</para>
+    ///
+    /// <para>🔴 <b><see cref="Screen.StockGroupMaster"/> is DELIBERATELY ABSENT from this switch and that is not an
+    /// oversight.</b> Census 3.13 already gave the Stock Group master an identical, already-tested Ctrl+Enter arm
+    /// (<see cref="AlterHighlightedStockGroupRow"/>) which the window dispatches BEFORE this one. Listing it here
+    /// as well would add a second route to the same act that could never execute — dead code that reads as
+    /// coverage. It still appears in <see cref="MasterListScreen"/> above, because the verb it was missing is
+    /// Alt+D, not Ctrl+Enter.</para>
+    /// </summary>
+    public bool AlterHighlightedMasterListRow()
+    {
+        if (Company is null) return false;
+        if (MasterListScreen is not { IsAltering: false } list) return false;
+        if (list.HighlightedMasterRow is not { } row) return false;
+
+        var id = row.MasterId;
+        switch (CurrentScreen)
+        {
+            case Screen.GodownMaster:
+            {
+                if (GodownMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.GodownMaster, m.Caption,
+                    () => GodownMaster = m);
+                return true;
+            }
+            case Screen.UnitMaster:
+            {
+                if (UnitMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.UnitMaster, m.Caption,
+                    () => UnitMaster = m);
+                return true;
+            }
+            case Screen.StockCategoryMaster:
+            {
+                if (StockCategoryMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.StockCategoryMaster, m.Caption,
+                    () => StockCategoryMaster = m);
+                return true;
+            }
+            case Screen.CostCategoryMaster:
+            {
+                if (CostCategoryMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CostCategoryMaster, m.Caption,
+                    () => CostCategoryMaster = m);
+                return true;
+            }
+            case Screen.CostCentreMaster:
+            {
+                if (CostCentreMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CostCentreMaster, m.Caption,
+                    () => CostCentreMaster = m);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// Ctrl+Enter on a payroll master's existing-list: opens the highlighted master for <b>alteration</b>. Returns
@@ -9975,11 +10095,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.MultiMasterCreate:
                 MultiMasterCreate?.Accept();
                 return;
+            // 🔴 W29 U1 — THE FIVE CASES BELOW ALL GAINED THE SAME BRANCH, AND WITHOUT IT THE ALTER VERB WAS
+            // REACHABLE BUT UNSAVEABLE. Ctrl+Enter opened a "… Alteration" column on each of these screens and
+            // Ctrl+A then ran Create(), which failed on the duplicate name and left the operator's edits unsaved
+            // behind a confusing "already exists" — the exact defect recorded on the Stock Item master at WI-3 and
+            // on the Stock Group master at census 3.13, arriving a third time because the alteration factories
+            // were written without this dispatch. Measured by driving the real keys: five of the six renames
+            // silently did nothing. The Voucher Type master is deliberately NOT changed here — its own Create()
+            // branches internally on IsAltering, and giving it a second branch would be two guards for one job.
             case Screen.CostCategoryMaster:
-                CostCategoryMaster?.Create();
+                if (CostCategoryMaster is { IsAltering: true }) CostCategoryMaster.Alter();
+                else CostCategoryMaster?.Create();
                 return;
             case Screen.CostCentreMaster:
-                CostCentreMaster?.Create();
+                if (CostCentreMaster is { IsAltering: true }) CostCentreMaster.Alter();
+                else CostCentreMaster?.Create();
                 return;
             case Screen.StockGroupMaster:
                 // census 3.13: the Stock Group master now has an Alter mode, so Ctrl+A must branch exactly as the
@@ -9988,13 +10118,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 else StockGroupMaster?.Create();
                 return;
             case Screen.StockCategoryMaster:
-                StockCategoryMaster?.Create();
+                if (StockCategoryMaster is { IsAltering: true }) StockCategoryMaster.Alter();
+                else StockCategoryMaster?.Create();
                 return;
             case Screen.UnitMaster:
-                UnitMaster?.Create();
+                if (UnitMaster is { IsAltering: true }) UnitMaster.Alter();
+                else UnitMaster?.Create();
                 return;
             case Screen.GodownMaster:
-                GodownMaster?.Create();
+                if (GodownMaster is { IsAltering: true }) GodownMaster.Alter();
+                else GodownMaster?.Create();
                 return;
             // WI-3: the SAME screen serves Create and Alter here too, so Ctrl+A runs whichever verb it was opened
             // for. Without this branch a Stock Item Alteration screen's Ctrl+A ran Create() — which then failed
