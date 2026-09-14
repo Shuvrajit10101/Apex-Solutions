@@ -117,6 +117,25 @@ public sealed class ReportRow
     public Guid DrillVoucherId { get; init; }
 
     /// <summary>
+    /// The <b>pure-stock</b> voucher this row drills to (census rows 4.9–4.16): Enter on a Day Book row that
+    /// stands for a Stock Journal, Physical Stock, Delivery/Receipt Note, Sales/Purchase Order or Rejection
+    /// opens that voucher's read-only detail. <see cref="Guid.Empty"/> on every accounting row and on every
+    /// header/total row. Mirrors the engine row's <c>VoucherId</c> when <c>DayBookRow.IsInventory</c> is set.
+    ///
+    /// <para>🔴 <b>ITS OWN SLOT RATHER THAN A FLAG BESIDE <see cref="DrillVoucherId"/>, AND THE REASON IS THE
+    /// SAME ONE <see cref="DrillChequeBookId"/> STATES TWENTY LINES BELOW — with one addition that makes it
+    /// stronger here.</b> Six existing routes read <see cref="DrillVoucherId"/> and hand it straight to
+    /// <c>Company.FindVoucher</c>: the Enter drill, Alt+X cancel, Alt+D delete, Alt+2 duplicate, Alt+I insert
+    /// and the Alt+A seed-date lookup. A pure-stock id placed in that slot resolves to <c>null</c> in every one
+    /// of them, so each would become a SILENT no-op on an inventory row — a dead key with no message, which is
+    /// exactly the defect class this project has filed three times. Kept apart, those six routes are provably
+    /// unchanged (they see <see cref="Guid.Empty"/> and take the branch they already took for a header row), and
+    /// each inventory-capable route opts in by name. Duplicate, Insert and Add are NOT wired to it in this slice
+    /// and therefore stay honestly unavailable rather than half-working.</para>
+    /// </summary>
+    public Guid DrillInventoryVoucherId { get; init; }
+
+    /// <summary>
     /// The accounting group this row drills to (W2-12, census 11.7): Enter on a Group-Summary sub-group row
     /// opens that sub-group's own Group Summary. <see cref="Guid.Empty"/> on every other row and every other
     /// report.
@@ -149,6 +168,7 @@ public sealed class ReportRow
     public bool CanDrill => DrillStockItemId is not null
         || DrillLedgerId != Guid.Empty
         || DrillVoucherId != Guid.Empty
+        || DrillInventoryVoucherId != Guid.Empty
         || DrillGroupId != Guid.Empty
         || DrillChequeBookId != Guid.Empty
         || DrillPeriod is not null;

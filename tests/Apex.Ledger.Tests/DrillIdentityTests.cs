@@ -128,11 +128,36 @@ public class DrillIdentityTests
         {
             Assert.NotEqual(Guid.Empty, row.VoucherId);
             Assert.True(row.IsDrillable);
-            // The id resolves to a real voucher whose header matches the row.
-            var v = f.Company.Vouchers.Single(x => x.Id == row.VoucherId);
-            Assert.Equal(row.Date, v.Date);
-            Assert.Equal(row.Number, v.Number);
+
+            // 🔴 THE ID RESOLVES THROUGH THE AGGREGATE THE ROW NAMES — census rows 4.9–4.16. This loop used to
+            // resolve every row through `f.Company.Vouchers` alone, which was correct while the Day Book listed
+            // only the accounting aggregate. The moment it also lists pure-stock vouchers, an unbranched lookup
+            // throws on the first Stock Journal in the fixture — which is exactly the silent-drop defect
+            // `DayBookRow.IsInventory` exists to make unmissable, caught here on a REAL populated book rather
+            // than on a two-voucher toy. Branching on the flag does not weaken the claim; it strengthens it,
+            // because the flag itself is now under test for every row of the Bright fixture.
+            if (row.IsInventory)
+            {
+                var iv = f.Company.InventoryVouchers.Single(x => x.Id == row.VoucherId);
+                Assert.Equal(row.Date, iv.Date);
+                Assert.Equal(row.Number, iv.Number);
+                // …and it is genuinely NOT in the other book: the two id spaces are disjoint, so a flag that
+                // lied in either direction would be caught here.
+                Assert.Null(f.Company.FindVoucher(row.VoucherId));
+            }
+            else
+            {
+                var v = f.Company.Vouchers.Single(x => x.Id == row.VoucherId);
+                Assert.Equal(row.Date, v.Date);
+                Assert.Equal(row.Number, v.Number);
+                Assert.Null(f.Company.FindInventoryVoucher(row.VoucherId));
+            }
         }
+
+        // The fixture must actually exercise BOTH branches, or this test would silently become the old one again
+        // the day the fixture stopped posting stock vouchers.
+        Assert.Contains(rows, r => r.IsInventory);
+        Assert.Contains(rows, r => !r.IsInventory);
     }
 
     // ---------------------------------------------------------------- ledger-vouchers drill target (LedgerBook)
