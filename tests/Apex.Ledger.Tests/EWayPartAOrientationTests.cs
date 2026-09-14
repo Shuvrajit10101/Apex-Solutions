@@ -258,43 +258,76 @@ public sealed class EWayPartAOrientationTests
     // ================================================================ 2 — reachability, honestly stated
 
     /// <summary>
-    /// <b>Four of <c>PartACodesFor</c>'s six branches are UNREACHABLE in the shipped application</b> (review finding
-    /// #2), and this test is what stops them being read as live mappings. <c>CoverageOf</c> gates on
-    /// <see cref="Voucher.HasInventoryLines"/>, and <c>VoucherValidator.EnsureItemInvoiceValid</c> refuses stock lines
-    /// on anything but a Purchase or a Sales voucher — so a Credit/Debit Note or a Delivery/Receipt Note carrying the
-    /// inventory <c>CoverageOf</c> demands cannot be POSTED at all. Delivery/Receipt notes additionally hold their
-    /// stock as a separate <c>InventoryVoucher</c>, which <c>CoverageOf(Voucher)</c> never sees.
+    /// <b>The CHALLAN branches of <c>PartACodesFor</c> are still unreachable; the RETURN branches are not any more.</b>
     ///
-    /// <para>The branches are kept (they are the correct codes for the day the challan path is wired up) but they are
-    /// pinned as unreachable here, so nobody mistakes the suite's coverage of them for production coverage.</para>
+    /// <para><b>What this test used to say, and why it changed.</b> It pinned FOUR branches as unreachable, on the
+    /// ground that <c>VoucherValidator.EnsureItemInvoiceValid</c> refused stock lines on anything but a Purchase or
+    /// a Sales voucher, so a Credit/Debit Note carrying the inventory <c>CoverageOf</c> demands could not be POSTED
+    /// at all. Census 4.7/4.8 (defect T0-10) closed exactly that refusal — a sales or purchase return now carries
+    /// its stock — so the two return branches became live production mappings the day that landed. Half of this
+    /// test was therefore describing a limitation that no longer exists, and a pinned test that outlives its
+    /// premise is worse than no test: it reports the feature as absent after it ships.</para>
+    ///
+    /// <para><b>Delivery/Receipt Note remain genuinely unreachable</b>, and for a DIFFERENT reason that T0-10 did
+    /// not touch: they are not accounting vouchers at all — they hold their stock as a separate
+    /// <c>InventoryVoucher</c>, which <c>CoverageOf(Voucher)</c> never sees. Those two branches stay pinned.</para>
     /// </summary>
     [Fact]
-    public void PINNED_the_return_and_challan_branches_cannot_be_posted_so_they_are_unreachable_today()
+    public void The_return_branches_are_now_reachable_and_only_the_challan_branches_stay_pinned()
     {
         var f = Build();
         var c = f.Company;
         var widget = c.StockItems.First();
         var main = c.MainLocation!.Id;
-        var party = c.FindLedgerByName("Gujarat Customer")!;
+        var customer = c.FindLedgerByName("Gujarat Customer")!;
+        var supplier = c.FindLedgerByName("Gujarat Supplier")!;
         var sales = c.FindLedgerByName("Sales")!;
+        var purchases = c.FindLedgerByName("Purchases")!;
         var post = new LedgerService(c);
 
-        foreach (var baseType in new[]
-        {
-            VoucherBaseType.CreditNote, VoucherBaseType.DebitNote,
-            VoucherBaseType.DeliveryNote, VoucherBaseType.ReceiptNote,
-        })
+        // 🔴 A CREDIT NOTE NOW POSTS ITS STOCK. Sales return: Dr Sales (the stock leg, inward ⇒ debit) / Cr the
+        // customer. The engine stamps the line Inward from the voucher's nature, so the goods come BACK.
+        var creditNote = post.Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.CreditNote).Id, MoveDate,
+            new[]
+            {
+                new EntryLine(sales.Id, new Money(Value), DrCr.Debit),
+                new EntryLine(customer.Id, new Money(Value), DrCr.Credit),
+            },
+            partyId: customer.Id,
+            inventoryLines: new[] { new VoucherInventoryLine(widget.Id, main, 1m, new Money(Value)) }));
+        Assert.Equal(StockDirection.Inward, creditNote.InventoryLines.Single().Direction);
+
+        // 🔴 AND A DEBIT NOTE. Purchase return: Cr Purchases (outward ⇒ credit) / Dr the supplier.
+        var debitNote = post.Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DebitNote).Id, MoveDate,
+            new[]
+            {
+                new EntryLine(supplier.Id, new Money(Value), DrCr.Debit),
+                new EntryLine(purchases.Id, new Money(Value), DrCr.Credit),
+            },
+            partyId: supplier.Id,
+            inventoryLines: new[] { new VoucherInventoryLine(widget.Id, main, 1m, new Money(Value)) }));
+        Assert.Equal(StockDirection.Outward, debitNote.InventoryLines.Single().Direction);
+
+        // The two Part A return branches are now reached by a voucher this application can actually post.
+        Assert.Equal("I", f.Service.PartACodesFor(creditNote).SupplyType);
+        Assert.Equal("O", f.Service.PartACodesFor(debitNote).SupplyType);
+
+        // The challan branches stay pinned: a Delivery/Receipt Note is not an accounting voucher, so it cannot
+        // carry Voucher.InventoryLines however the carrier set is widened.
+        foreach (var baseType in new[] { VoucherBaseType.DeliveryNote, VoucherBaseType.ReceiptNote })
         {
             var typeId = c.VoucherTypes.First(t => t.BaseType == baseType).Id;
             var v = new Voucher(Guid.NewGuid(), typeId, MoveDate, new[]
             {
-                new EntryLine(party.Id, new Money(Value), DrCr.Debit),
+                new EntryLine(customer.Id, new Money(Value), DrCr.Debit),
                 new EntryLine(sales.Id, new Money(Value), DrCr.Credit),
-            }, partyId: party.Id,
+            }, partyId: customer.Id,
                 inventoryLines: new[] { new VoucherInventoryLine(widget.Id, main, 1m, new Money(Value)) });
 
             var ex = Assert.Throws<InvalidVoucherException>(() => post.Post(v));
-            Assert.Contains("only valid on a Purchase or Sales voucher", ex.Message);
+            Assert.Contains("Item-invoice stock lines are only valid on", ex.Message);
         }
     }
 

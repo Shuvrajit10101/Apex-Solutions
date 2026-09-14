@@ -155,7 +155,10 @@ internal static class InventoryMovements
         if (v.Cancelled || v.Optional) return false;
         if (v.Date > asOf) return false;
         var type = company.FindVoucherType(v.TypeId);
-        return type is not null && type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+        // Census 4.7/4.8: mirrors ItemInvoiceStock.Counts exactly, via the one shared predicate. The two used to
+        // restate the carrier set separately; a return that moved on-hand but never appeared in the movement
+        // register would leave the operator unable to see WHY closing stock changed.
+        return type is not null && VoucherEffects.CanCarryItemInvoiceLines(type.BaseType);
     }
 
     private static decimal QuantityInBase(Company company, InventoryAllocation a)

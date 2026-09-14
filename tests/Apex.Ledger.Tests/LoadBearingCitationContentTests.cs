@@ -228,16 +228,20 @@ public sealed class LoadBearingCitationContentTests
             @"**already returns *""Supplier Invoice",
             "VoucherPrintProjector.cs",
             @"""Supplier Invoice No."""),
-        // The two facts that decouple the Rule-53 note from census T0-10 — i.e. that let a legally complete note
-        // ship without the stock wall moving. Both were re-measured first-hand before the re-attribution.
+        // 🔴 RE-ANCHORED 2026-09-15 (census 4.7/4.8 — T0-10 CLOSED). These two rows used to guard the claim that a
+        // note "cannot carry inventory lines at all", anchored on the validator's Purchase-or-Sales throw and on
+        // the entry screen's two-type CanBeItemInvoice. That claim is now FALSE — both notes carry stock — so the
+        // ADR's premise is struck in place and the anchors follow the amendment rather than the retired sentence.
+        // The guard still bites, and on the fact that actually matters now: the carrier set is ONE predicate, and
+        // the ADR's decoupling argument survives only because Rule 53 is value-level, never because of the wall.
         new("docs/adr/0002-printed-document-three-axis-split.md",
-            "throws on every post (reached from",
-            "VoucherValidator.cs",
-            "only valid on a Purchase or Sales voucher"),
+            "the four item-invoice carriers are Purchase, Sales, Credit",
+            "VoucherEffects.cs",
+            "CanCarryItemInvoiceLines"),
         new("docs/adr/0002-printed-document-three-axis-split.md",
-            "makes the item-invoice chord inert. Because",
+            "post-time direction stamp and `VoucherEntryViewModel.CanBeItemInvoice` all read",
             "VoucherEntryViewModel.cs",
-            "VoucherBaseType.Purchase or VoucherBaseType.Sales"),
+            "VoucherEffects.CanCarryItemInvoiceLines(_type.BaseType)"),
 
         // ---- RQ-11 / RQ-11a / RQ-11b (the requirement this chain amended IN PLACE) ----
         // RQ-11a's caption ruling, and the amendment record that says the CODE was right and the REQUIREMENT wrong.
@@ -253,11 +257,14 @@ public sealed class LoadBearingCitationContentTests
             "A purchase item-invoice",
             "VoucherDetailViewModel.cs",
             "BuildPrintPreview"),
-        // RQ-11b's no-dependency-on-T0-10 clause quotes the throw verbatim; the quote is the token.
+        // 🔴 RE-ANCHORED 2026-09-15 (census 4.7/4.8 — T0-10 CLOSED). RQ-11b's no-dependency clause used to quote
+        // the validator's Purchase-or-Sales throw verbatim as its token. The throw is gone: a note now carries
+        // stock. The clause's CONCLUSION is unchanged and is if anything safer, so the sentence is struck in place
+        // and the anchor moved onto the amendment's own claim about the one carrier predicate.
         new("docs/phase5-reports-io-requirements.md",
-            @"throws *""Item-invoice stock lines are only valid on a",
-            "VoucherValidator.cs",
-            "only valid on a Purchase or Sales voucher"),
+            "four item-invoice carriers are Purchase, Sales, Credit Note and Debit Note",
+            "VoucherEffects.cs",
+            "CanCarryItemInvoiceLines"),
 
         // ---- §7.2 / §7.3 of the grounding doc: the print-path evidence base the R12 gate rested on ----
         // Added 2026-08-21 for T0-11 review C20/L3-06, and it is this file's own lesson a FOURTH time. The T0-11

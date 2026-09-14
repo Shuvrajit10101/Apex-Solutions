@@ -60,12 +60,70 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     // =============================================================== item-invoice mode (catalog §10; slice 3.4c)
 
     /// <summary>
-    /// True only for a Purchase or Sales voucher — the two natures that can be entered "as invoice"
-    /// (item-invoice mode). For every other voucher type item-invoice mode is unavailable (Ctrl+H's Change Mode
-    /// cycle does not offer it and the inventory panel never shows), so those screens behave exactly as before.
+    /// The natures that can be entered "as invoice" (item-invoice mode) — <b>Purchase, Sales, Credit Note and
+    /// Debit Note</b>, read from the single home <see cref="VoucherEffects.CanCarryItemInvoiceLines"/>. For every
+    /// other voucher type item-invoice mode is unavailable (Ctrl+H's Change Mode cycle does not offer it and the
+    /// inventory panel never shows), so those screens behave exactly as before.
+    ///
+    /// <para>🔴 <b>Census 4.7/4.8, defect T0-10 — the two notes were added here and this is the door.</b> The
+    /// vendor records a sales return as a Credit Note in Item Invoice mode (Ctrl+H) carrying the stock item,
+    /// quantity and rate, and a purchase return the same way on a Debit Note
+    /// (help.tallysolutions.com, "How to Record a Sales Return Using Credit Note Under GST in TallyPrime" and
+    /// "How to Record Purchase Returns under GST"). Before this, a return moved money and <b>no stock</b>, so
+    /// closing stock was wrong by every return the business made.</para>
+    ///
+    /// <para><b>What did NOT widen with it.</b> Price levels, TCS collection, Additional Cost of Purchase, the
+    /// Supplier-Invoice/Reference capture and the Tracking Number column all test the strict Purchase or Sales
+    /// base type of their own, deliberately: they belong to raising a bill, not to reversing one. See
+    /// <see cref="ShowItemTrackingNumber"/>, which states the double-billing hazard in its own words.</para>
     /// </summary>
-    public bool CanBeItemInvoice =>
-        _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+    public bool CanBeItemInvoice => VoucherEffects.CanCarryItemInvoiceLines(_type.BaseType);
+
+    /// <summary>
+    /// True on the <b>purchase side</b> of the books — a Purchase or a Debit Note (a purchase return). Decides
+    /// which accounting family the derived stock leg is drawn from (Purchase Accounts / Stock-in-Hand versus Sales
+    /// Accounts) and which GST head the tax legs touch (Input versus Output). <b>Not</b> the same question as
+    /// <see cref="IsPurchaseInvoice"/>, which stays strict for the purchase-invoice-only features.
+    /// </summary>
+    public bool IsPurchaseSideInvoice => VoucherEffects.IsPurchaseSideInvoice(_type.BaseType);
+
+    /// <summary>
+    /// True for a Credit or Debit Note — a document that REVERSES an earlier one. Every derived leg (party, stock
+    /// and tax alike) is posted on the opposite side from the invoice it mirrors, and the stock moves the opposite
+    /// way. See <see cref="ItemInvoiceStockDirection"/>.
+    /// </summary>
+    public bool IsReturnNote => VoucherEffects.IsReturnNote(_type.BaseType);
+
+    /// <summary>
+    /// 🔴 Which way this voucher's item lines move stock — the ONE home
+    /// (<see cref="VoucherEffects.ItemInvoiceStockDirection"/>), never a local <c>IsPurchaseInvoice ? … : …</c>.
+    /// A two-way test on a four-way fact stamped a sales return OUTWARD, which would have taken the returned goods
+    /// off the shelf a second time and doubled the very error T0-10 is about.
+    ///
+    /// <para>🔴 <b>TOTAL ON PURPOSE.</b> <see cref="BuildDerivedSummary"/> and the side properties below are
+    /// evaluated on EVERY voucher screen, carrier or not — a Journal and a Reversing Journal reach them while the
+    /// preview line is being composed. The domain function throws on a non-carrier (correctly: nobody should ask
+    /// it which way a Journal moves stock), so the non-carrier case is answered HERE, with the exact value the
+    /// superseded <c>IsPurchaseInvoice ? Inward : Outward</c> expression returned for those types. That keeps
+    /// every non-carrier screen byte-identical (ER-13); it is not a second opinion about the carriers, which are
+    /// still answered by the one home alone.</para>
+    /// </summary>
+    private StockDirection ItemInvoiceStockDirection =>
+        CanBeItemInvoice
+            ? VoucherEffects.ItemInvoiceStockDirection(_type.BaseType)
+            : StockDirection.Outward;
+
+    /// <summary>The side the derived <b>stock/value</b> leg is posted on: goods IN are backed by a debit, goods
+    /// OUT by a credit. The party leg is always the opposite (<see cref="ItemInvoicePartySide"/>). One rule that
+    /// stays true for all four carriers, and the same one <c>VoucherValidator.EnsureItemInvoiceValid</c> applies,
+    /// so the screen can never derive a leg the engine then rejects.</summary>
+    private DrCr ItemInvoiceValueSide =>
+        ItemInvoiceStockDirection == StockDirection.Inward ? DrCr.Debit : DrCr.Credit;
+
+    /// <summary>The side the derived <b>party</b> leg is posted on — always the opposite of
+    /// <see cref="ItemInvoiceValueSide"/>.</summary>
+    private DrCr ItemInvoicePartySide =>
+        ItemInvoiceValueSide == DrCr.Debit ? DrCr.Credit : DrCr.Debit;
 
     /// <summary>
     /// True for a <b>Sales or Purchase</b> voucher — the accounting-(service)-invoice mode (G-7; SG p.80 names its
@@ -190,11 +248,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>True for a Purchase item-invoice (stock inward; party = supplier; Dr Purchases / Cr Supplier).</summary>
     public bool IsPurchaseInvoice => _type.BaseType == VoucherBaseType.Purchase;
 
-    /// <summary>The party-field caption for the current nature ("Supplier" for Purchase, "Customer" for Sales).</summary>
-    public string PartyCaption => IsPurchaseInvoice ? "Supplier" : "Customer";
+    /// <summary>The party-field caption for the current nature — "Supplier" on the purchase side (Purchase and the
+    /// Debit Note that returns goods to that same supplier), "Customer" on the sales side (Sales and the Credit
+    /// Note that takes goods back from that same customer). Census 4.7/4.8.</summary>
+    public string PartyCaption => IsPurchaseSideInvoice ? "Supplier" : "Customer";
 
-    /// <summary>The accounting-leg (Purchases/Sales) caption for the derived-summary line.</summary>
-    public string StockLedgerCaption => IsPurchaseInvoice ? "Purchases" : "Sales";
+    /// <summary>The accounting-leg caption for the derived-summary line. On a return note the leg is the RETURNS
+    /// side of the same family — the operator picks a "Purchase Returns" (under Purchase Accounts) or "Sales
+    /// Returns" (under Sales Accounts) ledger, so the caption names the family, not the document.</summary>
+    public string StockLedgerCaption => IsPurchaseSideInvoice
+        ? (IsReturnNote ? "Purchase Returns" : "Purchases")
+        : (IsReturnNote ? "Sales Returns" : "Sales");
 
     /// <summary>The stock items the item-invoice line pickers choose from.</summary>
     public IReadOnlyList<StockItem> StockItems { get; }
@@ -742,7 +806,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         if (line is null || !LineWantsBatchAllocation(line)) return;
         BatchAllocationRequested?.Invoke(
-            line.SelectedItem!, line.SelectedGodown!, line.ParsedQuantity, !IsPurchaseInvoice,
+            // Census 4.7/4.8: the flag means "this line takes stock OUT" (the sub-screen must then allocate against
+            // what is actually on hand). Read it from the direction, not from "is it a purchase" — on a Debit Note
+            // that two-way test said inward and the sub-screen would have offered lots it is not drawing from.
+            line.SelectedItem!, line.SelectedGodown!, line.ParsedQuantity,
+            ItemInvoiceStockDirection == StockDirection.Outward,
             line.SetBatchAllocations);
     }
 
@@ -786,7 +854,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// field, no auto-fill, no discount column — a non-price-level Sales screen is byte-identical (ER-13).
     /// </summary>
     public bool ShowPriceLevelSelector =>
-        IsItemInvoice && CanBeItemInvoice && !IsPurchaseInvoice && _company.EnableMultiplePriceLevels;
+        // 🔴 Census 4.7/4.8 — `!IsPurchaseInvoice` was a safe reading of "Sales" only while the carrier set was two
+        // types wide. Now that Credit/Debit Notes carry item lines it would turn price levels on for BOTH notes,
+        // so this asks for the Sales base type by name. A return is priced at what was actually invoiced, not
+        // re-priced off a current price list.
+        IsItemInvoice && _type.BaseType == VoucherBaseType.Sales && _company.EnableMultiplePriceLevels;
 
     /// <summary>Running Σ of the item-line values (each qty × rate) — the amount the two derived legs carry.</summary>
     [ObservableProperty] private string _itemsTotalText = "0.00";
@@ -868,7 +940,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// to the Phase-4 GST item-invoice (ER-13).
     /// </summary>
     public bool IsTcsSalesInvoice =>
-        IsItemInvoice && CanBeItemInvoice && !IsPurchaseInvoice && _company.TcsEnabled;
+        // 🔴 Census 4.7/4.8 — same widening hazard as ShowPriceLevelSelector: `!IsPurchaseInvoice` would now be
+        // true on both notes and would collect TCS on a sales RETURN. TCS §206C is collected on a sale; the Sales
+        // base type is asked for by name. (Reversing collected TCS on a return is a separate, unbuilt capability
+        // — it is reported, not silently approximated by letting this band open.)
+        IsItemInvoice && _type.BaseType == VoucherBaseType.Sales && _company.TcsEnabled;
 
     /// <summary>
     /// True when the TCS collection band is shown on the Sales item-invoice: <see cref="IsTcsSalesInvoice"/>, the
@@ -3699,8 +3775,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                  + "rebuilt.";
         SelectedParty = partyOption;
 
-        var valueSide = IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit;
-        var partySide = IsPurchaseInvoice ? DrCr.Credit : DrCr.Debit;
+        // Census 4.7/4.8: the same two sides the build path derives, from the same one rule — so a posted note can
+        // be re-opened for alteration. A two-way `IsPurchaseInvoice` test here would look for a Credit Note's party
+        // on the debit side, find nothing, and refuse to re-open a voucher this screen itself had just written.
+        var valueSide = ItemInvoiceValueSide;
+        var partySide = ItemInvoicePartySide;
 
         var partyLegs = voucher.Lines.Where(l => l.LedgerId == partyId && l.Side == partySide).ToList();
         if (partyLegs.Count != 1)
@@ -5051,15 +5130,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// Whether a ledger is a valid value-leg target for this voucher's nature — Purchase: under Purchase
-    /// Accounts (primary ancestor) or under Stock-in-Hand; Sales: under Sales Accounts (primary ancestor).
-    /// Mirrors <c>VoucherValidator.IsStockLegLedger</c> so the auto-derived leg always satisfies the engine.
+    /// Whether a ledger is a valid value-leg target for this voucher's nature — purchase SIDE (Purchase, Debit
+    /// Note): under Purchase Accounts (primary ancestor) or under Stock-in-Hand; sales side (Sales, Credit Note):
+    /// under Sales Accounts (primary ancestor).
+    /// Mirrors <c>VoucherValidator.IsStockLegLedger</c> so the auto-derived leg always satisfies the engine —
+    /// census 4.7/4.8 widened both together, and asking the family (not the base type) is what keeps them equal.
     /// </summary>
     private bool IsStockLegLedger(DomainLedger ledger)
     {
         var group = _company.FindGroup(ledger.GroupId);
         if (group is null) return false;
-        if (IsPurchaseInvoice)
+        if (IsPurchaseSideInvoice)
         {
             if (ClassificationRules.IsStockInHandLedger(ledger, _company)) return true;
             return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,
@@ -5355,11 +5436,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// The GST direction for this invoice's nature: a Purchase claims Input tax (ITC), a Sales charges Output tax.
-    /// (In item-invoice mode <see cref="CanBeItemInvoice"/> restricts the nature to Purchase/Sales.)
+    /// The GST direction for this voucher's nature: the <b>purchase side</b> claims Input tax (ITC), the
+    /// <b>sales side</b> charges Output tax.
+    ///
+    /// <para>🔴 <b>Census 4.7/4.8 — this chooses the LEDGER, and a return note does not change it.</b> A Credit
+    /// Note for a sales return un-charges tax we charged, so it still touches <b>Output</b> CGST/SGST/IGST; a
+    /// Debit Note for a purchase return gives back credit we claimed, so it still touches <b>Input</b>. Only the
+    /// SIDE reverses, and that is carried separately (<see cref="IsReturnNote"/> → <c>reverseSides</c> on
+    /// <c>GstService.ComputeInvoiceTax</c>). Flipping the direction on a note would post a sales return against
+    /// Input CGST — claiming ITC on a sale, in a filed return.</para>
     /// </summary>
     private GstTaxDirection GstDirection =>
-        IsPurchaseInvoice ? GstTaxDirection.Input : GstTaxDirection.Output;
+        IsPurchaseSideInvoice ? GstTaxDirection.Input : GstTaxDirection.Output;
 
     /// <summary>The outcome of computing GST over the current complete item lines (for both display and posting).</summary>
     private readonly record struct ItemInvoiceGst(
@@ -5408,7 +5496,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints, cess));
         }
 
-        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        // Census 4.7/4.8: `reverseSides` on a return note puts every tax leg on the opposite side while keeping the
+        // Output/Input head — a credit note DEBITS Output CGST. False on an invoice ⇒ byte-identical (ER-13).
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: IsReturnNote);
         return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
     }
 
@@ -5456,7 +5546,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             taxable.Add(new GstService.TaxableLine(posted.Value, res.RateBasisPoints, cess));
         }
 
-        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        // Census 4.7/4.8 — the ALTERATION projection must mirror the entry path exactly, or re-saving a posted
+        // credit note would move every tax leg to the other side. Same one flag, same one reason.
+        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: IsReturnNote);
     }
 
     // =============================================================== batch allocation → posted lines (G-5)
@@ -6306,24 +6398,30 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         string A(decimal v) => IndianFormat.AmountAlways(v);
         var stock = StockLedgerCaption;
-        var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the value leg's side (Input Dr / Output Cr)
+        // Census 4.7/4.8: the tax legs sit on the SAME side as the value leg on every carrier — Input Dr / Output
+        // Cr on an invoice, and both reversed on a return note. Derived from the one value-side rule so the
+        // preview can never describe a posting different from the one BuildItemInvoice actually writes.
+        var valueIsDebit = ItemInvoiceValueSide == DrCr.Debit;
+        var side = valueIsDebit ? "Dr" : "Cr";
+        // The tax HEAD does not reverse with the note — see GstDirection.
+        var head = IsPurchaseSideInvoice ? "Input" : "Output";
 
         var extraLegs = new List<string>();
-        // Additional-cost legs (Purchase only) — each posts a Dr to its Direct-Expenses ledger (hits P&L, RQ-19).
+        // Additional-cost legs (Purchase invoice only) — each posts a Dr to its Direct-Expenses ledger (RQ-19).
         if (IsPurchaseInvoice && additional != 0m)
             extraLegs.Add($"Dr Additional Costs {A(additional)}");
-        if (igst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} IGST {A(igst)}");
+        if (igst != 0m) extraLegs.Add($"{side} {head} IGST {A(igst)}");
         else
         {
-            if (cgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
-            if (sgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
+            if (cgst != 0m) extraLegs.Add($"{side} {head} CGST {A(cgst)}");
+            if (sgst != 0m) extraLegs.Add($"{side} {head} SGST {A(sgst)}");
         }
         // Ring-fenced Compensation Cess leg (Phase 9 slice 1) — added only when a cess-bearing line resolves (0 ⇒
         // omitted, so a non-cess invoice's summary is byte-identical to Phase-4/8, ER-13).
-        if (cess != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} Cess {A(cess)}");
+        if (cess != 0m) extraLegs.Add($"{side} {head} Cess {A(cess)}");
         var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
 
-        return IsPurchaseInvoice
+        return valueIsDebit
             ? $"Dr {stock} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
             : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {stock} {A(taxable)}";
     }
@@ -6485,7 +6583,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                           "(enable 'Allow zero-valued transactions' to enter a free-goods line at ₹0).";
                 return null;
             }
-            var direction = IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward;
+            // 🔴 Census 4.7/4.8 (T0-10) — THE ONE HOME. This line used to read
+            // `IsPurchaseInvoice ? Inward : Outward`: a two-way test on a four-way fact, which would have stamped a
+            // SALES RETURN as outward and taken the returned goods off the shelf a second time.
+            var direction = ItemInvoiceStockDirection;
             var postedRate = l.EffectiveRate ?? new Money(rate);
 
             // G-5 — a line ALLOCATED ACROSS SEVERAL BATCHES posts as one item line PER BATCH, each carrying its
@@ -6661,17 +6762,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         // The party's bill-wise comes from the PANEL (invoiceBills), never from the carry — see
         // CaptureDerivedLegChildren for why the party leg is the one leg whose split is captured empty.
-        var partyLine = IsPurchaseInvoice
-            ? new EntryLine(party.Id, partyAmount, DrCr.Credit, billAllocations: invoiceBills,
-                            costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex)
-            : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills,
-                            costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex,
-                            tcs: belowThresholdDetail);
-        var stockLine = IsPurchaseInvoice
-            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit, billAllocations: valueBills,
-                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex)
-            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit, billAllocations: valueBills,
-                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex);
+        // 🔴 Census 4.7/4.8 — the two sides come from the ONE rule (goods IN ⇒ value leg Dr, party Cr; goods OUT ⇒
+        // the reverse), which is also what VoucherValidator.EnsureItemInvoiceValid re-derives when it foots the
+        // pairing. The `tcs:` below-threshold detail rides the party leg only where TCS can arise at all — the
+        // sales side — and IsTcsSalesInvoice keeps it to a Sales invoice, so on a Credit Note it is always null.
+        var partyLine = new EntryLine(
+            party.Id, partyAmount, ItemInvoicePartySide, billAllocations: invoiceBills,
+            costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex,
+            tcs: ItemInvoicePartySide == DrCr.Debit ? belowThresholdDetail : null);
+        var stockLine = new EntryLine(
+            valueLedger.Id, taxable, ItemInvoiceValueSide, billAllocations: valueBills,
+            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex);
 
         var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count + tcsPayableLines.Count)
             { stockLine, partyLine };
@@ -6692,6 +6793,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private bool AcceptItemInvoice()
     {
+        // 🔴 Census 4.7/4.8 (T0-10) — THE §34 ESSENTIALS, WHICH THIS PATH USED TO BYPASS ENTIRELY.
+        // Accept() routes item-invoice mode here BEFORE it reaches ValidateSection34 and RegisterSection34Link, so
+        // until now a note could not carry stock and the omission was harmless. The moment a Credit Note may be
+        // entered as an item invoice it stops being harmless: the note would post its money and its stock and
+        // register NO GstCreditDebitNoteLink, so it would never appear in GSTR-1 Table 9B — a return the books show
+        // and the filed document does not. Both halves are therefore done here, with the same calls and in the same
+        // order as the plain-grid path. ShowSection34Details is false on every Purchase/Sales invoice, so an
+        // invoice takes the identical old path (ER-13).
+        if (!ValidateSection34()) return false;
+
         if (BuildItemInvoice() is not { } built) return false;
 
         var voucher = new Voucher(
@@ -6712,6 +6823,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             var posted = _service.Post(voucher); // enforces pairing + atomic stock + no-negative — never persisted on failure
 
+            // Census 4.7/4.8: the §34 link, against the POSTED note id, before the save so it persists in the same
+            // aggregate write — and unwound below with the voucher if that write fails, so a refused save can never
+            // leave a link pointing at a voucher that is not in the book.
+            var undoSection34 = new Stack<Action>();
+            if (ShowSection34Details) RegisterSection34Link(posted.Id, undoSection34);
+
             // W0-13 S2b — the same save guard as AcceptAccountingInvoice and PostAndSave: restore FIRST and
             // UNCONDITIONALLY, and only then let SaveFailure.IsReportable decide message-vs-rethrow. See the note
             // there; on this path Post has also applied the stock movement, which RemoveVoucher reverses with it.
@@ -6721,6 +6838,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             }
             catch (Exception ex)
             {
+                while (undoSection34.Count > 0) undoSection34.Pop()();
                 _company.RemoveVoucher(posted);
                 if (!SaveFailure.IsReportable(ex)) throw;
                 Message = $"Could not save the company: {ex.Message} " +

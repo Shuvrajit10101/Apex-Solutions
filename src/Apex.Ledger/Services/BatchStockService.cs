@@ -256,6 +256,14 @@ public sealed class BatchStockService
         {
             if (v.Cancelled || v.Optional || v.Date > asOf) continue;
             var type = _company.FindVoucherType(v.TypeId);
+            // 🔴 Census 4.7/4.8 — THIS GATE IS DELIBERATELY NOT WIDENED to VoucherEffects.CanCarryItemInvoiceLines,
+            // and the reason is wrong money. This loop sources a batch's COST from the latest INWARD item line. A
+            // Credit Note is inward, but its rate is the price the goods were SOLD at, not what they cost; letting
+            // one in here would re-value the lot upward at the selling price on every sales return and carry that
+            // straight into closing stock. A Debit Note is outward and would be filtered out one line below, so
+            // adding it would change nothing. The narrow set is therefore the CORRECT set here, not a stale one —
+            // do not "fix" it to match the other five sites. (A batch whose only ever inward was a sales return has
+            // no cost basis on this path; that gap is reported for a later wave, not papered over with a sale price.)
             if (type is null || type.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales)) continue;
             foreach (var line in v.InventoryLines)
             {
@@ -371,6 +379,9 @@ public sealed class BatchStockService
         {
             if (v.Cancelled || v.Optional) continue;
             var type = _company.FindVoucherType(v.TypeId);
+            // Census 4.7/4.8 — narrow on purpose, same reasoning as the cost-sourcing loop above: this finds a
+            // lot's FIRST inward (its age). Goods handed back on a sales return are not a fresh arrival, so
+            // treating a Credit Note as one would reset the lot's age and make an old batch read as new.
             if (type is null || type.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales)) continue;
             foreach (var line in v.InventoryLines)
                 if (line.StockItemId == bucket.StockItemId && line.GodownId == bucket.GodownId &&
