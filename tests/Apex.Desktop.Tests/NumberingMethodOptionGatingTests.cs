@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -199,8 +200,11 @@ public sealed class NumberingMethodOptionGatingTests
     /// a Manual type would REWRITE its stored affixes, and the affixes are what the printed document number is made
     /// of. The stored value must survive a save untouched.
     ///
-    /// <para><b>Mutation-verified:</b> replacing <c>if (CanConfigureAffixes)</c> in <c>Commit</c> with an
-    /// unconditional assignment reddens exactly this test.</para>
+    /// <para>🔴 <b>Mutation-verified — ON THE SECOND ATTEMPT, and the first is recorded because it is the lesson.</b>
+    /// Replacing <c>if (CanConfigureAffixes)</c> in <c>Commit</c> with an unconditional assignment left the
+    /// ORIGINAL version of this test GREEN: it never moved the working copy off the stored value, so the
+    /// write-back it was meant to catch was the identity function. The test now forces the divergence and the
+    /// same mutation reddens it (together with its <c>PreventDuplicate</c> sibling, and nothing else).</para>
     /// </summary>
     [AvaloniaFact]
     public void Saving_a_manual_type_does_not_rewrite_the_affixes_the_screen_no_longer_offers()
@@ -222,6 +226,23 @@ public sealed class NumberingMethodOptionGatingTests
             // The operator cannot even see these — they are off the form — but the working copies exist. A save
             // must not push them (or a blank) back over the stored config.
             Assert.False(vm.VoucherNumberingConfig!.CanConfigureAffixes);
+
+            // 🔴 THE WORKING COPY IS FORCED TO DIVERGE, AND WITHOUT THIS THE TEST PROVES NOTHING. `LoadFromType`
+            // seeds every working copy FROM the stored type, so at this point they are equal — and an
+            // unconditional write-back of a value equal to what is stored is the identity function. The first
+            // version of this test asserted the stored values straight after `Save()` and passed WITH AND WITHOUT
+            // the `if (CanConfigureAffixes)` guard it was named for; the guard was covered by nothing. Measured,
+            // not assumed: dropping both `Commit` guards left all nine tests in this file green.
+            //
+            // Diverging them here is the contract being tested, stated plainly: the gate lives on the VIEW
+            // (`IsVisible`), and hiding an Avalonia control does NOT tear down its TwoWay binding — the working
+            // copy stays live and writable behind a hidden box. `Commit` therefore may not trust it, and this
+            // drives exactly that: whatever the working copy holds, an option the vendor does not offer under this
+            // method must not be written.
+            vm.VoucherNumberingConfig!.WidthText = "9";
+            vm.VoucherNumberingConfig!.PrefillWithZero = false;
+            vm.VoucherNumberingConfig!.Prefixes.Clear();
+
             Assert.Equal(NumberingSaveResult.Saved, vm.VoucherNumberingConfig!.Save());
 
             var stored = c.FindVoucherType(manual.Id)!;
@@ -236,8 +257,10 @@ public sealed class NumberingMethodOptionGatingTests
     /// The same invariant for <c>PreventDuplicate</c> on a plain <b>Automatic</b> type, where the vendor does not
     /// offer the check: a save that changes nothing else must not flip a validation rule nobody touched.
     ///
-    /// <para><b>Mutation-verified:</b> replacing <c>if (CanPreventDuplicate)</c> in <c>Commit</c> with an
-    /// unconditional assignment reddens exactly this test.</para>
+    /// <para>🔴 <b>Mutation-verified — on the second attempt, for the same reason its sibling above records:</b>
+    /// the original test loaded the flag from the very type it then asserted, so an unconditional write-back
+    /// changed nothing and the guard was covered by nothing. With the working copy forced to diverge, replacing
+    /// <c>if (CanPreventDuplicate)</c> in <c>Commit</c> with an unconditional assignment reddens this test.</para>
     /// </summary>
     [AvaloniaFact]
     public void Saving_an_automatic_type_does_not_clear_a_prevent_duplicate_flag_it_never_showed()
@@ -255,6 +278,13 @@ public sealed class NumberingMethodOptionGatingTests
             Assert.DoesNotContain("Prevent duplicate numbers", VisibleTexts(window));
 
             vm.VoucherNumberingConfig!.WidthText = "2";   // an UNRELATED, offered change
+
+            // 🔴 The working copy is forced to diverge for the reason the sibling test above sets out in full:
+            // `LoadFromType` seeds it from the stored flag, so without this line the unconditional write-back is
+            // the identity function and the test passes with the guard removed. Measured — this test, too, was
+            // green under the mutation it is named for.
+            vm.VoucherNumberingConfig!.PreventDuplicate = false;
+
             Assert.Equal(NumberingSaveResult.Saved, vm.VoucherNumberingConfig!.Save());
 
             var stored = c.FindVoucherType(auto.Id)!;

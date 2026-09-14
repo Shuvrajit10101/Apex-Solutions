@@ -11574,7 +11574,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // key. This chord is bound ONLY on this one report (see the bare-`C` arm in MainWindow.OnKeyDown), so a
         // permanent badge would advertise a key that is genuinely dead on every other screen — register defect
         // IV-31, the very fault the Alt+2 comment cites. The badge and the key therefore appear and disappear
-        // together, on the same predicate. Pinned by `The_convert_badge_is_absent_off_the_memorandum_register`.
+        // together, on the same predicate. Pinned by
+        // `The_convert_badge_is_shown_on_the_register_and_absent_everywhere_else` (mutation-verified: replacing
+        // this predicate with `true` reddens exactly that test and nothing else).
         if (IsMemorandumRegisterReport)
             ButtonBar.Add(new ButtonBarItem("C", "Convert Memo",
                 () => RequestConvertHighlightedMemorandum(), true));

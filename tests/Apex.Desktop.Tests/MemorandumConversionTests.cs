@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -285,10 +286,26 @@ public sealed class MemorandumConversionTests
     /// <summary>
     /// 🔴 The chord is ours, so the case that it costs nothing has to be MADE, not assumed. Bare C is bound on the
     /// Memorandum Register and nowhere else; on another live report it must fall straight through, leaving no
-    /// prompt and changing nothing.
+    /// prompt, no notice and nothing converted.
     ///
-    /// <para><b>Mutation-verified:</b> removing <c>vm.IsMemorandumRegisterReport</c> from the arm's predicate (i.e.
-    /// letting bare C fire on any report) reddens exactly this test.</para>
+    /// <para>🔴 <b>THIS TEST WAS A DEAD GUARD AND IS REWRITTEN. The version it replaces asserted the right thing
+    /// and could not observe it.</b> It opened the Day Book and pressed C without ever putting the highlight on a
+    /// row, so <c>Reports.SelectedRow</c> was null and <c>RequestConvertHighlightedMemorandum</c> returned at its
+    /// first gate — which it does with or without the arm's predicate. Measured, not inferred: replacing
+    /// <c>vm.IsMemorandumRegisterReport</c> in <c>MainWindow.OnKeyDown</c>'s bare-C arm with <c>true</c> left the
+    /// old test GREEN, so the scope guard this file's own comment claimed was mutation-verified was in fact
+    /// covered by nothing.</para>
+    ///
+    /// <para>🔴 <b>And the escape it left open is the serious one.</b> <c>DayBook.Build</c> walks
+    /// <c>company.Vouchers</c> with a date filter and NO type filter — memoranda list there like everything else,
+    /// and <c>BuildDayBook</c> sets <c>DrillVoucherId</c> on every row. So an unscoped bare C, with the highlight
+    /// standing on the memo's own Day Book row, would have converted it: real money onto the real books, from a
+    /// screen that offers no such verb and shows no badge for it.</para>
+    ///
+    /// <para><b>Both halves of the scope are now driven.</b> (a) the highlight on an ORDINARY voucher's row — the
+    /// mutation is caught by the refusal <see cref="MainWindowViewModel.Notice"/> it would have to raise; (b) the
+    /// highlight on the MEMORANDUM's own row — the mutation is caught by the conversion actually happening.
+    /// <b>Mutation-verified:</b> that same <c>true</c> substitution now reddens this test on case (b).</para>
     /// </summary>
     [AvaloniaFact]
     public void Bare_C_on_another_report_is_not_claimed_by_the_conversion_arm()
@@ -296,17 +313,47 @@ public sealed class MemorandumConversionTests
         var (window, vm, dir) = NewWindow("Memo Scope Co");
         try
         {
-            PostMemo(vm.Company!, 400m, out _, out _);
+            var c = vm.Company!;
+            var memo = PostMemo(c, 400m, out _, out _);
+
+            // An ORDINARY voucher too, so the Day Book carries a row of each kind.
+            var jDr = AddCashLedger(c, "Plain Dr", openingIsDebit: true);
+            var jCr = AddCashLedger(c, "Plain Cr", openingIsDebit: false);
+            var journalType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Journal && t.IsActive);
+            var plain = new LedgerService(c).Post(new Voucher(Guid.NewGuid(), journalType.Id, c.BooksBeginFrom,
+                new List<EntryLine>
+                {
+                    new(jDr.Id, Money.FromRupees(111m), DrCr.Debit),
+                    new(jCr.Id, Money.FromRupees(111m), DrCr.Credit),
+                }, narration: "An ordinary journal"));
 
             vm.OpenReport(ReportKind.DayBook);
             Pump(window);
             Assert.False(vm.IsMemorandumRegisterReport);
 
+            // (a) highlight an ORDINARY voucher. An arm that fired here would have to refuse it out loud.
+            vm.Reports!.SelectedRow = vm.Reports!.Rows.Single(r => r.DrillVoucherId == plain.Id);
+            Pump(window);
+            vm.Notice = string.Empty;
+
             window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.None);
             Pump(window);
 
             Assert.False(vm.IsAcceptPromptOpen);
-            Assert.Empty(vm.Company!.VoucherEditLog.Where(e => e.Verb == VoucherEditVerb.ConvertMemorandum));
+            Assert.Equal(string.Empty, vm.Notice);
+
+            // (b) 🔴 THE CASE THE OLD TEST COULD NOT REACH — the highlight on the MEMORANDUM itself, on a report
+            // that lists it and is not the register. An unscoped arm converts it here.
+            var memoRow = vm.Reports!.Rows.Single(r => r.DrillVoucherId == memo.Id);
+            vm.Reports!.SelectedRow = memoRow;
+            Pump(window);
+
+            window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.NotNull(c.FindVoucher(memo.Id));           // still a memorandum, still off the books
+            Assert.Empty(c.VoucherEditLog.Where(e => e.Verb == VoucherEditVerb.ConvertMemorandum));
         }
         finally { Cleanup(window, dir); }
     }
