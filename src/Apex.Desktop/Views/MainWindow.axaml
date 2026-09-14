@@ -2651,6 +2651,77 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: census 4.9-4.16 - PURE-STOCK voucher detail drill (read-only leaf).
+                         The sibling of the Voucher Detail column above: a Stock Journal, Physical Stock,
+                         Delivery/Receipt Note, Sales/Purchase Order or Rejection drilled from its Day Book row.
+                         Its columns are Quantity / Rate / Value rather than Debit / Credit, because a pure-stock
+                         voucher posts no accounting entry (DP-5) and has neither.
+                         COLUMN BUDGET: 80+100+100+120 = 400 fixed against the 638px page-column floor, leaving
+                         the star Particulars track 238px - comfortably over the 150px XamlLayoutInvariantTests
+                         minimum, so this grid joins no allow-list. -->
+                    <ContentControl IsVisible="{Binding InventoryVoucherDetail, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding InventoryVoucherDetail}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:InventoryVoucherDetailViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,10" Spacing="3">
+                              <TextBlock Text="{Binding Subtitle}"
+                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Subtitle}"/>
+                              <!-- The cancelled badge. Stated in WORDS as well as in ink: colour alone is never
+                                   the only carrier of a fact this material. -->
+                              <Border IsVisible="{Binding StatusLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Background="#FBEAEA" BorderBrush="#C0504D" BorderThickness="1"
+                                      CornerRadius="3" Padding="10,2" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding StatusLabel}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="#A03028"/>
+                              </Border>
+                            </StackPanel>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,80,100,100,120">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="In/Out" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Quantity" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="Transparent">
+                                      <Grid ColumnDefinitions="*,80,100,100,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Col1}"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
                     <ContentControl IsVisible="{Binding Voucher, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Voucher}">
