@@ -11772,6 +11772,67 @@
                                       </StackPanel>
                                     </Border>
                                   </StackPanel>
+
+                                  <!-- census 3.13 — THE COMPANY RUNG of the GST rate hierarchy, the fifth and LAST
+                                       level of both resolution orders. The storage (v51), its validation
+                                       (GstConfig.EnsureValid) and the resolver walk (GstService.Hierarchy, T0-4 S2a)
+                                       all already existed; until now NOTHING but the canonical importer could write
+                                       it, so an imported book resolved rates from a rung a hand-keyed book could
+                                       never populate. Same four fields, same shared editor and same validator as the
+                                       Stock Group and accounting Group blocks above, so the three cannot drift.
+                                       🔴 This ADDS a rung, it does not re-order one: company is consulted only when
+                                       no ledger, group, stock item or stock group declared anything. -->
+                                  <StackPanel Spacing="10">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0" Margin="0,2,0,0"/>
+                                    <TextBlock Text="COMPANY GST RATE DEFAULT" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <CheckBox Name="CompanyGstSetDetails"
+                                              IsChecked="{Binding CompanyGst.Enabled, Mode=TwoWay}" FontSize="13"
+                                              Content="Set/Alter GST Details"/>
+                                    <TextBlock Text="Applies to any item or ledger that declares no GST rate of its own. A rate set on a ledger, an accounting group, a stock item or a stock group always wins over this one."
+                                               FontSize="11" Foreground="#777777" TextWrapping="Wrap"
+                                               IsVisible="{Binding CompanyGst.Enabled}"/>
+                                    <Grid ColumnDefinitions="130,2*,130,*" IsVisible="{Binding CompanyGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="CompanyGstHsn"
+                                               Text="{Binding CompanyGst.HsnSac, Mode=TwoWay}"
+                                               PlaceholderText="4, 6 or 8 digits"/>
+                                      <TextBlock Grid.Column="2" Text="Taxability" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="CompanyGstTaxability"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CompanyGst.TaxabilityChoices}"
+                                                SelectedItem="{Binding CompanyGst.SelectedTaxability, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstTaxabilityChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="130,2*,130,*" IsVisible="{Binding CompanyGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="GST Rate %" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="CompanyGstRate"
+                                               Text="{Binding CompanyGst.RatePercentText, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 18"/>
+                                      <TextBlock Grid.Column="2" Text="Type of Supply" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="CompanyGstSupplyType"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CompanyGst.SupplyTypeChoices}"
+                                                SelectedItem="{Binding CompanyGst.SelectedSupplyType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstSupplyTypeChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
