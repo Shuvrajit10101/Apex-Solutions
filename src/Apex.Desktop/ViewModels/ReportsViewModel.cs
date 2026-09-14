@@ -3881,6 +3881,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  Memo No. {r.FormattedNumber}",
                 Secondary = r.PartyOrParticulars ?? string.Empty,
                 Amount = IndianFormat.Amount(r.Amount),
+                // 🔴 CENSUS 4.17 — THE ROW NOW CARRIES ITS VOUCHER ID, AND THAT ONE FIELD IS WHAT MAKES THE MEMO
+                // ADDRESSABLE AT ALL. `MemorandumRegisterRow` has always carried `VoucherId` (it is the record's
+                // first component); this projection dropped it, so every memo on this report resolved to
+                // `Guid.Empty` and the shell's `Reports.SelectedRow.DrillVoucherId` — the SAME resolution Alt+X,
+                // Alt+D, Alt+2 and Ctrl+Enter all use — could never name one. That is the identical
+                // "the list row type carries no Guid, so no row can address a unit" blocker the census records
+                // against the master lists, repeated on a report. With it set, the memo gains the ordinary drill
+                // and alteration verbs for free, and `RequestConvertHighlightedMemorandum` has something to convert.
+                DrillVoucherId = r.VoucherId,
             });
 
         if (report.Rows.Count == 0)
