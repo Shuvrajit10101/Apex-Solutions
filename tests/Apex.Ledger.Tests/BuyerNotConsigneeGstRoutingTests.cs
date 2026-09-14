@@ -158,6 +158,60 @@ public class BuyerNotConsigneeGstRoutingTests
         }
     }
 
+    /// <summary>
+    /// 🔴 <b>THE POSITIVE CONTROL, AND WITHOUT IT THE THREE GUARDS ABOVE ARE WORTH NOTHING.</b> Every assertion so
+    /// far is of the form "this did NOT change". A routing function that had been gutted to return a constant —
+    /// or one wired to something nobody touches — would satisfy all of them. This one proves the opposite
+    /// direction on the same code path: move the <b>BILLED PARTY</b> (and only that) from a Karnataka buyer to the
+    /// Tamil Nadu consignee ledger, and the routing, the place of supply and the issued place of supply all MOVE.
+    ///
+    /// <para>Read the pair together and they say exactly the vendor's rule — "<i>GST calculation depends only on
+    /// the location of the buyer, and not the consignee</i>" — as two measurements rather than one: the buyer
+    /// moves it, the consignee does not.</para>
+    /// </summary>
+    [Fact]
+    public void Moving_the_billed_party_itself_DOES_move_the_tax_which_is_what_makes_the_guards_above_meaningful()
+    {
+        var f = Build(buyerState: Karnataka);
+        var salesLedgerId = f.Sale.Lines.First(l => l.Side == DrCr.Credit && l.Gst is null).LedgerId;
+
+        // The SAME supply, billed to the Tamil Nadu ledger instead. Its tax legs are computed for that party, not
+        // copied from the Karnataka invoice: a voucher whose posted heads contradict its party is a different
+        // (and separately guarded) condition, and reusing them here would have measured that instead of this.
+        // 🔴 The first draft of this test DID copy them, and GstReportSupport correctly refused to state Tamil Nadu
+        // on a document posted CGST+SGST — which is why the reconciliation is named rather than worked around.
+        var interState = GstReportSupport.RoutingOf(f.Company, TamilNadu) ?? false;
+        Assert.True(interState);
+        var tax = new GstService(f.Company).ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(10_000m), 1800) }, interState, GstTaxDirection.Output);
+        var shippedLines = new List<EntryLine>
+        {
+            new(f.Consignee.Id, Money.FromRupees(11_800m), DrCr.Debit),
+            new(salesLedgerId, Money.FromRupees(10_000m), DrCr.Credit),
+        };
+        shippedLines.AddRange(tax.TaxLines);
+        var billedToTamilNadu = new Voucher(
+            Guid.NewGuid(), f.Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id,
+            SaleDate, shippedLines, partyId: f.Consignee.Id);
+
+        Assert.False(GstReportSupport.RoutingOf(f.Company, f.Sale));            // buyer in Karnataka ⇒ intra-State
+        Assert.True(GstReportSupport.RoutingOf(f.Company, billedToTamilNadu));  // billed party elsewhere ⇒ inter-State
+
+        Assert.NotEqual(
+            GstReportSupport.PlaceOfSupply(f.Company, f.Sale),
+            GstReportSupport.PlaceOfSupply(f.Company, billedToTamilNadu));
+
+        // The BILLED party's State is the one that reaches the document, on the same call the printed invoice uses
+        // (VoucherPrintProjector reads GstReportSupport.IssuedPlaceOfSupply and Voucher.PartyId — nothing else).
+        Assert.Equal(TamilNadu, GstReportSupport.IssuedBuyerStateCode(f.Company, billedToTamilNadu));
+        Assert.Equal(Karnataka, GstReportSupport.IssuedBuyerStateCode(f.Company, f.Sale));
+
+        // And the head actually posted differs — IGST here, CGST+SGST there.
+        var heads = billedToTamilNadu.Lines.Where(l => l.Gst is not null).Select(l => l.Gst!.TaxHead).ToList();
+        Assert.Contains(GstTaxHead.Integrated, heads);
+        Assert.DoesNotContain(GstTaxHead.Central, heads);
+    }
+
     [Fact]
     public void The_party_has_exactly_one_stored_state_so_a_mailing_address_cannot_contradict_the_tax()
     {

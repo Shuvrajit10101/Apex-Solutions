@@ -50,6 +50,19 @@ public sealed class Gstr6RowVm
     public string Igst { get; init; } = "0.00";
     public string Cess { get; init; } = "0.00";
     public string Total { get; init; } = "0.00";
+
+    /// <summary>
+    /// The row's second line — <b>State · eligibility · GSTIN</b>.
+    ///
+    /// <para>🔴 <b>Why the State and the eligibility are here and not in columns of their own.</b> The grid's first
+    /// shape gave each a fixed track, which starved the star Recipient column to 34px in a 638px pane and
+    /// ellipsised a registration name away entirely — caught by the repo's own
+    /// <c>XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read</c>. Both facts still have to be
+    /// <i>visible</i>, because Rule 39(1)(j) turns on the recipient's State and Rule 39(1)(g) forbids merging
+    /// eligible with ineligible credit — so they moved here rather than being dropped.</para>
+    /// </summary>
+    public string SubLine =>
+        string.Join("  ·  ", new[] { StateCode, Eligibility, Gstin }.Where(s => !string.IsNullOrWhiteSpace(s)));
 }
 
 /// <summary>
@@ -64,7 +77,7 @@ public sealed class Gstr6RowVm
 ///
 /// <para>🔴 <b>The two figures that matter most are deliberately given their own properties rather than left to be
 /// added up off the grid.</b> <see cref="TotalReceivedText"/> against <see cref="TotalDistributedText"/> is the
-/// §20(2)(b) check — "<i>the amount of the credit distributed shall not exceed the amount of credit available for
+/// Rule 39(1)(b) check — "<i>the amount of the credit distributed shall not exceed the amount of credit available for
 /// distribution</i>" — and <see cref="UndistributedText"/> is their difference. A filer who cannot see that
 /// difference cannot see the one error that matters.</para>
 ///

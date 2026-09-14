@@ -165,7 +165,7 @@ public sealed class Gstr6IsdReachabilityTests
     /// <summary>
     /// 🔴 THE ROW-6.24 TEST. Gateway → Reports → Statutory Reports → GST Returns (Advanced) → GSTR-6 (ISD), by
     /// ArrowDown and Enter alone, ending on a realised page carrying the form's own captions, its three pickers
-    /// and the §20(2)(b) footing line.
+    /// and the Rule 39(1)(b) footing line.
     /// </summary>
     [AvaloniaFact]
     public void Gstr6_is_reachable_from_the_gateway_by_keyboard_alone_once_an_isd_registration_exists()
@@ -187,16 +187,16 @@ public sealed class Gstr6IsdReachabilityTests
             Assert.True(ScreenShows(w, "Form GSTR-6"), "The GSTR-6 title is not on screen.");
             Assert.True(ScreenShows(w, "Input Service Distributor"), "The distributor block is not on screen.");
             Assert.True(ScreenShows(w, "Relevant period for the turnover ratio"),
-                "The §20 Explanation (a) relevant period is not shown, so the basis of the pro rata is invisible.");
+                "The Rule 39 Explanation (a) relevant period is not shown, so the basis of the pro rata is invisible.");
             Assert.True(ScreenShows(w, "Distribution of input tax credit (Rule 39)"),
                 "The distribution table heading is not on screen.");
 
-            // 🔴 The §20(2)(b) check must be VISIBLE, not derivable. A filer who cannot see received vs distributed
+            // 🔴 The Rule 39(1)(b) check must be VISIBLE, not derivable. A filer who cannot see received vs distributed
             // cannot see the one error that matters on this return.
             Assert.True(ScreenShows(w, "Total credit received"), "The credit received is not on screen.");
             Assert.True(ScreenShows(w, "Total distributed"), "The distributed total is not on screen.");
             Assert.True(ScreenShows(w, "Undistributed (received − distributed)"),
-                "The undistributed difference is not on screen — §20(2)(b) cannot be checked at a glance.");
+                "The undistributed difference is not on screen — Rule 39(1)(b) cannot be checked at a glance.");
 
             // The operator can pick a distributor, a year and a month.
             Assert.True(VisibleControls<ComboBox>(w).Count >= 3,
@@ -207,6 +207,24 @@ public sealed class Gstr6IsdReachabilityTests
             Assert.Single(page.IsdRegistrations);
             Assert.Equal("Head Office (ISD)", page.SelectedIsd!.Name);
             Assert.True(ScreenShows(w, "Head Office (ISD)"), "The selected distributor is not shown on the page.");
+
+            // 🔴 THE LAYOUT FIX MUST NOT HAVE COST A FACT. The distribution grid originally gave the recipient's
+            // State and its Rule 39(1)(g) eligibility fixed columns of their own, which starved the star Recipient
+            // column to 34px (XamlLayoutInvariantTests caught it). They moved to the row's sub-line — so the
+            // heading must still ANNOUNCE them, or a reader of a filed statement cannot tell an eligible row from
+            // an ineligible one, nor see the State that Rule 39(1)(j) turns on.
+            Assert.True(ScreenShows(w, "Recipient (State · eligibility · GSTIN below)"),
+                "The distribution grid no longer tells the reader where the State and eligibility are.");
+
+            // …and the row view-model still carries all three, joined, whatever the grid does with them.
+            var row = new Apex.Desktop.ViewModels.Gstr6RowVm
+            {
+                Recipient = "Karnataka Registration", StateCode = "29",
+                Eligibility = "Eligible", Gstin = "29AAACC1206D1ZM",
+            };
+            Assert.Contains("29", row.SubLine);
+            Assert.Contains("Eligible", row.SubLine);
+            Assert.Contains("29AAACC1206D1ZM", row.SubLine);
         }
         finally { Cleanup(w, dir); }
     }

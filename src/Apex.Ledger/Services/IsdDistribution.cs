@@ -4,19 +4,20 @@ namespace Apex.Ledger.Services;
 
 /// <summary>
 /// A <b>recipient of credit</b> in an ISD distribution — one of the distributor's sibling registrations.
-/// <para>§20 Explanation (b) of the CGST Act defines it: "<i>the expression 'recipient of credit' means the
-/// supplier of goods or services or both having the same Permanent Account Number as that of the Input Service
-/// Distributor</i>" (<c>cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>).</para>
+/// <para>The <b>Explanation to Rule 39</b> of the CGST Rules, clause (b), defines it: "<i>the expression 'recipient
+/// of credit' means the supplier of goods or services or both having the same Permanent Account Number as that of
+/// the Input Service Distributor</i>" (<see cref="IsdDistribution"/> carries the source and the in-force note).</para>
 /// </summary>
 /// <param name="RegistrationId">The recipient registration's id (<c>GstRegistration.Id</c>).</param>
 /// <param name="Name">The registration name, for the statement and the ISD invoice.</param>
 /// <param name="StateCode">The recipient's 2-digit GST State/UT code — this alone decides the head conversion
-/// under Rule 39(1)(f), by comparison with the distributor's State.</param>
+/// under Rule 39(1)(j), by comparison with the distributor's State.</param>
 /// <param name="Gstin">The recipient's GSTIN, printed on the ISD invoice; may be <c>null</c> only for a recipient
-/// that is genuinely unregistered, which Rule 39(1)(d) expressly contemplates ("<i>whether registered or not</i>").</param>
-/// <param name="TurnoverPaisa"><b>t1</b> — "<i>the turnover … of person R1 during the relevant period</i>"
-/// (Rule 39(1)(d)). Integer paisa, ≥ 0.</param>
-/// <param name="IsOperationalInCurrentYear">§20(2)(d)/(e) restrict the denominator to recipients "<i>which are
+/// that is genuinely unregistered, which Rule 39(1)(f) expressly contemplates — it provides for recipients
+/// "<i>who are engaged in making exempt supply, or are otherwise not registered for any reason</i>".</param>
+/// <param name="TurnoverPaisa"><b>t1</b> — "<i>the turnover of person R1 during the relevant period</i>"
+/// (Rule 39(1)(f)). Integer paisa, ≥ 0.</param>
+/// <param name="IsOperationalInCurrentYear">Rule 39(1)(d)/(e) restrict the denominator to recipients "<i>which are
 /// operational in the current year</i>"; a recipient that is not is excluded from both t1 and T.</param>
 public sealed record IsdRecipient(
     Guid RegistrationId,
@@ -30,8 +31,9 @@ public sealed record IsdRecipient(
 /// One pool of credit an Input Service Distributor has to distribute in the month — the per-head input tax on a
 /// common input-service invoice (or on a group of them that share an attribution).
 ///
-/// <para><b>Why "pool" and not "invoice".</b> Rule 39(1)(d) runs its formula over "<i>the total of all the
-/// recipients to whom input tax credit is attributable</i>", so the unit the formula divides is a body of credit
+/// <para><b>Why "pool" and not "invoice".</b> Rule 39(1)(f) runs its formula over "<i>the aggregate of the turnover
+/// during the relevant period of all recipients to whom the input service is attributable</i>" — so the unit the
+/// formula divides is a body of credit
 /// that shares one attribution — not necessarily one document. Two invoices attributable to the same set of units
 /// distribute identically whether pooled or run separately, up to rounding; a pool per attribution is the smaller
 /// and more faithful unit.</para>
@@ -42,12 +44,14 @@ public sealed record IsdRecipient(
 /// <param name="IgstPaisa">Integrated tax available for distribution, integer paisa ≥ 0.</param>
 /// <param name="CessPaisa">Compensation cess available for distribution, integer paisa ≥ 0. See
 /// <see cref="IsdDistribution"/> for why cess is carried through un-converted and labelled as ours.</param>
-/// <param name="IsEligible">Rule 39(1)(b): the ISD "<i>shall … separately distribute the amount of ineligible
-/// input tax credit (ineligible under the provisions of sub-section (5) of section 17 or otherwise) and the
-/// amount of eligible input tax credit</i>". The two never merge into one statement row.</param>
-/// <param name="AttributableTo">§20(2)(c): credit "<i>attributable to a recipient of credit shall be distributed
-/// only to that recipient</i>". A non-empty set restricts the distribution to those recipients; <c>null</c> or an
-/// empty set means the credit is attributable to all of them (§20(2)(e)).</param>
+/// <param name="IsEligible">Rule 39(1)(g): the ISD "<i>shall, in accordance with the provisions of clause (d) and
+/// (e), separately distribute the amount of ineligible input tax credit (ineligible under the provisions of
+/// sub-section (5) of section 17 or otherwise) and the amount of eligible input tax credit</i>". The two never
+/// merge into one statement row.</param>
+/// <param name="AttributableTo">Rule 39(1)(c): "<i>the credit of tax paid on input services attributable to a
+/// recipient of credit shall be distributed only to that recipient</i>". A non-empty set restricts the distribution
+/// to those recipients; <c>null</c> or an empty set means the credit is attributable to all of them
+/// (Rule 39(1)(e)).</param>
 public sealed record IsdCreditPool(
     string Description,
     long CgstPaisa,
@@ -57,11 +61,11 @@ public sealed record IsdCreditPool(
     bool IsEligible = true,
     IReadOnlyList<Guid>? AttributableTo = null)
 {
-    /// <summary>Σ the four heads, in paisa — the "<b>C</b>" of Rule 39(1)(d) taken across heads.</summary>
+    /// <summary>Σ the four heads, in paisa — the "<b>C</b>" of Rule 39(1)(f) taken across heads.</summary>
     public long TotalPaisa => CgstPaisa + SgstPaisa + IgstPaisa + CessPaisa;
 }
 
-/// <summary>One distributed line — what a single recipient receives out of one pool, AFTER the Rule 39(1)(e)/(f)
+/// <summary>One distributed line — what a single recipient receives out of one pool, AFTER the Rule 39(1)(i)/(j)
 /// head conversion.</summary>
 public sealed record IsdDistributionLine(
     Guid RecipientId,
@@ -92,37 +96,61 @@ public sealed record IsdDistributionResult(
 }
 
 /// <summary>
-/// <b>The Input Service Distributor credit-distribution engine</b> (census row 6.24) — Rule 39 of the CGST Rules
-/// and §20 of the CGST Act, applied to integer paisa. Pure and total: no clock, no randomness, no I/O, no
-/// <c>Company</c>. Everything it needs is in its arguments, which is what lets the CBIC worked example be run
-/// against it verbatim as a test.
+/// <b>The Input Service Distributor credit-distribution engine</b> (census row 6.24) — <b>Rule 39 of the CGST
+/// Rules</b>, applied to integer paisa. Pure and total: no clock, no randomness, no I/O, no <c>Company</c>.
+/// Everything it needs is in its arguments, which is what lets the CBIC worked example be run against it verbatim
+/// as a test.
 ///
-/// <para><b>THE RULES IT IMPLEMENTS, EACH QUOTED FROM cbic-gst.gov.in.</b></para>
+/// <para>🔴 <b>WHICH TEXT IS IN FORCE, AND WHY THIS FILE CITES RULE 39 AND NOT §20. READ BEFORE "CORRECTING" A
+/// CLAUSE LETTER BACK.</b> Both the section and the rule were replaced with effect from <b>1 April 2025</b>:</para>
+/// <list type="bullet">
+///   <item><b>CGST Act §20</b> was <b>substituted</b> by s. 12 of the <b>Finance (No. 8) Act, 2024</b>, w.e.f.
+///   01.04.2025. The substituted section has <b>three sub-sections and no Explanation</b>. <b>§20(2)(a)–(e) and the
+///   §20 Explanation no longer exist</b> — the pro-rata clauses, the "operational in the current year" restriction
+///   and the definitions of <i>relevant period</i> and <i>recipient of credit</i> that used to sit there now live
+///   wholly in Rule 39. §20(2) delegates: the ISD distributes "<i>in such manner, within such time and subject to
+///   such restrictions and conditions as may be prescribed</i>".</item>
+///   <item><b>Rule 39</b> was substituted by <b>Notification 12/2024-CT dated 10.07.2024</b>, brought into force on
+///   <b>01.04.2025</b> by <b>Notification 09/2025-CT dated 11.02.2025</b>. <b>The clause letters moved</b>: the
+///   pro-rata formula is now <b>(f)</b> (it was (d)); integrated tax is <b>(i)</b> (it was (e)); the central/State
+///   head conversion is <b>(j)</b> (it was (f)); the eligible/ineligible split is <b>(g)</b> (it was (b)); the ISD
+///   invoice and credit note are <b>(k)</b> and <b>(l)</b> (they were (g) and (h)).</item>
+/// </list>
+/// <para>Every date this app distributes for is on or after 01.04.2025, so the substituted text is the operative
+/// one and the pre-substitution clause letters would not resolve by content. Source, checked by content:
+/// <c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>
+/// and <c>…/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html</c>.</para>
+///
+/// <para><b>THE RULES IT IMPLEMENTS, EACH QUOTED FROM cbic.gov.in's own rule repository.</b></para>
 /// <list type="number">
-/// <item><b>§20(2)(b) — the footing.</b> "<i>the amount of the credit distributed shall not exceed the amount of
+/// <item><b>Rule 39(1)(b) — the footing.</b> "<i>the amount of the credit distributed shall not exceed the amount of
 /// credit available for distribution</i>". This engine is stricter than "not exceed": when a pool distributes at
 /// all, the distributed total equals the available total to the paisa. The last recipient in input order takes the
 /// arithmetic remainder of each head, the same convention <see cref="ProRata"/> documents for every other posted
 /// group total in this app. A distribution that footed to anything else would be wrong money on a filed return.</item>
-/// <item><b>§20(2)(c) — direct attribution.</b> "<i>the credit of tax paid on input services attributable to a
+/// <item><b>Rule 39(1)(c) — direct attribution.</b> "<i>the credit of tax paid on input services attributable to a
 /// recipient of credit shall be distributed only to that recipient</i>" — <see cref="IsdCreditPool.AttributableTo"/>.</item>
-/// <item><b>§20(2)(d)/(e) + Rule 39(1)(d) — the pro-rata formula.</b> "<i>C1 = (t1 ÷ T) × C</i>", where C is the
-/// credit to be distributed, t1 the recipient's turnover in its State/UT during the relevant period, and T the
-/// aggregate of the turnover of all recipients to whom the input service is attributable. §20(2)(d)/(e) add the
-/// restriction to recipients "<i>which are operational in the current year</i>".</item>
-/// <item><b>Rule 39(1)(e) — integrated tax.</b> "<i>the input tax credit on account of integrated tax shall be
+/// <item><b>Rule 39(1)(d)/(e) + (f) — the pro-rata formula.</b> (d) governs credit attributable to more than one
+/// recipient and (e) credit attributable to all of them; both distribute "<i>pro rata on the basis of the turnover
+/// in a State or turnover in a Union territory of such recipient, during the relevant period, to the aggregate of
+/// the turnover of all … recipients … <b>and which are operational in the current year</b>, during the said
+/// relevant period</i>". (f) states the arithmetic: "<i>C1 = (t1 ÷ T) × C</i>", where C is "<i>the amount of credit
+/// to be distributed</i>", t1 "<i>the turnover of person R1 during the relevant period</i>" and T "<i>the aggregate
+/// of the turnover during the relevant period of all recipients to whom the input service is attributable</i>".</item>
+/// <item><b>Rule 39(1)(i) — integrated tax.</b> "<i>the input tax credit on account of integrated tax shall be
 /// distributed as input tax credit of integrated tax to every recipient</i>".</item>
-/// <item><b>Rule 39(1)(f) — the head conversion.</b> Central and State/UT tax go out "<i>in respect of a recipient
-/// located in the same State or Union territory in which the Input Service Distributor is located … as input tax
-/// credit of central tax and State tax or Union territory tax respectively</i>"; and "<i>in respect of a recipient
-/// located in a State or Union territory other than that of the Input Service Distributor, be distributed as
-/// integrated tax and the amount to be so distributed shall be equal to the aggregate of the amount of input tax
-/// credit of central tax and State tax or Union territory tax that qualifies for distribution to such
-/// recipient</i>". Note what this does and does not preserve: the head MIX changes, the TOTAL does not.</item>
-/// <item><b>Rule 39(1)(b) — eligible and ineligible separately.</b> Carried on the pool and never merged.</item>
+/// <item><b>Rule 39(1)(j) — the head conversion.</b> Central and State/UT tax go out "<i>(i) in respect of a
+/// recipient located in the same State or Union territory in which the Input Service Distributor is located, be
+/// distributed as input tax credit of central tax and State tax or Union territory tax respectively</i>"; and
+/// "<i>(ii) in respect of a recipient located in a State or Union territory other than that of the Input Service
+/// Distributor, be distributed as integrated tax and the amount to be so distributed shall be equal to the
+/// aggregate of the amount of input tax credit of central tax and State tax or Union territory tax that qualifies
+/// for distribution to such recipient as referred to in clause (d) and (e)</i>". Note what this does and does not
+/// preserve: the head MIX changes, the TOTAL does not.</item>
+/// <item><b>Rule 39(1)(g) — eligible and ineligible separately.</b> Carried on the pool and never merged.</item>
 /// </list>
 ///
-/// <para>🔴 <b>COMPENSATION CESS IS OUR LABELLED DIVERGENCE, NOT A CLONED RULE.</b> Rule 39(1)(c)/(e)/(f) enumerate
+/// <para>🔴 <b>COMPENSATION CESS IS OUR LABELLED DIVERGENCE, NOT A CLONED RULE.</b> Rule 39(1)(h)/(i)/(j) enumerate
 /// central tax, State tax, Union territory tax and integrated tax, and say nothing about compensation cess. No
 /// retrievable official source states how — or whether — an ISD converts a cess head on distribution. Two wrong
 /// answers were available: silently dropping the cess (which loses money off a filed return) or inventing an
@@ -131,8 +159,9 @@ public sealed record IsdDistributionResult(
 /// that cess is ring-fenced from the three tax heads. It is recorded here as ours so a reader can find it.</para>
 ///
 /// <para>🔴 <b>WHAT THIS ENGINE DELIBERATELY DOES NOT DO.</b> It does not post. Nothing here writes a voucher,
-/// touches an electronic credit ledger or issues a document. Rule 39(1)(g) requires an ISD invoice and Rule 39(1)(h)
-/// an ISD credit note, and Rule 39(1)(i)/(j) govern later debit/credit notes against the distributor — all of those
+/// touches an electronic credit ledger or issues a document. Rule 39(1)(k) requires an ISD invoice "<i>as provided
+/// in sub-rule (1) of rule 54</i>" and Rule 39(1)(l) an ISD credit note, and Rule 39(1)(m)/(n) govern later
+/// debit/credit notes against the distributor — all of those
 /// need a persisted document identity, and none of them is built here. The distribution is a recomputed projection,
 /// exactly as CMP-08, GSTR-4 and GSTR-9 are in this app.</para>
 /// </summary>
@@ -140,13 +169,13 @@ public static class IsdDistribution
 {
     /// <summary>
     /// Distributes <paramref name="pools"/> from an ISD located in <paramref name="isdStateCode"/> across
-    /// <paramref name="recipients"/>, per Rule 39(1)(d)/(e)/(f). Returns one line per (recipient, eligibility)
+    /// <paramref name="recipients"/>, per Rule 39(1)(d)/(e)/(f)/(i)/(j). Returns one line per (recipient, eligibility)
     /// that received anything, in recipient order, plus a diagnostic for every pool that could not be distributed.
     /// </summary>
     /// <exception cref="ArgumentNullException">A required argument is null.</exception>
     /// <exception cref="ArgumentException">The ISD State code is not a valid Indian State/UT code, a recipient has
     /// a negative turnover, or a pool carries a negative head. A negative head is refused rather than netted: a
-    /// reduction of already-distributed credit is an ISD credit note under Rule 39(1)(h)/(j), which is a different
+    /// reduction of already-distributed credit is an ISD credit note under Rule 39(1)(l)/(n), which is a different
     /// document with its own apportionment rule and is not built here.</exception>
     public static IsdDistributionResult Distribute(
         string isdStateCode,
@@ -166,7 +195,7 @@ public static class IsdDistribution
         {
             if (r.TurnoverPaisa < 0)
                 throw new ArgumentException(
-                    $"Recipient '{r.Name}' has a negative turnover; t1 in Rule 39(1)(d) cannot be negative.",
+                    $"Recipient '{r.Name}' has a negative turnover; t1 in Rule 39(1)(f) cannot be negative.",
                     nameof(recipients));
         }
 
@@ -175,12 +204,12 @@ public static class IsdDistribution
             if (p.CgstPaisa < 0 || p.SgstPaisa < 0 || p.IgstPaisa < 0 || p.CessPaisa < 0)
                 throw new ArgumentException(
                     $"Credit pool '{p.Description}' carries a negative head. Reducing credit already distributed is "
-                    + "an ISD credit note (Rule 39(1)(h)/(j)), which is a separate document and is not distributed here.",
+                    + "an ISD credit note (Rule 39(1)(l)/(n)), which is a separate document and is not distributed here.",
                     nameof(pools));
         }
 
         // Accumulate per (recipient, eligibility) so two pools with the same attribution fold into one statement row
-        // while the Rule 39(1)(b) eligible/ineligible split is preserved.
+        // while the Rule 39(1)(g) eligible/ineligible split is preserved.
         var acc = new Dictionary<(Guid Recipient, bool Eligible), Head>();
         var diagnostics = new List<string>();
 
@@ -194,7 +223,7 @@ public static class IsdDistribution
             {
                 diagnostics.Add(
                     $"'{pool.Description}': no operational recipient of credit is attributable, so "
-                    + $"{Rupees(pool.TotalPaisa)} was NOT distributed. §20(2)(d)/(e) restrict the distribution to "
+                    + $"{Rupees(pool.TotalPaisa)} was NOT distributed. Rule 39(1)(d)/(e) restrict the distribution to "
                     + "recipients which are operational in the current year.");
                 continue;
             }
@@ -202,18 +231,18 @@ public static class IsdDistribution
             var t = targets.Sum(r => r.TurnoverPaisa);
             if (t == 0)
             {
-                // Rule 39(1)(d)'s formula divides by T. With T = 0 it has no value, and no retrievable official
+                // Rule 39(1)(f)'s formula divides by T. With T = 0 it has no value, and no retrievable official
                 // source supplies a fallback (an equal split would be invented law). Withhold and say so, loudly:
                 // an undistributed pool is visible and fixable, a silently invented split is wrong money on GSTR-6.
                 diagnostics.Add(
                     $"'{pool.Description}': the aggregate turnover T of the attributable recipients is zero for the "
-                    + $"relevant period, so Rule 39(1)(d)'s C1 = (t1 ÷ T) × C has no value and "
+                    + $"relevant period, so Rule 39(1)(f)'s C1 = (t1 ÷ T) × C has no value and "
                     + $"{Rupees(pool.TotalPaisa)} was NOT distributed. Record the recipients' turnover for the "
-                    + "relevant period (§20 Explanation (a)) and rebuild.");
+                    + "relevant period (Explanation (a) to Rule 39) and rebuild.");
                 continue;
             }
 
-            // Split each head pro rata, last target absorbing the remainder so the pool foots exactly (§20(2)(b)).
+            // Split each head pro rata, last target absorbing the remainder so the pool foots exactly (R39(1)(b)).
             var cgst = Split(pool.CgstPaisa, targets, t);
             var sgst = Split(pool.SgstPaisa, targets, t);
             var igst = Split(pool.IgstPaisa, targets, t);
@@ -246,9 +275,9 @@ public static class IsdDistribution
     }
 
     /// <summary>
-    /// The recipients one pool distributes to: its attribution set when it has one (§20(2)(c)), otherwise every
-    /// recipient (§20(2)(e)); in both cases restricted to those "<i>operational in the current year</i>"
-    /// (§20(2)(d)/(e)). Input order is preserved, because the last target absorbs the rounding remainder.
+    /// The recipients one pool distributes to: its attribution set when it has one (Rule 39(1)(c)), otherwise every
+    /// recipient (Rule 39(1)(e)); in both cases restricted to those "<i>operational in the current year</i>"
+    /// (Rule 39(1)(d)/(e)). Input order is preserved, because the last target absorbs the rounding remainder.
     /// </summary>
     private static List<IsdRecipient> TargetsFor(IsdCreditPool pool, IReadOnlyList<IsdRecipient> recipients)
     {
@@ -260,8 +289,8 @@ public static class IsdDistribution
     }
 
     /// <summary>
-    /// Rule 39(1)(d): <c>C1 = (t1 ÷ T) × C</c> for every target, with the LAST target taking
-    /// <c>C − Σ(the others)</c> so the split foots to <paramref name="credit"/> exactly (§20(2)(b)). This mirrors
+    /// Rule 39(1)(f): <c>C1 = (t1 ÷ T) × C</c> for every target, with the LAST target taking
+    /// <c>C − Σ(the others)</c> so the split foots to <paramref name="credit"/> exactly (Rule 39(1)(b)). This mirrors
     /// the convention <see cref="ProRata"/> documents for every other apportioned group total in this app.
     /// </summary>
     private static long[] Split(long credit, List<IsdRecipient> targets, long t)
@@ -280,7 +309,7 @@ public static class IsdDistribution
     }
 
     /// <summary>
-    /// Rule 39(1)(e)/(f). Integrated tax stays integrated tax for every recipient. Central + State/UT tax stay as
+    /// Rule 39(1)(i)/(j). Integrated tax stays integrated tax for every recipient. Central + State/UT tax stay as
     /// they are for a recipient in the distributor's own State/UT, and become integrated tax — "<i>equal to the
     /// aggregate</i>" of the two — for a recipient anywhere else. Cess passes through un-converted (our labelled
     /// divergence; see the type remarks). The total is unchanged by this step in every branch.
@@ -291,7 +320,17 @@ public static class IsdDistribution
             ? new Head(cgst, sgst, igst, cess)
             : new Head(0, 0, igst + cgst + sgst, cess);
 
-    private static string Rupees(long paisa) => $"₹{paisa / 100m:0.00}";
+    /// <summary>
+    /// The rupee figure inside a diagnostic, grouped through the <b>one</b> home for rupee formatting.
+    ///
+    /// <para>🔴 <b>NOT an interpolated <c>0.00</c>, and the difference is not cosmetic.</b> An interpolated format
+    /// binds to <c>CurrentCulture</c>, so the withheld-credit figure in these diagnostics would render with a comma
+    /// decimal separator on a de-DE host and with Western thousands grouping everywhere — and every withheld ISD
+    /// pool is a lakh-scale figure, which is exactly the shape this app has already shipped wrong once. Going
+    /// through <see cref="IndianMoneyFormat.Amount(decimal)"/> makes it 1,00,000.00 on ubuntu, macOS and Windows
+    /// alike, and makes it obey the Millions grouping switch instead of being deaf to it.</para>
+    /// </summary>
+    private static string Rupees(long paisa) => $"₹{IndianMoneyFormat.Amount(paisa / 100m)}";
 
     /// <summary>A per-head paisa tuple, summable.</summary>
     private readonly record struct Head(long Cgst, long Sgst, long Igst, long Cess)

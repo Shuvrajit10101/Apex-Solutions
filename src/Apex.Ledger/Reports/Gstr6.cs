@@ -4,7 +4,7 @@ using Apex.Ledger.Services;
 namespace Apex.Ledger.Reports;
 
 /// <summary>One distribution row of GSTR-6 — what a single recipient registration receives, on one side of the
-/// Rule 39(1)(b) eligible / ineligible split, after the Rule 39(1)(f) head conversion.</summary>
+/// Rule 39(1)(g) eligible / ineligible split, after the Rule 39(1)(j) head conversion.</summary>
 public sealed record Gstr6DistributionRow(
     Guid RegistrationId,
     string Name,
@@ -37,28 +37,35 @@ public sealed record Gstr6DistributionRow(
 /// on inward vouchers recorded under the ISD registration in the month — read off the posted
 /// <see cref="GstLineTax"/> lines, never recomputed (ER-9). Each such voucher becomes one
 /// <see cref="IsdCreditPool"/>, split into its eligible and ineligible parts by the SAME §17(5)/Table-4(D)
-/// classifier the ITC gate uses (<see cref="ItcGateView.ClassifyBaseValue"/>), satisfying Rule 39(1)(b). The
-/// distribution itself is <see cref="IsdDistribution"/> — the Rule 39(1)(d)/(e)/(f) engine — so the statutory
-/// arithmetic lives in one tested place and this report only feeds it.</para>
+/// classifier the ITC gate uses (<see cref="ItcGateView.ClassifyBaseValue"/>), satisfying Rule 39(1)(g). The
+/// distribution itself is <see cref="IsdDistribution"/> — the Rule 39(1)(d)/(e)/(f)/(i)/(j) engine — so the
+/// statutory arithmetic lives in one tested place and this report only feeds it.</para>
 ///
-/// <para><b>THE RELEVANT PERIOD IS DERIVED, NOT ASSUMED.</b> §20 Explanation (a) of the CGST Act: the relevant
-/// period is "<i>if the recipients of credit have turnover in their States or Union territories in the financial
-/// year preceding the year during which credit is to be distributed, the said financial year</i>"; otherwise
-/// "<i>the last quarter for which details of such turnover of all the recipients are available, previous to the
-/// month during which credit is to be distributed</i>". <see cref="Build"/> tries the preceding financial year
-/// first and falls back by walking quarters backwards, and records which branch it took in
+/// <para>🔴 <b>THE CLAUSE LETTERS AND THE SOURCE.</b> Rule 39 was substituted by Notification 12/2024-CT
+/// (10.07.2024) with effect from 01.04.2025 (Notification 09/2025-CT, 11.02.2025), and CGST Act §20 was itself
+/// substituted w.e.f. the same date by s. 12 of the Finance (No. 8) Act, 2024 — after which <b>§20(2)(a)–(e) and
+/// the §20 Explanation no longer exist</b> and the conditions and definitions live wholly in Rule 39.
+/// <see cref="IsdDistribution"/> carries the full in-force note and the CBIC source URLs; this file cites the
+/// substituted lettering throughout.</para>
+///
+/// <para><b>THE RELEVANT PERIOD IS DERIVED, NOT ASSUMED.</b> The <b>Explanation to Rule 39</b>, clause (a): the
+/// relevant period is "<i>if the recipients of credit have turnover in their States or Union territories in the
+/// financial year preceding the year during which credit is to be distributed, the said financial year</i>";
+/// otherwise "<i>the last quarter for which details of such turnover of all the recipients are available, previous
+/// to the month during which credit is to be distributed</i>". <see cref="Build"/> tries the preceding financial
+/// year first and falls back by walking quarters backwards, and records which branch it took in
 /// <see cref="RelevantPeriodBasis"/> so the operator can see the basis of a filed figure rather than infer it.</para>
 ///
 /// <para>🔴 <b>WHAT IS NOT BUILT, STATED HERE RATHER THAN LEFT TO BE DISCOVERED.</b></para>
 /// <list type="bullet">
-///   <item><b>Per-invoice direct attribution.</b> §20(2)(c) distributes credit attributable to ONE recipient only
-///   to that recipient, and <see cref="IsdDistribution"/> implements it — but nothing in this schema records, for a
-///   given inward invoice, which units it was for. Every pool this report builds therefore carries a <c>null</c>
-///   attribution, i.e. the §20(2)(e) all-recipients case. An ISD whose invoices are genuinely unit-specific cannot
-///   express that yet, and <see cref="Diagnostics"/> says so on every build that has recipients. Storing it needs a
-///   column, which this slice had no schema allocation for.</item>
-///   <item><b>The ISD invoice and credit note.</b> Rule 39(1)(g)/(h) require a document per distribution with its
-///   own number; Rule 39(1)(i)/(j) govern later debit/credit notes against the distributor. None is issued here —
+///   <item><b>Per-invoice direct attribution.</b> Rule 39(1)(c) distributes credit attributable to ONE recipient
+///   only to that recipient, and <see cref="IsdDistribution"/> implements it — but nothing in this schema records,
+///   for a given inward invoice, which units it was for. Every pool this report builds therefore carries a
+///   <c>null</c> attribution, i.e. the Rule 39(1)(e) all-recipients case. An ISD whose invoices are genuinely
+///   unit-specific cannot express that yet, and <see cref="Diagnostics"/> says so on every build that has
+///   recipients. Storing it needs a column, which this slice had no schema allocation for.</item>
+///   <item><b>The ISD invoice and credit note.</b> Rule 39(1)(k)/(l) require a document per distribution with its
+///   own number; Rule 39(1)(m)/(n) govern later debit/credit notes against the distributor. None is issued here —
 ///   they need a persisted document identity, which again is storage this slice did not have.</item>
 ///   <item><b>Posting.</b> Nothing here moves credit between registrations. GSTR-6 is a statement of what the
 ///   distribution WOULD be on the posted data, in the same sense that this app's GSTR-3B shows indicative net tax
@@ -93,11 +100,11 @@ public sealed record Gstr6(
     public Money TotalDistributed => new(Distribution.Sum(r => r.Total.Amount));
 
     /// <summary>
-    /// 🔴 <b>The one figure a filer must be able to check at a glance.</b> §20(2)(b) of the CGST Act: "<i>the amount
+    /// 🔴 <b>The one figure a filer must be able to check at a glance.</b> Rule 39(1)(b): "<i>the amount
     /// of the credit distributed shall not exceed the amount of credit available for distribution</i>". This is
     /// <see cref="TotalReceived"/> − <see cref="TotalDistributed"/>: zero when every rupee received was
     /// distributed, positive when something was withheld (and then <see cref="Diagnostics"/> names why), and never
-    /// negative — a negative would mean more credit left than arrived, which is the failure §20(2)(b) forbids.
+    /// negative — a negative would mean more credit left than arrived, which is the failure Rule 39(1)(b) forbids.
     /// </summary>
     public Money UndistributedCredit => new(TotalReceived.Amount - TotalDistributed.Amount);
 
@@ -161,9 +168,9 @@ public sealed record Gstr6(
 
             recCgst += cgst / 100m; recSgst += sgst / 100m; recIgst += igst / 100m; recCess += cess / 100m;
 
-            // Rule 39(1)(b): split the voucher's credit into its eligible and ineligible halves and distribute the
+            // Rule 39(1)(g): split the voucher's credit into its eligible and ineligible halves and distribute the
             // two as separate pools, so they can never be merged into one statement row. The classifier is the ITC
-            // gate's — §17(5)-blocked and Table-4(D) ineligible both count as "ineligible" for Rule 39(1)(b), which
+            // gate's — §17(5)-blocked and Table-4(D) ineligible both count as "ineligible" for Rule 39(1)(g), which
             // says "ineligible under the provisions of sub-section (5) of section 17 OR OTHERWISE".
             var (eligBase, blockedBase, ineligBase) = ItcGateView.ClassifyBaseValue(company, voucher);
             var ineligibleBase = blockedBase + ineligBase;
@@ -211,8 +218,9 @@ public sealed record Gstr6(
         if (recipients.Count == 0)
         {
             diagnostics.Add(
-                "This company holds no recipient of credit for the distributor — §20 Explanation (b) defines one as a "
-                + "supplier having the same PAN as the Input Service Distributor, which here means another GST "
+                "This company holds no recipient of credit for the distributor — clause (b) of the Explanation to "
+                + "Rule 39 defines one as a supplier having the same PAN as the Input Service Distributor, which "
+                + "here means another GST "
                 + "registration on this company. Create the branch registrations before filing GSTR-6.");
         }
         else
@@ -220,8 +228,8 @@ public sealed record Gstr6(
             // Named on every build that has recipients, because a reader of a distribution statement cannot tell
             // "all credit was genuinely common" from "the product could not express anything else".
             diagnostics.Add(
-                "Every invoice in this month was distributed as COMMON credit (§20(2)(e)). Per-invoice direct "
-                + "attribution under §20(2)(c) is not recorded by this build, so an invoice that was genuinely for a "
+                "Every invoice in this month was distributed as COMMON credit (Rule 39(1)(e)). Per-invoice direct "
+                + "attribution under Rule 39(1)(c) is not recorded by this build, so an invoice that was genuinely for a "
                 + "single unit is still being spread pro rata. Check the statement against the invoices before filing.");
         }
 
@@ -255,7 +263,7 @@ public sealed record Gstr6(
     }
 
     /// <summary>
-    /// §20 Explanation (a): the relevant period whose turnover drives <c>t1</c> and <c>T</c>. The preceding
+    /// Clause (a) of the Explanation to Rule 39: the relevant period whose turnover drives <c>t1</c> and <c>T</c>. The preceding
     /// financial year when every recipient has turnover in it; otherwise the last quarter, walking backwards from
     /// the month of distribution, in which details are available for ALL recipients. Falls back to the preceding
     /// financial year (with a turnover of zero, which <see cref="IsdDistribution"/> then refuses loudly) when no
@@ -278,9 +286,9 @@ public sealed record Gstr6(
         var prevTo = new DateOnly(currentFyStartYear, fyStartMonth, fyStartDay).AddDays(-1);
 
         if (recipients.Count > 0 && recipients.All(r => TurnoverOf(company, r.Id, prevFrom, prevTo).Amount > 0m))
-            return (prevFrom, prevTo, "Preceding financial year — §20 Explanation (a)(i).");
+            return (prevFrom, prevTo, "Preceding financial year — Rule 39 Explanation (a), first limb.");
 
-        // (a)(ii): the last quarter, previous to the month of distribution, for which turnover details of ALL the
+        // Second limb: the last quarter, previous to the month of distribution, for which turnover details of ALL the
         // recipients are available. Walk backwards a bounded number of quarters (three years) so the search always
         // terminates; beyond that there is nothing a filer should be relying on anyway.
         var quarterEnd = FirstOfQuarter(distributionMonth).AddDays(-1);
@@ -288,12 +296,12 @@ public sealed record Gstr6(
         {
             var qFrom = FirstOfQuarter(quarterEnd);
             if (recipients.Count > 0 && recipients.All(r => TurnoverOf(company, r.Id, qFrom, quarterEnd).Amount > 0m))
-                return (qFrom, quarterEnd, "Last quarter with turnover for every recipient — §20 Explanation (a)(ii).");
+                return (qFrom, quarterEnd, "Last quarter with turnover for every recipient — Rule 39 Explanation (a), second limb.");
             quarterEnd = qFrom.AddDays(-1);
         }
 
         return (prevFrom, prevTo,
-            "Preceding financial year — §20 Explanation (a)(i); no earlier quarter has turnover for every recipient.");
+            "Preceding financial year — Rule 39 Explanation (a), first limb; no earlier quarter has turnover for every recipient.");
     }
 
     /// <summary>The first day of the calendar quarter containing <paramref name="date"/>.</summary>
@@ -302,7 +310,7 @@ public sealed record Gstr6(
 
     /// <summary>
     /// The turnover of one registration in <c>[from, to]</c> — "<i>the turnover in a State or turnover in a Union
-    /// territory of such recipient</i>" (§20(2)(d)/(e)). Read off the posted outward supply value, net of sale
+    /// territory of such recipient</i>" (Rule 39(1)(d)/(e)). Read off the posted outward supply value, net of sale
     /// returns by base type, exactly as <c>CompositionTaxService</c> reads a composition dealer's turnover, and
     /// floored at zero (a turnover is never negative).
     /// </summary>

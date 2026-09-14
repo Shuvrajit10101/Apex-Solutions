@@ -314,7 +314,8 @@ public sealed class GstConfig
     public bool HasIsdRegistration => IsdRegistrations.Count > 0;
 
     /// <summary>
-    /// The <b>recipients of credit</b> for an ISD distribution — §20 Explanation (b): "<i>the expression
+    /// The <b>recipients of credit</b> for an ISD distribution — clause (b) of the Explanation to Rule 39 of the
+    /// CGST Rules (the definition moved there when CGST Act §20 was substituted w.e.f. 01.04.2025): "<i>the expression
     /// 'recipient of credit' means the supplier of goods or services or both having the same Permanent Account
     /// Number as that of the Input Service Distributor</i>" (CGST Act, cbic-gst.gov.in). Inside one company's book
     /// every registration shares the company's PAN by construction, so the recipients are simply the company's

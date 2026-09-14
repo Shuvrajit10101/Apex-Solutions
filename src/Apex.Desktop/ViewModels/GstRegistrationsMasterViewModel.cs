@@ -68,9 +68,10 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
     /// <summary>
     /// The registration types the vendor offers on this screen, plus <b>Input Service Distributor</b> (census row
     /// 6.24). The ISD entry is the only way a user can create the registration GSTR-6 is filed for, and the ISD is
-    /// a separate registration by statute, not a flag on an existing one: "<i>An ISD will have to compulsorily
-    /// take a separate registration as such ISD</i>"
-    /// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>).
+    /// a <b>separate registration by statute</b>, not a flag on an existing one — CGST Act §20(1), as substituted
+    /// w.e.f. 01.04.2025 by s. 12 of the Finance (No. 8) Act, 2024: any such office "<i>shall be required to be
+    /// registered as an Input Service Distributor under clause (viii) of section 24</i>"
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html</c>).
     /// </summary>
     public ObservableCollection<string> RegistrationTypeOptions { get; } =
         new(new[] { "Regular", "Composition", "Unregistered", "Consumer", "Input Service Distributor" });

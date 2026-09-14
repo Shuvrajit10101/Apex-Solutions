@@ -22,10 +22,15 @@ public enum GstRegistrationType
     /// <summary>
     /// <b>Input Service Distributor</b> (census row 6.24) — an office of the supplier that receives tax invoices
     /// for <i>input services</i> and distributes the credit to other units holding the same PAN. It is a
-    /// <b>registration type</b> here and not a flag because the statute makes it a separate registration:
-    /// "<i>An ISD will have to compulsorily take a separate registration as such ISD and apply for the same in
-    /// form GST REG-1. There is no threshold limit for registration for an ISD.</i>"
-    /// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>).
+    /// <b>registration type</b> here and not a flag because the statute makes it a separate registration. CGST Act
+    /// <b>§20(1)</b>, as substituted w.e.f. 01.04.2025 by s. 12 of the Finance (No. 8) Act, 2024, says it
+    /// directly — such an office "<i>shall be required to be registered as an Input Service Distributor under
+    /// clause (viii) of section 24</i>"
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html</c>);
+    /// CBIC's own explainer says the same in plainer words: "<i>An ISD will have to compulsorily take a separate
+    /// registration as such ISD and apply for the same in form GST REG-1. There is no threshold limit for
+    /// registration for an ISD.</i>" (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>,
+    /// fetched and read for this slice).
     ///
     /// <para>🔴 <b>Appended LAST on purpose, and this is why it is NOT a schema change.</b> The value is persisted
     /// as the enum ordinal into the existing <c>INTEGER</c> columns <c>companies.gst_reg_type</c> and

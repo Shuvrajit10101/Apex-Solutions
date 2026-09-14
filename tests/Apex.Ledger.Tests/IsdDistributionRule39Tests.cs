@@ -1,3 +1,4 @@
+using System.Globalization;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Xunit;
@@ -12,12 +13,12 @@ namespace Apex.Ledger.Tests;
 /// government how much credit each of a taxpayer's units may claim. Three separable things can go wrong and each
 /// is filed as fact:
 /// <list type="number">
-///   <item><b>The total.</b> §20(2)(b) of the CGST Act: "<i>the amount of the credit distributed shall not exceed
+///   <item><b>The total.</b> Rule 39(1)(b) of the CGST Rules: "<i>the amount of the credit distributed shall not exceed
 ///   the amount of credit available for distribution</i>". A rounding split that loses or invents a paisa is a
 ///   mis-statement, so the footing is asserted on an amount that does NOT divide evenly.</item>
-///   <item><b>The head.</b> Rule 39(1)(f) converts central + State tax into integrated tax for an out-of-State
+///   <item><b>The head.</b> Rule 39(1)(j) converts central + State tax into integrated tax for an out-of-State
 ///   recipient. Getting the head wrong hands a unit credit it cannot use.</item>
-///   <item><b>The split.</b> Rule 39(1)(d)'s <c>C1 = (t1 ÷ T) × C</c>, restricted by §20(2)(c) when the service is
+///   <item><b>The split.</b> Rule 39(1)(f)'s <c>C1 = (t1 ÷ T) × C</c>, restricted by Rule 39(1)(c) when the service is
 ///   attributable to one unit.</item>
 /// </list></para>
 ///
@@ -72,10 +73,10 @@ public class IsdDistributionRule39Tests
 
         var pools = new[]
         {
-            // (i) "CGST paid on services used only for Mumbai Unit: Rs.300000/-" — §20(2)(c) direct attribution.
+            // (i) "CGST paid on services used only for Mumbai Unit: Rs.300000/-" — R39(1)(c) direct attribution.
             new IsdCreditPool("Services used only for Mumbai Unit", Rupees(300_000m), 0, 0, 0,
                 AttributableTo: new[] { Mumbai }),
-            // (ii) "IGST, CGST & SGST paid on services used for all units: Rs.1200000/-" — §20(2)(e).
+            // (ii) "IGST, CGST & SGST paid on services used for all units: Rs.1200000/-" — R39(1)(e).
             new IsdCreditPool("Services used for all units",
                 Rupees(400_000m), Rupees(400_000m), Rupees(400_000m), 0),
         };
@@ -94,14 +95,14 @@ public class IsdDistributionRule39Tests
         Assert.Equal(Rupees(240_000m), delhi.TotalPaisa);
         Assert.Equal(Rupees(1_500_000m), result.DistributedPaisa);
 
-        // Mumbai is in the ISD's own State, so its central and State tax stay central and State (Rule 39(1)(f)(i)):
+        // Mumbai is in the ISD's own State, so its central and State tax stay central and State (Rule 39(1)(j)(i)):
         // ₹3,00,000 directly attributed + 50% of ₹4,00,000 CGST = ₹5,00,000 CGST; 50% of SGST and of IGST.
         Assert.Equal(Rupees(500_000m), mumbai.CgstPaisa);
         Assert.Equal(Rupees(200_000m), mumbai.SgstPaisa);
         Assert.Equal(Rupees(200_000m), mumbai.IgstPaisa);
 
-        // Jabalpur and Delhi are elsewhere, so ALL of their share arrives as integrated tax (Rule 39(1)(f)(ii)
-        // for the central+State halves, Rule 39(1)(e) for the integrated half) and none as central or State.
+        // Jabalpur and Delhi are elsewhere, so ALL of their share arrives as integrated tax (Rule 39(1)(j)(ii)
+        // for the central+State halves, Rule 39(1)(i) for the integrated half) and none as central or State.
         Assert.Equal(0, jabalpur.CgstPaisa);
         Assert.Equal(0, jabalpur.SgstPaisa);
         Assert.Equal(Rupees(360_000m), jabalpur.IgstPaisa);
@@ -111,7 +112,7 @@ public class IsdDistributionRule39Tests
     }
 
     // ==========================================================================================================
-    //  2. Rule 39(1)(e)/(f) — the head conversion
+    //  2. Rule 39(1)(i)/(j) — the head conversion
     // ==========================================================================================================
 
     [Fact]
@@ -130,7 +131,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void Central_and_state_tax_to_a_recipient_elsewhere_become_integrated_tax_of_their_aggregate()
     {
-        // Rule 39(1)(f)(ii): "be distributed as integrated tax and the amount to be so distributed shall be equal
+        // Rule 39(1)(j)(ii): "be distributed as integrated tax and the amount to be so distributed shall be equal
         // to the AGGREGATE of the amount of input tax credit of central tax and State tax or Union territory tax".
         var other = new IsdRecipient(DelhiUnit, "Delhi", Delhi, null, 100);
         var result = IsdDistribution.Distribute(Maharashtra, new[] { other },
@@ -145,7 +146,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void Integrated_tax_is_distributed_as_integrated_tax_to_every_recipient()
     {
-        // Rule 39(1)(e) admits no exception — not even for the recipient sitting in the ISD's own State.
+        // Rule 39(1)(i) admits no exception — not even for the recipient sitting in the ISD's own State.
         var recipients = new[]
         {
             new IsdRecipient(Mumbai, "Mumbai", Maharashtra, null, 100),
@@ -168,7 +169,7 @@ public class IsdDistributionRule39Tests
     [InlineData(Karnataka)]
     public void The_head_mix_changes_on_conversion_but_the_total_never_does(string recipientState)
     {
-        // Whatever Rule 39(1)(f) does to the heads, the credit that reaches the recipient is the same money.
+        // Whatever Rule 39(1)(j) does to the heads, the credit that reaches the recipient is the same money.
         var r = new IsdRecipient(Mumbai, "Unit", recipientState, null, 100);
         var pool = new IsdCreditPool("mix", 12_345, 23_456, 34_567, 4_567);
 
@@ -178,7 +179,7 @@ public class IsdDistributionRule39Tests
     }
 
     // ==========================================================================================================
-    //  3. §20(2)(b) — the footing. The one that catches a rounding bug before the portal does.
+    //  3. Rule 39(1)(b) — the footing. The one that catches a rounding bug before the portal does.
     // ==========================================================================================================
 
     [Fact]
@@ -186,7 +187,7 @@ public class IsdDistributionRule39Tests
     {
         // ₹1,000.01 across three EQUAL turnovers: 100001 paisa ÷ 3 = 33333.67. A naive per-recipient rounding
         // gives 33334 × 3 = 100002 — one paisa MORE credit distributed than the ISD ever received, which is
-        // exactly what §20(2)(b) forbids. The last recipient takes the remainder instead.
+        // exactly what Rule 39(1)(b) forbids. The last recipient takes the remainder instead.
         var recipients = new[]
         {
             new IsdRecipient(Mumbai, "A", Maharashtra, null, 1_000),
@@ -205,7 +206,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void Every_head_foots_independently_so_no_head_can_borrow_from_another()
     {
-        // Rule 39(1)(c): "the input tax credit on account of central tax, State tax, Union territory tax and
+        // Rule 39(1)(h): "the input tax credit on account of central tax, State tax, Union territory tax and
         // integrated tax shall be distributed SEPARATELY". A split that footed only in total could silently move
         // a paisa of central tax into the integrated column and still look right on the bottom line. Every
         // recipient here is in the ISD's own State, so no conversion masks the per-head footing.
@@ -226,7 +227,7 @@ public class IsdDistributionRule39Tests
     }
 
     // ==========================================================================================================
-    //  4. §20(2)(c)/(d)/(e) — who is in the denominator
+    //  4. Rule 39(1)(c)/(d)/(e) — who is in the denominator
     // ==========================================================================================================
 
     [Fact]
@@ -238,7 +239,7 @@ public class IsdDistributionRule39Tests
             new IsdRecipient(DelhiUnit, "Delhi", Delhi, null, Rupees(900m)),
         };
 
-        // Delhi has 90% of the turnover; direct attribution overrides that entirely (§20(2)(c)).
+        // Delhi has 90% of the turnover; direct attribution overrides that entirely (Rule 39(1)(c)).
         var result = IsdDistribution.Distribute(Maharashtra, recipients,
             new[] { new IsdCreditPool("only for Mumbai", 50_000, 0, 0, 0, AttributableTo: new[] { Mumbai }) });
 
@@ -250,7 +251,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void A_recipient_not_operational_in_the_current_year_is_excluded_from_both_t1_and_T()
     {
-        // §20(2)(d)/(e) restrict the denominator to recipients "which are operational in the current year". If the
+        // Rule 39(1)(d)/(e) restrict the denominator to recipients "which are operational in the current year". If the
         // dormant unit's turnover stayed in T, the operational units would be under-distributed and the pool would
         // not foot — so this is a footing bug as well as a share bug.
         var recipients = new[]
@@ -272,7 +273,7 @@ public class IsdDistributionRule39Tests
     }
 
     // ==========================================================================================================
-    //  5. Rule 39(1)(b) — eligible and ineligible never merge
+    //  5. Rule 39(1)(g) — eligible and ineligible never merge
     // ==========================================================================================================
 
     [Fact]
@@ -286,7 +287,7 @@ public class IsdDistributionRule39Tests
             new IsdCreditPool("blocked u/s 17(5)", 3_000, 0, 0, 0, IsEligible: false),
         });
 
-        // TWO rows for ONE recipient — that is the point of Rule 39(1)(b). One merged 13,000 row would file a
+        // TWO rows for ONE recipient — that is the point of Rule 39(1)(g). One merged 13,000 row would file a
         // blocked credit as an eligible one.
         Assert.Equal(2, result.Lines.Count);
         Assert.Equal(10_000, Assert.Single(result.Lines, l => l.IsEligible).CgstPaisa);
@@ -314,7 +315,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void A_zero_aggregate_turnover_withholds_the_pool_and_says_so_rather_than_splitting_it_equally()
     {
-        // Rule 39(1)(d) divides by T. With T = 0 the formula has no value, and NO official source supplies a
+        // Rule 39(1)(f) divides by T. With T = 0 the formula has no value, and NO official source supplies a
         // fallback — so an equal split would be invented law on a filed return. The pool is withheld and named.
         var recipients = new[]
         {
@@ -393,7 +394,7 @@ public class IsdDistributionRule39Tests
     [Fact]
     public void Compensation_cess_is_carried_through_as_cess_and_is_never_converted_to_integrated_tax()
     {
-        // Rule 39(1)(c)/(e)/(f) enumerate central, State, UT and integrated tax and are SILENT on compensation
+        // Rule 39(1)(h)/(i)/(j) enumerate central, State, UT and integrated tax and are SILENT on compensation
         // cess. This build distributes cess pro rata and leaves the head alone (ER-2 ring-fencing). The test
         // exists so that a future change to that decision is a deliberate one with a failing test in front of it,
         // not a quiet re-classification of a filed figure.
@@ -430,5 +431,47 @@ public class IsdDistributionRule39Tests
         Assert.Equal(2, (int)GstRegistrationType.Unregistered);
         Assert.Equal(3, (int)GstRegistrationType.Consumer);
         Assert.Equal(4, (int)GstRegistrationType.InputServiceDistributor);
+    }
+
+    // ==========================================================================================================
+    //  9. The withheld figure is readable on every host the gate runs on
+    // ==========================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>A CROSS-PLATFORM/CULTURE REGRESSION, NOT A COSMETIC ONE.</b> The diagnostics name the rupee amount
+    /// that was NOT distributed — the one number an operator acts on. Built with an interpolated <c>0.00</c> it
+    /// binds to <see cref="CultureInfo.CurrentCulture"/>, so on a host whose culture uses a comma decimal
+    /// separator the withheld ₹1,00,000.00 reads as <c>100000,00</c>, and it is grouped the Western way
+    /// everywhere. This pins it to <see cref="IndianMoneyFormat"/>, the one home for rupee grouping, so the
+    /// figure is identical on ubuntu, macOS and Windows and under any host culture.
+    /// </summary>
+    [Fact]
+    public void The_withheld_amount_is_grouped_the_indian_way_whatever_the_host_culture_is()
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            // A culture with a COMMA decimal separator and a DOT group separator — the exact inversion.
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+
+            var recipients = new[]
+            {
+                new IsdRecipient(Mumbai, "Mumbai", Maharashtra, null, 0),
+                new IsdRecipient(DelhiUnit, "Delhi", Delhi, null, 0),
+            };
+
+            // ₹1,00,000.00 of credit, withheld because T = 0.
+            var result = IsdDistribution.Distribute(Maharashtra, recipients,
+                new[] { new IsdCreditPool("common", 10_000_000, 0, 0, 0) });
+
+            var diagnostic = Assert.Single(result.Diagnostics);
+            Assert.Contains("₹1,00,000.00", diagnostic);       // lakh grouping, dot decimal
+            Assert.DoesNotContain("100000,00", diagnostic);    // what CurrentCulture would have produced
+            Assert.DoesNotContain("100,000.00", diagnostic);   // what Western grouping would have produced
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 }

@@ -27,7 +27,7 @@ public class Gstr6IsdReturnTests
 {
     private static readonly DateOnly FyStart = new(2024, 4, 1);
 
-    // The preceding financial year for a May-2025 distribution: §20 Explanation (a)(i).
+    // The preceding financial year for a May-2025 distribution: Rule 39 Explanation (a), first limb.
     private static readonly DateOnly PrevFyFrom = new(2024, 4, 1);
     private static readonly DateOnly PrevFySale = new(2024, 6, 10);
 
@@ -186,12 +186,12 @@ public class Gstr6IsdReturnTests
         var karnataka = Assert.Single(r.Distribution, d => d.StateCode == Karnataka);
         var tamilNadu = Assert.Single(r.Distribution, d => d.StateCode == TamilNadu);
 
-        // 60% to Karnataka, in the ISD's own State ⇒ heads survive (Rule 39(1)(f)(i)).
+        // 60% to Karnataka, in the ISD's own State ⇒ heads survive (Rule 39(1)(j)(i)).
         Assert.Equal(2_700m, karnataka.Cgst.Amount);
         Assert.Equal(2_700m, karnataka.Sgst.Amount);
         Assert.Equal(0m, karnataka.Igst.Amount);
 
-        // 40% to Tamil Nadu, elsewhere ⇒ 1,800 + 1,800 aggregate into IGST 3,600 (Rule 39(1)(f)(ii)).
+        // 40% to Tamil Nadu, elsewhere ⇒ 1,800 + 1,800 aggregate into IGST 3,600 (Rule 39(1)(j)(ii)).
         Assert.Equal(0m, tamilNadu.Cgst.Amount);
         Assert.Equal(0m, tamilNadu.Sgst.Amount);
         Assert.Equal(3_600m, tamilNadu.Igst.Amount);
@@ -220,7 +220,7 @@ public class Gstr6IsdReturnTests
     }
 
     // ==========================================================================================================
-    //  2. Rule 39(1)(b) — eligible and ineligible separately, off the real §17(5) classifier
+    //  2. Rule 39(1)(g) — eligible and ineligible separately, off the real §17(5) classifier
     // ==========================================================================================================
 
     [Fact]
@@ -248,7 +248,7 @@ public class Gstr6IsdReturnTests
         Assert.Equal(1_800m, r.IneligibleCredit.Amount);
 
         // FOUR rows: two registrations × two eligibilities. A build that merged them would file a blocked credit
-        // as an available one, which is the failure Rule 39(1)(b) exists to prevent.
+        // as an available one, which is the failure Rule 39(1)(g) exists to prevent.
         Assert.Equal(4, r.Distribution.Count);
         Assert.Equal(1_800m, r.Distribution.Where(d => !d.IsEligible).Sum(d => d.Total.Amount));
         Assert.Equal(0m, r.UndistributedCredit.Amount);
@@ -275,7 +275,7 @@ public class Gstr6IsdReturnTests
     [Fact]
     public void The_statement_says_on_every_build_that_direct_attribution_is_not_recorded()
     {
-        // §20(2)(c) is implemented in the engine but nothing stores which units an invoice was for, so every pool
+        // Rule 39(1)(c) is implemented in the engine but nothing stores which units an invoice was for, so every pool
         // is distributed as common credit. A reader of the statement must be told that, or they cannot tell
         // "genuinely common" from "the product could not say otherwise".
         var f = Build();
@@ -352,7 +352,7 @@ public class Gstr6IsdReturnTests
     [Fact]
     public void The_isd_is_not_a_recipient_of_its_own_distribution()
     {
-        // §20 Explanation (b) makes a recipient a SUPPLIER with the same PAN; the distributor is not one of them,
+        // Rule 39 Explanation (b) makes a recipient a SUPPLIER with the same PAN; the distributor is not one of them,
         // and an ISD cannot receive distributed credit at all.
         var f = Build();
         var recipients = f.Company.Gst!.IsdRecipientRegistrations(f.Isd.Id);
