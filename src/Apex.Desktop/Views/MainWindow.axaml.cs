@@ -773,6 +773,34 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Bare C on the Memorandum Register CONVERTS the highlighted memorandum into a real voucher (census 4.17 /
+        // T2-9). It raises the Y/N confirmation; it never converts on the keystroke — the verb posts money onto the
+        // books and removes the memo, so it is gated exactly as the Alt+X above it is.
+        //
+        // 🔴 THIS CHORD IS OURS, NOT THE VENDOR'S, AND IT IS SCOPED TO ONE REPORT SO IT CANNOT SHADOW ANYTHING.
+        // The vendor attests the CAPABILITY ("You can alter and convert a Memo voucher into a regular voucher")
+        // but names no keystroke for it on any page, and its TallyPrime shortcut table has no entry for it — so it
+        // is deliberately kept OUT of ShellChordTable, whose stated contract is that every chord in it is quoted
+        // from the vendor and "where the vendor is silent the chord is absent". It ships here instead, as a
+        // page-scoped arm and a labelled divergence, the same shape as the BankStatementImport block further down
+        // (bare `R` = "Mark as Regular"), which is this file's own precedent for a page-scoped bare letter.
+        //
+        // 🔴 BARE `C` WAS MEASURED FREE BEFORE IT WAS TAKEN, not assumed. Every `Key.C` arm in this handler carries
+        // Alt (the comparison-column arm, the dashboard tile arm and the global Create-Ledger arm), and the
+        // bare-letter quick-jump arm is gated on `vm.IsMenuScreen`, which a report is not. `== KeyModifiers.None`
+        // matches the quick-jump arm's own predicate so "bare letter" means one thing in both places, and
+        // deliberately excludes Shift. `!IsTyping` keeps it out of the report's own filter/search boxes and
+        // `!IsPickerOpen` off an open dropdown — the identical guard trio the Alt+X, Alt+A and Alt+S report arms
+        // around it carry. The arm sits BELOW the accept-prompt block, so while a confirmation is up a bare C is
+        // not a second question.
+        if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.None
+            && vm.IsMemorandumRegisterReport && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestConvertHighlightedMemorandum();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+A on the Cheque Register's leaf list is the vendor's "Alter Status" (census 8.5;
         // help.tallysolutions.com/cheque-register/). It cycles the highlighted leaf Available → Blank →
         // Cancelled → Available and saves.

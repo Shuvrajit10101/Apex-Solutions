@@ -338,6 +338,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted RQ-7 read-only voucher-detail drill column (non-null only for a drilled voucher).</summary>
     public VoucherDetailViewModel? VoucherDetail => Page as VoucherDetailViewModel;
 
+    /// <summary>Census 4.9–4.16 — the hosted read-only PURE-STOCK voucher-detail drill column (non-null only
+    /// for a drilled Stock Journal / Physical Stock / Delivery or Receipt Note / order / Rejection).
+    /// <para>Named <c>InventoryVoucherDetail</c> rather than reusing <see cref="InventoryVoucher"/>, which is
+    /// already taken by the ENTRY screen for the same aggregate — two different pages over one voucher kind.</para></summary>
+    public InventoryVoucherDetailViewModel? InventoryVoucherDetail => Page as InventoryVoucherDetailViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

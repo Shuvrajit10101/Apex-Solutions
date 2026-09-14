@@ -735,6 +735,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public event Action<Guid>? DrillToVoucherRequested;
 
     /// <summary>
+    /// Census rows 4.9–4.16. Raised when a Day Book row standing for a <b>pure-stock</b> voucher (Stock Journal,
+    /// Physical Stock, Delivery/Receipt Note, Sales/Purchase Order, Rejection In/Out) is drilled into (Enter):
+    /// carries the <c>InventoryVoucher</c> id so the shell opens that voucher's read-only detail.
+    /// <para>Separate from <see cref="DrillToVoucherRequested"/> because the two aggregates resolve through
+    /// different lookups and render different columns — a stock movement has no debit and no credit.</para>
+    /// </summary>
+    public event Action<Guid>? DrillToInventoryVoucherRequested;
+
+    /// <summary>
     /// W2-12 (census 11.6). Raised when a register's MONTH row is drilled: carries the register's kind and
     /// that month's window, so the shell opens the voucher-wise listing of exactly the vouchers footed into
     /// the clicked figure — the vendor's documented two-level register shape.
@@ -1745,6 +1754,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.DayBook:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                // Census rows 4.9–4.16: the Day Book now lists the pure-stock aggregate too, and a row nobody
+                // can open is only half a listing. Its own event because its own drill target is a different
+                // shape — stock lines, not Dr/Cr lines — so one handler could not render both.
+                else if (row.DrillInventoryVoucherId != Guid.Empty)
+                    DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
                 break;
 
             // ---- W2-12 (census 11.6): a register drills month → voucher-wise → the voucher itself. ----
@@ -2090,7 +2104,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 // the muted ink (CancelledRowToBrushConverter). The "(Cancelled)" text above stays — colour alone
                 // is never the only carrier of a fact this material.
                 IsCancelled = r.IsCancelled,
-                DrillVoucherId = r.VoucherId,   // RQ-7: Enter opens this voucher's read-only detail
+                // RQ-7: Enter opens this voucher's read-only detail. 🔴 The engine row says WHICH AGGREGATE its
+                // id addresses and the two go to DIFFERENT slots — see ReportRow.DrillInventoryVoucherId for why
+                // putting a pure-stock id in the accounting slot would make six existing routes silent no-ops.
+                DrillVoucherId = r.IsInventory ? Guid.Empty : r.VoucherId,
+                DrillInventoryVoucherId = r.IsInventory ? r.VoucherId : Guid.Empty,
             });
         }
 
@@ -3986,6 +4004,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  Memo No. {r.FormattedNumber}",
                 Secondary = r.PartyOrParticulars ?? string.Empty,
                 Amount = IndianFormat.Amount(r.Amount),
+                // 🔴 CENSUS 4.17 — THE ROW NOW CARRIES ITS VOUCHER ID, AND THAT ONE FIELD IS WHAT MAKES THE MEMO
+                // ADDRESSABLE AT ALL. `MemorandumRegisterRow` has always carried `VoucherId` (it is the record's
+                // first component); this projection dropped it, so every memo on this report resolved to
+                // `Guid.Empty` and the shell's `Reports.SelectedRow.DrillVoucherId` — the SAME resolution Alt+X,
+                // Alt+D, Alt+2 and Ctrl+Enter all use — could never name one. That is the identical
+                // "the list row type carries no Guid, so no row can address a unit" blocker the census records
+                // against the master lists, repeated on a report. With it set, the memo gains the ordinary drill
+                // and alteration verbs for free, and `RequestConvertHighlightedMemorandum` has something to convert.
+                DrillVoucherId = r.VoucherId,
             });
 
         if (report.Rows.Count == 0)

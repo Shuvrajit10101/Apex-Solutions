@@ -2705,6 +2705,77 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: census 4.9-4.16 - PURE-STOCK voucher detail drill (read-only leaf).
+                         The sibling of the Voucher Detail column above: a Stock Journal, Physical Stock,
+                         Delivery/Receipt Note, Sales/Purchase Order or Rejection drilled from its Day Book row.
+                         Its columns are Quantity / Rate / Value rather than Debit / Credit, because a pure-stock
+                         voucher posts no accounting entry (DP-5) and has neither.
+                         COLUMN BUDGET: 80+100+100+120 = 400 fixed against the 638px page-column floor, leaving
+                         the star Particulars track 238px - comfortably over the 150px XamlLayoutInvariantTests
+                         minimum, so this grid joins no allow-list. -->
+                    <ContentControl IsVisible="{Binding InventoryVoucherDetail, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding InventoryVoucherDetail}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:InventoryVoucherDetailViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,10" Spacing="3">
+                              <TextBlock Text="{Binding Subtitle}"
+                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Subtitle}"/>
+                              <!-- The cancelled badge. Stated in WORDS as well as in ink: colour alone is never
+                                   the only carrier of a fact this material. -->
+                              <Border IsVisible="{Binding StatusLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Background="#FBEAEA" BorderBrush="#C0504D" BorderThickness="1"
+                                      CornerRadius="3" Padding="10,2" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding StatusLabel}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="#A03028"/>
+                              </Border>
+                            </StackPanel>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,80,100,100,120">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="In/Out" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Quantity" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="Transparent">
+                                      <Grid ColumnDefinitions="*,80,100,100,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Col1}"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
                     <ContentControl IsVisible="{Binding Voucher, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Voucher}">
@@ -12605,24 +12676,33 @@
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                       <TextBlock Grid.Column="1" Text="{Binding MethodDisplay}" VerticalAlignment="Center"/>
                                     </Grid>
+                                    <!-- T2-21 (census 2.5): these three are SHOWN ONLY UNDER THE NUMBERING METHODS
+                                         THE VENDOR OFFERS THEM UNDER, and they are HIDDEN rather than merely
+                                         disabled. The vendor states applicability as a property of the option
+                                         ("Applicable to Automatic (Manual Override), and Multi-user Auto"), i.e.
+                                         the option is not part of the form at all on the other methods — a greyed
+                                         box still tells an operator the setting exists here, which is the claim
+                                         being corrected. The predicates carry the verbatim citations. -->
                                     <CheckBox Content="Prevent duplicate numbers"
+                                              IsVisible="{Binding CanPreventDuplicate}"
                                               IsChecked="{Binding PreventDuplicate, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
-                                    <Grid ColumnDefinitions="150,120" IsEnabled="{Binding CanConfigureAffixes}">
+                                    <Grid ColumnDefinitions="150,120" IsVisible="{Binding CanConfigureAffixes}">
                                       <TextBlock Grid.Column="0" Text="Width of numerical part" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
                                                  TextWrapping="Wrap"/>
                                       <TextBox Grid.Column="1" Text="{Binding WidthText, Mode=TwoWay}"/>
                                     </Grid>
-                                    <CheckBox Content="Prefill with zero" IsEnabled="{Binding CanConfigureAffixes}"
+                                    <CheckBox Content="Prefill with zero" IsVisible="{Binding CanConfigureAffixes}"
                                               IsChecked="{Binding PrefillWithZero, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (prefix) -->
+                                <!-- N3 (prefix) — hidden, not greyed, on a method the vendor gives no prefix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="PREFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>
@@ -12648,9 +12728,10 @@
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (suffix) -->
+                                <!-- N3 (suffix) — hidden, not greyed, on a method the vendor gives no suffix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="SUFFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>

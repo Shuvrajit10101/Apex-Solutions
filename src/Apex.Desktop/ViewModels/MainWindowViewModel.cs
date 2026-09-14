@@ -291,6 +291,15 @@ public enum Screen
 
     LedgerVouchers,
     VoucherDetail,
+
+    /// <summary>
+    /// Census rows 4.9–4.16 — the read-only drill target for a <b>pure-stock</b> voucher (Stock Journal,
+    /// Physical Stock, Delivery/Receipt Note, Sales/Purchase Order, Rejection In/Out), reached by Enter on its
+    /// Day Book row. Its own screen id rather than a mode on <see cref="VoucherDetail"/> because the two panes
+    /// render different columns and the lifecycle arms must be able to tell which aggregate the active column
+    /// owns — see <c>InventoryVoucherDetailViewModel</c> for the full statement.
+    /// </summary>
+    InventoryVoucherDetail,
 }
 
 /// <summary>
@@ -855,6 +864,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The RQ-7 read-only voucher-detail drill column, non-null only while that column is open (rightmost).</summary>
     [ObservableProperty] private VoucherDetailViewModel? _voucherDetail;
 
+    /// <summary>Census 4.9–4.16 — the read-only PURE-STOCK voucher-detail drill column, non-null only while
+    /// that column is open (rightmost).</summary>
+    [ObservableProperty] private InventoryVoucherDetailViewModel? _inventoryVoucherDetail;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -906,7 +919,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && VerifyDataPanel is null && SplitCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null && AppSettings is null
         && SecurityUsers is null && PasswordPolicy is null && DataVault is null && CompanyUnlock is null
-        && LedgerVouchers is null && VoucherDetail is null;
+        && LedgerVouchers is null && VoucherDetail is null && InventoryVoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1024,6 +1037,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnCompanyUnlockChanged(CompanyUnlockViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnInventoryVoucherDetailChanged(InventoryVoucherDetailViewModel? value) =>
+        OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -3104,6 +3119,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // column (the report pane persists); a Day Book row opens the voucher's read-only detail.
         reports.DrillToLedgerRequested += (ledgerId, from, to, movement) => OpenLedgerVouchers(ledgerId, from, to, movement);
         reports.DrillToVoucherRequested += OpenVoucherDetail;
+        // Census 4.9–4.16: a Day Book row standing for a pure-stock voucher opens ITS read-only detail. Wired
+        // here, in the shared WireReportDrills, for the reason this method's own summary gives — a drill wired
+        // inside OpenReport alone is absent from every scoped ReportsViewModel the W2-12 openers construct, and
+        // ships rows that look drillable and do nothing.
+        reports.DrillToInventoryVoucherRequested += OpenInventoryVoucherDetail;
 
         // ---- W2-12 (census 11.6 / 11.7) ----
         reports.DrillToRegisterMonthRequested += (kind, from, to) => OpenRegisterMonth(kind, from, to);
@@ -3223,6 +3243,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var vm = new VoucherDetailViewModel(Company, voucher);
         OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.VoucherDetail, vm.Title, () => VoucherDetail = vm);
+    }
+
+    /// <summary>
+    /// Census rows 4.9–4.16 — opens the read-only detail of a <b>pure-stock</b> voucher as its own cascading
+    /// column to the RIGHT of the Day Book it drilled from (the prior pane persists; Esc/Back pops), exactly as
+    /// <see cref="OpenVoucherDetail"/> does for the accounting aggregate. A safe no-op when the id does not
+    /// resolve to an inventory voucher.
+    ///
+    /// <para><b>KEYBOARD ROUTE, stated end to end because a capability no user can reach is not complete:</b>
+    /// Gateway → Reports → Day Book (or the bare <c>D</c> quick-jump), arrow to the Stock Journal / Physical
+    /// Stock / Delivery Note / Receipt Note / order / Rejection row, <b>Enter</b> to open this pane.
+    /// <b>Alt+X</b> cancels it and <b>Alt+D</b> deletes it <b>from the Day Book row</b>; Alt+D additionally works
+    /// from inside this column.</para>
+    ///
+    /// <para>⚠️ <b>CORRECTED — the two verbs are NOT symmetric here, and the sentence above used to say they
+    /// were.</b> It claimed both worked "from either the Day Book row or this column". Measured: Alt+X's key arm
+    /// is gated on <c>vm.IsLiveReportPage</c>, which is <c>Reports is not null &amp;&amp; CurrentScreen ==
+    /// Screen.Report</c> — so Alt+X does not fire from ANY drill column. <b>That asymmetry is pre-existing and
+    /// applies identically to the accounting <see cref="Screen.VoucherDetail"/> column</b>, so it is reported
+    /// rather than quietly fixed for this aggregate alone: widening it here would make a stock voucher MORE
+    /// cancellable than an ordinary one, which is a worse inconsistency than the one it removes. Widening Alt+X
+    /// to both detail columns together is a small, separate change and is owed to the user as a decision.</para>
+    /// </summary>
+    public void OpenInventoryVoucherDetail(Guid voucherId)
+    {
+        if (Company is null) return;
+        if (Company.FindInventoryVoucher(voucherId) is not { } voucher) return;
+
+        var vm = new InventoryVoucherDetailViewModel(Company, voucher);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.InventoryVoucherDetail, vm.Title,
+            () => InventoryVoucherDetail = vm);
     }
 
     /// <summary>
@@ -3419,6 +3470,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public bool IsDayBookReport => Reports is { Kind: ReportKind.DayBook }
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
+    /// <summary>
+    /// True while the LIVE report is the <b>Memorandum Register</b> (census 4.17) — the single context the
+    /// "Convert Memorandum" verb is offered in.
+    ///
+    /// <para>🔴 <b>It is <see cref="IsLiveReportPage"/>-shaped (<c>Screen.Report</c> only), NOT
+    /// <see cref="IsReportContext"/>-shaped, and that is inherited rather than re-derived.</b> Converting a
+    /// memorandum POSTS A REAL VOUCHER and destroys the memo, so it is a destructive verb by
+    /// <see cref="IsDeleteTargetPage"/>'s own standard, and that property's remarks record exactly what
+    /// <c>IsReportContext</c> costs here: with an F12 config, an Alt+F12 sort/filter or a Print Preview column
+    /// stacked over the register, the chord would act on the row BEHIND the column the operator is standing in.
+    /// <see cref="IsDayBookReport"/> is deliberately NOT copied — it admits the drill screens so its picker column
+    /// can stay open over it, and this verb has no such column.</para>
+    /// </summary>
+    public bool IsMemorandumRegisterReport =>
+        Reports is { Kind: ReportKind.MemorandumRegister } && CurrentScreen == Screen.Report;
 
     /// <summary>
     /// True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, a drilled voucher-detail
@@ -7518,6 +7585,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Dashboard = null;
         LedgerVouchers = null;
         VoucherDetail = null;
+        InventoryVoucherDetail = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -7640,7 +7708,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // so leaving a stale notice up would paint it underneath the confirmation the operator is being asked.
         Notice = string.Empty;
 
-        if (Reports.SelectedRow is not { DrillVoucherId: var id }) return false;
+        if (Reports.SelectedRow is not { } selected) return false;
+
+        // Census rows 4.9–4.16 — the Day Book lists the pure-stock aggregate too, and Alt+X is attested on this
+        // report for it (help.tallysolutions.com day-book page: "Press Alt+X to cancel", on a Day Book that
+        // covers "all the vouchers, irrespective of the type of voucher"). Asked BEFORE the accounting lookup
+        // because the two slots are mutually exclusive and this one is the cheaper test; either order is correct.
+        if (selected.DrillInventoryVoucherId != Guid.Empty)
+            return RequestCancelInventoryVoucher(selected.DrillInventoryVoucherId);
+
+        var id = selected.DrillVoucherId;
         if (Company.FindVoucher(id) is not { } voucher) return false;
 
         if (voucher.Cancelled)
@@ -7722,8 +7799,114 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// <b>Alt+X on a Day Book row standing for a PURE-STOCK voucher</b> — census rows 4.9–4.16. Raises the SAME
+    /// single Y/N confirmation the accounting verb raises, on the SAME one channel.
+    ///
+    /// <para><b>FIDELITY (R7; RULING 14).</b> <i>help.tallysolutions.com/tally-prime/accounting-reports-tally/
+    /// day-book-tally/</i> (fetched 2026-09-14) attests both halves of this route on this report: the Day Book's
+    /// "All Vouchers" view <i>"displays Day Book for all the vouchers, irrespective of the type of voucher"</i>,
+    /// including <i>"Delivery Note, Physical Stock Voucher, and others"</i>, and <i>"Press Alt+X to cancel"</i>.
+    /// The prompt WORDING is ours and unverified-by-design, as the accounting one is.</para>
+    ///
+    /// <para>🔴 <b>THERE IS NO <c>LiveStatutoryDocumentBlocker</c> CHECK HERE, and that is measured rather than
+    /// forgotten.</b> That blocker exists because cancelling an accounting voucher that holds a live IRN or
+    /// e-Way Bill is a one-way door — the voucher leaves the Generate E-Invoice screen (which filters
+    /// <c>!v.Cancelled</c>) and the portal document can never be cancelled from the app again. A pure-stock
+    /// voucher cannot hold either: both records key on the ACCOUNTING aggregate, and neither generate screen
+    /// lists inventory vouchers at all. Running the blocker here would be a guard no test could ever fail.</para>
+    ///
+    /// <para><b>Already-cancelled is refused with a named message</b>, not silently re-armed — the same reason
+    /// the accounting arm gives: a prompt whose answer changes nothing trains an operator to answer prompts
+    /// without reading them.</para>
+    /// </summary>
+    private bool RequestCancelInventoryVoucher(Guid voucherId)
+    {
+        if (Company!.FindInventoryVoucher(voucherId) is not { } voucher) return false;
+
+        if (voucher.Cancelled)
+        {
+            RaiseLifecycleNotice($"{InventoryVoucherLabel(voucher)} is already cancelled.");
+            return false;
+        }
+
+        _pendingCancelInventoryVoucherId = voucherId;
+        AcceptPromptText = $"Cancel {InventoryVoucherLabel(voucher)}? "
+                           + "The number is kept, but the entry stops counting — the stock it moved will move "
+                           + "back. This cannot be undone. (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// The armed PURE-STOCK cancellation (census 4.9–4.16) — a third slot on the ONE confirmation channel,
+    /// beside <see cref="_pendingCancelVoucherId"/> and <see cref="_pendingDeleteKind"/>.
+    ///
+    /// <para><b>Why a separate field rather than reusing <see cref="_pendingCancelVoucherId"/> with a kind
+    /// flag.</b> A shared id slot would make <see cref="ConfirmMasterAccept"/> resolve the aggregate by asking
+    /// the screen, and the screen can change between arming and answering. Two typed slots make the armed
+    /// action self-describing: whichever is non-empty says both what to do and which book to do it in. It is
+    /// torn down in <see cref="ResetMasterAcceptPrompt"/> with the other two, which is the invariant that stops
+    /// a plain "Y" on an unrelated later prompt executing it.</para>
+    /// </summary>
+    private Guid _pendingCancelInventoryVoucherId;
+
+    /// <summary>
+    /// "Y" on a pure-stock cancellation: runs the engine verb, saves, and reports. The mirror of
+    /// <see cref="CancelPendingVoucher"/>, including its rollback discipline — the edit-log entry the engine
+    /// appends is held so a failed save can discard BOTH halves of the verb, or the log would keep a line
+    /// saying this voucher was cancelled when it was not.
+    ///
+    /// <para>🔴 <b>The negative-stock consequence is SURFACED, not swallowed.</b> Un-doing an inward movement
+    /// can retro-drive a later outward one below zero; the engine no longer blocks that (NS-3) and reports it
+    /// through <c>DetectNegativeStock</c>. Saying nothing would leave an operator with a silently negative
+    /// on-hand, so the shortfall count is appended to the success notice. The cancel still stands — refusing it
+    /// here would re-introduce the hard block NS-3 deliberately removed.</para>
+    /// </summary>
+    private void CancelPendingInventoryVoucher(Guid voucherId)
+    {
+        if (Company is null) return;
+
+        var voucher = Company.FindInventoryVoucher(voucherId);
+        var service = new Apex.Ledger.Services.InventoryPostingService(Company);
+
+        Apex.Ledger.Domain.VoucherEditLogEntry? logEntry = null;
+        try
+        {
+            logEntry = service.Cancel(voucherId);
+            _storage.Save(Company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // `logEntry` is null only when Cancel itself threw (an unknown voucher — also reportable), in which
+            // case nothing was flagged and nothing was logged, so there is nothing to undo.
+            if (logEntry is not null) service.DiscardUncommittedCancel(voucherId, logEntry);
+            RaiseLifecycleNotice($"Cannot cancel: {ex.Message}");
+            return;
+        }
+
+        var label = voucher is null ? "Voucher" : InventoryVoucherLabel(voucher);
+        var notice = $"{label} cancelled — the number is kept and the stock it moved has moved back.";
+
+        var shortfalls = service.NegativeStockWarnings();
+        if (shortfalls.Count > 0)
+            notice += $" ⚠ {shortfalls.Count} stock balance(s) are now negative — see the negative-stock report.";
+
+        RaiseLifecycleNotice(notice);
+
+        // Rebuild the live report in place so the cancelled row greys where the operator is standing, and
+        // re-project the drill column beneath it when that column is showing this very voucher.
+        Reports?.Show(Reports.Kind);
+        if (InventoryVoucherDetail is { } pane && pane.VoucherId == voucherId) pane.Refresh();
+    }
+
+    /// <summary>
     /// "Y" on the cancellation confirmation: marks the armed voucher cancelled through the engine, persists, and
     /// rebuilds the live report so the row greys immediately.
+    ///
+    /// <para>⚠️ <b>THIS DOC COMMENT WAS RE-ATTACHED, NOT REWRITTEN.</b> The wave-29 inventory slice inserted a new
+    /// member between this block and its method, leaving the text below describing
+    /// <see cref="RequestCancelInventoryVoucher"/> — an unrelated method — while this one carried no
+    /// documentation at all. The words are the original author's; only their position changed.</para>
     ///
     /// <para>The engine call is <c>LedgerService.Cancel</c> and NOTHING else — S3 adds no engine semantics. The
     /// voucher keeps its number (the engine sets a flag and never touches <c>Number</c>) and drops out of every
@@ -7839,8 +8022,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// restored by hand at the merge. Neither is redundant: <see cref="PayrollMaster"/> is the payroll-master
     /// arm of census row 7.16, and <see cref="Company"/> is the delete half of row 1.4. If a later merge ever
     /// presents this line as a conflict again, the answer is to keep EVERY member, never to pick a side.</para>
+    ///
+    /// <para><see cref="InventoryVoucher"/> is census 4.9–4.16's pure-stock aggregate — its own member rather
+    /// than a reuse of <see cref="Voucher"/> because <see cref="PerformPendingDeletion"/> must resolve the id
+    /// through a different lookup and call a different service, and a shared member would make that a guess from
+    /// the current screen. (Folded into this block rather than left as the SECOND <c>&lt;summary&gt;</c> the
+    /// interrupted wave-29 write left stacked here: two summary elements on one member is malformed doc XML, and
+    /// the paragraph above — which exists precisely to stop members being lost — would have been the one a tool
+    /// dropped.)</para>
     /// </summary>
-    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company }
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company, InventoryVoucher }
 
     /// <summary>
     /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
@@ -7891,6 +8082,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && (IsLiveReportPage
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // Census 4.9–4.16 — the PURE-STOCK drill column, named explicitly on the same rule the two clauses
+            // above are named on: it IS the active column, it DOES own a voucher, and nothing stacks over it.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null)
             || IsChartOfAccountsScreen
             || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false })
             // 7.16 — the payroll masters, on the SAME rule as the Stock Item master: the existing-list is a
@@ -7982,9 +8176,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // reduced to a null test (IsLiveReportPage IS `Reports is not null && CurrentScreen == Screen.Report`,
             // and the switch has already established the second half), so it was an unfalsifiable guard spelled as
             // a screen predicate. The null-conditional says the same thing, cannot NRE, and leaves nothing dead.
-            Screen.Report => RequestDeleteVoucher(Reports?.SelectedRow?.DrillVoucherId),
+            // Census 4.9–4.16 — the Day Book carries BOTH aggregates' rows now, so this arm asks the accounting
+            // question first and the pure-stock one only when that slot is empty. The two slots are mutually
+            // exclusive by construction (ReportsViewModel.BuildDayBook fills exactly one), so the order is a
+            // reading convenience rather than a precedence rule.
+            Screen.Report => RequestDeleteVoucher(Reports?.SelectedRow?.DrillVoucherId)
+                             || RequestDeleteInventoryVoucher(Reports?.SelectedRow?.DrillInventoryVoucherId),
             Screen.LedgerVouchers => RequestDeleteVoucher(LedgerVouchers?.SelectedRow?.DrillVoucherId),
             Screen.VoucherDetail => RequestDeleteVoucher(VoucherDetail?.VoucherId),
+            Screen.InventoryVoucherDetail => RequestDeleteInventoryVoucher(InventoryVoucherDetail?.VoucherId),
             Screen.ChartOfAccounts => RequestDeleteChartRow(),
             Screen.StockItemMaster => RequestDeleteStockItemRow(),
             Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
@@ -8048,6 +8248,51 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return Arm(DeletionTarget.Voucher, id,
             $"Delete {VoucherLabel(voucher)}? The entry and every line on it are removed from the books "
             + "permanently, and there is no undo. (Y/N)");
+    }
+
+    /// <summary>
+    /// Arms the confirmation for a posted <b>pure-stock</b> voucher — census rows 4.9–4.16. The sibling of
+    /// <see cref="RequestDeleteVoucher"/>, deliberately built on the SAME <see cref="Arm"/> channel, the same
+    /// single Y/N prompt and the same notice bar rather than a parallel set.
+    ///
+    /// <para>🔴 <b>THERE IS NO <c>MasterDeletionRules</c> GUARD HERE, AND ITS ABSENCE IS A MEASURED FACT RATHER
+    /// THAN AN OMISSION.</b> <c>MasterDeletionRules.EnsureVoucherDeletable</c> is typed to
+    /// <see cref="Apex.Ledger.Domain.Voucher"/> and every refusal it raises is about the ACCOUNTING aggregate —
+    /// a bill-wise settlement, a filed statutory document (IRN/e-Way Bill), a numbering consequence. A
+    /// pure-stock voucher participates in none of those: it posts no entry, settles no bill and carries no IRN.
+    /// Inventing a guard here to look symmetrical would be a refusal with no rule behind it. What deletion CAN
+    /// do is drive a later movement's on-hand negative, and the engine's own doc is explicit that this is no
+    /// longer blocked (NS-3, call site 3 of 4) — it is reported afterwards by
+    /// <c>InventoryPostingService.DetectNegativeStock</c>, which this route surfaces on the notice bar so the
+    /// consequence is stated where the operator performed the act.</para>
+    ///
+    /// <para><b>An already-cancelled voucher is still deletable</b>, exactly as on the accounting side: Cancel
+    /// and Delete are different verbs with different evidence, and refusing the second because the first ran
+    /// would strand a voucher that should never have existed.</para>
+    /// </summary>
+    private bool RequestDeleteInventoryVoucher(Guid? voucherId)
+    {
+        if (voucherId is not { } id) return false;
+        if (id == Guid.Empty) return false;
+        if (Company!.FindInventoryVoucher(id) is not { } voucher) return false;
+
+        return Arm(DeletionTarget.InventoryVoucher, id,
+            $"Delete {InventoryVoucherLabel(voucher)}? The entry and every stock line on it are removed from "
+            + "the books permanently, the stock it moved is un-moved, and there is no undo. (Y/N)");
+    }
+
+    /// <summary>
+    /// The human label for a pure-stock voucher, used in every prompt and notice about it. The sibling of
+    /// <c>VoucherLabel</c>, and it renders the SAME shape ("Stock Journal No. 3") so an operator cannot tell
+    /// from the wording which aggregate they are acting on — because for the purpose of the question they are
+    /// being asked, it does not matter.
+    /// </summary>
+    private string InventoryVoucherLabel(Apex.Ledger.Domain.InventoryVoucher voucher)
+    {
+        var typeName = Company?.FindVoucherType(voucher.TypeId)?.Name ?? "voucher";
+        var number = Company?.FormatVoucherNumber(voucher) ?? voucher.Number.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(number) ? typeName : $"{typeName} No. {number}";
     }
 
     /// <summary>Arms the confirmation for the Chart of Accounts' highlighted row — a ledger row or a group row,
@@ -8217,6 +8462,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     new Apex.Ledger.Services.LedgerService(Company).Delete(id);
                     break;
 
+                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask: there is no guard
+                // for this aggregate to re-ask (see RequestDeleteInventoryVoucher for why inventing one would be
+                // a refusal with no rule behind it). The engine's Delete appends the edit-log entry, so the
+                // deletion leaves the same audit evidence an accounting deletion does.
+                case DeletionTarget.InventoryVoucher:
+                {
+                    if (Company.FindInventoryVoucher(id) is not { } stockVoucher) return;
+                    what = InventoryVoucherLabel(stockVoucher);
+                    new Apex.Ledger.Services.InventoryPostingService(Company).Delete(id);
+                    break;
+                }
+
                 case DeletionTarget.Ledger:
                     if (Company.FindLedger(id) is not { } ledger) return;
                     what = $"Ledger '{ledger.Name}'";
@@ -8362,6 +8619,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 Reports?.Show(Reports.Kind);
                 LedgerVouchers?.Refresh();
                 break;
+            // Census 4.9–4.16. The Day Book is rebuilt so the deleted stock row leaves the list in place. The
+            // drill column beneath it is CLOSED rather than refreshed when its own voucher was the one deleted:
+            // InventoryVoucherDetailViewModel.Refresh returns false precisely when the voucher is gone, and a
+            // pane left showing a document that no longer exists is the stale-pane defect the S5d/S5e review
+            // filed on the accounting side. Deleting a DIFFERENT voucher leaves this column untouched.
+            case DeletionTarget.InventoryVoucher:
+                Reports?.Show(Reports.Kind);
+                if (InventoryVoucherDetail is { } stockPane && !stockPane.Refresh())
+                    Back();
+                break;
             case DeletionTarget.Ledger:
             case DeletionTarget.Group:
                 ChartOfAccounts?.Refresh();
@@ -8422,6 +8689,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && (IsLiveReportPage
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+
+    /// <summary>
+    /// 🔴 <b>Census 4.9–4.16 — the verb the operator just pressed has NO pure-stock implementation, so SAY SO
+    /// rather than do nothing.</b> Returns <c>true</c> (having written the sentence to the notice bar) iff the
+    /// Day Book row under the highlight stands for a pure-stock voucher.
+    ///
+    /// <para><b>THIS EXISTS BECAUSE THE DAY BOOK LISTING CREATED A DEAD KEY THAT DID NOT EXIST BEFORE IT.</b>
+    /// Ctrl+Enter (alter) and Alt+2 (duplicate) both resolve through <c>ReportRow.DrillVoucherId</c>, which is
+    /// deliberately <see cref="Guid.Empty"/> on an inventory row, so both returned <c>NoVoucherHere</c> — a
+    /// documented QUIET no-op. That was the right answer while no such row existed. The moment a Stock Journal
+    /// appears in the Day Book it is the wrong one: the operator sees a voucher, presses the verb they use on
+    /// every other voucher, and NOTHING HAPPENS AND NOTHING IS SAID. "Honestly unavailable" is not a property a
+    /// silent key can have — it is the exact defect class this project has filed three times.</para>
+    ///
+    /// <para><b>Alteration really is unavailable, and the message is the truth rather than a placeholder.</b>
+    /// <c>VoucherEntryViewModel.ForAlter</c> refuses every inventory-aggregate voucher by design
+    /// (<c>VoucherAlterRefusalTests</c> pins that for all twelve base kinds) because no
+    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice;
+    /// naming the limit costs nothing and is owed now. The sentence points at the two routes that DO work.</para>
+    ///
+    /// <para>Scoped to <see cref="Screen.Report"/> alone, which is the only surface that can carry such a row:
+    /// <see cref="IsVoucherAlterTargetPage"/>'s other two arms are the register drill and the ACCOUNTING
+    /// voucher-detail column, and <see cref="Screen.InventoryVoucherDetail"/> is not one of its arms at all, so
+    /// neither verb can reach this from there. A guard for a surface no keystroke arrives from would be
+    /// unfalsifiable.</para>
+    /// </summary>
+    private bool RefuseVoucherVerbOnStockRow(string verb)
+    {
+        if (CurrentScreen != Screen.Report) return false;
+        if (Reports?.SelectedRow?.DrillInventoryVoucherId is not { } stockId || stockId == Guid.Empty)
+            return false;
+
+        RaiseLifecycleNotice(
+            $"{verb} is not available for a stock voucher. Cancel it with Alt+X or delete it with Alt+D, "
+            + "then re-enter it from the inventory voucher screen.");
+        return true;
+    }
 
     /// <summary>
     /// <b>Ctrl+Enter — open the highlighted posted voucher for ALTERATION.</b> Returns the THREE-VALUED
@@ -8511,9 +8815,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
-        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+        // Census 4.9–4.16 — asked BEFORE the fall-through so a pure-stock row gets a sentence instead of a dead
+        // key. Refused (not NoVoucherHere) so the keystroke is CONSUMED: falling through to the drill below would
+        // change screens, and OnCurrentScreenChanged wipes the notice bar on the way past — the operator would
+        // watch the explanation they were just given disappear.
+        if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
+            return RefuseVoucherVerbOnStockRow("Alteration (Ctrl+Enter)")
+                ? VoucherAlterationRequest.Refused
+                : VoucherAlterationRequest.NoVoucherHere;
 
+        var voucher = Company.FindVoucher(id)!;
         return ShowVoucherAlteration(voucher);
     }
 
@@ -8638,9 +8949,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        if (voucherId is not { } id) return VoucherAlterationRequest.NoVoucherHere;
-        if (Company.FindVoucher(id) is not { } voucher) return VoucherAlterationRequest.NoVoucherHere;
+        // Census 4.9–4.16 — the duplicate sibling of the clause in RequestAlterHighlightedVoucher, and for its
+        // reasons exactly. Alt+2 is the worse of the two to leave silent: it is not followed by a fall-through
+        // arm of any kind, so on a stock row it was a key that did nothing at all and said nothing at all.
+        if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
+            return RefuseVoucherVerbOnStockRow("Duplicate (Alt+2)")
+                ? VoucherAlterationRequest.Refused
+                : VoucherAlterationRequest.NoVoucherHere;
 
+        var voucher = Company.FindVoucher(id)!;
         return ShowVoucherDuplicate(voucher);
     }
 
@@ -8909,12 +9226,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Read the armed action, then tear the prompt down through the ONE teardown before running it, so the
         // channel is disarmed no matter what the action does.
         var pendingCancel = _pendingCancelVoucherId;
+        // Census 4.9–4.16 — the pure-stock cancellation slot, read and torn down with the other two so the
+        // channel is disarmed no matter what the action does.
+        var pendingCancelStock = _pendingCancelInventoryVoucherId;
         var pendingDeleteKind = _pendingDeleteKind;
         var pendingDeleteId = _pendingDeleteId;
+        // Census 4.17 — the third armed action, read with the other two and torn down with them below.
+        var pendingConvert = _pendingConvertMemorandumId;
         ResetMasterAcceptPrompt();
         if (pendingCancel != Guid.Empty)
         {
             CancelPendingVoucher(pendingCancel);
+            return true;
+        }
+
+        if (pendingCancelStock != Guid.Empty)
+        {
+            CancelPendingInventoryVoucher(pendingCancelStock);
+            return true;
+        }
+
+        if (pendingConvert != Guid.Empty)
+        {
+            ConvertPendingMemorandum(pendingConvert);
             return true;
         }
 
@@ -8980,6 +9314,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AcceptPromptText = string.Empty;
         // The armed cancellation is part of the prompt's state and dies with it.
         _pendingCancelVoucherId = Guid.Empty;
+        // Census 4.9–4.16 — and so does the PURE-STOCK one. Missing this line is the exact defect the two
+        // comments around it describe, one aggregate over: an armed action that outlives its prompt lets a plain
+        // "Y" on the next unrelated Accept confirmation, anywhere in the app, cancel a posted stock movement.
+        _pendingCancelInventoryVoucherId = Guid.Empty;
         // Phase 10.11 S4 — and so is the armed DELETION. Missing this line is the defect S3's own comment
         // describes one verb earlier: an armed action that outlives its prompt lets a plain "Y" on the next
         // unrelated Accept confirmation, anywhere in the app, execute it. With Delete behind the channel that is
@@ -8992,6 +9330,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // asymmetry the next reader would trip over. This is a different category from the dead clause the comment
         // above describes: that one CLAIMED a mechanism it could not deliver.
         _pendingDeleteId = Guid.Empty;
+        // Census 4.17 — and so is the armed CONVERSION, for the reason the two lines above give with a destructive
+        // verb behind them. An armed conversion that outlived its prompt would let a plain "Y" on the next
+        // unrelated Accept confirmation, anywhere in the app, post a memorandum onto the real books.
+        // `A_dismissed_conversion_cannot_be_executed_by_a_later_unrelated_Y` pins it.
+        _pendingConvertMemorandumId = Guid.Empty;
     }
 
     /// <summary>
@@ -9155,6 +9498,134 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Message = $"Cannot convert: {ex.Message}";
             return null;
         }
+    }
+
+    // ============================ census 4.17 (T2-9): the ROUTE that was missing for ConvertMemorandum ===========
+
+    /// <summary>
+    /// The memorandum a raised conversion confirmation will regularise, or <see cref="Guid.Empty"/> when the
+    /// confirmation currently up (if any) is something else.
+    ///
+    /// <para>A THIRD armed slot on the ONE confirmation channel, for the reason
+    /// <see cref="_pendingCancelVoucherId"/> and <see cref="_pendingDeleteKind"/> already give in full: a second
+    /// pair of Y/N key arms would have to be inserted into the window's first-match-wins chain, and a stray
+    /// accelerator answering a confirmation nobody read is the defect that duplication produces.
+    /// <see cref="ConfirmMasterAccept"/> branches on it and <see cref="ResetMasterAcceptPrompt"/> disarms it.</para>
+    /// </summary>
+    private Guid _pendingConvertMemorandumId;
+
+    /// <summary>
+    /// <b>Raises the Y/N confirmation for converting the memorandum highlighted on the live Memorandum Register
+    /// into a real voucher</b> (census 4.17 / <c>T2-9</c>). Returns <c>true</c> when the prompt was raised;
+    /// <c>false</c> (a quiet no-op, or a named notice) otherwise.
+    ///
+    /// <para>🔴 <b>THIS IS THE MISSING HALF THE CENSUS RECORDS, AND THE ENGINE WAS NEVER THE GAP.</b>
+    /// <see cref="ConvertMemorandum"/> and <c>LedgerService.ConvertToRegular</c> both shipped complete — with the
+    /// audit verb <c>VoucherEditVerb.ConvertMemorandum</c> (persisted ordinal 3) already reserved for them — and
+    /// had <b>zero production callers and no key route</b>, which is this project's thrice-filed dead-feature
+    /// shape. A memorandum could be posted and never regularised by any keystroke a user could press.</para>
+    ///
+    /// <para>🔴 <b>CONFIRMED, NOT FIRED ON THE KEYSTROKE, BECAUSE THIS VERB PUTS MONEY ON THE BOOKS.</b> A
+    /// memorandum is a NON-POSTING note: <c>LedgerBalances.IsProvisionalBaseType</c> excludes it from every
+    /// balance. Converting it posts a real voucher through the validating path and then REMOVES the memo — so one
+    /// keystroke moves the Trial Balance, the Balance Sheet and the P&amp;L, and there is no un-convert. It is
+    /// therefore gated exactly as Alt+X (cancel) and Alt+D (delete) are, on the same single channel, with the
+    /// prompt naming the memo and the target type.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler</b> — the same division
+    /// <see cref="RequestCancelHighlightedVoucher"/> draws, so a button route and the accelerator can never
+    /// diverge: no company / no report · a confirmation already up (never stack a second) · the highlighted row
+    /// resolves to no voucher (a header, the total, the empty-state note, or the <see cref="Guid.Empty"/> a
+    /// non-drillable row carries — one lookup answers all of them) · the voucher is not a memorandum · no active
+    /// target voucher type is configured.</para>
+    ///
+    /// <para><b>Fidelity (R7 / RULING 14), stated honestly rather than overclaimed.</b> The CAPABILITY is
+    /// vendor-attested: <i>"You can alter and convert a Memo voucher into a regular voucher when you decide to
+    /// bring the entry into your books"</i>, and the worked example <i>"enter a Memo voucher when the cash is
+    /// advanced, and then turn it into a Payment voucher for the actual amount spent"</i>
+    /// (<c>help.tallysolutions.com/docs/te9rel65/Voucher_Entry/Optional_Non-Accounting_Vouchers/Memorandum_Voucher.htm</c>).
+    /// 🔴 <b>That page is a Tally.ERP 9 page, and this build does NOT treat it as a TallyPrime route.</b> The
+    /// TallyPrime-era page <c>help.tallysolutions.com/voucher-types-tally/</c> confirms Memorandum survives as one
+    /// of the predefined voucher types and is special-cased there ("Not applicable to Memorandum voucher and
+    /// Reversing Journal voucher types"), but describes no conversion and gives no chord, and
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/</c> lists none either.
+    /// <b>So the capability is cloned and the ROUTE AND CHORD ARE OURS</b>, shipped as a documented divergence
+    /// under R7's last clause rather than dressed up as fidelity — which is why this chord is deliberately NOT in
+    /// <see cref="ShellChordTable"/>, whose contract is "where the vendor is silent the chord is absent".</para>
+    /// </summary>
+    public bool RequestConvertHighlightedMemorandum()
+    {
+        if (Company is null || Reports is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row, so a
+        // stale notice would paint underneath the confirmation. Same reason as the cancellation door.
+        Notice = string.Empty;
+
+        if (Reports.SelectedRow is not { DrillVoucherId: var id }) return false;
+        if (Company.FindVoucher(id) is not { } voucher) return false;
+
+        // Not a memorandum. Unreachable through the register's own rows (it lists memoranda only) but this door is
+        // public and the engine's refusal would otherwise surface as a bare exception message.
+        if (Company.FindVoucherType(voucher.TypeId) is not { BaseType: VoucherBaseType.Memorandum })
+        {
+            RaiseLifecycleNotice($"{VoucherLabel(voucher)} is not a memorandum; only memoranda are converted.");
+            return false;
+        }
+
+        // Resolved HERE as well as inside ConvertMemorandum, deliberately: the prompt must NAME the type the memo
+        // will become, and a question that cannot be answered truthfully must not be asked at all. The same
+        // inactive-type rule every other route applies — a provisional voucher must not silently become a real one
+        // under a series the operator switched off.
+        if (VoucherTypeResolver.ResolveForEntry(Company, VoucherBaseType.Journal) is not { } target)
+        {
+            RaiseLifecycleNotice(
+                $"No active '{VoucherTypeResolver.DisplayName(Company, VoucherBaseType.Journal)}' voucher type "
+                + "is configured to convert into.");
+            return false;
+        }
+
+        _pendingConvertMemorandumId = id;
+        // 🔴 THE WORDING IS OURS AND IT MUST TELL THE TRUTH ABOUT THE BOOKS — the lesson
+        // `The_prompt_tells_the_truth_about_the_books` pinned one verb earlier, where a cancellation prompt claimed
+        // "the books are unaffected" and meant the exact opposite. A memorandum counts for NOTHING today; after
+        // this it counts for everything, and the memo itself is gone.
+        AcceptPromptText = $"Convert {VoucherLabel(voucher)} to {target.Name}? "
+                           + "The memorandum counts for nothing today — the converted voucher will move every "
+                           + "balance it touches, and the memorandum is removed. This cannot be undone. (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// "Y" on the conversion confirmation: regularises the armed memorandum through
+    /// <see cref="ConvertMemorandum"/> and rebuilds the live register so the converted memo leaves it immediately.
+    ///
+    /// <para>It goes through <see cref="ConvertMemorandum"/> rather than calling
+    /// <c>LedgerService.ConvertToRegular</c> again, so the engine call, the <c>_storage.Save</c> and the
+    /// success/failure messages have exactly ONE implementation — the method census 4.17 says had no callers now
+    /// has its caller, instead of a second copy of it beside it.</para>
+    ///
+    /// <para>The rebuild is not cosmetic: <c>MemorandumRegister.Build</c> lists memoranda only, so a successful
+    /// conversion must drop the row. Without the refresh the register would keep showing a memo that no longer
+    /// exists, and the next keystroke on that row would resolve to a deleted voucher.</para>
+    /// </summary>
+    private void ConvertPendingMemorandum(Guid memorandumVoucherId)
+    {
+        var converted = ConvertMemorandum(memorandumVoucherId);
+
+        // ConvertMemorandum has already put the outcome — the named refusal, or the "Memorandum converted to …"
+        // confirmation — on `Message`. It is re-raised as a lifecycle NOTICE because the report page's
+        // DataTemplate is typed `x:DataType="vm:ReportsViewModel"` and has no `Message` property at all, so an
+        // operator standing on the register would otherwise be told nothing either way. That is the S3 review's
+        // finding, inherited rather than rediscovered. `Message` is declared nullable on this view model, hence
+        // the coalesce — a refusal that somehow left it unset must still not blank the bar silently.
+        RaiseLifecycleNotice(Message ?? string.Empty);
+
+        // Rebuilt ONLY on success. MemorandumRegister.Build lists memoranda only, so a converted memo must leave
+        // the register; a refused conversion changed nothing, and re-running the report would merely throw away
+        // the operator's highlight for no reason.
+        if (converted is not null) Reports?.Show(Reports.Kind);
     }
 
     /// <summary>
@@ -10118,8 +10589,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // prompt is "MODAL against Alt+letter chords" while leaving this one open.
         // So: answer the lifecycle question first. Two presses, exactly the doctrine already settled for Alt+Y and
         // for Escape. Nothing is saved, nothing is discarded, and the question stays on screen.
+        // Census 4.9–4.16 — the pure-stock cancellation is on this list for the identical reason the other two
+        // are: it is a lifecycle question about a DIFFERENT object than the one Ctrl+A would save. Omitting it
+        // would leave exactly the measured hole described above, one aggregate over.
         if (IsAcceptPromptOpen
-            && (_pendingDeleteKind != DeletionTarget.None || _pendingCancelVoucherId != Guid.Empty))
+            && (_pendingDeleteKind != DeletionTarget.None
+                || _pendingCancelVoucherId != Guid.Empty
+                || _pendingCancelInventoryVoucherId != Guid.Empty))
         {
             RaiseLifecycleNotice("Answer the question on screen first (Y or N) — Ctrl+A does nothing while it is up.");
             return;
@@ -11106,6 +11582,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
                 return Screen.VoucherDetail;
+            // Census 4.9–4.16 — the pure-stock drill column, on the same rule as the accounting one beside it.
+            // Without this arm ClearSubScreens would null the property on a pop and the surviving column would
+            // render EMPTY while its GatewayColumn was still in the cascade.
+            case InventoryVoucherDetailViewModel ivd:
+                InventoryVoucherDetail = ivd;
+                return Screen.InventoryVoucherDetail;
             // A dashboard column survives beneath a just-popped Alt+C tile-configuration column (census 14.3).
             // 🔴 CloseTileConfig() is load-bearing, not tidying: OpenDashboardTileConfig REFUSES while
             // `dash.TileConfig` is non-null ("already open — don't stack a second one"), so leaving it set after
@@ -11596,6 +12078,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // same rule the Alt+C row above records after key and button once did different things.
         ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
             () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
+
+        // Census 4.17 (T2-9) — CONVERT MEMORANDUM, offered on the Memorandum Register and nowhere else.
+        // 🔴 THE ROW IS ADDED CONDITIONALLY RATHER THAN DIMMED, and the asymmetry with Alt+2 above is deliberate.
+        // Alt+2's badge is always present because its chord is bound app-wide and an absent badge would hide a live
+        // key. This chord is bound ONLY on this one report (see the bare-`C` arm in MainWindow.OnKeyDown), so a
+        // permanent badge would advertise a key that is genuinely dead on every other screen — register defect
+        // IV-31, the very fault the Alt+2 comment cites. The badge and the key therefore appear and disappear
+        // together, on the same predicate. Pinned by
+        // `The_convert_badge_is_shown_on_the_register_and_absent_everywhere_else` (mutation-verified: replacing
+        // this predicate with `true` reddens exactly that test and nothing else).
+        if (IsMemorandumRegisterReport)
+            ButtonBar.Add(new ButtonBarItem("C", "Convert Memo",
+                () => RequestConvertHighlightedMemorandum(), true));
 
         // W2-14 (row 14.1) — Alt+G GO TO. Advertised for the same reason Alt+2 above is: a chord nobody can
         // find is not a feature, and this file already states that rule twice. Go To is worse than most in that
