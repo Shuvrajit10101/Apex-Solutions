@@ -217,8 +217,14 @@ public sealed record ItcGateView(
     /// purchase/expense legs (the ledger's <see cref="Domain.Ledger.SalesPurchaseGst"/> block). The party/cash-bank
     /// counter-leg, the tax legs and Round Off are excluded. An unclassified line defaults to <see cref="ItcEligibility.Eligible"/>.
     /// The three sums drive the per-head paisa-exact tax split.
+    /// <para>🔴 <b>Made public for census row 6.24 (ISD), and deliberately SHARED rather than re-implemented.</b>
+    /// Rule 39(1)(b) requires an Input Service Distributor to "<i>separately distribute the amount of ineligible
+    /// input tax credit (ineligible under the provisions of sub-section (5) of section 17 or otherwise) and the
+    /// amount of eligible input tax credit</i>", which is the same §17(5)/Table-4(D) question this method already
+    /// answers for the ITC gate. A second copy in <see cref="Gstr6"/> would be free to drift, and the two would
+    /// then disagree about the same voucher on two filed documents. Nothing about the behaviour changed here.</para>
     /// </summary>
-    private static (decimal Eligible, decimal Blocked, decimal Ineligible) ClassifyBaseValue(Company company, Voucher voucher)
+    public static (decimal Eligible, decimal Blocked, decimal Ineligible) ClassifyBaseValue(Company company, Voucher voucher)
     {
         decimal elig = 0m, blocked = 0m, ineligible = 0m;
 

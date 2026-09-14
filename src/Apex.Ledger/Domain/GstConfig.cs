@@ -296,6 +296,37 @@ public sealed class GstConfig
             ? PrimaryRegistration
             : _additionalRegistrations.FirstOrDefault(r => r.Id == id);
 
+    // --- Input Service Distributor (census row 6.24). No new storage: an ISD is a registration whose existing
+    //     registration_type ordinal is GstRegistrationType.InputServiceDistributor. ---
+
+    /// <summary>
+    /// The registrations this company holds as an <b>Input Service Distributor</b> — the offices that receive
+    /// invoices for common input services and distribute the credit (census row 6.24). Empty for every book that
+    /// has never created one, which is every book before this slice (ER-13).
+    /// </summary>
+    public IReadOnlyList<GstRegistration> IsdRegistrations =>
+        AllRegistrations.Where(r => r.RegistrationType == GstRegistrationType.InputServiceDistributor).ToList();
+
+    /// <summary>
+    /// True once the company holds at least one ISD registration — the gate on the GSTR-6 screen and its menu row.
+    /// False for every pre-existing book, so the Gateway menu it hangs from is byte-identical (ER-13).
+    /// </summary>
+    public bool HasIsdRegistration => IsdRegistrations.Count > 0;
+
+    /// <summary>
+    /// The <b>recipients of credit</b> for an ISD distribution — §20 Explanation (b): "<i>the expression
+    /// 'recipient of credit' means the supplier of goods or services or both having the same Permanent Account
+    /// Number as that of the Input Service Distributor</i>" (CGST Act, cbic-gst.gov.in). Inside one company's book
+    /// every registration shares the company's PAN by construction, so the recipients are simply the company's
+    /// other registrations — the ISD itself is excluded (it is the distributor, not a recipient), and so is any
+    /// other ISD registration, which cannot receive distributed credit.
+    /// </summary>
+    public IReadOnlyList<GstRegistration> IsdRecipientRegistrations(Guid isdRegistrationId) =>
+        AllRegistrations
+            .Where(r => r.Id != isdRegistrationId
+                        && r.RegistrationType != GstRegistrationType.InputServiceDistributor)
+            .ToList();
+
     // --- GST Classifications (census row 6.25; schema v61). VENDOR-ATTESTED; see GstClassification. ---
 
     /// <summary>
@@ -334,7 +365,11 @@ public sealed class GstConfig
             Domain.Gstin.Validate(Gstin);
 
         // A Composition dealer is a registered person too, so it also requires a GSTIN (Phase 9 slice 3; RQ-4).
-        if (RegistrationType is GstRegistrationType.Regular or GstRegistrationType.Composition && Gstin is null)
+        // So is an Input Service Distributor — its registration is compulsory and separate (census 6.24; see
+        // GstRegistration's constructor for the CBIC citation), and GSTR-6 cannot be filed without the GSTIN.
+        if (RegistrationType is GstRegistrationType.Regular or GstRegistrationType.Composition
+                or GstRegistrationType.InputServiceDistributor
+            && Gstin is null)
             throw new ArgumentException($"A {RegistrationType} GST registration requires a GSTIN.");
 
         // A Composition registration must declare its sub-type (drives the tax-on-turnover rate + base).
@@ -378,20 +413,41 @@ public sealed class GstConfig
         // checked HERE is the set-level rules — no row may claim the reserved primary id, no two registrations may
         // share a State (the vendor's registrations are per-State, and two in one State would make "which return
         // does this voucher belong to" undecidable), and no two may share a GSTIN.
+        // 🔴 AMENDED FOR CENSUS ROW 6.24 (ISD), AND THE AMENDMENT IS NARROW ON PURPOSE. The one-registration-per-State
+        // rule above is right for ordinary registrations and WRONG for an Input Service Distributor, because the
+        // statute makes an ISD a SEPARATE registration that ordinarily sits alongside an operating one in the SAME
+        // State. CBIC's own worked example is exactly that shape: "The Corporate office of ABC Ltd., is at Bangalore,
+        // with its business locations of selling and servicing of goods at Bangalore, Chennai, Mumbai and Kolkata …
+        // the Bangalore Corporate office has to act as ISD to distribute the credit"
+        // (cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf). Two Karnataka registrations,
+        // one Regular and one ISD. Rejecting that would make row 6.24 unbuildable for the documented case.
+        //
+        // The rule's stated reason does NOT apply to an ISD: "which return does this voucher belong to" stays
+        // decidable because an ISD files GSTR-6 alone (§39(4)) and records no outward supply, so it never competes
+        // with the Regular registration for a voucher — and every return is scoped by the voucher's own explicit
+        // gst_registration_id regardless. What is NOT relaxed: two ISDs may not share a State (no source permits it),
+        // two NON-ISD registrations may not share a State (unchanged), and no two may share a GSTIN (unchanged).
+        static bool IsIsd(GstRegistrationType t) => t == GstRegistrationType.InputServiceDistributor;
+
         foreach (var r in _additionalRegistrations)
         {
             if (r.Id == GstRegistration.PrimaryId)
                 throw new ArgumentException(
                     "An additional GST registration must not use the reserved primary registration id.");
 
-            if (string.Equals(r.StateCode, HomeStateCode, StringComparison.Ordinal))
+            if (string.Equals(r.StateCode, HomeStateCode, StringComparison.Ordinal)
+                && IsIsd(r.RegistrationType) == IsIsd(RegistrationType))
                 throw new ArgumentException(
                     $"GST registration '{r.Name}' is in State {r.StateCode}, which is already the company's own registration State.");
         }
 
-        if (_additionalRegistrations.Select(r => r.StateCode).Distinct(StringComparer.Ordinal).Count()
-            != _additionalRegistrations.Count)
-            throw new ArgumentException("Two GST registrations may not be in the same State/UT.");
+        // Same-State uniqueness, applied WITHIN each of the two kinds rather than across the whole set.
+        foreach (var kind in new[] { false, true })
+        {
+            var ofKind = _additionalRegistrations.Where(r => IsIsd(r.RegistrationType) == kind).ToList();
+            if (ofKind.Select(r => r.StateCode).Distinct(StringComparer.Ordinal).Count() != ofKind.Count)
+                throw new ArgumentException("Two GST registrations may not be in the same State/UT.");
+        }
 
         var gstins = _additionalRegistrations
             .Select(r => r.Gstin).Concat(new[] { Gstin })

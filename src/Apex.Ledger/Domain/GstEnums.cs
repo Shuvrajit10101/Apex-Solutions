@@ -18,6 +18,27 @@ public enum GstRegistrationType
 
     /// <summary>End consumer (no GSTIN) — a B2C party.</summary>
     Consumer,
+
+    /// <summary>
+    /// <b>Input Service Distributor</b> (census row 6.24) — an office of the supplier that receives tax invoices
+    /// for <i>input services</i> and distributes the credit to other units holding the same PAN. It is a
+    /// <b>registration type</b> here and not a flag because the statute makes it a separate registration:
+    /// "<i>An ISD will have to compulsorily take a separate registration as such ISD and apply for the same in
+    /// form GST REG-1. There is no threshold limit for registration for an ISD.</i>"
+    /// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>).
+    ///
+    /// <para>🔴 <b>Appended LAST on purpose, and this is why it is NOT a schema change.</b> The value is persisted
+    /// as the enum ordinal into the existing <c>INTEGER</c> columns <c>companies.gst_reg_type</c> and
+    /// <c>gst_registrations.registration_type</c>; appending takes ordinal <c>4</c> and renumbers nothing, so
+    /// every stored 0–3 keeps its meaning and <c>PRAGMA table_info</c> is byte-identical. Inserting it anywhere
+    /// above would silently re-label every existing book's registration.</para>
+    ///
+    /// <para>An ISD is <b>not</b> an outward-supply dealer: it "<i>itself cannot discharge any tax liability</i>"
+    /// (same CBIC flier), so it files <b>GSTR-6</b> (§39(4), within thirteen days after the end of the month) and
+    /// not GSTR-1/3B. Nothing in this build treats it as a Regular dealer — <c>IsRegularGstDealer</c> compares
+    /// against <see cref="Regular"/> — so a company that never creates one is byte-identical (ER-13).</para>
+    /// </summary>
+    InputServiceDistributor,
 }
 
 /// <summary>

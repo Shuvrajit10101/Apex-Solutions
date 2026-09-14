@@ -189,6 +189,10 @@ public enum Screen
     Gstr9Report,
     Gstr9cReport,
 
+    /// <summary>The FORM GSTR-6 Input Service Distributor return (census row 6.24) — surfaced only for a company
+    /// that actually holds an ISD registration, under Reports → Statutory Reports → GST Returns (Advanced).</summary>
+    Gstr6Report,
+
     // The GST offline-return JSON files page (W2-06; census row 6.10) — surfaced for BOTH registration types, under
     // Reports → Statutory Reports → GST Returns (Advanced) (Regular) and → Composition Returns (Composition).
     GstOfflineReturns,
@@ -546,6 +550,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
 
+    /// <summary>The GSTR-6 Input Service Distributor return (census row 6.24), non-null only while that page is open.</summary>
+    [ObservableProperty] private Gstr6ReportViewModel? _gstr6Report;
+
     /// <summary>The GST offline-return JSON files page (W2-06), non-null only while that page is open.</summary>
     [ObservableProperty] private GstOfflineReturnsViewModel? _gstOfflineReturns;
 
@@ -865,7 +872,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9Report is null && Gstr9cReport is null && GstOfflineReturns is null
+        && Gstr9Report is null && Gstr9cReport is null && Gstr6Report is null && GstOfflineReturns is null
         && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
@@ -929,6 +936,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstr6ReportChanged(Gstr6ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstOfflineReturnsChanged(GstOfflineReturnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnItcSetOffReportChanged(ItcSetOffReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2717,6 +2725,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private bool IsRegularGstDealer =>
         Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
 
+    /// <summary>
+    /// True iff the open company holds at least one <b>Input Service Distributor</b> registration (census row 6.24) —
+    /// the gate on the GSTR-6 row and its page. Deliberately separate from <see cref="IsRegularGstDealer"/>: an ISD
+    /// is an extra registration held ALONGSIDE the operating one, not a different kind of company, so the ordinary
+    /// Regular-dealer surfacing is untouched. False for every company that has never created one, which keeps the
+    /// GST Returns (Advanced) column byte-identical to before this slice (ER-13).
+    /// </summary>
+    private bool HasIsdRegistration => Company?.Gst is { Enabled: true, HasIsdRegistration: true };
+
     /// <summary>Builds the "Annual Returns" submenu column (Reports → Statutory Reports → Annual Returns; Phase 9 UI-1;
     /// RQ-17): the two annual GST returns — <b>GSTR-9</b> (annual return) and <b>GSTR-9C</b> (reconciliation statement) —
     /// each a page item projecting the pure Gstr9 / Gstr9c engines.</summary>
@@ -2745,6 +2762,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("QRMP / IFF", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GST Amendments", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("e-Invoice / e-Way Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census row 6.24: the Input Service Distributor return. Shown ONLY when the company actually holds an ISD
+        // registration — GSTR-6 is filed by an ISD and by nobody else (§39(4)), and a row leading to an empty page
+        // for every other company would be a false affordance. A company with no ISD sees this column exactly as it
+        // was before the slice (ER-13).
+        if (HasIsdRegistration)
+            col.Add(new MenuItemViewModel("GSTR-6 (ISD)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // W2-06 (census row 6.10): the offline JSON files a Regular dealer actually uploads — GSTR-1 / 3B / 9 / 9C.
         col.Add(new MenuItemViewModel("Offline Return Files (JSON)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
@@ -6083,6 +6106,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>GSTR-6</b> Input Service Distributor return (Reports → Statutory Reports → GST Returns (Advanced)
+    /// → GSTR-6 (ISD); census row 6.24). A no-op unless the company actually holds a registration of type
+    /// <see cref="GstRegistrationType.InputServiceDistributor"/> — GSTR-6 is filed by an ISD and by nobody else
+    /// (§39(4) of the CGST Act), so a company that has never created one never reaches this page and its Gateway is
+    /// byte-identical to before the slice (ER-13).
+    /// </summary>
+    public void OpenGstr6Report()
+    {
+        if (Company is null || !HasIsdRegistration) return;
+        var page = new Gstr6ReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GSTR-6 (ISD)", page), Screen.Gstr6Report,
+            "Form GSTR-6 — Input Service Distributor Return", () => Gstr6Report = page);
+    }
+
+    /// <summary>
     /// Opens the <b>GST offline return files</b> page (Reports → Statutory Reports → GST Returns (Advanced) → Offline
     /// Return Files (JSON) for a Regular dealer; → Composition Returns → Offline Return Files (JSON) for a Composition
     /// dealer). This is the ONLY route to <see cref="Apex.Ledger.Io.GstReturnJson"/> — before W2-06 that writer had zero
@@ -7249,6 +7287,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Gstr4Report = null;
         Gstr9Report = null;
         Gstr9cReport = null;
+        Gstr6Report = null;
         GstOfflineReturns = null;
         ElectronicLedgersReport = null;
         ItcSetOffReport = null;
@@ -10097,6 +10136,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
             case Screen.Gstr9Report:
             case Screen.Gstr9cReport:
+            case Screen.Gstr6Report:
             case Screen.ElectronicLedgersReport:
             case Screen.ItcSetOffReport:
             case Screen.ItcReversalReport:
@@ -10615,6 +10655,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // GST Returns (Advanced).
             case "GSTR-9": OpenGstr9Report(); break;
             case "GSTR-9C": OpenGstr9cReport(); break;
+            // Census row 6.24 — the Input Service Distributor return.
+            case "GSTR-6 (ISD)": OpenGstr6Report(); break;
             // The offline-return JSON page (W2-06). "GSTR-9A" opens it already on the composition annual return —
             // the only route that form has ever had (census row 6.13).
             case "GSTR-9A": OpenGstOfflineReturns(GstOfflineReturnKind.Gstr9a); break;

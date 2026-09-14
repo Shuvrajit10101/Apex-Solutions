@@ -127,7 +127,13 @@ public sealed class GstRegistration
 
         // A registered person is a registered person whichever State the registration is in — the same rule
         // GstConfig.EnsureValid applies to the first registration, applied here so the second cannot be weaker.
-        if (registrationType is GstRegistrationType.Regular or GstRegistrationType.Composition && gstin is null)
+        // 🔴 InputServiceDistributor is in this list for the same reason and not by analogy: the CBIC flier
+        // "Input Service Distributor in GST" states an ISD "will have to compulsorily take a separate registration
+        // as such ISD", so an ISD registration that carries no GSTIN is not a thing that exists. GSTR-6 prints the
+        // distributor's GSTIN on every ISD invoice, so allowing a null here would produce an unfileable return.
+        if (registrationType is GstRegistrationType.Regular or GstRegistrationType.Composition
+                or GstRegistrationType.InputServiceDistributor
+            && gstin is null)
             throw new ArgumentException($"A {registrationType} GST registration requires a GSTIN.", nameof(gstin));
 
         Id = id;

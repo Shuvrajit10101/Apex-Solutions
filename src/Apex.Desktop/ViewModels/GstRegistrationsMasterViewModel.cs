@@ -65,9 +65,15 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
     /// <summary>The recognised State/UT codes, offered as "&lt;code&gt; — &lt;name&gt;" for the picker.</summary>
     public ObservableCollection<string> StateOptions { get; } = new();
 
-    /// <summary>The registration types the vendor offers on this screen.</summary>
+    /// <summary>
+    /// The registration types the vendor offers on this screen, plus <b>Input Service Distributor</b> (census row
+    /// 6.24). The ISD entry is the only way a user can create the registration GSTR-6 is filed for, and the ISD is
+    /// a separate registration by statute, not a flag on an existing one: "<i>An ISD will have to compulsorily
+    /// take a separate registration as such ISD</i>"
+    /// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>).
+    /// </summary>
     public ObservableCollection<string> RegistrationTypeOptions { get; } =
-        new(new[] { "Regular", "Composition", "Unregistered", "Consumer" });
+        new(new[] { "Regular", "Composition", "Unregistered", "Consumer", "Input Service Distributor" });
 
     /// <summary>The vendor's "Periodicity of GSTR-1" choices — "Monthly or Quarterly".</summary>
     public ObservableCollection<string> PeriodicityOptions { get; } = new(new[] { "Monthly", "Quarterly" });
@@ -206,6 +212,7 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
         "Composition" => GstRegistrationType.Composition,
         "Unregistered" => GstRegistrationType.Unregistered,
         "Consumer" => GstRegistrationType.Consumer,
+        "Input Service Distributor" => GstRegistrationType.InputServiceDistributor,
         _ => GstRegistrationType.Regular,
     };
 

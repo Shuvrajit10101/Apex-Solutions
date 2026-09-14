@@ -12851,6 +12851,166 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: GSTR-6 — Input Service Distributor return (census row 6.24).
+                         Rule 39 of the CGST Rules + §20 / §39(4) of the CGST Act, both cbic-gst.gov.in. The
+                         §20(2)(b) check — received vs distributed, and their difference — is given its own row
+                         rather than left to be added off the grid, because it is the one error that matters. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr6Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr6Report}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr6ReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- ISD registration + FY + month selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,220,Auto,110,Auto,130,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Distributor" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Name="Gstr6IsdPicker"
+                                        ItemsSource="{Binding IsdRegistrations}"
+                                        SelectedItem="{Binding SelectedIsd, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6IsdOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6FyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="4" Text="Month" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Months}"
+                                        SelectedItem="{Binding SelectedMonth, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6MonthOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <!-- Who is filing, when it is due, and what the pro rata is based on -->
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12">
+                                  <StackPanel Spacing="4">
+                                    <TextBlock Text="Input Service Distributor" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding DistributorText}" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+                                      <TextBlock Grid.Column="0" Text="Due on " FontSize="11" Foreground="#777777"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding DueDateText}" FontSize="11" FontWeight="SemiBold"/>
+                                    </Grid>
+                                    <TextBlock Text="Relevant period for the turnover ratio" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding RelevantPeriodText}" FontSize="11" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Tables 3/4 — input tax credit received for distribution -->
+                                <TextBlock Text="Tables 3 &amp; 4 — Input tax credit received for distribution"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedSgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedIgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Compensation Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding ReceivedCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total credit received" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalReceivedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which eligible (Rule 39(1)(b))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding EligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which ineligible (Rule 39(1)(b))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding IneligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Tables 5/6 — distribution of input tax credit -->
+                                <TextBlock Text="Tables 5 &amp; 6 — Distribution of input tax credit (Rule 39)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="4,3">
+                                  <Grid ColumnDefinitions="*,44,110,90,90,90,80,100">
+                                    <TextBlock Grid.Column="0" Text="Recipient" Margin="4,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="St." Margin="4,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" Text="Eligibility" Margin="4,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="3" Text="CGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="4" Text="SGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="5" Text="IGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="6" Text="Cess" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="7" Text="Total" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                  </Grid>
+                                </Border>
+                                <ListBox Background="White" ItemsSource="{Binding Distribution}">
+                                  <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                      <Setter Property="Padding" Value="0"/>
+                                      <Setter Property="MinHeight" Value="0"/>
+                                    </Style>
+                                  </ListBox.Styles>
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr6RowVm">
+                                      <Grid RowDefinitions="Auto,Auto" Margin="0,1">
+                                        <Grid Grid.Row="0" ColumnDefinitions="*,44,110,90,90,90,80,100" Height="20">
+                                          <TextBlock Grid.Column="0" Text="{Binding Recipient}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding StateCode}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Eligibility}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Cgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Sgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding Igst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="6" Text="{Binding Cess}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0" Foreground="#777777"/>
+                                          <TextBlock Grid.Column="7" Text="{Binding Total}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0" FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <TextBlock Grid.Row="1" Text="{Binding Gstin}" Margin="8,0,6,2" FontSize="10.5" Foreground="#888888"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <!-- §20(2)(b): distributed may not exceed received. The difference is shown, never implied. -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total distributed" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalDistributedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Undistributed (received − distributed)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UndistributedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource AlertRed}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+                                <ItemsControl ItemsSource="{Binding Diagnostics}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                      <Border Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                              Padding="10,6" Margin="0,0,0,4">
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GSTR-4 composition annual return (Phase 9 slice 3; RQ-16) -->
                     <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report}">
