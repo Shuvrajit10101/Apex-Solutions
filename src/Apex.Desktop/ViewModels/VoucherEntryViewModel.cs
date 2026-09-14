@@ -1288,6 +1288,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         RebuildAccountingInvoiceLedgers();
 
         BuildItemInvoicePickers();
+        // Census 2.6 — the Voucher Class picker for this type. Holds only the "◦ Not Applicable" row on a type with
+        // no accounting class, and ShowVoucherClassSelector then keeps the field off the screen entirely (ER-13).
+        BuildVoucherClassOptions();
         BuildSection34Pickers(); // §34 note pickers (a no-op on any non-Credit/Debit-Note type)
         BuildAdvancePickers();   // outstanding-advance pickers (a no-op unless this type adjusts/refunds one)
         AddAdditionalCostRow(); // one blank trailing row ready to type into
@@ -3719,8 +3722,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return valueLegs.Count == 0
                 ? $"no {StockLedgerCaption} leg on it points at a ledger this screen offers for the value leg, so "
                 + "the item total has nothing to post against."
-                : $"it carries {valueLegs.Count} separate {StockLedgerCaption} legs. An item invoice derives "
-                + "exactly one, so this shape can only have arrived from an import.";
+                // 🔴 CENSUS 2.6 MADE THIS SENTENCE'S OLD ENDING FALSE. It used to read "so this shape can only
+                // have arrived from an import", and a split value leg is now the ORDINARY shape of an invoice
+                // raised under a voucher class that pre-maps ledgers. Naming the real cause matters: an operator
+                // told "an import" has nowhere to go, and one told "a voucher class" knows to raise a fresh
+                // invoice under the same class instead. The refusal itself is unchanged — this screen re-derives
+                // exactly one value leg, so re-accepting WOULD collapse the split.
+                : $"it carries {valueLegs.Count} separate {StockLedgerCaption} legs — the shape a voucher class "
+                + "that pre-maps ledgers posts. This screen derives exactly one value leg, so it cannot re-key "
+                + "that split; cancel and raise a fresh invoice under the same class.";
         var valueLeg = valueLegs[0];
         SelectedStockLedger = StockLedgers.First(sl => sl.Id == valueLeg.LedgerId);
 
@@ -3744,10 +3754,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             if (ReferenceEquals(line, partyLeg) || ReferenceEquals(line, valueLeg)) continue;
             if (line.HasGst) continue;                       // re-derived at accept — see this method's summary
             if (line.Side != valueSide)
+                // A downward round-off posted by a voucher class lands here: it is a leg on the side OPPOSITE the
+                // value leg, which no hand-keyed item invoice produces. Refusing is right — this screen has no
+                // panel to re-key it on — but the sentence has to name the likely cause or the operator is told
+                // only that something unnameable is in the way.
                 return $"it carries a leg on '{_company.FindLedger(line.LedgerId)?.Name ?? "an unknown ledger"}' "
                      + "that is none of the four an item invoice builds (the value leg, the party leg, an "
-                     + "additional cost or an engine tax line), so the screen cannot re-key it and re-accepting "
-                     + "would drop it.";
+                     + "additional cost or an engine tax line) — a voucher class's round-off or additional entry "
+                     + "has this shape. The screen cannot re-key it and re-accepting would drop it; cancel and "
+                     + "raise a fresh invoice under the same class.";
             costLegs.Add(line);
         }
 
@@ -5169,6 +5184,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         OnPropertyChanged(nameof(QuantityHeader));
         OnPropertyChanged(nameof(ShowPriceLevelSelector));
         OnPropertyChanged(nameof(LineTotalCaption));
+        // Census 2.6 — ActiveVoucherClass is itself mode-gated, so a Ctrl+H out of item-invoice mode must put the
+        // Sales/Purchases value-ledger field back. Without this the field stayed hidden on a plain Dr/Cr grid that
+        // has no class at all, and the operator had no way to name the value leg.
+        NotifyVoucherClassGates();
         // G-6: the Single-Entry render gates + its projections. Entering the mode stamps the documented polarity on
         // the existing lines; leaving it simply stops re-stamping, so the lines (and their now-visible Dr/Cr labels)
         // survive the flip intact — Ctrl+H is a view switch, never data loss.
@@ -5380,7 +5399,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         if (!IsGstInvoice) return null;
 
-        var valueLedger = SelectedStockLedger;
+        // Census 2.6 — a voucher class replaces the one value ledger with a TABLE of them, so the ledger-level rate
+        // fallback moves with it. GstAnchorLedger states the rule and why a multi-ledger class deliberately has no
+        // anchor rather than an arbitrary one. Without a class this IS SelectedStockLedger (ER-13).
+        var valueLedger = GstAnchorLedger;
         var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
         var interState = _gst.IsInterState(partyState);
 
@@ -6257,6 +6279,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         var partyTotal = total + additionalTotal + taxTotal + cess + tcsTotal;
 
+        // 🔴 CENSUS 2.6 — the class's freight / per-unit duty / round-off move what the party owes, so the band has
+        // to show the figure that will actually post. Omitting this showed ₹1 182.36 above an invoice posting
+        // ₹1 182.00, AND fed SyncInvoiceBillWise below the wrong total, which makes Accept refuse a bill-wise
+        // invoice under a class for a mismatch nothing on screen explains. Zero without a class (ER-13).
+        partyTotal += ClassAdditionalTotalForDisplay(
+            new Money(total), new Money(additionalTotal + taxTotal + cess + tcsTotal));
+
         GstCgstText = IndianFormat.AmountAlways(cgst);
         GstSgstText = IndianFormat.AmountAlways(sgst);
         GstIgstText = IndianFormat.AmountAlways(igst);
@@ -6286,7 +6315,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         CanAccept =
             SelectedParty?.Ledger is not null
-            && SelectedStockLedger is not null
+            // Census 2.6 — a class that pre-maps ledgers IS the value-leg answer, and its field is off the screen,
+            // so gating Accept on a picker the operator was never shown would be unexplainable. Mirrors the same
+            // condition BuildItemInvoice refuses on, so the gate and the build cannot disagree.
+            && (ClassSuppliesValueLedgers || SelectedStockLedger is not null)
             && completeLines >= 1
             && !hasHalfFilled
             && everyLineRateOk
@@ -6445,7 +6477,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             Message = $"Select the {PartyCaption.ToLowerInvariant()} for this item invoice.";
             return null;
         }
-        if (SelectedStockLedger is not { } valueLedger)
+        // 🔴 CENSUS 2.6 — A CLASS CANNOT BE APPLIED TO A POSTED VOUCHER BEING ALTERED, AND THIS REFUSAL IS LOUD ON
+        // PURPOSE. The alteration path carries the posted value leg's cost-centre / forex / bill-wise children
+        // forward by matching ONE value leg (TryCarryDerivedLegChildren below), and a class that pre-maps ledgers
+        // splits that leg into several. Letting it through would drop those children under the word "altered", which
+        // is the exact loss TryCarryDerivedLegChildren was written to stop.
+        if (_alteringPostedAsItemInvoice && ActiveVoucherClass is not null)
+        {
+            Message = "A voucher class cannot be applied while altering a posted invoice — the class re-derives the "
+                    + "value leg, and this screen cannot carry the posted leg's cost-centre, forex and bill-wise "
+                    + "detail across that change. Clear the class, or cancel and raise a fresh invoice under it.";
+            return null;
+        }
+
+        // Without a class the value leg needs its one Sales/Purchases ledger. WITH a class that pre-maps ledgers the
+        // class supplies them and the field is off the screen (see ShowStockLedgerPicker), so demanding it here
+        // would refuse every class invoice for a field the operator was never shown.
+        var valueLedger = SelectedStockLedger;
+        if (!ClassSuppliesValueLedgers && valueLedger is null)
         {
             Message = $"No {StockLedgerCaption} ledger is configured to post the value leg to.";
             return null;
@@ -6631,6 +6680,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             partyAmount = new Money(partyAmount.Amount + tcs.TotalTcs.Amount);
         }
 
+        // ═══ CENSUS 2.6 — THE VOUCHER CLASS'S OWN LEGS ═══════════════════════════════════════════════════════
+        //
+        // 🔴 THESE LEGS POST WITHOUT A PROMPT, so the two things that make them safe are both here and neither is
+        // optional. FIRST, the round-off is measured against the INVOICE, not a pre-tax subtotal: everything the
+        // other engines have already put on this invoice — the additional-cost pool, GST, cess and TCS — is exactly
+        // (partyAmount − taxable) at this point, and that is what goes in as otherCharges. Round the pre-tax figure
+        // instead and a GST invoice comes out at ₹11 800.47, which is not round, silently, on every voucher.
+        // SECOND, the additional legs are SIGNED and the party moves WITH them: a downward round-off is a negative
+        // leg, and a party total that ignored it would overstate what is owed by the rounding.
+        //
+        // Null when no class is in force, which is every invoice on a type that offers none (ER-13).
+        var classLegs = ComputeVoucherClassLegs(
+            taxable, new Money(partyAmount.Amount - taxable.Amount), inventoryLines);
+
+        if (classLegs is { } cls)
+        {
+            var classAdditional = cls.AdditionalLegs.Sum(l => l.Amount.Amount);
+            partyAmount = new Money(partyAmount.Amount + classAdditional);
+        }
+
         // Auto-derive the accounting legs (no hand-balancing): the party carries taxable + additional + tax + TCS; the
         // stock/value leg carries taxable only; the additional-cost + tax + TCS-payable lines are additive. Purchase →
         // Dr Purchases (taxable) / Dr Additional Costs / Dr Input tax / Cr Supplier. Sales → Dr Customer / Cr Sales /
@@ -6650,9 +6719,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // TryCarryDerivedLegChildren states the carry-or-refuse rule. The VALUE leg is tested FIRST because it is
         // the leg the operator's own edit moves, so its sentence is the one that explains what they just did; the
         // party leg moves with it and would otherwise report the same amendment in the supplier's terms.
-        if (!TryCarryDerivedLegChildren(
-                _carriedValueLegChildren, "value leg", valueLedger.Id, taxable,
-                out var valueBills, out var valueCostAllocations, out var valueBank, out var valueForex))
+        //
+        // A class that pre-maps ledgers has no single value leg to carry anything onto — and cannot reach here on
+        // an alteration at all (refused by name at the top of this method), so there is nothing carried to lose.
+        IReadOnlyList<BillAllocation>? valueBills = null;
+        IReadOnlyList<CostAllocation>? valueCostAllocations = null;
+        BankAllocation? valueBank = null;
+        ForexInfo? valueForex = null;
+        if (!ClassSuppliesValueLedgers
+            && !TryCarryDerivedLegChildren(
+                _carriedValueLegChildren, "value leg", valueLedger!.Id, taxable,
+                out valueBills, out valueCostAllocations, out valueBank, out valueForex))
             return null;
         if (!TryCarryDerivedLegChildren(
                 _carriedPartyLegChildren, "party leg", party.Id, partyAmount,
@@ -6667,17 +6744,41 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills,
                             costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex,
                             tcs: belowThresholdDetail);
-        var stockLine = IsPurchaseInvoice
-            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit, billAllocations: valueBills,
-                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex)
-            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit, billAllocations: valueBills,
-                            costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex);
+        // The value leg's NATURAL SIDE — Cr on a sale, Dr on a purchase. A class's legs are signed relative to it,
+        // and VoucherClassLeg.ToEntryLine flips a negative leg to the opposite side rather than dropping it, which
+        // is what makes a downward round-off reduce the invoice instead of doubling it.
+        var valueSide = IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit;
 
-        var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count + tcsPayableLines.Count)
-            { stockLine, partyLine };
+        // 🔴 CENSUS 2.6 — THE LEDGER PRE-MAP REPLACES THE ONE VALUE LEG WITH THE CLASS'S SPLIT. VoucherClassPosting
+        // .Allocate gives the LAST share the remainder, so Σ shares == taxable to the paisa by construction; the
+        // voucher therefore balances for the same reason the single-leg form does. Without a class — or under a
+        // class that only ADDS ledgers and pre-maps none — this is the single leg IN ITS ORIGINAL POSITION, first
+        // and ahead of the party leg, so an existing invoice's leg ORDER is untouched too (ER-13).
+        var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count + tcsPayableLines.Count);
+        if (classLegs is { AllocationLegs.Count: > 0 } premap)
+        {
+            foreach (var leg in premap.AllocationLegs)
+                entryLines.Add(leg.ToEntryLine(valueSide));
+        }
+        else
+        {
+            entryLines.Add(new EntryLine(
+                valueLedger!.Id, taxable, valueSide, billAllocations: valueBills,
+                costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex));
+        }
+
+        entryLines.Add(partyLine);
         entryLines.AddRange(additionalCostLines);
         entryLines.AddRange(taxLines);
         entryLines.AddRange(tcsPayableLines);
+
+        // …and the class's Additional Accounting Entries (freight, a per-unit duty, the invoice round-off). Each is
+        // already folded into partyAmount above, so appending them here is what balances the voucher.
+        if (classLegs is { } added)
+        {
+            foreach (var leg in added.AdditionalLegs)
+                entryLines.Add(leg.ToEntryLine(valueSide));
+        }
 
         // Counterparty captured field (numbering-design-v2 §8) — "Supplier Invoice No." / "Reference No.".
         if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return null;

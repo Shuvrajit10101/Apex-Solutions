@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -32,7 +33,7 @@ public sealed class Gstr9HsnRowVm
 /// both yield a not-applicable projection, ER-13). MVVM boundary: engine only, no Avalonia types (headlessly
 /// testable); deterministic (no clock/RNG beyond the default FY).</para>
 /// </summary>
-public sealed partial class Gstr9ReportViewModel : ViewModelBase
+public sealed partial class Gstr9ReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -206,6 +207,94 @@ public sealed partial class Gstr9ReportViewModel : ViewModelBase
         Table8AText = Table8ACessText = Table8BText = Table8DText = NetItcText = "0.00";
         Table9PaidThroughItcText = Table9PaidInCashText = Table9PayableText = "0.00";
         Table17TaxableValueText = Table17TotalTaxText = "0.00";
+    }
+
+    /// <summary>
+    /// <b>Census 6.12 — the annual return gains an exit.</b> GSTR-9 is signed off by a proprietor or a chartered
+    /// accountant who is not the person driving this screen, so a figure that cannot leave it cannot be reviewed
+    /// by the person who carries the liability for it. E / Alt+E and P / Ctrl+P are the whole of this row's
+    /// recorded gap, alongside <see cref="Gstr9cReportViewModel"/>.
+    ///
+    /// <para><b>Every part is labelled by its statutory table number</b>, not by the screen's own shorthand. An
+    /// annual return is reconciled table-by-table against the twelve monthly GSTR-3Bs and the GSTR-1s; a reviewer
+    /// doing that needs "6  ITC availed" to be findable by the number they are reading off the portal, not by a
+    /// caption this product invented.</para>
+    ///
+    /// <para><b>Table 17 is folded to two rows per HSN rather than six.</b> The grid shows HSN, description, UQC,
+    /// quantity, taxable value and tax; the first four identify the row and the last two are the money. Carrying
+    /// the identity in the label keeps every money figure in the single <see cref="MasterListColumn.Number"/>
+    /// column, so a spreadsheet can foot Table 17 against its own total — which is the one arithmetic check a
+    /// reviewer actually performs on this table. The foot total is carried too, so the check is possible without
+    /// re-adding the rows.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Period", Subtitle },
+            new[] { "Registration", GstinText },
+
+            // Part II Table 4 — outward + inward RCM on which tax IS payable.
+            new[] { "4  Taxable value (outward, tax payable)", Table4TaxableValueText },
+            new[] { "4  Outward tax — CGST", Table4CgstText },
+            new[] { "4  Outward tax — SGST/UTGST", Table4SgstText },
+            new[] { "4  Outward tax — IGST", Table4IgstText },
+            new[] { "4  Outward tax — Cess", Table4CessText },
+            new[] { "4  Inward reverse charge — CGST", Table4RcmCgstText },
+            new[] { "4  Inward reverse charge — SGST/UTGST", Table4RcmSgstText },
+            new[] { "4  Inward reverse charge — IGST", Table4RcmIgstText },
+            new[] { "4  Inward reverse charge — Cess", Table4RcmCessText },
+            new[] { "4  Total tax payable", Table4TotalTaxText },
+
+            // Part II Table 5 — outward on which tax is NOT payable.
+            new[] { "5  Exempt / nil-rated / non-GST outward", Table5ExemptText },
+            new[] { "5  Total turnover", Table5NTurnoverText },
+
+            // Part III Table 6 — ITC availed.
+            new[] { "6  ITC availed — CGST", Table6CgstText },
+            new[] { "6  ITC availed — SGST/UTGST", Table6SgstText },
+            new[] { "6  ITC availed — IGST", Table6IgstText },
+            new[] { "6  ITC availed — Cess", Table6CessText },
+            new[] { "6  ITC reclaimed", Table6ReclaimedText },
+            new[] { "6  Total ITC availed", Table6ItcAvailedText },
+
+            // Part III Table 7 — ITC reversed, by rule.
+            new[] { "7  ITC reversed — rule 37", Table7Rule37Text },
+            new[] { "7  ITC reversed — rule 42", Table7Rule42Text },
+            new[] { "7  ITC reversed — rule 43", Table7Rule43Text },
+            new[] { "7  ITC reversed — section 17(5)", Table7Section17_5Text },
+            new[] { "7  ITC reversed — other", Table7OtherText },
+            new[] { "7  ITC reversed — Cess", Table7CessText },
+            new[] { "7  Total ITC reversed", Table7ItcReversedText },
+
+            // Part III Table 8 — ITC reconciliation.
+            new[] { "8A  ITC as per GSTR-2A / 2B", Table8AText },
+            new[] { "8A  ITC as per GSTR-2A / 2B — Cess", Table8ACessText },
+            new[] { "8B  ITC availed per this return", Table8BText },
+            new[] { "8D  Difference", Table8DText },
+            new[] { "Net ITC", NetItcText },
+
+            // Part IV Table 9 — tax paid.
+            new[] { "9  Tax payable", Table9PayableText },
+            new[] { "9  Paid through ITC", Table9PaidThroughItcText },
+            new[] { "9  Paid in cash", Table9PaidInCashText },
+        };
+
+        // Part VI Table 17 — outward HSN summary. Identity in the label, money in the numeric column.
+        foreach (var h in HsnRows)
+        {
+            var identity = $"17  {h.HsnSac}  {h.Description}  ({h.Quantity} {h.Uqc})".TrimEnd();
+            rows.Add(new[] { identity + " — taxable value", h.TaxableValue });
+            rows.Add(new[] { identity + " — total tax", h.TotalTax });
+        }
+
+        rows.Add(new[] { "17  Total taxable value", Table17TaxableValueText });
+        rows.Add(new[] { "17  Total tax", Table17TotalTaxText });
+
+        return new MasterListSnapshot(
+            Title,
+            new[] { MasterListColumn.Text("Particulars"), MasterListColumn.Number("Amount") },
+            rows);
     }
 
     private static string A(Money m) => IndianFormat.AmountAlways(m);

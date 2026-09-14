@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -23,7 +24,7 @@ namespace Apex.Desktop.ViewModels;
 /// Gated: only reachable for a Regular GST company (Composition / GST-off ⇒ not-applicable, ER-13). MVVM boundary:
 /// engine only, no Avalonia types (headlessly testable); deterministic.
 /// </summary>
-public sealed partial class Gstr9cReportViewModel : ViewModelBase
+public sealed partial class Gstr9cReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -128,6 +129,46 @@ public sealed partial class Gstr9cReportViewModel : ViewModelBase
         BooksTurnoverText = ReturnTurnoverText = UnreconciledTurnoverText = "0.00";
         TaxPerReturnText = TaxPerBooksText = UnreconciledTaxText = "0.00";
         BooksItcText = ReturnItcText = UnreconciledItcText = "0.00";
+    }
+
+    /// <summary>
+    /// <b>Census 6.12 — the second half, and the half whose whole purpose is to be handed over.</b> GSTR-9C is a
+    /// <i>reconciliation statement</i>: it exists to be read by someone checking the books against the returns.
+    /// Of the six "output dead end" rows, this is the one where a page that cannot leave the screen defeats the
+    /// document's entire function.
+    ///
+    /// <para>🔴 <b>Each reconciliation is exported as its three lines — books, return, and the difference —
+    /// never as the difference alone.</b> An unreconciled figure means nothing without the two figures it is the
+    /// gap between: ₹0 unreconciled is a clean tie, and it is also what you get when both sides failed to build.
+    /// A reviewer must be able to see which. Carrying all three is why the export is worth having at all.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Period", Subtitle },
+            new[] { "Registration", GstinText },
+
+            // Part A Table 5 — gross-turnover reconciliation.
+            new[] { "5  Turnover as per books", BooksTurnoverText },
+            new[] { "5  Turnover as per returns", ReturnTurnoverText },
+            new[] { "5  Unreconciled turnover", UnreconciledTurnoverText },
+
+            // Part III Tables 9-11 — tax reconciliation.
+            new[] { "9-11  Tax as per returns", TaxPerReturnText },
+            new[] { "9-11  Tax as per books", TaxPerBooksText },
+            new[] { "9-11  Unreconciled tax", UnreconciledTaxText },
+
+            // Part B Table 12 — net-ITC reconciliation.
+            new[] { "12  ITC as per books", BooksItcText },
+            new[] { "12  ITC as per returns", ReturnItcText },
+            new[] { "12  Unreconciled ITC", UnreconciledItcText },
+        };
+
+        return new MasterListSnapshot(
+            Title,
+            new[] { MasterListColumn.Text("Particulars"), MasterListColumn.Number("Amount") },
+            rows);
     }
 
     private static string A(Money m) => IndianFormat.AmountAlways(m);
