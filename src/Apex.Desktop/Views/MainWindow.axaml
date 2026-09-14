@@ -12544,24 +12544,33 @@
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                       <TextBlock Grid.Column="1" Text="{Binding MethodDisplay}" VerticalAlignment="Center"/>
                                     </Grid>
+                                    <!-- T2-21 (census 2.5): these three are SHOWN ONLY UNDER THE NUMBERING METHODS
+                                         THE VENDOR OFFERS THEM UNDER, and they are HIDDEN rather than merely
+                                         disabled. The vendor states applicability as a property of the option
+                                         ("Applicable to Automatic (Manual Override), and Multi-user Auto"), i.e.
+                                         the option is not part of the form at all on the other methods — a greyed
+                                         box still tells an operator the setting exists here, which is the claim
+                                         being corrected. The predicates carry the verbatim citations. -->
                                     <CheckBox Content="Prevent duplicate numbers"
+                                              IsVisible="{Binding CanPreventDuplicate}"
                                               IsChecked="{Binding PreventDuplicate, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
-                                    <Grid ColumnDefinitions="150,120" IsEnabled="{Binding CanConfigureAffixes}">
+                                    <Grid ColumnDefinitions="150,120" IsVisible="{Binding CanConfigureAffixes}">
                                       <TextBlock Grid.Column="0" Text="Width of numerical part" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
                                                  TextWrapping="Wrap"/>
                                       <TextBox Grid.Column="1" Text="{Binding WidthText, Mode=TwoWay}"/>
                                     </Grid>
-                                    <CheckBox Content="Prefill with zero" IsEnabled="{Binding CanConfigureAffixes}"
+                                    <CheckBox Content="Prefill with zero" IsVisible="{Binding CanConfigureAffixes}"
                                               IsChecked="{Binding PrefillWithZero, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (prefix) -->
+                                <!-- N3 (prefix) — hidden, not greyed, on a method the vendor gives no prefix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="PREFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>
@@ -12587,9 +12596,10 @@
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (suffix) -->
+                                <!-- N3 (suffix) — hidden, not greyed, on a method the vendor gives no suffix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="SUFFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>

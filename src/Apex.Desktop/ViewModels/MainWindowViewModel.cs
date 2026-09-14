@@ -3421,6 +3421,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
+    /// True while the LIVE report is the <b>Memorandum Register</b> (census 4.17) — the single context the
+    /// "Convert Memorandum" verb is offered in.
+    ///
+    /// <para>🔴 <b>It is <see cref="IsLiveReportPage"/>-shaped (<c>Screen.Report</c> only), NOT
+    /// <see cref="IsReportContext"/>-shaped, and that is inherited rather than re-derived.</b> Converting a
+    /// memorandum POSTS A REAL VOUCHER and destroys the memo, so it is a destructive verb by
+    /// <see cref="IsDeleteTargetPage"/>'s own standard, and that property's remarks record exactly what
+    /// <c>IsReportContext</c> costs here: with an F12 config, an Alt+F12 sort/filter or a Print Preview column
+    /// stacked over the register, the chord would act on the row BEHIND the column the operator is standing in.
+    /// <see cref="IsDayBookReport"/> is deliberately NOT copied — it admits the drill screens so its picker column
+    /// can stay open over it, and this verb has no such column.</para>
+    /// </summary>
+    public bool IsMemorandumRegisterReport =>
+        Reports is { Kind: ReportKind.MemorandumRegister } && CurrentScreen == Screen.Report;
+
+    /// <summary>
     /// True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, a drilled voucher-detail
     /// (which prints the voucher / tax invoice), or a page that snapshots itself through
     /// <see cref="IMasterListExportSource"/>. Used to gate the Print shortcut.
@@ -8937,10 +8953,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var pendingCancel = _pendingCancelVoucherId;
         var pendingDeleteKind = _pendingDeleteKind;
         var pendingDeleteId = _pendingDeleteId;
+        // Census 4.17 — the third armed action, read with the other two and torn down with them below.
+        var pendingConvert = _pendingConvertMemorandumId;
         ResetMasterAcceptPrompt();
         if (pendingCancel != Guid.Empty)
         {
             CancelPendingVoucher(pendingCancel);
+            return true;
+        }
+
+        if (pendingConvert != Guid.Empty)
+        {
+            ConvertPendingMemorandum(pendingConvert);
             return true;
         }
 
@@ -9018,6 +9042,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // asymmetry the next reader would trip over. This is a different category from the dead clause the comment
         // above describes: that one CLAIMED a mechanism it could not deliver.
         _pendingDeleteId = Guid.Empty;
+        // Census 4.17 — and so is the armed CONVERSION, for the reason the two lines above give with a destructive
+        // verb behind them. An armed conversion that outlived its prompt would let a plain "Y" on the next
+        // unrelated Accept confirmation, anywhere in the app, post a memorandum onto the real books.
+        // `A_dismissed_conversion_cannot_be_executed_by_a_later_unrelated_Y` pins it.
+        _pendingConvertMemorandumId = Guid.Empty;
     }
 
     /// <summary>
@@ -9181,6 +9210,134 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Message = $"Cannot convert: {ex.Message}";
             return null;
         }
+    }
+
+    // ============================ census 4.17 (T2-9): the ROUTE that was missing for ConvertMemorandum ===========
+
+    /// <summary>
+    /// The memorandum a raised conversion confirmation will regularise, or <see cref="Guid.Empty"/> when the
+    /// confirmation currently up (if any) is something else.
+    ///
+    /// <para>A THIRD armed slot on the ONE confirmation channel, for the reason
+    /// <see cref="_pendingCancelVoucherId"/> and <see cref="_pendingDeleteKind"/> already give in full: a second
+    /// pair of Y/N key arms would have to be inserted into the window's first-match-wins chain, and a stray
+    /// accelerator answering a confirmation nobody read is the defect that duplication produces.
+    /// <see cref="ConfirmMasterAccept"/> branches on it and <see cref="ResetMasterAcceptPrompt"/> disarms it.</para>
+    /// </summary>
+    private Guid _pendingConvertMemorandumId;
+
+    /// <summary>
+    /// <b>Raises the Y/N confirmation for converting the memorandum highlighted on the live Memorandum Register
+    /// into a real voucher</b> (census 4.17 / <c>T2-9</c>). Returns <c>true</c> when the prompt was raised;
+    /// <c>false</c> (a quiet no-op, or a named notice) otherwise.
+    ///
+    /// <para>🔴 <b>THIS IS THE MISSING HALF THE CENSUS RECORDS, AND THE ENGINE WAS NEVER THE GAP.</b>
+    /// <see cref="ConvertMemorandum"/> and <c>LedgerService.ConvertToRegular</c> both shipped complete — with the
+    /// audit verb <c>VoucherEditVerb.ConvertMemorandum</c> (persisted ordinal 3) already reserved for them — and
+    /// had <b>zero production callers and no key route</b>, which is this project's thrice-filed dead-feature
+    /// shape. A memorandum could be posted and never regularised by any keystroke a user could press.</para>
+    ///
+    /// <para>🔴 <b>CONFIRMED, NOT FIRED ON THE KEYSTROKE, BECAUSE THIS VERB PUTS MONEY ON THE BOOKS.</b> A
+    /// memorandum is a NON-POSTING note: <c>LedgerBalances.IsProvisionalBaseType</c> excludes it from every
+    /// balance. Converting it posts a real voucher through the validating path and then REMOVES the memo — so one
+    /// keystroke moves the Trial Balance, the Balance Sheet and the P&amp;L, and there is no un-convert. It is
+    /// therefore gated exactly as Alt+X (cancel) and Alt+D (delete) are, on the same single channel, with the
+    /// prompt naming the memo and the target type.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler</b> — the same division
+    /// <see cref="RequestCancelHighlightedVoucher"/> draws, so a button route and the accelerator can never
+    /// diverge: no company / no report · a confirmation already up (never stack a second) · the highlighted row
+    /// resolves to no voucher (a header, the total, the empty-state note, or the <see cref="Guid.Empty"/> a
+    /// non-drillable row carries — one lookup answers all of them) · the voucher is not a memorandum · no active
+    /// target voucher type is configured.</para>
+    ///
+    /// <para><b>Fidelity (R7 / RULING 14), stated honestly rather than overclaimed.</b> The CAPABILITY is
+    /// vendor-attested: <i>"You can alter and convert a Memo voucher into a regular voucher when you decide to
+    /// bring the entry into your books"</i>, and the worked example <i>"enter a Memo voucher when the cash is
+    /// advanced, and then turn it into a Payment voucher for the actual amount spent"</i>
+    /// (<c>help.tallysolutions.com/docs/te9rel65/Voucher_Entry/Optional_Non-Accounting_Vouchers/Memorandum_Voucher.htm</c>).
+    /// 🔴 <b>That page is a Tally.ERP 9 page, and this build does NOT treat it as a TallyPrime route.</b> The
+    /// TallyPrime-era page <c>help.tallysolutions.com/voucher-types-tally/</c> confirms Memorandum survives as one
+    /// of the predefined voucher types and is special-cased there ("Not applicable to Memorandum voucher and
+    /// Reversing Journal voucher types"), but describes no conversion and gives no chord, and
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/</c> lists none either.
+    /// <b>So the capability is cloned and the ROUTE AND CHORD ARE OURS</b>, shipped as a documented divergence
+    /// under R7's last clause rather than dressed up as fidelity — which is why this chord is deliberately NOT in
+    /// <see cref="ShellChordTable"/>, whose contract is "where the vendor is silent the chord is absent".</para>
+    /// </summary>
+    public bool RequestConvertHighlightedMemorandum()
+    {
+        if (Company is null || Reports is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row, so a
+        // stale notice would paint underneath the confirmation. Same reason as the cancellation door.
+        Notice = string.Empty;
+
+        if (Reports.SelectedRow is not { DrillVoucherId: var id }) return false;
+        if (Company.FindVoucher(id) is not { } voucher) return false;
+
+        // Not a memorandum. Unreachable through the register's own rows (it lists memoranda only) but this door is
+        // public and the engine's refusal would otherwise surface as a bare exception message.
+        if (Company.FindVoucherType(voucher.TypeId) is not { BaseType: VoucherBaseType.Memorandum })
+        {
+            RaiseLifecycleNotice($"{VoucherLabel(voucher)} is not a memorandum; only memoranda are converted.");
+            return false;
+        }
+
+        // Resolved HERE as well as inside ConvertMemorandum, deliberately: the prompt must NAME the type the memo
+        // will become, and a question that cannot be answered truthfully must not be asked at all. The same
+        // inactive-type rule every other route applies — a provisional voucher must not silently become a real one
+        // under a series the operator switched off.
+        if (VoucherTypeResolver.ResolveForEntry(Company, VoucherBaseType.Journal) is not { } target)
+        {
+            RaiseLifecycleNotice(
+                $"No active '{VoucherTypeResolver.DisplayName(Company, VoucherBaseType.Journal)}' voucher type "
+                + "is configured to convert into.");
+            return false;
+        }
+
+        _pendingConvertMemorandumId = id;
+        // 🔴 THE WORDING IS OURS AND IT MUST TELL THE TRUTH ABOUT THE BOOKS — the lesson
+        // `The_prompt_tells_the_truth_about_the_books` pinned one verb earlier, where a cancellation prompt claimed
+        // "the books are unaffected" and meant the exact opposite. A memorandum counts for NOTHING today; after
+        // this it counts for everything, and the memo itself is gone.
+        AcceptPromptText = $"Convert {VoucherLabel(voucher)} to {target.Name}? "
+                           + "The memorandum counts for nothing today — the converted voucher will move every "
+                           + "balance it touches, and the memorandum is removed. This cannot be undone. (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// "Y" on the conversion confirmation: regularises the armed memorandum through
+    /// <see cref="ConvertMemorandum"/> and rebuilds the live register so the converted memo leaves it immediately.
+    ///
+    /// <para>It goes through <see cref="ConvertMemorandum"/> rather than calling
+    /// <c>LedgerService.ConvertToRegular</c> again, so the engine call, the <c>_storage.Save</c> and the
+    /// success/failure messages have exactly ONE implementation — the method census 4.17 says had no callers now
+    /// has its caller, instead of a second copy of it beside it.</para>
+    ///
+    /// <para>The rebuild is not cosmetic: <c>MemorandumRegister.Build</c> lists memoranda only, so a successful
+    /// conversion must drop the row. Without the refresh the register would keep showing a memo that no longer
+    /// exists, and the next keystroke on that row would resolve to a deleted voucher.</para>
+    /// </summary>
+    private void ConvertPendingMemorandum(Guid memorandumVoucherId)
+    {
+        var converted = ConvertMemorandum(memorandumVoucherId);
+
+        // ConvertMemorandum has already put the outcome — the named refusal, or the "Memorandum converted to …"
+        // confirmation — on `Message`. It is re-raised as a lifecycle NOTICE because the report page's
+        // DataTemplate is typed `x:DataType="vm:ReportsViewModel"` and has no `Message` property at all, so an
+        // operator standing on the register would otherwise be told nothing either way. That is the S3 review's
+        // finding, inherited rather than rediscovered. `Message` is declared nullable on this view model, hence
+        // the coalesce — a refusal that somehow left it unset must still not blank the bar silently.
+        RaiseLifecycleNotice(Message ?? string.Empty);
+
+        // Rebuilt ONLY on success. MemorandumRegister.Build lists memoranda only, so a converted memo must leave
+        // the register; a refused conversion changed nothing, and re-running the report would merely throw away
+        // the operator's highlight for no reason.
+        if (converted is not null) Reports?.Show(Reports.Kind);
     }
 
     /// <summary>
@@ -11729,6 +11886,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // same rule the Alt+C row above records after key and button once did different things.
         ButtonBar.Add(new ButtonBarItem("Alt+2", "Duplicate",
             () => RequestDuplicateHighlightedVoucher(), IsVoucherAlterTargetPage));
+
+        // Census 4.17 (T2-9) — CONVERT MEMORANDUM, offered on the Memorandum Register and nowhere else.
+        // 🔴 THE ROW IS ADDED CONDITIONALLY RATHER THAN DIMMED, and the asymmetry with Alt+2 above is deliberate.
+        // Alt+2's badge is always present because its chord is bound app-wide and an absent badge would hide a live
+        // key. This chord is bound ONLY on this one report (see the bare-`C` arm in MainWindow.OnKeyDown), so a
+        // permanent badge would advertise a key that is genuinely dead on every other screen — register defect
+        // IV-31, the very fault the Alt+2 comment cites. The badge and the key therefore appear and disappear
+        // together, on the same predicate. Pinned by
+        // `The_convert_badge_is_shown_on_the_register_and_absent_everywhere_else` (mutation-verified: replacing
+        // this predicate with `true` reddens exactly that test and nothing else).
+        if (IsMemorandumRegisterReport)
+            ButtonBar.Add(new ButtonBarItem("C", "Convert Memo",
+                () => RequestConvertHighlightedMemorandum(), true));
 
         // W2-14 (row 14.1) — Alt+G GO TO. Advertised for the same reason Alt+2 above is: a chord nobody can
         // find is not a feature, and this file already states that rule twice. Go To is worse than most in that
