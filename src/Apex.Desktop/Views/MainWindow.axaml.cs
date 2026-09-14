@@ -502,6 +502,13 @@ public partial class MainWindow : Window
                 vm.SaveSecurityUsers();
             else if (vm.CurrentScreen == Screen.PasswordPolicy)
                 vm.SavePasswordPolicy();
+            // 🔴 Census 16.1 — Ctrl+A on the Data Vault sets or changes the passphrase, and on the passphrase
+            // prompt it OPENS the vaulted company. Same accelerator, same meaning as everywhere else on this
+            // list: "accept what is on this screen". Both are advertised on the screens' own buttons.
+            else if (vm.CurrentScreen == Screen.DataVault)
+                vm.ApplyDataVault();
+            else if (vm.CurrentScreen == Screen.CompanyUnlock)
+                vm.UnlockCompany();
             // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
             // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
             else if (vm.CurrentScreen == Screen.Form16A)
@@ -897,6 +904,22 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.AlterCompany)
         {
             vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Census 16.1 — Alt+D on the DATA VAULT screen takes the company OUT of the vault. Same shape and
+        // same reasoning as the Company Alteration arm directly above: this screen has no list behind it (its
+        // subject IS the open company), so the chord can only mean one thing wherever the caret sits, and
+        // guarding it on !IsTyping would make it dead in ordinary use — the operator is on this screen to type
+        // the current passphrase into a field, which is exactly what removal requires. It sits ABOVE the master
+        // Alt+D arm and is disjoint from it: `IsDeleteTargetPage` does not include Screen.DataVault, so neither
+        // arm can swallow the other's surface. Removal refuses without the correct current passphrase, which is
+        // the guard that matters here — an accidental Alt+D with an empty field cannot decrypt anything.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.DataVault)
+        {
+            vm.RemoveDataVault();
             e.Handled = true;
             return;
         }
@@ -2725,6 +2748,17 @@ public partial class MainWindow : Window
 
     private void OnSavePasswordPolicyClick(object? sender, RoutedEventArgs e)
         => Vm?.SavePasswordPolicy();
+
+    // 🔴 Census 16.1 — the Data Vault's three buttons. Each mirrors a keyboard route (Ctrl+A / Alt+D / Ctrl+A)
+    // so neither the mouse nor the keyboard is the only way in.
+    private void OnApplyDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyDataVault();
+
+    private void OnRemoveDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.RemoveDataVault();
+
+    private void OnUnlockCompanyClick(object? sender, RoutedEventArgs e)
+        => Vm?.UnlockCompany();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

@@ -227,6 +227,47 @@
                             </ItemsControl>
                         </Border>
 
+                        <!-- 🔴 Census 16.1 — the passphrase prompt for a VAULTED company chosen on Company
+                             Select. It lives HERE, beside the create-company form, rather than in the cascade
+                             page region, because it is reached with NO company open and therefore no cascade.
+                             It shows the company NUMBER and never a name: there is no name to show until the
+                             passphrase arrives, which is the vendor's own behaviour ("displayed with a series
+                             of asterisks, while the company number remains visible") and also the plain truth
+                             about what this application can know at this moment. -->
+                        <ContentControl Grid.Row="1"
+                                        IsVisible="{Binding CompanyUnlock, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Content="{Binding CompanyUnlock}">
+                          <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:CompanyUnlockViewModel">
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      HorizontalAlignment="Center" VerticalAlignment="Top"
+                                      Margin="0,10" Width="500" Padding="18">
+                                <StackPanel Spacing="12">
+                                  <TextBlock Text="{Binding Identification}"
+                                             FontSize="15" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Text="{Binding Notice}" FontSize="11" Foreground="#8A8A8A"
+                                             TextWrapping="Wrap"/>
+                                  <Grid ColumnDefinitions="120,*">
+                                    <TextBlock Grid.Column="0" Text="Passphrase" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBox Grid.Column="1" x:Name="UnlockPassphraseBox"
+                                             Text="{Binding Passphrase, Mode=TwoWay}"
+                                             PasswordChar="&#x2022;" FontFamily="Consolas,Menlo,monospace"/>
+                                  </Grid>
+                                  <TextBlock Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="#6B2018" FontSize="12" TextWrapping="Wrap"/>
+                                  <Button Content="Open company (Ctrl+A)" Padding="14,6"
+                                          HorizontalAlignment="Right"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnUnlockCompanyClick"/>
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ContentControl.ContentTemplate>
+                        </ContentControl>
+
                         <!-- Create-company inline form. The postal block here is the supplier name and address
                              every tax invoice must carry (CGST Rule 46(a)) — before it existed, creation
                              captured only the Name and the address half could not be typed anywhere.
@@ -1800,25 +1841,35 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST ==
+                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST | Cess ==
                                Wide "Particulars" (MinWidth) so labels like "3.1 Details of outward
-                               supplies…" / "Net payable / (credit carried forward)" show in full;
-                               numeric columns trimmed. The grid stretches to fill the pane but has a
-                               floor width — a horizontal scrollbar appears only if the pane is narrower
-                               than that floor, so labels are never clipped. Header + rows share the same
-                               widths and scroll together. -->
+                               supplies…" / "(A)(3) ITC available — inward supplies liable to reverse
+                               charge…" show in full; numeric columns trimmed. The grid stretches to fill
+                               the pane but has a floor width — a horizontal scrollbar appears only if the
+                               pane is narrower than that floor, so labels are never clipped. Header +
+                               rows share the same widths and scroll together.
+
+                               🔴 CESS IS A REAL COLUMN OF THE FORM AND WAS MISSING (census 6.9). Table
+                               3.1(d) and Table 4(B) both carry Compensation Cess, the projection has
+                               always computed them (RcmOutwardCess / ItcReversed4B*Cess), and with only
+                               five columns there was nowhere on screen for the figure to land — so a cess
+                               amount was computed and then dropped. The Particulars floor also rises with
+                               the longer statutory captions this grid now carries: 700 → 1040, of which
+                               the six fixed numeric columns take 100+95+95+95+95 = 480, leaving the label
+                               column a 560px floor rather than 700's 220. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr3b}">
-                          <Grid RowDefinitions="Auto,*" MinWidth="700"
+                          <Grid RowDefinitions="Auto,*" MinWidth="1040"
                                 Width="{Binding #GstReportPane.Bounds.Width}"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700">
+                              <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Taxable Value" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1826,10 +1877,10 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700" Height="24">
-                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                      <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,3"
                                                    VerticalAlignment="Center" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
@@ -1840,6 +1891,9 @@
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
@@ -3252,7 +3306,8 @@
                               <Border Grid.Row="0" Background="{StaticResource Cream}"
                                       BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                       Padding="10,6">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                                <StackPanel Orientation="Vertical" Spacing="4">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding PartyCaption}" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="0,0,8,0"/>
@@ -3267,15 +3322,38 @@
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
+                                  <!-- CENSUS 2.6 — Voucher Class. Sits BEFORE the value ledger because it governs
+                                       it: a class that pre-maps ledgers takes that field off the screen. The
+                                       vendor states that on help.tallysolutions.com/accounting-faq/ and states it
+                                       CONDITIONALLY (a class selected AND F12 "Select common ledger account for
+                                       Item allocation" = No); we do not model that F12 flag, so our rule is the
+                                       narrower one — see ShowStockLedgerPicker for the divergence, recorded as
+                                       ours. Hidden entirely on a type that defines no class, so an ordinary
+                                       invoice header is unchanged. -->
+                                  <TextBlock Grid.Column="2" Text="Voucher Class" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowVoucherClassSelector}"
+                                             Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
+                                             Margin="16,0,8,0"/>
+                                  <ComboBox Grid.Column="3" Width="200"
+                                            IsVisible="{Binding ShowVoucherClassSelector}"
+                                            ItemsSource="{Binding VoucherClassOptions}"
+                                            SelectedItem="{Binding SelectedVoucherClass, Mode=TwoWay}"
+                                            PlaceholderText="Voucher class…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:VoucherClassOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
                                   <!-- Item-invoice value ledger (Purchases/Sales) — hidden in Accounting mode, where
                                        each Particulars line carries its OWN income/expense ledger (there is no single
                                        value leg). The party picker to the left stays shared across both modes. -->
-                                  <TextBlock Grid.Column="2" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
-                                             IsVisible="{Binding IsItemInvoice}"
+                                  <TextBlock Grid.Column="4" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowStockLedgerPicker}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0"/>
-                                  <ComboBox Grid.Column="3" Width="220"
-                                            IsVisible="{Binding IsItemInvoice}"
+                                  <ComboBox Grid.Column="5" Width="220"
+                                            IsVisible="{Binding ShowStockLedgerPicker}"
                                             ItemsSource="{Binding StockLedgers}"
                                             views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
@@ -3289,10 +3367,10 @@
                                   <!-- Price Level header (slice 5; RQ-30) — Sales item-invoice + F11 flag on only
                                        (ShowPriceLevelSelector). Auto-fills each line's Rate/Discount from the resolver;
                                        an operator override sticks. A trailing gated column ⇒ byte-identical when off. -->
-                                  <TextBlock Grid.Column="4" Text="Price Level" FontWeight="SemiBold"
+                                  <TextBlock Grid.Column="6" Text="Price Level" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0" IsVisible="{Binding ShowPriceLevelSelector}"/>
-                                  <ComboBox Grid.Column="5" Width="180"
+                                  <ComboBox Grid.Column="7" Width="180"
                                             IsVisible="{Binding ShowPriceLevelSelector}"
                                             ItemsSource="{Binding PriceLevelOptions}"
                                             SelectedItem="{Binding SelectedPriceLevel, Mode=TwoWay}"
@@ -3304,6 +3382,15 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <!-- CENSUS 2.6 — what the chosen class will post WITHOUT ASKING. A voucher class
+                                     writes ledger entries with no prompt, so the ledgers it will hit and the
+                                     percentages it will hit them with are stated before Accept rather than
+                                     discovered afterwards in the day book. Empty string ⇒ collapsed, so an invoice
+                                     with no class shows nothing new. -->
+                                <TextBlock Text="{Binding VoucherClassSummary}" FontSize="11"
+                                           Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding VoucherClassSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
                               </Border>
 
                               <!-- 🔴 HEADER BAND + LINES SHARE ONE HORIZONTAL SCROLLER — do not split them again.
@@ -20421,6 +20508,84 @@
                                           IsEnabled="{Binding CanSave}"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnSavePasswordPolicyClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: "Data Vault" — Alt+K (Company) > Data Vault (census 16.1). Sets, changes or
+                         removes the passphrase that encrypts the whole company book. The route and the three
+                         fields are the vendor's; the NAME is ours, because the vendor's product name carries a
+                         brand this application never renders. The irreversibility warning is on the screen from
+                         the moment it opens — before the decision, not after it. -->
+                    <ContentControl IsVisible="{Binding DataVault, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding DataVault}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CompanyVaultViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding CompanyName}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="380">
+
+                                <!-- Stated BEFORE the act. See CompanyVault.IrreversibilityWarning. -->
+                                <Border Background="#FDECEA" BorderBrush="#E0A6A0" BorderThickness="1"
+                                        Padding="10" CornerRadius="2">
+                                  <TextBlock Text="{Binding Warning}" FontSize="11" TextWrapping="Wrap"
+                                             Foreground="#6B2018"/>
+                                </Border>
+
+                                <!-- The vendor's "Old Password": only meaningful once a passphrase is set. -->
+                                <Grid ColumnDefinitions="180,*" IsVisible="{Binding IsVaulted}">
+                                  <TextBlock Grid.Column="0" Text="Current passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CurrentPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="New passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding NewPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="at least 8 characters"/>
+                                </Grid>
+
+                                <!-- Asked twice, because a typo in a passphrase that is never stored is a lost book. -->
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="Confirm passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ConfirmPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                           TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                  <Button Grid.Column="0" Content="Leave vault (Alt+D)" Padding="12,6"
+                                          IsVisible="{Binding IsVaulted}"
+                                          Click="OnRemoveDataVaultClick"/>
+                                  <Button Grid.Column="2" Content="{Binding ActionLabel}" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyDataVaultClick"/>
                                 </Grid>
                               </StackPanel>
                             </Border>

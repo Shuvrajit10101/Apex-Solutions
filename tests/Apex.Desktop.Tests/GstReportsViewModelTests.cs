@@ -267,13 +267,17 @@ public sealed class GstReportsViewModelTests : IDisposable
         Assert.Equal("115.00", outward.Col3);
         Assert.Equal("360.00", outward.Col5);
 
-        // 4(A) eligible ITC: CGST 450, SGST 450, IGST blank.
-        var itc = rows.Single(r => r.Col1.StartsWith("(A)"));
+        // 4(A)(5) all other ITC: CGST 450, SGST 450, IGST blank. (This fixture posts no RCM and no reversal,
+        // so 4(A)(2)/(3) and 4(B) are blank and 4(C) collapses onto 4(A)(5) — see Gstr3bTable4ScreenTests for
+        // the fixture that actually exercises them.)
+        var itc = rows.Single(r => r.Col1.StartsWith("(A)(5)"));
         Assert.Equal("450.00", itc.Col3);
         Assert.Equal("450.00", itc.Col4);
 
-        // Net payable per head: CGST/SGST = 115 − 450 = −335 (carried-forward credit); IGST = 360.
-        var net = rows.Single(r => r.Col1.StartsWith("Net payable"));
+        // Payable other than reverse charge, per head: CGST/SGST = 115 − 450 = −335 (carried-forward credit);
+        // IGST = 360. The caption is now split from the reverse-charge half because only this half may be met
+        // from the credit ledger (CGST Act §2(82) + §49(4)).
+        var net = rows.Single(r => r.Col1.StartsWith("Payable other than reverse charge"));
         Assert.Equal("-335.00", net.Col3);
         Assert.Equal("-335.00", net.Col4);
         Assert.Equal("360.00", net.Col5);
