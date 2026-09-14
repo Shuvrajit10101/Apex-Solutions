@@ -10,9 +10,11 @@ namespace Apex.Desktop.ViewModels;
 /// 🔴 <b>Census row 16.1 — the <c>Data Vault</c> screen, reached by Alt+K (Company) &gt; Data Vault.</b> Sets a
 /// passphrase on the open company, changes it, or takes the company back out of the vault.
 ///
-/// <para><b>Fidelity (Ruling 14 tier 1).</b> The vendor reaches its equivalent from exactly here —
-/// <i>"Press Alt+K (Company) &gt; …"</i> — and its screen carries a passphrase, a confirmation, and an
-/// <i>"Old Password"</i> field when altering. Those three fields are cloned.
+/// <para><b>Fidelity (Ruling 14 tier 1 — <c>help.tallysolutions.com/tallyvault-for-company-tally/</c>, re-read
+/// and confirmed verbatim 2026-09-14).</b> The vendor reaches its equivalent from exactly here —
+/// <i>"Press Alt+K (Company) &gt; …"</i> — and its screen carries, when setting, a password field and a
+/// <i>"Confirm …"</i> field, plus an <i>"Old Password"</i> field when altering. Those three fields are cloned,
+/// in that order and with that show/hide behaviour.
 /// <b>The vendor's product NAME is not</b>: it carries the "Tally" brand and this application must never
 /// render that word (R7), so the feature is called the <b>Data Vault</b> here. The name was checked against
 /// the whole UI before it was taken — "Vault" appeared nowhere in <c>src/</c> outside doc comments quoting the

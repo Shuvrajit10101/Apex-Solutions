@@ -438,8 +438,19 @@ public sealed class ShellNavigationRowsTests : IDisposable
             // W-I1 / census 16.2: the vendor's two user-management rows joined this menu, which is exactly
             // where the vendor reaches them ("Press Alt+K (Company) > Users and Passwords" / "> Password
             // Policy"). Both open a real screen — see SecurityControlScreenTests.
+            //
+            // Census 16.1 added "Data Vault" last — OUR name for the vendor's data-vault row, whose own label
+            // is a product name carrying a brand this application never renders (CompanyMenuViewModel
+            // .DataVaultVerb). It opens a real screen; see CompanyVaultReachabilityTests.
+            //
+            // 🔴 This list is RESTATED rather than derived from the menu builder on purpose: deriving it would
+            // make the assertion agree with any row anybody adds. Restating it means a new row has to be
+            // justified here, which is what just happened. `CompanyMenu.OfferedVerbs` is checked against the
+            // built column by the honest-omission test below; that is a drift lock between the list and the
+            // builder, and is a different job from this one.
             Assert.Equal(
-                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy" },
+                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy",
+                        "Data Vault" },
                 CompanyMenu.VerbsOf(column));
 
             // The keyboard cursor lands on a selectable row, not on a header.
@@ -498,27 +509,30 @@ public sealed class ShellNavigationRowsTests : IDisposable
     }
 
     /// <summary>
-    /// The three rows of the vendor's Alt+K list this build does not have. They live HERE, in the test, and
-    /// deliberately not in <c>src</c>: the first is a vendor product name carrying the "Tally" brand, and
-    /// <see cref="No_rendered_text_in_the_company_menu_carries_the_reference_products_brand"/> is the test
-    /// that stops it reaching a screen. Naming the reference product in a test file is correct; shipping it
-    /// in a rendered string is not.
-    /// </summary>
     /// <summary>
-    /// The vendor rows this menu still withholds. 🔴 <b>The list SHRANK on 2026-09-07 (census 16.2, W-I1)</b>:
-    /// "Users and Passwords" and "Password Policy" are now built and now offered, so keeping them here would
-    /// assert the opposite of what shipped. What remains withheld is the data-vault row (census 16.1, whose
-    /// page-encryption half needs a new native dependency and a user ruling), "Change User" (which needs a
-    /// signed-in session, deferred with the actor work) and "Edit Log" (census 16.4, reachable elsewhere).
-    /// Naming the reference product is correct HERE, in the test file, and nowhere in <c>src/</c>.
+    /// Vendor Alt+K row LABELS that must never appear in this menu. 🔴 <b>What this list means CHANGED with
+    /// census 16.1</b>, and the change matters: it used to be "rows this build does not have", and
+    /// "TallyVault" was on it for that reason. <b>This build now HAS the data-vault capability</b> — reached
+    /// from this very menu — so the entry no longer records an absent feature. It records an absent NAME: the
+    /// vendor's label for it is a product name carrying the "Tally" brand, this application renders that word
+    /// nowhere (R7), and our row is called "Data Vault" instead. The assertion below is therefore a DE-BRAND
+    /// lock on a shipped row, not an omission lock on a missing one.
+    ///
+    /// <para>Genuinely still withheld: "Change User" (needs a signed-in session, deferred with the actor work)
+    /// and "Edit Log" (census 16.4, reachable elsewhere).</para>
+    ///
+    /// <para>These strings live HERE, in the test, and deliberately not in <c>src/</c>. Naming the reference
+    /// product in a test file is correct; shipping it in a rendered string is not.</para>
     /// </summary>
     private static readonly string[] WithheldVendorRows = { "TallyVault", "Change User", "Edit Log" };
 
     /// <summary>
     /// 🔴 <b>THE HONEST-OMISSION LOCK.</b> The vendor's Alt+K list is Create · Alter · Select · TallyVault ·
-    /// Change User · Edit Log. The last three are security &amp; audit, which this build does not have, and a
-    /// row that opens a "not available" message is worse than no row. So they must be ABSENT as rows and the
-    /// gap must be PRESENT as a disclosure the operator can read.
+    /// Change User · Edit Log. Two of those last three — "Change User" and "Edit Log" — are still not in this
+    /// build, and a row that opens a "not available" message is worse than no row, so they must be ABSENT as
+    /// rows while the gap is PRESENT as a disclosure the operator can read. The third is now built and offered
+    /// under OUR name (census 16.1), so what is asserted about it here is that the VENDOR'S label never
+    /// appears — see <see cref="WithheldVendorRows"/>, whose meaning changed with it.
     /// </summary>
     [AvaloniaFact]
     public void The_company_menu_offers_only_verbs_this_application_has_and_says_what_it_withholds()
@@ -536,8 +550,10 @@ public sealed class ShellNavigationRowsTests : IDisposable
 
             // The disclosure is ON SCREEN. The cascade draws header rows through an uppercasing converter, so
             // the comparison is case-insensitive by necessity, not by laziness — the shipped glyphs really are
-            // "COMPANY DATA ENCRYPTION IS NOT IN THIS BUILD" (narrowed from the security-and-audit wording when
-            // census 16.2 shipped and made the broader claim false).
+            // "AUDIT TRAIL OF EDITS IS NOT ON THIS MENU". It has narrowed TWICE as the gap it describes
+            // shrank: from the security-and-audit wording when census 16.2 shipped the user rows, and again
+            // when census 16.1 shipped the vault and made "company data encryption is not in this build"
+            // false. A disclosure that outlives the gap is a lie with a test holding it in place.
             Assert.Contains(
                 VisibleText(window),
                 t => t.Contains(CompanyMenu.Disclosure, StringComparison.OrdinalIgnoreCase));

@@ -47,10 +47,19 @@ public sealed class CompanyRegistryTests : IDisposable
         return company;
     }
 
-    private static bool AnyFileUnderContains(string dir, string needle)
+    /// <summary>
+    /// Every file under <paramref name="dir"/> whose RAW BYTES contain <paramref name="needle"/>, by name.
+    /// 🔴 It returns the LIST rather than a bool on purpose. The first run of this scan failed with nothing but
+    /// "the company name survived somewhere on disk", which says a leak exists but not which file leaks — and
+    /// the two candidates (a <c>-wal</c> sidecar the delete missed, and freed b-tree pages still holding the
+    /// old name inside the registry) need opposite fixes. A failure message that names the file turns a
+    /// guessing game into a measurement.
+    /// </summary>
+    private static List<string> FilesUnderContaining(string dir, string needle)
     {
         SqliteConnection.ClearAllPools();
         var n = Encoding.UTF8.GetBytes(needle);
+        var hits = new List<string>();
         foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
         {
             byte[] bytes;
@@ -60,11 +69,14 @@ public sealed class CompanyRegistryTests : IDisposable
                 var hit = true;
                 for (var j = 0; j < n.Length; j++)
                     if (bytes[i + j] != n[j]) { hit = false; break; }
-                if (hit) return true;
+                if (hit) { hits.Add(Path.GetFileName(path)); break; }
             }
         }
-        return false;
+        return hits;
     }
+
+    private static bool AnyFileUnderContains(string dir, string needle)
+        => FilesUnderContaining(dir, needle).Count > 0;
 
     // ------------------------------------------------------------------------------------- backwards compatible
 
@@ -101,6 +113,52 @@ public sealed class CompanyRegistryTests : IDisposable
     // ----------------------------------------------------------------------------------------- the leak, closed
 
     /// <summary>
+    /// 🔴 <b>A name that got into the registry WITHOUT <c>secure_delete</c> governing it is still scrubbed when
+    /// the company is vaulted.</b> <c>secure_delete</c> only zeroes what is freed while it is switched on, so it
+    /// protects rows this build wrote and says nothing about bytes that were already in the file — a registry
+    /// carried over from a build that did not set the pragma, or written by any future path that opens the
+    /// index another way. This is the case <c>CompanyRegistry.Scrub</c>'s VACUUM exists for, and WITHOUT that
+    /// VACUUM this test fails while every other test in this class still passes: that was measured by deleting
+    /// the call, not assumed.
+    ///
+    /// <para>The pre-existing bytes are produced honestly — a real row inserted over a connection with
+    /// <c>secure_delete = OFF</c>, which is exactly the on-disk state being defended against.</para>
+    /// </summary>
+    [Fact]
+    public void A_name_written_before_secure_delete_was_on_is_still_scrubbed_when_the_company_is_vaulted()
+    {
+        const string secret = "Legacy Holdings Private Limited";
+        var company = MakeCompany(secret);
+        var entry = _storage.ListCompanies().Single();
+        var indexPath = Path.Combine(_dir, CompanyRegistry.FileName);
+
+        // Put the name into the index the way an older build would have: freed later, but written now with the
+        // zeroing pragma explicitly OFF, so nothing erases it on update.
+        SqliteConnection.ClearAllPools();
+        using (var raw = new SqliteConnection($"Data Source={indexPath};Pooling=False"))
+        {
+            raw.Open();
+            using var cmd = raw.CreateCommand();
+            cmd.CommandText =
+                "PRAGMA secure_delete = OFF;"
+                + "CREATE TABLE IF NOT EXISTS legacy_names (n TEXT);"
+                + $"INSERT INTO legacy_names (n) VALUES ('{secret}');"
+                + "DELETE FROM legacy_names;";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        Assert.Contains(CompanyRegistry.FileName, FilesUnderContaining(_dir, secret));
+
+        _storage.EnableVault(entry, company, "a-long-enough-passphrase");
+        SqliteConnection.ClearAllPools();
+
+        var leaked = FilesUnderContaining(_dir, secret);
+        Assert.True(leaked.Count == 0,
+            "a name freed before secure_delete was on survived the vault transition, in: "
+            + string.Join(", ", leaked));
+    }
+
+    /// <summary>
     /// 🔴🔴 <b>THE TEST THIS WHOLE ROW EXISTS FOR.</b> After a company is vaulted, its name appears in NO file
     /// anywhere under the companies directory — not in a filename, not in the encrypted book, and not in the
     /// registry that maps files to names. It is checked by scanning the raw bytes of EVERY file in the tree,
@@ -126,9 +184,10 @@ public sealed class CompanyRegistryTests : IDisposable
             Directory.EnumerateFiles(_dir, "*", SearchOption.AllDirectories),
             p => Path.GetFileName(p).Contains("Bright", StringComparison.OrdinalIgnoreCase));
 
-        // …and no file's CONTENT carries it either — book, registry or anything else.
-        Assert.False(AnyFileUnderContains(_dir, secret),
-            "the company name survived somewhere on disk after being vaulted");
+        // …and no file's CONTENT carries it either — book, registry, or any sidecar.
+        var leaked = FilesUnderContaining(_dir, secret);
+        Assert.True(leaked.Count == 0,
+            "the company name survived on disk after being vaulted, in: " + string.Join(", ", leaked));
     }
 
     /// <summary>

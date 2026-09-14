@@ -8,7 +8,9 @@ namespace Apex.Persistence.Sqlite;
 /// FILENAME from leaking the company name lives in <c>Apex.Desktop.Services.CompanyRegistry</c>, and neither
 /// half is worth anything without the other (see "the filename is the leak", below).
 ///
-/// <para><b>Fidelity (Ruling 14 tier 1 — help.tallysolutions.com).</b> The vendor's data-vault page states
+/// <para><b>Fidelity (Ruling 14 tier 1 — <c>help.tallysolutions.com/tallyvault-for-company-tally/</c>, and
+/// <c>help.tallysolutions.com/data-security-faq/</c> for the no-recovery statement; both re-read and confirmed
+/// verbatim 2026-09-14).</b> The vendor's data-vault page states
 /// that once the vault is set <i>"your company and all transaction details, including the company name, will
 /// be securely encrypted"</i>, that a vaulted company is listed with its name <i>"displayed with a series of
 /// asterisks, while the company number remains visible"</i>, and — repeatedly — that <i>"forgetting this
@@ -119,12 +121,24 @@ public static class CompanyVault
     /// Every opener in this assembly goes through here so that "keyed" and "unkeyed" are one decision in one
     /// place; <see cref="SqliteCompanyStore"/> is the main caller.
     /// </summary>
-    public static string ConnectionString(string databasePath, string? passphrase, SqliteOpenMode mode)
+    /// <param name="pooling">
+    /// 🔴 Pass <c>false</c> for a file whose OS HANDLE MUST BE RELEASED the moment the connection is disposed.
+    /// Microsoft.Data.Sqlite keeps a disposed connection in a pool and KEEPS THE FILE HANDLE OPEN with it, so a
+    /// pooled file cannot be deleted, moved or its directory removed until something calls
+    /// <c>ClearAllPools</c>. That is not a theory here: the company registry was pooled, and the retained
+    /// handle on <c>companies.index</c> broke FOURTEEN unrelated tests whose only crime was deleting their own
+    /// temp directory afterwards. The registry is a handful of rows read in milliseconds, so pooling buys it
+    /// nothing and costs it that. Company BOOKS stay pooled (the default) — they are opened repeatedly and
+    /// their handle lifetime is managed deliberately.
+    /// </param>
+    public static string ConnectionString(
+        string databasePath, string? passphrase, SqliteOpenMode mode, bool pooling = true)
     {
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
             Mode = mode,
+            Pooling = pooling,
         };
         // An EMPTY password is not "no password" to SQLCipher — it is a key of zero length, which behaves
         // differently again. Blank is normalised to unkeyed here so no caller has to remember that.
@@ -307,11 +321,24 @@ public static class CompanyVault
         return Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
     }
 
+    /// <summary>
+    /// Opens a book read-only and reads its schema, which is the only honest test of a passphrase.
+    ///
+    /// <para>🔴 <b>UNPOOLED, and it must stay that way — the probe releases its own handle instead of clearing
+    /// everyone's.</b> This originally ended with <c>ClearAllPools()</c> in a <c>finally</c>, to stop the
+    /// probe's pooled handle blocking a later delete or move of the file on Windows. That worked, but it is a
+    /// read-only probe with a PROCESS-WIDE side effect: <c>CompanyRegistry.Load</c> calls
+    /// <see cref="IsVaulted"/> once per candidate file, so listing companies tore down every pooled connection
+    /// in the application — including the open company's own book, which then had to be reopened and
+    /// re-PRAGMA'd. Declining the pool for this one connection achieves the same handle release, costs nothing
+    /// (each call opens exactly once), and leaves other connections alone.</para>
+    /// </summary>
     private static bool CanRead(string databasePath, string? passphrase)
     {
         try
         {
-            using var c = new SqliteConnection(ConnectionString(databasePath, passphrase, SqliteOpenMode.ReadOnly));
+            using var c = new SqliteConnection(
+                ConnectionString(databasePath, passphrase, SqliteOpenMode.ReadOnly, pooling: false));
             c.Open();
             using var cmd = c.CreateCommand();
             // Reading the schema is what forces page 1 to be decrypted and its HMAC checked. `Open()` alone
@@ -323,10 +350,6 @@ public static class CompanyVault
         catch (SqliteException)
         {
             return false;
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
         }
     }
 

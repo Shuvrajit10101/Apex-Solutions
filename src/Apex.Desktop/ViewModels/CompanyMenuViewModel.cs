@@ -67,8 +67,10 @@ public static class CompanyMenu
 
     /// <summary>
     /// The verbs this application actually has, in the vendor's order (Create · Alter · Select), with Shut
-    /// last on the chord the vendor gives it. Named as a constant so the test that asserts "only verbs this
-    /// application has" DERIVES its expectation instead of restating it.
+    /// last on the chord the vendor gives it. Read by
+    /// <c>ShellNavigationRowsTests.The_company_menu_offers_only_verbs_this_application_has_and_says_what_it_withholds</c>,
+    /// which asserts the BUILT column matches this list exactly — so a row added to
+    /// <see cref="BuildColumn"/> and not to this list (or the reverse) fails rather than drifting.
     /// </summary>
     public static readonly IReadOnlyList<string> OfferedVerbs =
         new[] { "Create", "Alter", "Select", "Shut", UsersAndPasswordsVerb, PasswordPolicyVerb, DataVaultVerb };

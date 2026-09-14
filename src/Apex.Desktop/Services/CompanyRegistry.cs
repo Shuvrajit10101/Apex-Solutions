@@ -357,11 +357,39 @@ public sealed class CompanyRegistry
         }
 
         RecoverPending();
+        Scrub();
 
         return new CompanyRecord(
             number, targetFile,
             displayName ?? CompanyVault.MaskedName,
             vaulted ? CompanyStorageKind.Vaulted : CompanyStorageKind.Plain);
+    }
+
+    /// <summary>
+    /// 🔴 <b>Rebuilds the registry file so that nothing freed remains legible in it.</b> Run after every
+    /// transition, and the reason is the whole feature: vaulting a company sets its <c>display_name</c> to
+    /// NULL, and an UPDATE alone does not erase what was there — the old name sits in a freed b-tree cell, in
+    /// plaintext, in a file that is deliberately not encrypted. <c>CompanyRegistryTests</c>'s raw-byte scan
+    /// FOUND the name here and named this file, which is what put this method in.
+    ///
+    /// <para><c>secure_delete</c> (set in <see cref="Open"/>) zeroes what is freed FROM NOW ON; VACUUM is what
+    /// deals with pages freed before it was ever set — including a book upgraded from an earlier build, whose
+    /// registry was written entirely without it. Both are needed: neither alone covers the other's case.</para>
+    ///
+    /// <para>Best-effort by design. A VACUUM that cannot run (a reader elsewhere in the process) must not undo
+    /// a vault transition that has already committed and is correct on disk; the scrub retries on the next
+    /// transition, and the leak scan is what proves it succeeded.</para>
+    /// </summary>
+    private void Scrub()
+    {
+        try
+        {
+            using var connection = Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "VACUUM;";
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException) { /* see remarks — the transition itself already committed */ }
     }
 
     /// <summary>
@@ -419,11 +447,25 @@ public sealed class CompanyRegistry
     {
         // The registry is deliberately UNENCRYPTED — it holds nothing secret (see the type remarks) and
         // encrypting it would need a key at list time, before any passphrase has been asked for.
+        //
+        // 🔴 UNPOOLED. A pooled Microsoft.Data.Sqlite connection keeps the OS file handle after Dispose, so
+        // `companies.index` stayed locked for the life of the process — which broke fourteen unrelated tests
+        // that merely deleted their own temp directory, and would equally stop a user moving or backing up
+        // their Companies folder. See the parameter's own remarks on CompanyVault.ConnectionString.
         var connection = new SqliteConnection(
-            CompanyVault.ConnectionString(_indexPath, passphrase: null, SqliteOpenMode.ReadWriteCreate));
+            CompanyVault.ConnectionString(
+                _indexPath, passphrase: null, SqliteOpenMode.ReadWriteCreate, pooling: false));
         connection.Open();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
+            -- 🔴 secure_delete ZEROES freed content instead of merely marking it reusable. Without it a
+            -- company's name SURVIVES IN THIS FILE after being vaulted: the row is INSERTed carrying the
+            -- name, and vaulting UPDATEs that name to NULL, which frees the old cell but leaves its bytes
+            -- legible in the page. The leak scan caught exactly that and named this file. This pragma is
+            -- what makes the UPDATE actually erase; Scrub() below deals with bytes freed before it ran.
+            PRAGMA secure_delete = ON;
+            -- VACUUM (see Scrub) must not stage its rebuild next to the book it is scrubbing.
+            PRAGMA temp_store = MEMORY;
             CREATE TABLE IF NOT EXISTS companies (
                 number       INTEGER PRIMARY KEY,
                 file_name    TEXT NOT NULL,

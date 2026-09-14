@@ -345,4 +345,49 @@ public sealed class CompanyVaultTests : IDisposable
 
         Assert.ThrowsAny<SqliteException>(() => new SqliteCompanyStore(vault, "wrong-passphrase"));
     }
+
+    /// <summary>
+    /// 🔴🔴 <b>A KNOWN, DELIBERATE LIMITATION, PINNED SO IT CANNOT BE MISTAKEN FOR A WORKING PATH: a VAULTED
+    /// company CANNOT BE BACKED UP by <see cref="CompanyBackup"/>, and the attempt is REFUSED rather than
+    /// half-done.</b>
+    ///
+    /// <para><b>Why it is refused and not supported.</b> <c>CompanyBackup.Create</c> opens the source with no
+    /// passphrase and reads the company NAME out of it to stamp into the backup manifest. Neither is possible
+    /// for a vaulted book, and "fixing" it naively would be worse than the refusal: a manifest carrying the
+    /// company name in the clear is exactly the plaintext this row exists to remove, sitting in a file the
+    /// operator is likely to copy somewhere less protected than the book itself.</para>
+    ///
+    /// <para><b>What this test therefore asserts is the REFUSAL, and that it is clean</b> — it throws, and it
+    /// does not leave a partial archive behind for someone to mistake for a backup. This is a gap in the
+    /// feature, it is reported as one, and it is written down here rather than discovered by a user whose
+    /// backup silently was not one. Making vault-aware backup work is separate scope.</para>
+    /// </summary>
+    [Fact]
+    public void A_vaulted_book_cannot_be_backed_up_and_the_refusal_leaves_no_partial_archive()
+    {
+        var plain = MakePlain("backup-me.db", "Vaulted Backup Traders");
+        var vault = Path_("backup-me-vault.db");
+        CompanyVault.Encrypt(plain, vault, "a-long-enough-passphrase");
+        SqliteConnection.ClearAllPools();
+
+        var archive = Path_("backup.zip");
+        // 🔴 The REFUSAL is what is pinned, so the exception is named rather than caught as "anything".
+        // ThrowsAny<Exception> would also be satisfied by a NullReferenceException from a future refactor —
+        // i.e. by the feature breaking in a different way — which is not what this test is claiming.
+        var refusal = Assert.ThrowsAny<Exception>(
+            () => CompanyBackup.Create(vault, archive, DateTimeOffset.UnixEpoch));
+        Assert.True(refusal is CompanyBackupException or SqliteException,
+            $"the refusal arrived as {refusal.GetType().Name}, which is a crash rather than a refusal: "
+            + refusal.Message);
+
+        SqliteConnection.ClearAllPools();
+        Assert.False(File.Exists(archive),
+            "the refused backup left an archive behind; a file that looks like a backup and is not is worse "
+            + "than no file at all.");
+
+        // 🔴 And the refusal must not have leaked the name into anything it did write.
+        foreach (var path in Directory.EnumerateFiles(_dir, "*", SearchOption.AllDirectories))
+            Assert.False(RawBytesContain(path, "Vaulted Backup Traders") && path != plain,
+                $"'{Path.GetFileName(path)}' carries the company name after a refused backup of a vaulted book.");
+    }
 }
