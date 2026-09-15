@@ -9,12 +9,27 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>A godown row for the existing-godowns list on the master screen.</summary>
-public sealed class GodownListRow
+/// <summary>A godown row for the existing-godowns list on the master screen.
+///
+/// <para>W28 C2/C3 — carries <see cref="IMasterListRow"/> so the ONE shared arm can walk it, open it for
+/// alteration and delete it. The vendor attests both verbs on this master by name: alteration at <i>"Gateway of
+/// Tally &gt; Inventory Info. &gt; Godowns &gt; and select Alter"</i> and deletion at <i>"Alt + D"</i>
+/// (help.tallysolutions.com/…/inventory-storage-using-godowns-locations-tally/, fetched 2026-09-14).</para>
+/// </summary>
+public sealed partial class GodownListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <inheritdoc/>
+    public string MasterName => Name;
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 
     /// <summary>The job/project this godown is designated for (census 9.6), or empty. Its own column rather
     /// than a suffix on <see cref="Kind"/>: a godown can be third-party AND a job at once, and folding the two
@@ -56,11 +71,139 @@ public sealed class JobCostCentreOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="CostCentreMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // --------------------------------------------- W28 C3: alteration state (census 3.7)
+
+    /// <summary>The id of the godown being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen heading — it says which VERB is running, because the form is identical in both
+    /// modes.</summary>
+    public string Caption => IsAltering ? "Godown Alteration" : "Godown Creation";
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing godown — the same form, pre-filled. Returns
+    /// <c>null</c> if the id does not resolve. This is the vendor's <i>"Godowns &gt; and select Alter"</i>.
+    /// </summary>
+    public static GodownMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid godownId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindGodown(godownId) is not { } godown) return null;
+
+        var vm = new GodownMasterViewModel(company, storage, onChanged);
+        vm._editingId = godownId;
+        vm.LoadFrom(godown);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>Loads an existing godown's values into the form — every field the screen offers, so an Alter that
+    /// changes one thing writes the rest back unchanged.
+    /// <para>🔴 The parent and the job cost centre are both re-found by ID with an explicit fallback, never by
+    /// position: falling back to <c>FirstOrDefault()</c> on the job picker would land on "◦ Not a job/project"
+    /// and silently STRIP a job designation the first time an operator opened the godown to fix a typo.</para>
+    /// </summary>
+    public void LoadFrom(Godown godown)
+    {
+        ArgumentNullException.ThrowIfNull(godown);
+        Name = godown.Name;
+        Alias = godown.Alias ?? string.Empty;
+        ThirdParty = godown.ThirdParty;
+        SelectedParent = ParentOptions.FirstOrDefault(o => o.Godown?.Id == godown.ParentId)
+            ?? ParentOptions.FirstOrDefault(o => o.IsPrimary);
+        SelectedJobCostCentre =
+            JobCostCentreOptions.FirstOrDefault(o => o.CostCentre?.Id == godown.JobCostCentreId)
+            ?? JobCostCentreOptions.FirstOrDefault(o => o.IsNone);
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: renames / re-aliases / re-parents the godown this screen was opened over and rewrites
+    /// its third-party and job/project fields, via <see cref="InventoryService.AlterGodown"/>.
+    ///
+    /// <para>🔴 The F11 Job-Costing gate decides whether the job cost centre is WRITTEN, exactly as it does in
+    /// <see cref="Create"/> and for the same reason: with the field hidden, a stale selection from a session where
+    /// it was on must not silently designate this godown a job the operator never saw a control for. On alter the
+    /// stakes are higher than on create, because the value being overwritten is one the book already holds.</para>
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing godown.";
+            return false;
+        }
+
+        var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
+        var jobCostCentreId = _company.EnableJobCosting ? SelectedJobCostCentre?.CostCentre?.Id : null;
+
+        try
+        {
+            var altered = new InventoryService(_company).AlterGodown(
+                _editingId, Name, SelectedParent?.Godown?.Id, alias, ThirdParty, jobCostCentreId);
+            _storage.Save(_company);
+            var underLabel = SelectedParent is { IsPrimary: false } p ? p.Godown!.Name : "Primary";
+            Message = $"Godown '{altered.Name}' altered — under {underLabel}.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshParentOptions();
+        RefreshJobCostCentreOptions();
+        RefreshList();
+        _onChanged();
+        return true;
+    }
+
+    // ------------------------------------------- W28 C2: the shared Alt+D arm (census 3.7)
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "godown";
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting()
+    {
+        RefreshParentOptions();
+        RefreshJobCostCentreOptions();
+        RefreshList();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. The refusal is
+    /// <c>MasterDeletionRules.EnsureGodownDeletable</c>'s, and it is the vendor's own three conditions plus the
+    /// nine further foreign keys our schema declares that the pre-wave-28 service never counted.</remarks>
+    public void DeleteMaster(Guid id) => new InventoryService(_company).DeleteGodown(id);
+
+    // ------------------------------------------------- keyboard selection over the existing list
+
+    private PayrollMasterHighlight<GodownListRow>? _highlight;
+
+    private PayrollMasterHighlight<GodownListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<GodownListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The highlighted existing-godown row, or <c>null</c>. Ctrl+Enter opens Godown Alteration; Alt+D
+    /// deletes it.</summary>
+    public GodownListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -198,6 +341,9 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
 
     private void RefreshList()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var g in _company.Godowns)
         {
@@ -211,7 +357,12 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
             var job = g.JobCostCentreId is { } centreId
                 ? _company.FindCostCentre(centreId)?.Name ?? "(unknown)"
                 : string.Empty;
-            Existing.Add(new GodownListRow { Name = g.Name, Under = under, Kind = kind, JobProject = job });
+            Existing.Add(new GodownListRow
+            {
+                MasterId = g.Id, Name = g.Name, Under = under, Kind = kind, JobProject = job,
+            });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 }
