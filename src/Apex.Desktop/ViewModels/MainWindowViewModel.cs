@@ -55,6 +55,15 @@ public enum Screen
     SaveView,
     SavedViews,
 
+    // 🔴 THE FOUR REPORT MENUS THE VENDOR PUTS ON A REPORT (Ctrl+H / Alt+P / Alt+E / Alt+M). All four are MENU
+    // columns, not page columns, so none of them needs a panel view model — the screen id exists so the shell can
+    // tell "the print menu is the active pane" from "the report is", and so each opener can refuse to stack a
+    // second copy of itself. See ReportChordMenus.cs for the vendor quotes and for what each menu withholds.
+    ChangeViewMenu,
+    PrintMenu,
+    ExportMenu,
+    ShareMenu,
+
     // 14.2 — Switch To (Ctrl+G): the jump-anywhere destination list. Its own screen id (not a mode on the
     // Gateway) because it owns the keyboard while it is up: bare letters TYPE INTO ITS PREFIX FILTER rather
     // than activating a menu hotkey, which is the one thing the cascade's own columns do not do.
@@ -3826,19 +3835,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Alt+K — opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
+    /// Opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
     /// of the open report (keyboard-first, never a flat dump). Lists this company's saved views; the user opens
-    /// (applies) or deletes one. A no-op unless a company is open; re-pressing Alt+K while the panel is open is a
+    /// (applies) or deletes one. A no-op unless a company is open; re-pressing while the panel is open is a
     /// no-op. Unlike the other report panels it does not require a report to be open — it is reachable over any
     /// report page and lists the company's views regardless.
+    ///
+    /// <para>🔴 <b>ITS DOOR IS NO LONGER Alt+K, AND THAT IS THE FIDELITY FIX THIS SLICE EXISTS FOR.</b> This
+    /// method was bound to <c>Alt+K</c> in report context, which did two wrong things at once: it put an
+    /// APEX-INVENTED chord on a key the vendor documents as the COMPANY MENU
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/ — <c>Alt+K</c>: "To open the company menu
+    /// with the list of actions related to managing your company"), and it therefore made that company menu
+    /// UNREACHABLE on every one of this build's 82 report kinds. The vendor recalls a saved view through
+    /// <c>Ctrl+H</c> (Change View) instead
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "press Ctrl+H (Change View), and select the
+    /// view"), so that is the door now — see <see cref="OpenChangeViewMenu"/> — and
+    /// <see cref="ShellChordTable"/> has handed Alt+K back to the company menu on reports.</para>
     /// </summary>
-    public void OpenSavedViews()
+    /// <param name="forDeletion">True when the operator arrived by the Change View menu's <b>Delete Saved
+    /// Views</b> row rather than its <b>Saved Views</b> row. The vendor's two rows reach one list; this only
+    /// changes the status line so the panel says which verb was asked for.</param>
+    public void OpenSavedViews(bool forDeletion = false)
     {
         if (Company is null) return;      // needs a company to scope the views to
         if (SavedViews is not null) return; // panel already open — don't stack a second
 
         var panel = new SavedViewsViewModel(Company, _storage);
         panel.OpenRequested += ApplySavedView;
+        if (forDeletion) panel.EnterDeleteMode();
         SavedViews = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -3854,6 +3878,167 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    // ============================= the four report menus: Ctrl+H / Alt+P / Alt+E / Alt+M (11.16, 12.1, 12.6, 13.5)
+    //
+    // 🔴 WHY THESE FOUR ARE ONE SLICE. The vendor's shortcut table pairs a "current object" chord with a "MENU"
+    // chord six times over (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/, Across TallyPrime).
+    // This build shipped three of the current-object halves and NONE of the menu halves, so measured before this
+    // slice: Alt+P inert, Alt+M inert, Alt+E silently doing Ctrl+E's job, Ctrl+E unreachable on a report, and the
+    // vendor's Ctrl+L / Ctrl+H view chords consumed or unbound. The row labels and the withheld capabilities live
+    // in ReportChordMenus.cs beside their vendor quotes.
+
+    /// <summary>
+    /// Pushes a MENU column (items, no page view model) and makes it the active pane — the
+    /// <see cref="OpenCompanyMenu"/> shape, minus its <c>ClearSubScreens</c>.
+    ///
+    /// <para>🔴 <b>NOT calling <c>ClearSubScreens</c> is the whole reason this helper exists.</b> The company
+    /// menu is a NAVIGATION menu: it replaces what you were doing, so nulling <see cref="Reports"/> on the way in
+    /// is correct there. These four are ACTION menus over the thing you are standing on — every row acts on the
+    /// live report or drilled voucher beneath — so clearing it would make every row a no-op. The report stays
+    /// bound and the menu is simply a column on top of it, exactly as the Saved Views panel already is.</para>
+    /// </summary>
+    private void PushMenuColumn(GatewayColumn column, Screen screen)
+    {
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = column.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Pops the menu column named by <paramref name="menuScreen"/> before its chosen row runs its verb.
+    ///
+    /// <para>🔴 <b>THIS IS LOAD-BEARING, NOT TIDYING, AND THE DEFECT IT PREVENTS IS A WRONG ATTACHMENT.</b>
+    /// <see cref="OpenEmailCompose"/> and <see cref="OpenWhatsAppShare"/> both branch on
+    /// <c>CurrentScreen == Screen.VoucherDetail</c> to decide whether they are sharing the drilled voucher or the
+    /// report. With the menu column still on top, <c>CurrentScreen</c> is <see cref="Screen.ShareMenu"/>, that
+    /// branch misses, and <see cref="IsReportContext"/> — which excludes VoucherDetail BY SCREEN ID and so goes
+    /// TRUE the moment the screen id is something else — sends the operator the report underneath instead of the
+    /// invoice they were looking at. <see cref="OpenExport"/> has the same shape through
+    /// <c>TopMasterExportSource()</c>, which reads the TOP column: with the menu on top a master list would
+    /// export as whatever report was last bound. Popping first restores both, through the same
+    /// <see cref="BackFromPage"/> path an F12 config column already uses (it re-binds the surviving page column
+    /// and its screen id via <c>RehydratePageFromRightmostColumn</c>).</para>
+    /// </summary>
+    private void PopMenuColumn(Screen menuScreen)
+    {
+        if (CurrentScreen == menuScreen && Columns.Count > 1)
+            BackFromPage();
+    }
+
+    /// <summary>
+    /// <b>Ctrl+H — Change View</b> (census row 11.16). Vendor, verbatim
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/): a saved view is recalled by "press Ctrl+H
+    /// (Change View), and select the view", and the same menu carries "Ctrl+H (Change View) &gt; Delete Saved
+    /// Views" and "Ctrl+H (Change View) &gt; Show Original View".
+    ///
+    /// <para>🔴 <b>IT DOES NOT DISPLACE THE SHIPPED Ctrl+H.</b> <see cref="ChangeMode"/> owns Ctrl+H on a
+    /// voucher (the vendor's one mode-change key, and ruling 17 re-homed the item-invoice toggle onto it). That
+    /// arm is gated <c>IsChangeModeEntry</c> — a VOUCHER predicate — and this one on
+    /// <see cref="IsReportContext"/>, which requires a non-null <see cref="Reports"/>. The two cannot both hold:
+    /// opening a voucher runs <c>ClearSubScreens</c>, which nulls <c>Reports</c>. The window's handler tests the
+    /// voucher arm FIRST regardless, so even if that ever changed the shipped chord wins.</para>
+    /// </summary>
+    public void OpenChangeViewMenu()
+    {
+        if (!IsReportContext) return;                        // only over a live report
+        if (Company is null) return;                         // saved views are scoped to a company
+        if (CurrentScreen == Screen.ChangeViewMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ChangeViewMenu.BuildColumn(
+                savedViews: () => { PopMenuColumn(Screen.ChangeViewMenu); OpenSavedViews(); },
+                deleteSavedViews: () => { PopMenuColumn(Screen.ChangeViewMenu); OpenSavedViews(forDeletion: true); },
+                showOriginalView: () => { PopMenuColumn(Screen.ChangeViewMenu); ShowOriginalReportView(); }),
+            Screen.ChangeViewMenu);
+    }
+
+    /// <summary>
+    /// <b>Ctrl+H &gt; Show Original View</b> — reverts the open report to its default configuration. Vendor,
+    /// verbatim: "Ctrl+H (Change View) &gt; Show Original View".
+    ///
+    /// <para><b>It re-opens the same report kind rather than un-picking each knob</b>, which is exactly what
+    /// <see cref="ApplySavedView"/> already does in reverse: that method calls <c>OpenReport(kind)</c> for a
+    /// FRESH report and then applies a saved config on top. Show Original View is that first half alone — a fresh
+    /// report of the same kind, at the configuration a report opens with — so "original" means the same thing in
+    /// both directions and no second definition of "default" can drift away from the first.</para>
+    /// </summary>
+    public void ShowOriginalReportView()
+    {
+        if (Reports is not { } report) return;
+        OpenReport(report.Kind);
+    }
+
+    /// <summary>
+    /// <b>Alt+P — the print menu</b> (census rows 12.1 / 12.6). Vendor, verbatim: <c>Alt+P</c> — "To open the
+    /// print menu for printing transactions or reports."
+    ///
+    /// <para>🔴 <b>Alt+P WAS INERT ON EVERY SCREEN IN THIS BUILD.</b> The window's bare-P arm reads
+    /// <c>!e.KeyModifiers.HasFlag(KeyModifiers.Alt)</c> and the menu quick-jump at the bottom of that handler
+    /// requires <c>KeyModifiers == None</c>, so nothing matched Alt+P at all — a documented vendor chord that
+    /// did nothing anywhere. Nothing is displaced by taking it.</para>
+    /// </summary>
+    public void OpenPrintMenu()
+    {
+        if (!IsPrintablePage) return;                   // same gate the Ctrl+P "Current" row will meet
+        if (CurrentScreen == Screen.PrintMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportPrintMenu.BuildColumn(
+                current: () => { PopMenuColumn(Screen.PrintMenu); OpenPrintPreview(); },
+                others: () => { PopMenuColumn(Screen.PrintMenu); OpenMultiAccountPrint(); }),
+            Screen.PrintMenu);
+    }
+
+    /// <summary>
+    /// <b>Alt+E — the export menu</b> (census row 13.5). Vendor, verbatim: <c>Alt+E</c> — "To open the export
+    /// menu for exporting masters, transactions, or reports."
+    ///
+    /// <para>🔴 <b>THIS CHORD WAS DOING Ctrl+E's JOB.</b> The window's E arm guarded only <c>!Control</c>, so the
+    /// bare E and Alt+E both opened the CURRENT-object export panel directly, while Ctrl+E — the chord the vendor
+    /// gives that verb — was bound on <see cref="Screen.RestoreCompany"/> alone and was inert on every report.
+    /// Both halves move to where the vendor documents them in the same edit, because moving one without the
+    /// other would leave the operator with no export chord at all on some screen.</para>
+    ///
+    /// <para><b>The bare E is untouched.</b> It is this application's own quick key, it is advertised on the
+    /// header hint as "E: Export", and it is not a vendor chord to get wrong.</para>
+    /// </summary>
+    public void OpenExportMenu()
+    {
+        if (!IsExportablePage) return;
+        if (CurrentScreen == Screen.ExportMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportExportMenu.BuildColumn(
+                current: () => { PopMenuColumn(Screen.ExportMenu); OpenExport(); }),
+            Screen.ExportMenu);
+    }
+
+    /// <summary>
+    /// <b>Alt+M — the Share menu</b> (census rows 13.7 / 14.10). Vendor, verbatim: <c>Alt+M</c> — "To open the
+    /// Share menu for sharing transactions or reports through e-mail or WhatsApp."
+    ///
+    /// <para>🔴 <b>IT ALSO CLOSES IV-64.</b> <c>docs/invented-vs-cloned.md</c> IV-64 records that WhatsApp was
+    /// put on an invented <c>W</c> chord while the vendor nests it under exactly this Alt+M beside e-mail, and
+    /// names that nesting as the route to build. Both channels now hang off the vendor's chord. The W chord is
+    /// deliberately NOT removed — it is a shipped door, deleting it would regress an operator who uses it, and
+    /// IV-64 asks for the vendor route to exist rather than for the extra one to go.</para>
+    /// </summary>
+    public void OpenShareMenu()
+    {
+        if (!IsPrintablePage) return;                   // the gate both channels already carry
+        if (CurrentScreen == Screen.ShareMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportShareMenu.BuildColumn(
+                email: () => { PopMenuColumn(Screen.ShareMenu); OpenEmailCompose(); },
+                whatsApp: () => { PopMenuColumn(Screen.ShareMenu); OpenWhatsAppShare(); }),
+            Screen.ShareMenu);
+    }
 
     // =============================================================== the navigation shell (census 14.2 / 14.9)
     //

@@ -1210,6 +1210,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Ctrl+L ON A REPORT IS THE VENDOR'S **SAVE VIEW**, AND IT MUST BE TESTED BEFORE THE OPTIONAL TOGGLE
+        // IMMEDIATELY BELOW. Vendor, verbatim (help.tallysolutions.com/use-save-view-feature-in-tallyprime/):
+        // "Press Ctrl+L (Save View) to save the report with the specific configurations."
+        //
+        // WHAT WAS MEASURED HERE BEFORE THIS ARM EXISTED: the Optional toggle below consumed Ctrl+L
+        // UNCONDITIONALLY (`e.Handled = true` on every screen in the product), and `ToggleOptional()` then
+        // no-ops off Screen.VoucherEntry. So on all 82 report kinds the vendor's Save View chord was SWALLOWED
+        // and did nothing — the worst shape a chord can have, because the key is gone and nothing says so.
+        //
+        // 🔴 THE ARM BELOW IS NOT NARROWED, AND THAT IS DELIBERATE. Breaking a shipped voucher chord to fix a
+        // report chord would be a straight regression, and this project has shipped exactly that kind of
+        // regression under a fully green gate before. Nothing about the voucher's Ctrl+L changes: this arm is
+        // ADDITIVE and its guard is disjoint from the screen ToggleOptional acts on. `IsReportContext` requires
+        // a non-null `Reports`, and opening a voucher runs `ClearSubScreens`, which nulls it — so on
+        // Screen.VoucherEntry this arm cannot match and control falls straight through to the incumbent.
+        // ReportChordFidelityTests pins both halves.
+        // The `Company is not null` clause mirrors OpenSaveView's OWN refusal, so the key is never consumed on a
+        // screen where the verb would silently decline — the same rule the Ctrl+B and Ctrl+J arms below follow.
+        if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Company is not null)
+        {
+            vm.OpenSaveView();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+L toggles the in-progress voucher as Optional (a provisional, scenario-only entry).
         if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -1255,6 +1282,27 @@ public partial class MainWindow : Window
         if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsChangeModeEntry)
         {
             vm.ChangeMode();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Ctrl+H ON A REPORT IS THE VENDOR'S **CHANGE VIEW** MENU (census row 11.16). Vendor, verbatim
+        // (help.tallysolutions.com/use-save-view-feature-in-tallyprime/): a saved view is recalled by "press
+        // Ctrl+H (Change View), and select the view", and the same menu carries "Ctrl+H (Change View) > Delete
+        // Saved Views" and "Ctrl+H (Change View) > Show Original View".
+        //
+        // 🔴 IT DISPLACES NOTHING. The Change Mode arm IMMEDIATELY ABOVE keeps the chord wherever it had it, and
+        // it is tested FIRST — the position is the guarantee, not the guard. The two predicates are disjoint in
+        // any case: `IsChangeModeEntry` is a VOUCHER predicate and `IsReportContext` requires a non-null
+        // `Reports`, which opening a voucher nulls via ClearSubScreens. Ruling 17 put the item-invoice toggle on
+        // Ctrl+H and the ShellChordTable remarks warn against ever "freeing" that chord; this arm does not touch
+        // it — it claims Ctrl+H only where the shipped arm declines, which before this slice was NOWHERE, i.e.
+        // on a report Ctrl+H fell through and did nothing at all.
+        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Company is not null)
+        {
+            vm.OpenChangeViewMenu();
             e.Handled = true;
             return;
         }
@@ -1360,11 +1408,37 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Alt+K (RQ-8) opens the "Saved Views" list — the company's saved report views (open/apply or delete one).
-        // Available over any report page; needs a company. Checked before the global Alt shortcuts.
-        if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
+        // ── 🔴 THE Alt+K SAVED-VIEWS ARM WAS DELETED HERE, AND THE HOLE IS LEFT LABELLED ON PURPOSE. ──────────
+        // It read `Key.K && Alt && vm.IsReportContext` -> `vm.OpenSavedViews()`. Two things were wrong with it
+        // at once, and both are fixed rather than traded:
+        //   • Alt+K is the vendor's COMPANY MENU ("To open the company menu with the list of actions related to
+        //     managing your company", help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/). Because
+        //     this arm sat ABOVE the ShellChordTable dispatch and claimed the key on every report, the company
+        //     menu — Create, Alter, Select, Shut, Users and Passwords, Password Policy, Data Vault — had NO
+        //     keyboard door on any of this build's 82 report kinds. ShellChordTable's Alt+K entry had been
+        //     scoped `&& !vm.IsReportContext` to stay out of this arm's way; that clause is now deleted and the
+        //     chord is whole.
+        //   • Saved Views itself is reached the way the vendor reaches it: Ctrl+H (Change View) > Saved Views,
+        //     the arm added beside Change Mode further up. It did not lose a door, it gained the right one.
+        // DO NOT RE-ADD A REPORT-SCOPED Key.K ARM HERE. If a new report feature needs a chord, take one the
+        // vendor does not document, and record it in docs/invented-vs-cloned.md.
+
+        // 🔴 Alt+P — THE VENDOR'S **PRINT MENU** (census rows 12.1 / 12.6). Vendor, verbatim: "To open the print
+        // menu for printing transactions or reports." Its pair, Ctrl+P ("To print the current voucher or
+        // report"), already ships and is untouched below.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+P was INERT ON EVERY SCREEN IN THE PRODUCT. The bare-P arm below reads
+        // `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)`, the Ctrl+P arms require Control, and the bare-letter menu
+        // quick-jump at the bottom of this handler requires `KeyModifiers == None`. No arm matched Alt+P, so a
+        // documented vendor chord did nothing anywhere. Nothing is displaced by taking it.
+        //
+        // ORDER: above the Ctrl+P and bare-P arms, so the intent is explicit rather than incidental — the same
+        // reason Alt+Y sits above bare-Y further down.
+        if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsPrintablePage && !IsTyping(e))
         {
-            vm.OpenSavedViews();
+            vm.OpenPrintMenu();
             e.Handled = true;
             return;
         }
@@ -1397,11 +1471,35 @@ public partial class MainWindow : Window
             return;
         }
 
-        // E / Alt+E (RQ-14/16) opens the Export panel for the CURRENT report OR master list (Chart of Accounts,
+        // 🔴 Alt+E — THE VENDOR'S **EXPORT MENU** (census row 13.5). Vendor, verbatim: "To open the export menu
+        // for exporting masters, transactions, or reports." Its pair is Ctrl+E, "To export the current voucher
+        // or report", which is bound on a report further down this handler.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+E WAS DOING Ctrl+E's JOB. The arm immediately below guarded only
+        // `!Control`, so bare E and Alt+E BOTH opened the current-object export panel directly — the vendor's
+        // menu chord silently performing the vendor's current-object verb, while the real current-object chord
+        // was unreachable on a report. Both halves move in one edit, because moving either alone would leave
+        // some screen with no export chord at all.
+        //
+        // 🔴 THIS ARM MUST SIT ABOVE THE BARE-E ARM. That arm still accepts anything that is not Control, Alt
+        // included; first-match-wins is what stops it swallowing Alt+E again. The bare E is deliberately NOT
+        // narrowed — it is this application's own quick key, advertised as "E: Export" on the header hint, and
+        // not a vendor chord to get wrong.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsExportablePage && !IsTyping(e))
+        {
+            vm.OpenExportMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // E (RQ-14/16) opens the Export panel for the CURRENT report OR master list (Chart of Accounts,
         // ledgers, stock items) — choose CSV/XLSX/PDF, folder, filename and an optional timestamp; applying
         // writes the file via Apex.Ledger.Io. Exportable-page context only (a report or a master list), and not
         // while typing in a field (so a name-entry keystroke on a master screen goes to the field, not the
-        // export jump). Accepts both the bare E and Alt+E (the header hint reads "E: Export"). No Ctrl.
+        // export jump). The header hint reads "E: Export". No Ctrl — and, since the Alt+E arm above claims it
+        // first, no Alt either.
         if (e.Key == Key.E && vm.IsExportablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExport();
@@ -1483,12 +1581,51 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Ctrl+E — THE VENDOR'S **EXPORT CURRENT** (census row 13.5). Vendor, verbatim: "To export the
+        // current voucher or report." Before this arm, Ctrl+E on a report did NOTHING: the only Key.E + Control
+        // arm in this handler is the Restore one immediately above, scoped to Screen.RestoreCompany, so the
+        // vendor's export chord was unbound on all 82 report kinds and on every master list.
+        //
+        // 🔴 THE RESTORE ARM IS NOT TOUCHED, AND ITS POSITION IS THE PROOF. Ctrl+E on Screen.RestoreCompany is a
+        // real shipped behaviour (Examine the chosen backup; the destructive step is a separate Ctrl+A that
+        // refuses until Examine has passed). This arm sits BELOW it and first-match-wins, so Restore keeps the
+        // chord unconditionally — the two do not merely have disjoint-looking guards, the incumbent is
+        // structurally unreachable past. ReportChordFidelityTests pins that Restore still answers to Ctrl+E.
+        //
+        // The guard is `IsExportablePage`, the same predicate the bare-E and Alt+E arms above use, so the chord
+        // is never consumed on a screen where OpenExport would decline.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsExportablePage && !IsTyping(e))
+        {
+            vm.OpenExport();
+            e.Handled = true;
+            return;
+        }
+
         // Y (Gateway → Export Data; RQ-19/DP-4) opens the "Export Data" panel: a canonical JSON/XML backup of the
         // whole company. Same Gateway-root guard as Import — the header hint reads "Y: Data".
         if (e.Key == Key.Y && vm.CurrentScreen == Screen.Gateway
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExportData();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Alt+M — THE VENDOR'S **SHARE MENU** (census rows 13.7 / 14.10). Vendor, verbatim: "To open the Share
+        // menu for sharing transactions or reports through e-mail or WhatsApp." Its pair, Ctrl+M ("To e-mail the
+        // current voucher or report"), already ships on the arm immediately below and is untouched.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+M was INERT. The only Key.M arm in this tunnel is the e-mail one below,
+        // and it reads `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)` — it excludes Alt by construction — so the
+        // vendor's Share chord matched nothing anywhere. The W-chord remarks below already recorded that Alt+M
+        // was free and that IV-64's recommended route was a channel picker on it; this is that picker.
+        if (e.Key == Key.M && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsPrintablePage && !IsTyping(e))
+        {
+            vm.OpenShareMenu();
             e.Handled = true;
             return;
         }

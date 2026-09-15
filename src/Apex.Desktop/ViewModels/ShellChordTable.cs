@@ -62,9 +62,11 @@ public static class ShellChordTable
     /// The chords, in match order.
     ///
     /// <para>🔴 <b>Each entry's <c>CanFire</c> is the whole of its arbitration.</b> A chord that another
-    /// feature already owns in some context (today: <c>Alt+K</c>, held by Saved Views inside a report) is
-    /// scoped OUT here rather than the incumbent being deleted, so no shipped feature loses its only door.
-    /// Handing such a chord over completely is then a one-line edit to that predicate.</para>
+    /// feature already owns in some context is scoped OUT here rather than the incumbent being deleted, so no
+    /// shipped feature loses its only door. Handing such a chord over completely is then a one-line edit to that
+    /// predicate — and <c>Alt+K</c> is the worked example of the whole cycle: it carried
+    /// <c>&amp;&amp; !vm.IsReportContext</c> while Saved Views had no other door, and that clause was deleted
+    /// once Saved Views moved onto the vendor's Ctrl+H menu. The mechanism works; use it, and then finish it.</para>
     /// </summary>
     public static IReadOnlyList<ShellChord> Table { get; } = new List<ShellChord>
     {
@@ -87,15 +89,23 @@ public static class ShellChordTable
         // ── Alt+K — Company menu ──────────────────────────────────────────────────────────────────────────
         // Vendor, verbatim: "To open the company menu with the list of actions related to managing your
         // company."
-        // 🔴 SCOPED OUT OF REPORT CONTEXT ON PURPOSE. Saved Views (census 14.7) is bound to Alt+K on a report
-        // and has no menu row anywhere, so Alt+K is its ONLY door: claiming the chord there would delete a
-        // shipped feature rather than move it. Outside report context the chord is unbound on main and the
-        // vendor takes it. Handing it over entirely, once Saved Views has a menu row, is deleting
-        // "&& !vm.IsReportContext" from this line.
+        // 🔴 THE REPORT-CONTEXT CARVE-OUT IS GONE, AND THIS CHORD IS NOW WHOLE. This entry used to read
+        // `vm.HasLiveCompanyShell && !vm.IsReportContext`, with the note that Saved Views (census 14.7) held
+        // Alt+K on a report and had no other door, so claiming the chord there would have deleted a shipped
+        // feature rather than moved it. That note ended with the exact condition for undoing it — "handing it
+        // over entirely, once Saved Views has a menu row, is deleting `&& !vm.IsReportContext` from this line" —
+        // and that condition is now MET: Saved Views hangs off the vendor's own Ctrl+H (Change View) menu, which
+        // is where help.tallysolutions.com/use-save-view-feature-in-tallyprime/ documents it ("press Ctrl+H
+        // (Change View), and select the view"). So the predicate is deleted, exactly as written.
+        //
+        // 🔴 WHAT THIS FIXES IS BIGGER THAN ONE PANEL: the carve-out made the COMPANY MENU unreachable on every
+        // one of this build's 82 report kinds — Create, Alter, Select, Shut, Users and Passwords, Password
+        // Policy and the Data Vault all had no keyboard door from a report, because an Apex-invented feature was
+        // sitting on a documented vendor chord.
         // 🔴 And the same `HasLiveCompanyShell` narrowing as Ctrl+G above, for the same measured reason: Alt+F3
         // then Alt+K put this MENU COLUMN into the hidden cascade region and left the shell blank.
         new("Alt+K", Key.K, KeyModifiers.Alt,
-            vm => vm.HasLiveCompanyShell && !vm.IsReportContext,
+            vm => vm.HasLiveCompanyShell,
             vm => vm.OpenCompanyMenu()),
 
         // ── Alt+F3 — Select Company ───────────────────────────────────────────────────────────────────────

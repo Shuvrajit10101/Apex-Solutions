@@ -374,8 +374,18 @@ public sealed class VoucherCancelAltXTests
             ("F12 report config",      vm => vm.OpenReportConfig()),
             ("Alt+F12 sort/filter",    vm => vm.OpenReportSortFilter()),
             ("Alt+A add-voucher",      vm => vm.OpenAddVoucherFromReport()),
-            ("Alt+K saved views",      vm => vm.OpenSavedViews()),
+            // 🔴 The label used to read "Alt+K saved views". Saved Views is no longer on Alt+K — it hangs off the
+            // vendor's Ctrl+H (Change View) menu — so the label is corrected; the column it opens is the same one.
+            ("Saved Views column",     vm => vm.OpenSavedViews()),
             ("P print preview",        vm => vm.OpenPrintPreview()),
+            // 🔴 THE FOUR REPORT MENUS JOIN THIS LIST THE DAY THEY SHIP, not after they are found to have
+            // re-opened the hole. Each is a column stacked over a live report — exactly the shape that let Alt+X
+            // void the voucher BEHIND the column — and each sets its own screen id, so IsLiveReportPage goes
+            // false and the destructive arm is inert. This asserts that rather than assuming it.
+            ("Ctrl+H change view",     vm => vm.OpenChangeViewMenu()),
+            ("Alt+P print menu",       vm => vm.OpenPrintMenu()),
+            ("Alt+E export menu",      vm => vm.OpenExportMenu()),
+            ("Alt+M share menu",       vm => vm.OpenShareMenu()),
         };
 
         for (var i = 0; i < columns.Length; i++)

@@ -460,27 +460,62 @@ public sealed class ShellNavigationRowsTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 <b>THE INCUMBENT-PRESERVATION LOCK.</b> Saved Views (census 14.7) is bound to <c>Alt+K</c> on a
-    /// report and has no menu row anywhere, so that chord is its ONLY door. The company menu is scoped OUT of
-    /// report context precisely so claiming <c>Alt+K</c> does not delete a shipped feature. This passes before
-    /// and after; the day it goes red, a feature lost its only route in.
+    /// 🔴 <b>THE INCUMBENT-PRESERVATION LOCK, DISCHARGED — AND REWRITTEN RATHER THAN DELETED.</b>
+    ///
+    /// <para>This test used to be <c>Alt_K_on_a_report_still_opens_saved_views</c>, and it was RIGHT for as long
+    /// as its premise held: Saved Views (census 14.7) had <c>Alt+K</c> as its only door, so the company menu was
+    /// scoped out of report context to avoid deleting a shipped feature, and this test was the tripwire on that
+    /// bargain. <b>The premise no longer holds.</b> Saved Views now hangs off the vendor's own Ctrl+H (Change
+    /// View) menu — help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "press Ctrl+H (Change View),
+    /// and select the view" — so the chord can go back to the feature the vendor documents on it
+    /// (keyboard-shortcuts-tally/, <c>Alt+K</c>: "To open the company menu with the list of actions related to
+    /// managing your company").</para>
+    ///
+    /// <para>🔴 <b>The tripwire is not weakened, it is MOVED: this test now asserts BOTH halves.</b> Alt+K must
+    /// reach the company menu on a report (the fix), and Saved Views must still be reachable from that same
+    /// report by keyboard (the thing the old test protected). If a later change breaks either one, this goes
+    /// red — which is exactly what the old test existed to do.</para>
     /// </summary>
     [AvaloniaFact]
-    public void Alt_K_on_a_report_still_opens_saved_views()
+    public void Alt_K_on_a_report_opens_the_company_menu_and_saved_views_keeps_a_keyboard_door()
     {
-        var (window, vm) = OpenWindow("Saved Views Preserved Co");
+        var (window, vm) = OpenWindow("Saved Views Rehomed Co");
         try
         {
             vm.OpenReport(ReportKind.BalanceSheet);
             Pump(window);
             Assert.True(vm.IsReportContext);
 
+            // HALF ONE — the vendor's chord reaches the vendor's menu, on a report. This is the assertion that
+            // fails on today's main, where a report-scoped Alt+K arm opened Saved Views instead.
             window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
             Pump(window);
+            Assert.Equal(Screen.CompanyMenu, vm.CurrentScreen);
+            Assert.Null(vm.SavedViews);
+            Assert.Equal(
+                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy",
+                        "Data Vault" },
+                CompanyMenu.VerbsOf(vm.Columns[^1]));
 
+            // HALF TWO — the feature the old test protected still has a keyboard route from a report, and it is
+            // the vendor's: Ctrl+H (Change View) > Saved Views, driven entirely from the keyboard.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            vm.OpenReport(ReportKind.BalanceSheet);
+            Pump(window);
+
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(Screen.ChangeViewMenu, vm.CurrentScreen);
+            Assert.Equal(
+                new[] { "Saved Views", "Delete Saved Views", "Show Original View" },
+                ChangeViewMenu.VerbsOf(vm.Columns[^1]));
+            Assert.True(vm.Columns[^1].Selected?.IsSelectable == true);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
             Assert.NotNull(vm.SavedViews);
             Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
-            Assert.NotEqual(Screen.CompanyMenu, vm.CurrentScreen);
         }
         finally { window.Close(); }
     }

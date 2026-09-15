@@ -67,7 +67,24 @@ public sealed partial class SavedViewsViewModel : ViewModelBase
         foreach (var entry in _storage.ListViews(_company))
             Views.Add(new SavedViewItem(entry.Name, entry.View));
         Selected = Views.Count > 0 ? Views[0] : null;
-        Status = Views.Count == 0 ? "No saved views yet — save one from a report with Ctrl+S." : string.Empty;
+        // 🔴 THE CHORD NAMED HERE IS Ctrl+L, AND THAT IS A CORRECTION, NOT A PREFERENCE. This line used to read
+        // "with Ctrl+S" — an invented chord. The vendor's Save View chord is Ctrl+L
+        // (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "Press Ctrl+L (Save View) to save the
+        // report with the specific configurations"), and the shell now binds it. Ctrl+S still works as the
+        // legacy alias it always was, but the empty state must name the chord the product documents.
+        Status = Views.Count == 0 ? "No saved views yet — save one from a report with Ctrl+L." : string.Empty;
+    }
+
+    /// <summary>
+    /// The Ctrl+H &gt; <b>Delete Saved Views</b> intent (see <see cref="ChangeViewMenu"/>). The vendor's Change
+    /// View menu reaches this SAME list by two rows — one to apply a view, one to remove one — so this sets the
+    /// panel's status line to say which verb the operator came for rather than opening a second, near-identical
+    /// screen. A no-op on an empty list, where the empty-state sentence is the more useful thing to read.
+    /// </summary>
+    public void EnterDeleteMode()
+    {
+        if (Views.Count == 0) return;
+        Status = "Highlight a view and choose Delete to remove it.";
     }
 
     /// <summary>Opens (applies) the highlighted saved view: raises <see cref="OpenRequested"/> so the shell opens a
