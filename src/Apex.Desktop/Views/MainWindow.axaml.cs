@@ -1306,6 +1306,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W-V2 census 11.9 — Alt+A on the RE-HOMED Bills Receivable / Bills Payable REPORT opens the settlement
+        // helper page for the side on screen.
+        //
+        // 🔴 WITHOUT THIS ARM THE RE-HOME WOULD HAVE STRANDED A SHIPPED WORKFLOW. The menu rows "Receivables"
+        // and "Payables" now open ReportKinds (so the reports finally get Ctrl+P, Ctrl+E, F2, F12, Alt+F12 and
+        // Alt+K), which means nothing else routes to Screen.Outstandings any more — and that page is the only
+        // place the spacebar bill multi-select and the settlement preload live. An unreachable-but-shipped
+        // screen is precisely the defect census row 11.10 already records ("one shipped report nobody can
+        // reach"), and re-homing without this line would have created a second instance of it in the same wave.
+        //
+        // ORDER: immediately BELOW the Screen.Outstandings arm above, so standing ON the settle page keeps
+        // priority, and ABOVE the Day Book arm below. The guards are disjoint (one tests a page Screen, this
+        // one tests Screen.Report via Reports.Kind), but this chain is first-match-wins and the ordering is
+        // what keeps that true if the guards ever stop being disjoint.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.Reports is { Kind: ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding })
+        {
+            vm.OpenSettlementPageFromOutstandingsReport();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+A on the Day Book ADDS a voucher (WI-12; Book p.431 "Add a voucher in a report"): it opens a
         // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
         // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying

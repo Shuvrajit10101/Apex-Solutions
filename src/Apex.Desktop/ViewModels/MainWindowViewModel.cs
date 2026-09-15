@@ -2021,6 +2021,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Centres"));
         col.Add(new MenuItemViewModel("Category Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // 🔴 W-V2 — THE THIRD COST REPORT, WHICH HAS EXISTED ALL ALONG WITH NO WAY IN.
+        // CostReports.BuildLedgerBreakup has been implemented, documented and unit-tested since Phase 2 and had
+        // ZERO production callers; seven source comments across this repository cite it by name as the example
+        // of careful, correct-looking, unreachable code counted as delivered. Nothing was wrong with it. This
+        // row is the door. Do not remove it without removing the engine.
+        col.Add(new MenuItemViewModel("Ledger Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -6920,6 +6926,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <b>Post Provision</b> action (Ctrl+A) that posts the delta voucher. A no-op unless the establishment is enrolled
     /// for gratuity (the menu item + the open path are gated on <see cref="Company.GratuityConfig"/>), so a non-gratuity
     /// company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 7.13 was re-homed onto <see cref="ReportKind.GratuityProvisionRegister"/>
+    /// (<see cref="OpenGratuityProvisionReport"/>), and the Ctrl+A Post Provision action went with it
+    /// (<see cref="PostGratuityProvisionFromReport"/>). The "Gratuity Provision" menu row now calls the report
+    /// opener and nothing else ever called this. See the banner on <see cref="OpenCostReport"/>.</para>
     /// </summary>
     public void OpenGratuityProvisionRegister()
     {
@@ -6947,6 +6959,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// actual Basic + DA, capped base, rate, annual bonus) + the total bonus. A no-op unless the establishment is
     /// enrolled for statutory bonus (the menu item + the open path are gated on <see cref="Company.BonusConfig"/>), so a
     /// non-bonus company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 7.14 was re-homed onto <see cref="ReportKind.BonusRegister"/>
+    /// (<see cref="OpenBonusRegisterReport"/>); the "Bonus Register" menu row now calls that and nothing else
+    /// ever called this. See the banner on <see cref="OpenCostReport"/>.</para>
     /// </summary>
     public void OpenBonusRegister()
     {
@@ -6959,6 +6976,115 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True while the Bonus register page is the active screen.</summary>
     public bool IsBonusRegisterScreen => CurrentScreen == Screen.BonusRegister && BonusRegister is not null;
+
+    // ---------------------------------------------------------- W-V2: the two payroll registers, re-homed
+    //
+    // Census rows 7.13 and 7.14. Both shipped as dedicated page Screens with correct arithmetic and — measured,
+    // not assumed — ZERO Export/Print/Pdf hits in either view model, because a page Screen leaves the report
+    // context null and that single fact switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once.
+    // The two openers below route the SAME projections through the report surface instead. The gates are
+    // unchanged and are still two-part (PayrollStatutoryEnabled AND the establishment's own enrolment), so a
+    // company enrolled for neither statute reaches neither report (ER-13).
+
+    /// <summary>
+    /// Opens the re-homed <b>Gratuity Provision</b> register (census 7.13) as a report. Gated exactly as
+    /// <see cref="OpenGratuityProvisionRegister"/> is; the Ctrl+A <b>Post Provision</b> action travels with it
+    /// (<see cref="PostGratuityProvisionFromReport"/>) rather than being left behind on the old page.
+    /// </summary>
+    public void OpenGratuityProvisionReport()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, GratuityConfig: not null }) return;
+        OpenReport(ReportKind.GratuityProvisionRegister);
+    }
+
+    /// <summary>Opens the re-homed <b>Statutory Bonus</b> register (census 7.14) as a report. Read-only — the
+    /// register has no action of its own, which is why nothing had to be carried across with it.</summary>
+    public void OpenBonusRegisterReport()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, BonusConfig: not null }) return;
+        OpenReport(ReportKind.BonusRegister);
+    }
+
+    /// <summary>
+    /// <b>Ctrl+A on the re-homed Gratuity Provision report</b> — posts the period-end provision voucher for the
+    /// delta over the prior posted balance (Dr Gratuity Expense / Cr Gratuity Provision, or the reverse
+    /// write-back for a fall) and persists the company, then refreshes the report so the movement band shows the
+    /// new prior balance and a ₹0 delta.
+    ///
+    /// <para>🔴 <b>THE POST LIVES HERE, NOT ON <see cref="ReportsViewModel"/>, AND THAT IS DELIBERATE.</b> That
+    /// class's whole contract is that it is a pure projection holding no storage and writing nothing — the same
+    /// contract the Outstandings page had to be rewritten to honour after a Ctrl+B on it silently posted a
+    /// settlement voucher through a hard-coded ledger. The shell owns <c>_storage</c>; the report stays
+    /// read-only and simply displays what the shell reports back.</para>
+    ///
+    /// <para>The duplicate-post refusal is carried across verbatim in intent from the page: the engine's prior
+    /// balance is strictly-before the as-on date, so an INCLUSIVE prior (as-on + 1 day) is what makes a second
+    /// Ctrl+A on an already-provisioned date a friendly no-op instead of a double posting.</para>
+    /// </summary>
+    public void PostGratuityProvisionFromReport()
+    {
+        if (Company is null || Reports is not { Kind: ReportKind.GratuityProvisionRegister } reports) return;
+        if (Company.GratuityConfig is null)
+        {
+            reports.ReportActionStatus = "Gratuity is not enabled for this company.";
+            return;
+        }
+
+        var asOn = reports.AsOf;
+        var employeeIds = Company.Employees.Select(e => e.Id).ToList();
+        var service = new Apex.Ledger.Services.PayrollVoucherService(Company);
+
+        var accrued = Apex.Ledger.Services.GratuityProvision.TotalLiability(Company, employeeIds, asOn);
+        var inclusivePrior = service.PriorGratuityProvisionBalance(asOn.AddDays(1));
+        if (accrued.Amount - inclusivePrior.Amount == 0m)
+        {
+            reports.ReportActionStatus =
+                "The gratuity provision is unchanged from the posted balance — nothing to post.";
+            return;
+        }
+
+        Voucher posted;
+        try
+        {
+            posted = service.PostGratuityProvision(asOn, employeeIds, voucherDate: asOn);
+            _storage.Save(Company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            reports.ReportActionStatus = $"Could not post the gratuity provision: {ex.Message}";
+            return;
+        }
+
+        BuildButtonBar();
+        // Refresh FIRST, then set the message: Show() clears ReportActionStatus, so the other order would
+        // post the voucher correctly and then silently throw away the only confirmation the operator gets.
+        reports.Show(ReportKind.GratuityProvisionRegister);
+        reports.ReportActionStatus =
+            $"Posted gratuity provision as-on {ApexDate.Format(asOn)}: "
+            + $"Dr {IndianFormat.AmountAlways(posted.TotalDebit)} = Cr {IndianFormat.AmountAlways(posted.TotalCredit)}.";
+    }
+
+    /// <summary>
+    /// <b>Alt+A on the re-homed Outstandings report</b> (census 11.9) — opens the bill-settlement helper for the
+    /// side being viewed.
+    ///
+    /// <para>🔴 <b>THIS IS WHAT KEEPS THE SETTLE WORKFLOW REACHABLE AFTER THE RE-HOME, AND IT IS ALSO THE
+    /// HONEST SHAPE.</b> Re-homing moved Bills Receivable / Bills Payable onto the report surface so they gain
+    /// print, export and the report parameters. The spacebar multi-select and the Alt+A settlement preload are
+    /// NOT part of that report in the reference product — the vendor's Bills Outstanding carries no settlement
+    /// action at all — so they are ours, and they stay on their own page rather than being smuggled onto a
+    /// report surface that has no row-selection model. Alt+A is the door to that page, on the same keystroke it
+    /// already had, which is why routing the menu rows to the reports does not strand it.</para>
+    /// </summary>
+    public void OpenSettlementPageFromOutstandingsReport()
+    {
+        if (Company is null || Reports is not { } reports) return;
+        switch (reports.Kind)
+        {
+            case ReportKind.ReceivablesOutstanding: OpenOutstandings(OutstandingsKind.Receivables); break;
+            case ReportKind.PayablesOutstanding: OpenOutstandings(OutstandingsKind.Payables); break;
+        }
+    }
 
     // =============================================================== §192 salary TDS (Phase 8 slice 7)
 
@@ -7205,6 +7331,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens a cost-centre report (Reports → Statements of Accounts → Cost Centres → Category Summary /
     /// Cost Centre Break-up) as a page column on the right of the cascade.
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 11.10 was re-homed onto <see cref="ReportKind.CostCategorySummary"/> /
+    /// <see cref="ReportKind.CostCentreBreakup"/> / <see cref="ReportKind.CostCentreLedgerBreakup"/>, and BOTH
+    /// doors that used to land here — the "Cost Centres" menu column and the "C" quick-button — now call
+    /// <c>OpenReport</c>. This method, <see cref="CostReportsViewModel"/>, <see cref="CostReportKind"/> and
+    /// <see cref="Screen.CostReport"/> therefore have <b>zero production callers</b>.</para>
+    ///
+    /// <para>They are left standing for exactly one wave, under this banner, because the wave that re-homed
+    /// them was told not to delete a screen until its replacement route was proven — and the proof is the test
+    /// suite that ships with the re-home, not this method. The banner is the whole point: unreachable code with
+    /// NO notice on it is this repository's own filed defect (<c>CostReports.BuildLedgerBreakup</c> sat that way
+    /// for months, which is the reason its route is in the list above). Removing these is a named follow-up.</para>
     /// </summary>
     public void OpenCostReport(CostReportKind kind)
     {
@@ -7251,6 +7390,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the Budget Variance report (Reports → Statements of Accounts → Budgets → Budget Variance) as a
     /// page column: for the chosen budget, each target's Budget / Actual / Variance over the budget period.
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 11.11 was re-homed onto <see cref="ReportKind.BudgetVariance"/>; the "Budget Variance" menu
+    /// row now calls <c>OpenReport</c> and nothing else ever called this. See the identical banner on
+    /// <see cref="OpenCostReport"/> for why it is left standing for one wave rather than deleted in the same
+    /// change that stopped calling it.</para>
     /// </summary>
     public void OpenBudgetVariance()
     {
@@ -10998,6 +11143,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.Report when Reports?.Kind == ReportKind.EPayments:
                 Reports.ExportPaymentInstructions();
                 return;
+
+            // W-V2 census 7.13 — Ctrl+A on the re-homed Gratuity Provision register posts the period-end
+            // provision voucher, the action that came across with it from Screen.GratuityProvisionRegister.
+            // `when`-guarded for the same reason the arm above is: a bare `case Screen.Report:` would swallow
+            // Ctrl+A on all ninety report kinds and silence the fall-through every other one relies on.
+            case Screen.Report when Reports?.Kind == ReportKind.GratuityProvisionRegister:
+                PostGratuityProvisionFromReport();
+                return;
         }
 
         if (IsGatewayCascade)
@@ -11461,11 +11614,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Form 27D" or "Form 133" or "Form 27D / 133": OpenForm27D(); break;
             case "Form 27A (TDS)": OpenForm27A("26Q"); break;
             case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
-            case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
-            case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
-            case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
-            case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
-            case "Budget Variance": OpenBudgetVariance(); break;
+            // W-V2 (census 11.9 / 11.10 / 11.11) — RE-HOMED off dedicated page Screens onto ReportKind. Each of
+            // these five menu rows used to open a bespoke page, and a page Screen leaves the report context null,
+            // which switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K all at once. Routing the SAME
+            // projections through OpenReport is the whole fix — no figure below changed.
+            case "Receivables": OpenReport(ReportKind.ReceivablesOutstanding); break;
+            case "Payables": OpenReport(ReportKind.PayablesOutstanding); break;
+            case "Category Summary": OpenReport(ReportKind.CostCategorySummary); break;
+            case "Cost Centre Break-up": OpenReport(ReportKind.CostCentreBreakup); break;
+            // 🔴 The first menu row CostReports.BuildLedgerBreakup has ever had. The engine shipped, tested and
+            // documented with zero production callers and is cited by name in seven source comments as this
+            // project's canonical unreachable-delivered-code example.
+            case "Ledger Break-up": OpenReport(ReportKind.CostCentreLedgerBreakup); break;
+            case "Budget Variance": OpenReport(ReportKind.BudgetVariance); break;
             case "Interest Calculation": OpenInterestReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
             case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
@@ -11546,8 +11707,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payroll Statutory Summary": OpenPayrollStatutoryForm(ReportKind.PayrollStatutorySummary); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
-            case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
-            case "Bonus Register": OpenBonusRegister(); break;
+            // W-V2 (census 7.13 / 7.14) — RE-HOMED onto ReportKind. Both used to open a bespoke page Screen with
+            // measured ZERO Export/Print/Pdf reachability; the report surface gives them both plus F2/Alt+F2,
+            // F12, Alt+F12 and Alt+K. Gratuity's Ctrl+A Post Provision travelled with it.
+            case "Gratuity Provision": OpenGratuityProvisionReport(); break;
+            case "Bonus Register": OpenBonusRegisterReport(); break;
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
             case "Form 24Q" or "Form 138" or "Form 24Q / 138": OpenForm24Q(); break;
             case "Form 16" or "Form 130" or "Form 16 / 130": OpenForm16(); break;
@@ -12281,14 +12445,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.
-        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
+        // W-V2 (census 11.9): routed to the REPORT, not to the old page, so the bar and the menu row land an
+        // operator on the same surface. Two doors to two different surfaces for one report is how a product ends
+        // up with a printable copy and an unprintable copy of the same figures.
+        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenReport(ReportKind.ReceivablesOutstanding), hasCompany));
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         // Census 1.7 — these two quick-buttons are DOORS to the same two features the F11 → Accounting group
         // gates, so they close with it. Leaving them enabled would have made the gate cosmetic: the menu row
         // would vanish and one click on the bar would still open the report the company had switched off.
         // The F11 page calls BuildButtonBar through its onChanged hook, so the bar follows the tick live.
-        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup),
+        // W-V2 (census 11.10): routed to the REPORT for the same reason "Outs" above is. The F11 Cost Centres
+        // gate on the button is unchanged — it must stay, or the gate becomes cosmetic (the menu row vanishes
+        // and one click on the bar still opens the report the company switched off).
+        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenReport(ReportKind.CostCentreBreakup),
             hasCompany && Company?.EnableCostCentres != false));
         ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport,
             hasCompany && Company?.EnableInterestCalculation != false));

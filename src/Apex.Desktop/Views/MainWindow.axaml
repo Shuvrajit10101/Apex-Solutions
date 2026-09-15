@@ -562,6 +562,20 @@
                                      HorizontalAlignment="Center" Margin="12,4,12,0"
                                      TextWrapping="Wrap"
                                      ToolTip.Tip="{Binding EPaymentsExportStatus}"/>
+
+                          <!-- W-V2 — what a report's own primary ACTION just did. Today that is Ctrl+A on the
+                               re-homed Gratuity Provision register (census 7.13), which posts the period-end
+                               provision voucher. Stacked in the same panel for the reason stated above: two
+                               children sharing one Auto grid row draw on top of each other, and this line
+                               wraps. Invisible (and zero-height) on every report that sets no status. -->
+                          <TextBlock Text="{Binding ReportActionStatus}"
+                                     IsVisible="{Binding ReportActionStatus,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     HorizontalAlignment="Center" Margin="12,4,12,0"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding ReportActionStatus}"/>
                         </StackPanel>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
