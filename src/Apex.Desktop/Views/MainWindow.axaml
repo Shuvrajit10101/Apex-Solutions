@@ -10863,7 +10863,11 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PayHeadMasterViewModel">
                           <Grid RowDefinitions="Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Pay Head Creation"
+                            <!-- 7.6 — bound, not literal: this screen now runs TWO verbs off Ctrl+A, and the
+                                 caption is the only signal telling the operator which one they are about to run.
+                                 A screen reading "Pay Head Creation" while Ctrl+A alters an existing head is how
+                                 an operator overwrites a live rate believing they are adding a head. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -11194,6 +11198,11 @@
                                     <DataTemplate x:DataType="vm:PayHeadListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="*,150,150,*" Height="24">
+                                          <!-- 7.6 / 7.16 keyboard highlight — a destructive verb (Alt+D) and an
+                                               alteration (Ctrl+Enter) both act on THIS row, so the cursor has to
+                                               be visible. See the Employee Category list above. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                      TextTrimming="CharacterEllipsis"/>
