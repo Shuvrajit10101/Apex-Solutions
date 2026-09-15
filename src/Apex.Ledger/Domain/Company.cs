@@ -57,6 +57,7 @@ public sealed class Company
     private readonly List<SalaryStructure> _salaryStructures = new();
     private readonly List<AttendanceEntry> _attendanceEntries = new();
     private readonly List<TaxDeclaration> _taxDeclarations = new();
+    private readonly List<IncomeTaxCessRate> _incomeTaxCessRates = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -800,6 +801,15 @@ public sealed class Company
     /// byte-identical (ER-13).</summary>
     public IReadOnlyList<TaxDeclaration> TaxDeclarations => _taxDeclarations;
 
+    /// <summary>
+    /// 🔴 The establishment's own <b>dated Health &amp; Education Cess rates</b> (v64; the user's ruling on the 4%
+    /// cess). <b>EMPTY BY DEFAULT AND NEVER BACK-FILLED</b> — an empty list means "charge the statutory rate for the
+    /// year", which is the 4% every sourceable year publishes, so a book that never edits the rate is byte-identical
+    /// to a pre-v64 book (ER-13). Ordered oldest-first by <see cref="IncomeTaxCessRate.EffectiveFrom"/>; resolve with
+    /// <see cref="ResolveIncomeTaxCessRate"/> rather than reading the list directly.
+    /// </summary>
+    public IReadOnlyList<IncomeTaxCessRate> IncomeTaxCessRates => _incomeTaxCessRates;
+
     /// <summary>Payroll units (Phase 8 slice 1; RQ-3): simple + compound units for attendance/production.</summary>
     public IReadOnlyList<PayrollUnit> PayrollUnits => _payrollUnits;
 
@@ -1161,6 +1171,40 @@ public sealed class Company
     /// (⇒ the §192 engine treats every declared figure as ₹0 — correct for a new-regime employee).</summary>
     public TaxDeclaration? FindTaxDeclaration(Guid employeeId) =>
         _taxDeclarations.FirstOrDefault(d => d.EmployeeId == employeeId);
+
+    /// <summary>
+    /// Adds (or replaces) a dated Health &amp; Education Cess rate (v64). One row per
+    /// <see cref="IncomeTaxCessRate.EffectiveFrom"/> — setting a rate for a date that already has one replaces it,
+    /// so the screen cannot accumulate two contradictory rates for the same day. Kept ordered oldest-first.
+    /// </summary>
+    public void AddIncomeTaxCessRate(IncomeTaxCessRate rate)
+    {
+        ArgumentNullException.ThrowIfNull(rate);
+        _incomeTaxCessRates.RemoveAll(r => r.EffectiveFrom == rate.EffectiveFrom);
+        _incomeTaxCessRates.Add(rate);
+        _incomeTaxCessRates.Sort((a, b) => a.EffectiveFrom.CompareTo(b.EffectiveFrom));
+    }
+
+    /// <summary>Removes a dated cess rate (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveIncomeTaxCessRate(IncomeTaxCessRate rate) => _incomeTaxCessRates.Remove(rate);
+
+    /// <summary>
+    /// 🔴 The company's cess rate in force for a payroll period ending <paramref name="periodTo"/>, or <c>null</c>
+    /// when this book has set none at or before that date — in which case the caller charges the <b>statutory</b>
+    /// rate for the year. <c>null</c> is the answer for every existing book, which is precisely why no existing book
+    /// changes behaviour on upgrade.
+    ///
+    /// <para>Anchored on the period END date, the same anchor the dated salary structure and the v63 dated
+    /// computation slab use, so the three cannot disagree about which period a date belongs to.</para>
+    /// </summary>
+    public IncomeTaxCessRate? ResolveIncomeTaxCessRate(DateOnly periodTo)
+    {
+        IncomeTaxCessRate? best = null;
+        foreach (var r in _incomeTaxCessRates)
+            if (r.EffectiveFrom <= periodTo && (best is null || r.EffectiveFrom > best.EffectiveFrom))
+                best = r;
+        return best;
+    }
 
     /// <summary>Adds a payroll unit (uniqueness guard lives in <c>PayrollService</c>).</summary>
     public void AddPayrollUnit(PayrollUnit unit) => _payrollUnits.Add(unit ?? throw new ArgumentNullException(nameof(unit)));
