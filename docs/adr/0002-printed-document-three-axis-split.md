@@ -213,11 +213,23 @@ the **first** category.
 - **Screen and paper cannot drift.** The badge (`src/Apex.Desktop/ViewModels/VoucherDetailViewModel.cs:67`),
   the PDF title and the on-screen preview mirror all re-derive from **one** classification record. Today each
   derives the document kind independently — the exact split that produced FIX-W1e.
-- **The Credit / Debit Note document is DECOUPLED from census T0-10.** A note cannot carry inventory lines at
-  all: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws on every post (reached from
-  `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`) and
-  `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert. Because
-  Rule 53 is value-level, a **legally complete note ships without waiting for T0-10**.
+- **The Credit / Debit Note document is DECOUPLED from census T0-10.** ~~A note cannot carry inventory lines at
+  all — the validator threw on every post and the entry screen's item-invoice chord was inert on both notes.~~
+  Because Rule 53 is value-level, a **legally complete note ships without waiting for T0-10**.
+
+  > **▶ 🔴 AMENDED 2026-09-15 — CENSUS 4.7/4.8 CLOSED T0-10, SO THE PREMISE ABOVE IS NO LONGER TRUE. The
+  > conclusion is, and that is why only the premise is struck.** A Credit or Debit Note now **does** carry
+  > inventory lines. The carrier set is one predicate,
+  > `src/Apex.Ledger/Domain/VoucherEffects.cs:111` —
+  > **the four item-invoice carriers are Purchase, Sales, Credit Note and Debit Note**; the validator, the
+  > on-hand engine, the movement register, the no-negative guard, the
+  > `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:80`
+  > post-time direction stamp and `VoucherEntryViewModel.CanBeItemInvoice` all read that one predicate instead
+  > of restating the set for themselves, which is what six of them used to do.
+  > **The decoupling this bullet asserts still holds, for the reason it always rested on and not for the struck
+  > one:** Rule 53 is value-level, so the printed note was never waiting on the stock lines. What changes is
+  > that the note's item lines now EXIST, so a per-item table on a note is no longer unreachable-by-construction
+  > — it is simply still unbuilt, and still labelled OURS if it is ever added.
 - **No schema change, and no collision with the contested version number.** Every discriminator already
   exists on the posted voucher or in an existing table; the classification is computed at print time and
   never stored.

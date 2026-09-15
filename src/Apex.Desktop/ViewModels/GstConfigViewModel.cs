@@ -467,6 +467,31 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>True iff the chosen registration type is Composition — drives the composition block's visibility.</summary>
     public bool IsComposition => RegistrationType?.Value == GstRegistrationType.Composition;
 
+    /// <summary>
+    /// Census 3.13 — <b>THE COMPANY RUNG OF THE GST RATE HIERARCHY</b>, the fifth and LAST level of both
+    /// resolution orders (<c>GstService.LedgerFirstWalk</c> / <c>StockItemFirstWalk</c> both end
+    /// <c>… → Company</c>). Backed by <see cref="GstConfig.DefaultGst"/>.
+    ///
+    /// <para>🔴 <b>THE DEFECT THIS CLOSES, and it is the same shape as the one <see cref="MasterGstBlockEditor"/>
+    /// itself was built for.</b> The storage shipped at schema v51, <see cref="GstConfig.EnsureValid"/> has
+    /// validated it since, and <c>GstService.Hierarchy</c> has READ it since T0-4 S2a — but
+    /// <c>grep -rn "DefaultGst" src/Apex.Desktop/</c> returned <b>zero</b>: the canonical importer was the only
+    /// writer in the product. So an IMPORTED book resolved rates from a rung a hand-keyed book could never
+    /// populate, and a company that sets its rate where the vendor's own documentation tells it to found the
+    /// value unreachable. This property is what makes the two kinds of book behave the same.</para>
+    ///
+    /// <para>🔴 <b>THIS ADDS A RUNG; IT DOES NOT RE-ORDER ONE.</b> The precedence is the resolver's and is
+    /// untouched: ledger → accounting group → stock item → stock group → <b>company</b> (or the stock-item-first
+    /// permutation), company LAST in both. A company default therefore can never outrank a rate declared on a
+    /// ledger, a stock item or either group — it is only ever consulted when no other rung declared anything.
+    /// Pinned by <c>CompanyGstRungTests.Company_default_never_outranks_a_ledger_rate</c>; if that test ever has to
+    /// change to accommodate an edit here, the edit is wrong.</para>
+    ///
+    /// <para>Shares the one editor with the Stock Group and accounting Group screens, so the three rungs cannot
+    /// drift into offering different fields or different validation.</para>
+    /// </summary>
+    public MasterGstBlockEditor CompanyGst { get; } = new();
+
     /// <summary>The advisory resolved tax-on-turnover rate + turnover base for the selected sub-type (never a posting
     /// gate — a composition dealer posts no tax; this is guidance only).</summary>
     public string CompositionRateText
@@ -678,6 +703,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SelectedCompositionSubType = CompositionSubTypes.FirstOrDefault(o => o.Value == cfg?.CompositionSubType)
                                      ?? CompositionSubTypes.First();
         CompositionOptInDateText = cfg?.CompositionOptInDate is { } optIn ? ApexDate.Format(optIn) : string.Empty;
+        // Census 3.13 — the company rung. Same reason as the tracking flags and the VAT block above: without this
+        // line the block shows "off" on every re-entry, so an operator who set a company default would find it
+        // apparently unset the next time they opened F11 — and would then clear it for real on the next Apply.
+        // LoadFrom(null) is the correct reading of a company that declares no default: the block is OFF and every
+        // field is blanked, never a previous company's values left on screen after a company switch.
+        CompanyGst.LoadFrom(cfg?.DefaultGst);
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -1884,6 +1915,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             return false;
         }
 
+        // Census 3.13 — build the company rung HERE, with the other pre-validations, and BEFORE the first write to
+        // `config` below. On an already-enabled company `config` IS _company.Gst, so a malformed rate discovered
+        // after those writes would already have landed on the shared aggregate; refusing up here means a bad HSN or
+        // a bad rate leaves the company byte-identical. MasterGstBlockEditor.TryBuild ends in
+        // MasterGstDetails.EnsureValid, the same validator the canonical importer and GstConfig.EnsureValid use.
+        if (!CompanyGst.TryBuild(out var companyDefaultGst, out var companyGstError))
+        {
+            Message = companyGstError;
+            RevertToggle();
+            return false;
+        }
+
         var config = _company.Gst ?? new GstConfig();
         // Capture BEFORE the six in-place writes below. On an ALREADY-ENABLED company `config` IS _company.Gst, so
         // those writes land on the shared aggregate before the store is ever reached — the same shape as ApplyPt's
@@ -1914,6 +1957,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             config.CompositionSubType = null;
             config.CompositionOptInDate = null;
         }
+
+        // Census 3.13 — the company rung. `null` when the operator left "Set/Alter GST Details" off, which is the
+        // correct reading of "this company declares no default": a rung that is ABSENT from the walk, never an
+        // empty block the resolver would stop at with nothing to say. It is also what every pre-v51 book reads as,
+        // so a company that never touches this block stays byte-identical (ER-13).
+        config.DefaultGst = companyDefaultGst;
 
         try
         {
@@ -2263,11 +2312,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The <see cref="GstConfig"/> fields <see cref="Apply"/> overwrites IN PLACE before persisting.</summary>
     private readonly record struct GstFields(
         bool Enabled, string? Gstin, string? HomeStateCode, GstRegistrationType Registration,
-        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate);
+        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate,
+        MasterGstDetails? DefaultGst);
 
     private static GstFields CaptureGstFields(GstConfig c) => new(
         c.Enabled, c.Gstin, c.HomeStateCode, c.RegistrationType, c.Periodicity,
-        c.CompositionSubType, c.CompositionOptInDate);
+        c.CompositionSubType, c.CompositionOptInDate, c.DefaultGst);
 
     private static void RestoreGstFields(GstConfig c, GstFields f)
     {
@@ -2278,6 +2328,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         c.Periodicity = f.Periodicity;
         c.CompositionSubType = f.SubType;
         c.CompositionOptInDate = f.OptInDate;
+        // Census 3.13 — the company rung is a wrong-FIGURES field too, for the same reason HomeStateCode is: it is
+        // the last rung of the rate walk, so a default left live in memory after a FAILED save re-rates every new
+        // line no other rung answered, for the rest of the session, over a book that does not have it. Capturing
+        // and restoring the REFERENCE is sufficient and is the right granularity: Apply only ever ASSIGNS a freshly
+        // built MasterGstDetails to config.DefaultGst (TryBuild constructs a new one every call) and never mutates
+        // the existing instance in place, so the old object cannot have been touched.
+        c.DefaultGst = f.DefaultGst;
     }
 
     /// <summary>

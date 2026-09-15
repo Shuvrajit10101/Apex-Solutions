@@ -151,25 +151,26 @@ public sealed class LedgerService
 
     /// <summary>
     /// Stamps each item-invoice line's <see cref="VoucherInventoryLine.Direction"/> from the voucher type's
-    /// nature (Purchase ⇒ Inward, Sales ⇒ Outward). Only Purchase/Sales types are valid carriers; other types
-    /// are left untouched here and rejected by the validator. Rebuilds the voucher's lines in place via the
-    /// domain's own <see cref="VoucherInventoryLine.WithDirection"/> so the stored line is self-consistent.
+    /// nature, through the ONE home <see cref="VoucherEffects.ItemInvoiceStockDirection"/>: Purchase and Credit
+    /// Note inward, Sales and Debit Note outward. A type that is not a carrier is left untouched here and
+    /// rejected by the validator. Rebuilds the voucher's lines in place via the domain's own
+    /// <see cref="VoucherInventoryLine.WithDirection"/> so the stored line is self-consistent.
+    ///
+    /// <para>🔴 <b>Census 4.7/4.8 — this is the AUTHORITATIVE stamp, and it silently over-wrote the caller.</b>
+    /// Every posted line's direction comes from here, not from what the caller passed; the entry screen's own
+    /// stamp is only what the pairing is derived against. Left at Purchase/Sales, a Credit Note's lines would
+    /// have kept whatever direction the caller happened to set — for the shipped screen that is the right value,
+    /// but for an import or any other caller it is unchecked input deciding which way stock moves. Widening it
+    /// here is what makes the direction a property of the voucher's NATURE on every path into the book.</para>
     /// </summary>
     private void StampInventoryLineDirections(Voucher voucher)
     {
         if (!voucher.HasInventoryLines) return;
         var type = _company.FindVoucherType(voucher.TypeId);
         if (type is null) return; // referential integrity is reported by the validator
+        if (!VoucherEffects.CanCarryItemInvoiceLines(type.BaseType)) return; // wrong carrier — validator throws
 
-        StockDirection? dir = type.BaseType switch
-        {
-            VoucherBaseType.Purchase => StockDirection.Inward,
-            VoucherBaseType.Sales => StockDirection.Outward,
-            _ => null,
-        };
-        if (dir is not { } direction) return; // wrong carrier type — validator throws
-
-        voucher.SetInventoryLineDirections(direction);
+        voucher.SetInventoryLineDirections(VoucherEffects.ItemInvoiceStockDirection(type.BaseType));
     }
 
     /// <summary>Alt+X — mark cancelled; keeps the number in sequence, zero effect on balances.

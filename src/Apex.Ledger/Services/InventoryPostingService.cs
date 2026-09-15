@@ -517,7 +517,10 @@ public sealed class InventoryPostingService
             if (!v.HasInventoryLines) continue;
             if (v.Cancelled || v.Optional) continue;
             var type = _company.FindVoucherType(v.TypeId);
-            if (type is null || type.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales)) continue;
+            // Census 4.7/4.8 (T0-10): a Debit Note is a purchase RETURN and moves stock OUTWARD, so it can
+            // over-draw on-hand exactly like a Sales invoice and must face the same no-negative guard. Left at
+            // Purchase-or-Sales, a return could drive a key negative and the guard would never look at it.
+            if (type is null || !VoucherEffects.CanCarryItemInvoiceLines(type.BaseType)) continue;
             foreach (var line in v.InventoryLines)
             {
                 keys.Add(new InventoryLedger.Key(line.StockItemId, line.GodownId, Batch(line.BatchLabel)));

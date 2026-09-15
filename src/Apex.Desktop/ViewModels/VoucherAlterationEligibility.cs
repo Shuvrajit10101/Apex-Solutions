@@ -373,6 +373,28 @@ public static class VoucherAlterationEligibility
                  + "schema column for the list rate and the discount; a purchase item invoice, whose posted "
                  + "rate IS the keyed rate, opens today.";
 
+        // 🔴 CENSUS 4.7/4.8 (T0-10) — A RETURN NOTE ENTERED AS AN ITEM INVOICE IS REFUSED, DELIBERATELY, AND THIS
+        // ARM SHIPPED IN THE SAME SLICE THAT MADE IT REACHABLE.
+        //
+        // Until that slice a note could not carry inventory lines at all, so `HasInventoryLines && CreditNote` was
+        // unreachable and every note fell through to "alterable" correctly. The moment notes became item-invoice
+        // carriers that fall-through went live over a path NOTHING has exercised — and one specific hazard is
+        // already visible without running it: the §34 link (GstCreditDebitNoteLink, the record GSTR-1 Table 9B
+        // reads) is registered by the ACCEPT path. AcceptAlteration does not register or re-point one, so altering
+        // a §34 note would leave its link pointing at the superseded voucher, or drop it — a filed return
+        // disagreeing with the books, which is the worst class of defect this project tracks.
+        //
+        // 🔴 SO THIS IS NOT "notes are hard". It is: the forward path is proven end-to-end and ships; the inverse
+        // is NOT proven and therefore does not ship, and the operator is told which it is rather than discovering
+        // it in a return. Lifting this arm needs the §34 link's alteration inverse first, and a test that a
+        // re-accepted note still reaches Table 9B exactly once.
+        if (voucher.HasInventoryLines && VoucherEffects.IsReturnNote(type.BaseType))
+            return "This voucher is a CREDIT / DEBIT NOTE entered as an ITEM INVOICE. Its accounting legs and its "
+                 + "stock movement are both derived, and — where the note carries GST §34 details — its return "
+                 + "link is registered when the note is accepted, with no inverse yet for re-accepting it. "
+                 + "Re-opening it could leave that link pointing at a superseded voucher, so altering a return "
+                 + "note arrives with its own inverse in a later slice. Cancel the note and enter a fresh one.";
+
         // Row 18 — 🔴 NO LONGER "UNDETERMINED", AND THE REASON CHANGED (finding L1-04). The round trip WAS measured
         // after this arm shipped: with the arm lifted and SeedAlterationMode pointed at the plain grid, a wholly
         // exempt Sales accounting invoice posted, re-opened, re-accepted and exported BYTE-IDENTICALLY, in memory
