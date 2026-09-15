@@ -6185,7 +6185,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         Footnote("Every figure is the same annual computation that backs Form 16 Part B and Form 24Q Annexure II; "
                + "this report computes no tax of its own.");
-        Footnote(IncomeTaxComputationReport.RateVintageNote);
+        // 🔴 T1-26: the rate basis is read off the report — which read it off the SAME resolution that priced the
+        // rows — rather than printed from a compile-time constant. The constant this replaces named one financial
+        // year and declared the tables undated; once the engine became dated that footnote was false on the face of
+        // a tax computation, because an FY 2024-25 report priced correctly on FY 2024-25 rates still printed that
+        // FY 2025-26 rates had been used.
+        Footnote(report.RateBasisNote);
+        // Printed only when this year's own rates are not notified in this build. The whole defect was that the
+        // substitution used to be silent, so where it happens the report must say so on its face.
+        if (report.ProvisionalRatesNote is { } provisional) Footnote(provisional);
     }
 
     // --------------------------------------------------------------- Payslip (single-employee detail + PDF)

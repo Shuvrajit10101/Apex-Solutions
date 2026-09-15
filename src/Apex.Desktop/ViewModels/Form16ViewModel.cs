@@ -8,6 +8,7 @@ using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -89,6 +90,32 @@ public sealed partial class Form16ViewModel : ViewModelBase
     [ObservableProperty] private string _totalTax = string.Empty;
     [ObservableProperty] private string _totalTdsDeducted = string.Empty;
     [ObservableProperty] private bool _hasPartB;
+
+    // ---- the §192 rate basis this certificate was priced on (v64; defect T1-26) -----------------------------
+    // Part B is the document an employee files a return from, so the year whose law produced its figures is
+    // printed ON the certificate rather than left to be inferred.
+
+    /// <summary>Which financial year's slab, surcharge and cess tables priced Part B, and whose cess rate was
+    /// charged. Always present — read off the same resolution that produced the figures.</summary>
+    [ObservableProperty] private string _rateBasisNote = string.Empty;
+
+    /// <summary>The provisional-rates disclosure, or blank when the certificate's own year is notified.</summary>
+    [ObservableProperty] private string _provisionalRatesNote = string.Empty;
+
+    /// <summary>🔴 True when this certificate's year has no notified rate table in this build and a neighbouring
+    /// year's was carried over — drives the warning's visibility. The whole of defect T1-26 was that this
+    /// substitution happened with nothing on screen to say so.</summary>
+    [ObservableProperty] private bool _hasProvisionalRates;
+
+    /// <summary>
+    /// 🔴 The cess row's caption, carrying the rate <b>actually charged</b> — e.g. "Health &amp; edu. cess (4%)".
+    ///
+    /// <para>This was a hard-coded "(4%)" in the view. That was merely redundant while the rate was a compile-time
+    /// constant; the moment the cess became dated and company-configurable it became a caption that could sit
+    /// directly above a figure computed at a different rate, on a certificate an employee files a return from.
+    /// Deriving it from the resolved table is what keeps the label and the money the same statement.</para>
+    /// </summary>
+    [ObservableProperty] private string _cessCaption = "Health & edu. cess";
 
     [ObservableProperty] private bool _isEmpty = true;
     [ObservableProperty] private string _statusText = string.Empty;
@@ -254,6 +281,11 @@ public sealed partial class Form16ViewModel : ViewModelBase
             GrossSalary = StandardDeduction = ChapterVia = TaxableIncome = IncomeTax = Surcharge =
                 Cess = TotalTax = TotalTdsDeducted = IndianFormat.AmountAlways(Money.Zero);
             HasPartB = false;
+            // Cleared with the rest: a stale rate-basis line under an empty certificate would describe figures
+            // that are no longer on screen.
+            RateBasisNote = ProvisionalRatesNote = string.Empty;
+            HasProvisionalRates = false;
+            CessCaption = "Health & edu. cess";
             IsEmpty = true;
             StatusText = "No employee has §192 salary activity this year — nothing to certify.";
             RaiseExportNames();
@@ -263,6 +295,14 @@ public sealed partial class Form16ViewModel : ViewModelBase
         var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
         var cert = Form16.Build(_company, sel.EmployeeId, fyStart, SectionCode);
         Certificate = cert;
+
+        // v64 / T1-26: the rate basis travels with the figures onto the certificate itself.
+        RateBasisNote = cert.RateBasisNote;
+        HasProvisionalRates = cert.RatesAreProvisional;
+        ProvisionalRatesNote = cert.ProvisionalRatesNote ?? string.Empty;
+        var certRates = SalaryTaxRates.ForCompanyPeriod(_company, new DateOnly(fyStart + 1, 3, 31));
+        CessCaption = "Health & edu. cess ("
+            + (certRates.CessRate * 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%)";
 
         DeductorTan = string.IsNullOrEmpty(cert.Deductor.Tan) ? "—" : cert.Deductor.Tan;
         ResponsiblePerson = BuildResponsibleLine(cert.Deductor);
