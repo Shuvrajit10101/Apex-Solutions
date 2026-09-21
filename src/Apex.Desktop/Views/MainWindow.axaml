@@ -1772,19 +1772,23 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST ==
+                          <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST | Cess ==
                                G2: the grid is FLUID — Width binds to the page pane and MinWidth (950) is now BELOW the
-                               1440-default pane (~998px), so at 1440 the grid equals the pane and ALL eight columns —
-                               including the rightmost IGST — fit within it (previously MinWidth 1030 forced the grid
-                               wider than the pane, scrolling IGST off behind the shortcut bar). The four numeric tax
-                               columns (Taxable/CGST/SGST/IGST) are NOT squeezed; the small saving comes from Invoice/UQC.
-                               A horizontal scrollbar only appears if the pane is narrower than the 950 floor. -->
+                               1440-default pane (~998px), so at 1440 the grid equals the pane and ALL columns —
+                               including the rightmost one — fit within it (previously MinWidth 1030 forced the grid
+                               wider than the pane, scrolling IGST off behind the shortcut bar).
+                               🔴 CESS (Table 12 col 11) was added WITHOUT moving the 950 floor, because raising it is
+                               exactly what caused that shipped defect. The 90px Cess column is paid for out of the
+                               three over-wide columns beside it (GSTIN/Desc 150→120, Invoice/UQC 150→115,
+                               POS/Qty 90→75, Taxable 130→120), so the fixed budget is UNCHANGED at 850px and the
+                               star column keeps the same 100px floor. Do not add a tenth column by bumping MinWidth;
+                               take it out of the fixed columns the same way or the rightmost cell scrolls off. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr1}">
                           <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="950"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950">
+                              <Grid ColumnDefinitions="*,120,115,75,120,110,110,110,90" MinWidth="950">
                                 <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
@@ -1793,6 +1797,7 @@
                                 <TextBlock Grid.Column="5" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="6" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="7" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="8" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1800,7 +1805,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950" Height="24">
+                                      <Grid ColumnDefinitions="*,120,115,75,120,110,110,110,90" MinWidth="950" Height="24">
                                         <!-- G2: a section-header row (B2B / B2C / Rate-wise / HS-SAC) shows its label
                                              SPANNING the full width so it is never clipped into the narrow Party/HSN
                                              column; the columnar Col1 is used only for data rows (party name / HSN). -->
@@ -1809,7 +1814,7 @@
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
-                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="8" Text="{Binding Col1}" Margin="8,0"
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="9" Text="{Binding Col1}" Margin="8,0"
                                                    IsVisible="{Binding IsHeader}"
                                                    VerticalAlignment="Center" FontSize="11.5" FontWeight="Bold"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -1831,6 +1836,10 @@
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="8" Text="{Binding Col9}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
                                     </Border>

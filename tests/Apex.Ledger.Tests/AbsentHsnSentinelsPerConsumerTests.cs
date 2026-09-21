@@ -160,10 +160,19 @@ public sealed class AbsentHsnSentinelsPerConsumerTests
     // ============================================================ consumer 3 — the NIC EWB-01 e-Way Bill
 
     /// <summary>
-    /// EWB-01 files the same NIC convention as INV-01 — the empty string, never the report's bucket label.
+    /// EWB-01 refuses the report's bucket label too — but it spells the absence <b>differently from INV-01</b>, and
+    /// that divergence is the NIC schemas' own, not ours.
+    ///
+    /// <para><b>🔴 T1-29 CHANGED THIS SENTINEL, DELIBERATELY.</b> INV-01 types <c>HsnCd</c> a STRING, so the empty
+    /// string is a representable value there and stays. The published EWB-01 v1.03 schema types <c>hsnCode</c> a
+    /// <b>number</b> — <c>""</c> is not a value it can hold at all, and inventing a digit would be fabricating a
+    /// statutory code for goods whose HSN this book does not know. So an absent HSN is emitted as JSON
+    /// <c>null</c>, which is visible both to the schema conformance guard and to
+    /// <c>EWayBillJson.MissingMandatory</c>, which names it to the operator BEFORE they upload. The invariant this
+    /// test defends is unchanged: the human-readable "(none)" label must never reach a statutory payload.</para>
     /// </summary>
     [Fact]
-    public void TheEWayBillPayloadFilesTheEmptyStringNotTheReportsLabel()
+    public void TheEWayBillPayloadFilesTheSchemaNullNotTheReportsLabel()
     {
         var f = Build();
 
@@ -171,12 +180,13 @@ public sealed class AbsentHsnSentinelsPerConsumerTests
         var record = service.PrepareRecord(f.Sale, f.Sale.Date);
         service.SetPartB(record, "TRANSIN01", EWayTransportMode.Road, "MH12AB1234", 250);
 
-        using var doc = JsonDocument.Parse(
-            Encoding.UTF8.GetString(EWayBillJson.BuildEwb01(f.Company, f.Sale, record)));
-        var hsn = doc.RootElement.GetProperty("itemList")[0].GetProperty("HsnCd").GetString();
+        var json = Encoding.UTF8.GetString(EWayBillJson.BuildEwb01(f.Company, f.Sale, record));
+        using var doc = JsonDocument.Parse(json);
+        var hsn = doc.RootElement.GetProperty("itemList")[0].GetProperty("hsnCode");
 
-        Assert.Equal(string.Empty, hsn);
-        Assert.DoesNotContain("none", hsn, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(JsonValueKind.Null, hsn.ValueKind);
+        // The report's bucket label never reaches the wire, in any spelling.
+        Assert.DoesNotContain("none", json, StringComparison.OrdinalIgnoreCase);
     }
 
     // ============================================================ the sentinels are DIFFERENT, on purpose

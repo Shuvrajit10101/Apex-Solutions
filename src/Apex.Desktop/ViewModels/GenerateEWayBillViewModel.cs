@@ -266,8 +266,17 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
         LastJsonPath = path;
         Rebuild();
         LastActionSucceeded = true;
+        // T1-29 — the portal REJECTS a payload missing any of the schema's mandatory members, and the operator used
+        // to learn that only on upload. Name the gaps here, beside the file that has them, so they are fixable at the
+        // keyboard. Nothing is fabricated to fill them (see EWayBillJson.MissingMandatory).
+        var missing = EWayBillJson.MissingMandatory(_company, voucher, record);
         Message = $"EWB-01 written for {record.DocumentNumberUpper} ({json.Length:#,0} bytes) → {path}. " +
-                  "Upload it to the portal, then record the EWB number it returns.";
+                  (missing.Count == 0
+                      ? "Upload it to the portal, then record the EWB number it returns."
+                      : $"⚠ The portal will reject it: {string.Join(", ", missing)} " +
+                        (missing.Count == 1 ? "has" : "have") +
+                        " no value in this book. Fill them in (company PIN code / party mailing PIN code / " +
+                        "party GST details / item HSN), then write the EWB-01 again.");
         _onChanged();
         return true;
     }

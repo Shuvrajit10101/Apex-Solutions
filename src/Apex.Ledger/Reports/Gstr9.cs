@@ -202,6 +202,7 @@ public sealed record Gstr9(
                 acc.Quantity += h.Quantity;
                 acc.Taxable += h.TaxableValue.Amount;
                 acc.Cgst += h.Cgst.Amount; acc.Sgst += h.Sgst.Amount; acc.Igst += h.Igst.Amount;
+                acc.Cess += h.Cess.Amount;
             }
         }
 
@@ -214,7 +215,7 @@ public sealed record Gstr9(
             .Select(h => new Gstr1HsnRow(h.HsnSac, h.Description,
                 h.MixedUnits ? h.BaseUqc : h.Uqc,
                 h.MixedUnits ? h.BaseQuantity : h.Quantity,
-                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst),
+                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst), new Money(h.Cess),
                 h.BaseQuantity, h.BaseUqc,
                 h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
             .ToList();
@@ -376,5 +377,8 @@ public sealed record Gstr9(
         public decimal Cgst;
         public decimal Sgst;
         public decimal Igst;
+        /// <summary>Σ Compensation-Cess of the folded period rows — carried through so Table 17 states the same
+        /// cess the twelve Table-12 filings did.</summary>
+        public decimal Cess;
     }
 }

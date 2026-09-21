@@ -147,6 +147,7 @@ public static class GstReturnJson
                 CgstPaisa = MoneyCodec.ToPaisa(h.Cgst),
                 SgstPaisa = MoneyCodec.ToPaisa(h.Sgst),
                 IgstPaisa = MoneyCodec.ToPaisa(h.Igst),
+                CessPaisa = MoneyCodec.ToPaisa(h.Cess),
             }).ToList(),
             SchemaStatus = SchemaStatusFlag,
         };
@@ -288,6 +289,7 @@ public static class GstReturnJson
                 CamtPaisa = MoneyCodec.ToPaisa(h.Cgst),
                 SamtPaisa = MoneyCodec.ToPaisa(h.Sgst),
                 IamtPaisa = MoneyCodec.ToPaisa(h.Igst),
+                CsamtPaisa = MoneyCodec.ToPaisa(h.Cess),
             }).ToList(),
             NilExemptNonGstPaisa = MoneyCodec.ToPaisa(r.ExemptNilNonGstValue),
             Rcm4BOutwardValuePaisa = MoneyCodec.ToPaisa(r.Rcm4BOutwardValue),
@@ -425,6 +427,8 @@ public static class GstReturnJson
         [JsonPropertyName("cgst_paisa")] public long CgstPaisa { get; init; }
         [JsonPropertyName("sgst_paisa")] public long SgstPaisa { get; init; }
         [JsonPropertyName("igst_paisa")] public long IgstPaisa { get; init; }
+        /// <summary>Compensation-Cess — Table 17 carries the same cess column Table 12 does.</summary>
+        [JsonPropertyName("cess_paisa")] public long CessPaisa { get; init; }
     }
 
     private sealed record Gstr9Dto
@@ -542,6 +546,9 @@ public static class GstReturnJson
         [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
         [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
         [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+        /// <summary>Compensation-Cess on this HSN row — Table 12 states cess in its own column beside the tax
+        /// amount, and this payload filed the cell BLANK until it was added here.</summary>
+        [JsonPropertyName("csamt_paisa")] public long CsamtPaisa { get; init; }
     }
 
     private sealed record Gstr1Dto

@@ -18,6 +18,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- NIC's published EWB-01 v1.03 JSON Schema, the ORACLE for Ewb01SchemaConformanceTests. -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Apex.Ledger.Io\Apex.Ledger.Io.csproj" />
     <ProjectReference Include="..\..\src\Apex.Ledger\Apex.Ledger.csproj" />
