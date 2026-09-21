@@ -192,7 +192,7 @@ public sealed class GratuityBonusSchemaTests
         CREATE TABLE cost_centres (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL DEFAULT '', line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, valuation_method INTEGER NOT NULL DEFAULT 0);  -- valuation_method: the v65 (ruling-26) remediating UPDATE lands on it
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         -- voucher_types + entry_lines are required because the chain now runs through the v38→v39 RCM migration,
         -- whose ALTER TABLE voucher_types/entry_lines ADD COLUMN … need the tables to exist.

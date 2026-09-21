@@ -304,7 +304,7 @@ public sealed class GstSetOffSchemaTests
         -- table to exist. A real database of this vintage always has it (created at v9); this fixture is a
         -- minimal hand-written subset, so the table is declared here for the ALTERs to land on — exactly as
         -- voucher_inventory_lines is below.
-        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, valuation_method INTEGER NOT NULL DEFAULT 0);  -- valuation_method: the v65 (ruling-26) remediating UPDATE lands on it
         -- voucher_inventory_lines is required because the chain now runs through the v45 -> v46 item-invoice
         -- line-unit migration, whose ALTER TABLE voucher_inventory_lines ADD COLUMN unit_id needs the table to
         -- exist. A real database of this vintage always has it (created at v12); this fixture is a minimal

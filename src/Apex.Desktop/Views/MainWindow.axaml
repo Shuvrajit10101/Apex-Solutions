@@ -8485,6 +8485,36 @@
                                                Foreground="{StaticResource Ink}" Opacity="0.65"/>
                                   </Grid>
 
+                                  <!-- census 3.4 / USER RULING 26 — THE MARKET VALUATION DIMENSION. The second of
+                                       the reference product's two stock-valuation fields, and the half this build
+                                       shipped without. It auto-fills a SELLING price on a sales line and never
+                                       values closing stock; "Valuation" above is the COSTING field and is the only
+                                       one that reaches the Balance Sheet. Keeping them as two visibly separate
+                                       rows is the point — "Last Sale Price" used to sit in the costing picker and
+                                       valued stock at our own sale rate. Same fixed-140px entry + trimmed star
+                                       hint as Std rate above, so neither can be pushed out of view. -->
+                                  <Grid ColumnDefinitions="90,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Market val." FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" Name="StockItemMarketValuationPicker"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding MarketValuationMethods}"
+                                              SelectedItem="{Binding SelectedMarketValuation, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MarketValuationMethodOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Std price" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding StandardPriceText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="₹ / unit (selling)"/>
+                                  </Grid>
+
                                   <!-- GST details (shown when GST is enabled; catalog §12) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -22079,6 +22109,44 @@
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- ============ USER RULING 26: THE UPGRADE WARNING BANNER ============
+                         🔴 A book whose CLOSING STOCK VALUE MOVED when it was upgraded to schema v65 must tell
+                         its operator so, on open. Schema v65 migrates every stock item off the retired
+                         "Last Sale Price" costing basis (which valued closing stock at our own SELLING rate and
+                         overstated Stock-in-Hand and profit by the unrealised margin) onto Last Purchase Cost.
+                         The ruling accepted that the figures change; it required that the change be announced.
+
+                         WHY IT LIVES HERE, as the last child of the screens Panel and not in the status bar:
+                         the Panel overlays its children, so a top-aligned banner floats above WHATEVER screen is
+                         showing and survives the Gateway's own rebuilds — `Message` is cleared by ShowGateway and
+                         `Notice` is an 11px grey line wiped on the next change of screen. Neither is loud enough
+                         nor long-lived enough for a movement in reported profit.
+
+                         IT IS TARGETED: the bound string is empty for every book the migration never touched, so
+                         an unaffected operator sees nothing at all. A banner everyone sees is one nobody reads. -->
+                    <Border IsVisible="{Binding ValuationRemediationWarning,
+                                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                            VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                            Margin="12,8" Padding="14,10"
+                            Background="#FFF4E5" BorderBrush="#C8811A" BorderThickness="2"
+                            BoxShadow="0 2 8 0 #33000000">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                          <TextBlock Text="Your closing stock figures have changed"
+                                     FontWeight="Bold" FontSize="13" TextWrapping="Wrap"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <TextBlock Name="ValuationRemediationWarningText"
+                                     Text="{Binding ValuationRemediationWarning}"
+                                     FontSize="12" TextWrapping="Wrap"
+                                     Foreground="{StaticResource Ink}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Dismiss"
+                                VerticalAlignment="Top" Margin="12,0,0,0" Padding="14,6"
+                                Click="OnDismissValuationRemediationWarningClick"
+                                Background="{StaticResource BrandNavy}" Foreground="White"/>
+                      </Grid>
+                    </Border>
                 </Panel>
             </Border>
 

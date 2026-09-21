@@ -11,6 +11,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 // Aliased rather than importing Apex.Ledger.Services wholesale: this file deliberately fully-qualifies engine
 // services (ManufacturingJournalService, …) so that namespace cannot start shadowing Apex.Desktop.Services.
 using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
+// User ruling 26 — the on-open warning for a book whose closing stock value moved at schema v65. Aliased rather
+// than importing the namespace, matching the other Services types pulled in below.
+using ValuationRemediationNotice = Apex.Ledger.Services.ValuationRemediationNotice;
 // Phase 10.11 S4 — the Delete guards. Aliased for the reason above, not imported.
 using MasterDeletionRules = Apex.Ledger.Services.MasterDeletionRules;
 // Census row 5.5 — Insert Voucher's number-series planner. Aliased for the reason above, not imported.
@@ -1438,7 +1441,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StatusCompany = company.Name;
         StatusDate = ApexDate.Format(company.FinancialYearStart);
         ShowGateway();
+
+        // 🔴 USER RULING 26 — the on-open warning for a book whose CLOSING STOCK VALUE MOVED on upgrade to
+        // schema v65 (census 3.4, defect T0-2). It is raised AFTER ShowGateway deliberately: ShowGateway clears
+        // `Message`, and `Notice` is an 11px status line wiped on the next change of screen — neither survives
+        // long enough, and neither is loud enough, for a change that moves the Balance Sheet. This gets its own
+        // persistent banner that the operator must dismiss. Empty for every book the migration never touched,
+        // which is the whole point: see ValuationRemediationNotice.
+        ValuationRemediationWarning = ValuationRemediationNotice.For(company);
     }
+
+    /// <summary>
+    /// 🔴 <b>The ruling-26 upgrade warning currently on screen</b> — non-empty only for a book whose stock items
+    /// were migrated off the retired Last-Sale-Cost basis at schema v65, and therefore whose closing stock,
+    /// Profit &amp; Loss and Balance Sheet figures moved. Rendered as a dismissible banner across the top of the
+    /// Gateway, not in the status bar. Set by <see cref="OpenCompany"/>; cleared only by the operator.
+    /// </summary>
+    [ObservableProperty] private string _valuationRemediationWarning = string.Empty;
+
+    /// <summary>
+    /// Dismisses the ruling-26 upgrade warning for this session.
+    ///
+    /// <para>🔴 <b>Dismissal is SESSION-LOCAL and does not clear the
+    /// <see cref="StockItem.ValuationRemediatedFrom"/> marker</b>, so the warning returns on the next open. That
+    /// is a deliberately conservative choice, stated rather than hidden: clearing the marker would destroy the
+    /// only record that a book's figures were restated, and this build will not silently discard evidence of a
+    /// movement in reported profit. Whether acknowledgement should persist is a user decision, recorded as owed.</para>
+    /// </summary>
+    public void DismissValuationRemediationWarning() => ValuationRemediationWarning = string.Empty;
 
     /// <summary>
     /// Shows the cascading Gateway of Apex Solutions for the open company: column 1 is the root menu

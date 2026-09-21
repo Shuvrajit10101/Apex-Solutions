@@ -1645,6 +1645,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 64;
         }
 
+        // v64 → v65 (census 3.4 / defect T0-2 / USER RULING 26): the Market Valuation dimension, plus the ONE
+        // remediating UPDATE in this wave — every item costed at the retired LastSaleCost ordinal moves to
+        // LastPurchaseCost and records where it came from. 🔴 This step CHANGES CLOSING STOCK VALUE for any book
+        // that had chosen that method, which the user accepted explicitly; the valuation_remediated_from stamp is
+        // what lets MainWindowViewModel warn that operator on open and stay silent for everyone else. See
+        // Schema.MigrateV64ToV65 for why LastPurchaseCost is the target, and MarketValuationSchemaTests.
+        if (version == 64)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV64ToV65;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 65);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 65;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -4340,7 +4366,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    reverse_charge_applicable, gta_forward_charge, rcm_category_id,
                    itc_eligibility, blocked_credit_category,
                    non_gst_goods_class, vat_tax_rate_bp,
-                   alternate_unit_id, alternate_conversion_micro
+                   alternate_unit_id, alternate_conversion_micro,
+                   market_valuation_method, standard_price_paisa, valuation_remediated_from
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4380,6 +4407,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             // fractional conversion round-trips exactly — no binary float ever touches a stock figure.
             item.AlternateUnitId = r.IsDBNull(35) ? (Guid?)null : Guid.Parse(r.GetString(35));
             item.AlternateUnitConversion = r.IsDBNull(36) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(36));
+            // v65 (census 3.4, user ruling 26): the Market Valuation dimension (columns 37-38) and the
+            // remediation marker (column 39). market_valuation_method is NOT NULL DEFAULT 0, so "column absent"
+            // and "AtZeroPrice / auto-fill nothing" coincide and every pre-v65 item reads back inert (ER-13).
+            // valuation_remediated_from is NULL for every item the v65 UPDATE did not move; it is a historical
+            // record for the on-open warning and is never read to compute money.
+            item.MarketValuationMethod = (MarketValuationMethod)(int)r.GetInt64(37);
+            item.StandardPrice = r.IsDBNull(38) ? (Money?)null : Paisa.ToMoney(r.GetInt64(38));
+            item.ValuationRemediatedFrom =
+                r.IsDBNull(39) ? (StockValuationMethod?)null : (StockValuationMethod)(int)r.GetInt64(39);
             list.Add(item);
         }
         return list;
@@ -7869,14 +7905,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      reverse_charge_applicable, gta_forward_charge, rcm_category_id,
                      itc_eligibility, blocked_credit_category,
                      non_gst_goods_class, vat_tax_rate_bp,
-                     alternate_unit_id, alternate_conversion_micro)
+                     alternate_unit_id, alternate_conversion_micro,
+                     market_valuation_method, standard_price_paisa, valuation_remediated_from)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
                         $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
                         $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp,
                         $rca, $gtafc, $rcmcat,
                         $itcelig, $blkcat,
                         $ngclass, $itemvatrate,
-                        $altunit, $altconv);
+                        $altunit, $altconv,
+                        $mvm, $stdprice, $remfrom);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7891,6 +7929,17 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$rol", item.ReorderLevel is { } rol ? QtyMicroFromDecimal(rol) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$moq", item.MinimumOrderQuantity is { } moq ? QtyMicroFromDecimal(moq) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$std", item.StandardCost is { } std ? Paisa.FromMoney(std) : (object)DBNull.Value);
+
+            // v65 (census 3.4, user ruling 26): the Market Valuation dimension and the remediation marker.
+            // $mvm is the SELLING-price basis and never contributes to closing stock; $stdprice is the Standard
+            // PRICE, deliberately a different column from standard_cost_paisa above (folding the two would
+            // rebuild the very conflation ruling 26 undoes). $remfrom is a historical record, written back
+            // verbatim so a save/load round-trip cannot silence an upgraded book's warning.
+            cmd.Parameters.AddWithValue("$mvm", (int)item.MarketValuationMethod);
+            cmd.Parameters.AddWithValue("$stdprice",
+                item.StandardPrice is { } sp ? Paisa.FromMoney(sp) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$remfrom",
+                item.ValuationRemediatedFrom is { } rf ? (int)rf : (object)DBNull.Value);
 
             // v13 item GST block (all NULL when the item has no GST block).
             var g = item.Gst;

@@ -1985,6 +1985,17 @@ public partial class MainWindow : Window
         => Vm?.CreateCompany();
 
     /// <summary>
+    /// Dismisses the user-ruling-26 upgrade banner — the notice that this book's closing stock value moved when
+    /// it was migrated off the retired Last-Sale-Cost basis at schema v65.
+    ///
+    /// <para>Dismissal is session-local by design: it does NOT clear the per-item remediation marker, so the
+    /// warning returns on the next open and the record that the figures were restated is never destroyed. See
+    /// <c>MainWindowViewModel.DismissValuationRemediationWarning</c>.</para>
+    /// </summary>
+    private void OnDismissValuationRemediationWarningClick(object? sender, RoutedEventArgs e)
+        => Vm?.DismissValuationRemediationWarning();
+
+    /// <summary>
     /// The bank ledger master's <b>Add book</b> button (census 8.5). The view model is reached through the
     /// button's own DataContext rather than through <c>Vm</c>: this block lives inside the ledger master's
     /// DataTemplate, so the nearest DataContext IS the <c>LedgerMasterViewModel</c>, and going via the shell

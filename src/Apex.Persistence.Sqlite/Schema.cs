@@ -263,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 64;
+    public const int CurrentVersion = 65;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1625,7 +1625,16 @@ public static class Schema
             -- 🔴 NO QUANTITY IS EVER STORED IN THE ALTERNATE UNIT — every stock table keeps its single base-unit
             -- column and the alternate expression is DERIVED on display by AlternateUnitConversion. See that class.
             alternate_unit_id             TEXT    NULL REFERENCES units(id),
-            alternate_conversion_micro    INTEGER NULL            -- BASE units per ONE alternate unit, × 1,000,000
+            alternate_conversion_micro    INTEGER NULL,           -- BASE units per ONE alternate unit, × 1,000,000
+            -- v65 (census 3.4, user ruling 26): the MARKET VALUATION dimension, plus the marker that lets an
+            -- upgraded book warn the RIGHT operator. Declarations byte-identical to MigrateV64ToV65.
+            -- market_valuation_method DEFAULT 0 = AtZeroPrice = auto-fill nothing, which is exactly what every
+            -- pre-v65 book did (the dimension did not exist), so no sales line anywhere changes (ER-13).
+            market_valuation_method   INTEGER NOT NULL DEFAULT 0, -- MarketValuationMethod ordinal (0 = AtZeroPrice)
+            standard_price_paisa      INTEGER     NULL,           -- Standard-PRICE selling rate, paisa (NULL = unset)
+            -- NULL on every item the v65 remediation did not touch. Holds the StockValuationMethod ordinal the
+            -- item was moved AWAY from, so the on-open warning can name affected books and stay silent on the rest.
+            valuation_remediated_from INTEGER     NULL
         );
 
         CREATE TABLE stock_opening_balances (
@@ -5326,6 +5335,107 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v65 — THE MARKET VALUATION DIMENSION, AND THE REMEDIATION OF A COSTING METHOD THAT VALUED CLOSING STOCK AT
+    // THE SELLING PRICE (census 3.4, defect T0-2, register IV-6; USER RULING 26). Object names are published here
+    // ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The three <c>stock_items</c> columns v65 adds — the exact set <see cref="MigrateV64ToV65"/> adds
+    /// and <c>SchemaDowngrade.V65ToV64</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V65StockItemColumns =
+        new[] { "market_valuation_method", "standard_price_paisa", "valuation_remediated_from" };
+
+    /// <summary>
+    /// 🔴 <b>The costing method every <c>LastSaleCost</c> item is migrated ONTO — ordinal 4,
+    /// <c>StockValuationMethod.LastPurchaseCost</c>.</b> Published as a named constant so the migration SQL, the
+    /// operator-facing warning and the tests cannot disagree about what a remediated book was moved to.
+    /// </summary>
+    public const int V65RemediationTargetMethod = 4;
+
+    /// <summary>The retired <c>StockValuationMethod.LastSaleCost</c> ordinal that v65 migrates away from.</summary>
+    public const int V65RetiredSaleCostMethod = 5;
+
+    /// <summary>
+    /// v64 → v65 (census row <b>3.4 Costing methods and Market Valuation</b>, defect <b>T0-2</b>, register
+    /// <b>IV-6</b>; <b>USER RULING 26</b>): adds the missing <b>Market Valuation</b> dimension and <b>moves every
+    /// book off a costing method that was valuing closing stock at our own selling price</b>.
+    ///
+    /// <para>🔴 <b>THE DEFECT, IN MONEY.</b> <c>LastSaleCost</c> was offered in the <i>costing</i> picker and
+    /// valued closing stock at the most recent <b>sale</b> rate. Buy 100 @ ₹100, sell 40 @ ₹150, closing 60: it
+    /// reported Stock-in-Hand <b>₹9,000</b> where every real costing method reports <b>₹6,000</b> — the Balance
+    /// Sheet overstated by the whole margin, COGS understated by the same, and unrealised profit recognised on
+    /// goods still sitting in the godown. The reference product files this basis under <b>Market Valuation</b>
+    /// ("Last Sales Price"), where it auto-fills a selling price and reaches no asset value.</para>
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
+    /// ("Costing Methods and Market Valuation Methods | Stock Valuation Methods"), retrieved and read 2026-09-21.
+    /// It presents two separate fields: costing methods "<i>enable you to identify the worth of your business
+    /// inventory</i>", market valuation methods "<i>help you to auto-fill the selling price of the items while
+    /// recording sales</i>", and it lists Last Sales Price under the latter.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS MIGRATION ACTUALLY CHANGES ON DISK — the only <c>UPDATE</c> in the wave, and it moves
+    /// real money.</b> Every <c>stock_items</c> row whose <c>valuation_method</c> is
+    /// <see cref="V65RetiredSaleCostMethod"/> (5) is rewritten to <see cref="V65RemediationTargetMethod"/> (4),
+    /// and its <c>valuation_remediated_from</c> is stamped with 5. Ruling 26 is explicit that such books'
+    /// closing stock value changes on the day they upgrade, and that the user chose this over grandfathering two
+    /// valuation models forever. <b>Because it is a silent balance movement, the stamp is not optional
+    /// bookkeeping</b> — it is what lets the application tell that operator, on open, what changed and why, while
+    /// staying silent for every book that never chose the method.</para>
+    ///
+    /// <para>🔴 <b>WHY <c>LastPurchaseCost</c> AND NOT THE DEFAULT — migrating to the wrong basis is its own
+    /// wrong-money event, so the choice is argued, not assumed.</b>
+    /// <list type="number">
+    ///   <item><b>It preserves the shape of the operator's own decision.</b> They chose a flat rate taken from the
+    ///   single most recent transaction. Last Purchase Cost is that identical basis on the cost side — the
+    ///   vendor's own adjacent costing method — rather than a different model imposed on them.</item>
+    ///   <item><b>It is the smallest possible movement, and for many books it is ZERO.</b> The old
+    ///   <c>LastSaleCost</c> code path already fell back to the last purchase rate whenever an item had no rated
+    ///   sale. So every item that was never sold at a rate — new stock, slow movers, an entire book that only
+    ///   purchases — values at <b>exactly the same paisa</b> after this migration as before it. The change is
+    ///   confined to items that really were being valued at a sale price, which is precisely the defect.</item>
+    ///   <item><b>It cannot embed margin.</b> A purchase rate is a cost we actually paid. That is the one property
+    ///   the retired method lacked and the whole reason it had to go; <c>AverageCost</c> would also satisfy this,
+    ///   but it would move the value of every affected item including the ones losing nothing, for no gain.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Also added, and inert by construction.</b> <c>market_valuation_method</c> DEFAULT <b>0</b> =
+    /// <c>AtZeroPrice</c> = auto-fill nothing, which is byte-identical to what every pre-v65 book did, since the
+    /// dimension did not exist at all. <c>standard_price_paisa</c> is NULL everywhere. Neither is read by any
+    /// Balance Sheet or P&amp;L path — <c>MarketValuationService</c> produces a selling <i>price</i> only. This
+    /// build does <b>not</b> assert what the reference product defaults the market-valuation field to, because it
+    /// could not source that; it picks the one option of the four that can state no wrong number.</para>
+    ///
+    /// <para>🔴 <b>NO <c>DEFAULT</c> CLAUSE DRIFT.</b> <c>ALTER TABLE … ADD COLUMN</c> and the
+    /// <see cref="CreateV1"/> declarations must agree on name/type/notnull/default/pk —
+    /// <c>SchemaMigrationEquivalenceTests</c> compares <c>PRAGMA table_info</c> across a full v1 → current replay,
+    /// so the two copies of these three lines must not drift.</para>
+    ///
+    /// <para>⚠️ <b><c>stock_items</c> IS AN FK PARENT</b> (a dozen tables reference <c>stock_items(id)</c>), so the
+    /// inverse <c>SchemaDowngrade.V65ToV64</c> MUST use <c>RebuildPreservingShape</c> and not <c>DropColumns</c> —
+    /// a <c>CREATE … AS SELECT</c> rebuild silently loses the primary key, the failure <c>V56ToV55</c> records.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 65.</para>
+    /// </summary>
+    public const string MigrateV64ToV65 = """
+        -- v65 (census 3.4 / defect T0-2 / USER RULING 26): the Market Valuation dimension, and the remediation of
+        -- a costing method that valued closing stock at the SELLING price. See this constant's doc comment.
+        -- Declarations byte-identical to their counterparts in CreateV1.
+        ALTER TABLE stock_items ADD COLUMN market_valuation_method   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN standard_price_paisa      INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN valuation_remediated_from INTEGER     NULL;
+
+        -- 🔴 THE ONE UPDATE, AND IT MOVES THE BALANCE SHEET OF EVERY BOOK IT TOUCHES (ruling 26, accepted
+        -- explicitly by the user). Items costed at the retired LastSaleCost ordinal (5) move to LastPurchaseCost
+        -- (4) and record where they came from, so the next open can warn THAT operator and nobody else. An item
+        -- that was never sold at a rate already valued at its last purchase rate under the old fallback chain, so
+        -- for those the value does not move at all.
+        UPDATE stock_items
+           SET valuation_remediated_from = 5,
+               valuation_method          = 4
+         WHERE valuation_method = 5;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

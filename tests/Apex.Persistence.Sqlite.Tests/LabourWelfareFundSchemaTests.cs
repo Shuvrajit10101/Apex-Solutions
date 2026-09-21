@@ -70,7 +70,7 @@ public sealed class LabourWelfareFundSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             // ONE rung only — this test is about the v62 → v63 step in isolation, so the manufactured book stops
             // at 62 and still carries v62's own objects while it is migrated.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(62L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks them — otherwise the "migration" below proves nothing.
@@ -116,7 +116,7 @@ public sealed class LabourWelfareFundSchemaTests
         {
             var legacy = BuildCompanyWithDeductionHead(levyYear: null);
             using (var store = new SqliteCompanyStore(path)) store.Save(legacy);
-            using (var conn = Open(path)) { SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
 
             using var reopened = new SqliteCompanyStore(path);
             var loaded = reopened.Load(legacy.Id)!;
@@ -187,7 +187,7 @@ public sealed class LabourWelfareFundSchemaTests
             // ---- down to a GENUINE v61 book: both rungs, in order.
             using (var conn = Open(laddered))
             {
-                SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn);
+                SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn);
                 SchemaDowngrade.V62ToV61(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -230,7 +230,7 @@ public sealed class LabourWelfareFundSchemaTests
             using (var store = new SqliteCompanyStore(laddered)) store.Save(store.Load(companyId)!);
 
             // ---- and back DOWN, one rung at a time, asserting the shape at each.
-            using (var conn = Open(laddered)) { SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(laddered)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(62L, ReadScalar(laddered, "SELECT version FROM schema_version LIMIT 1;"));
             foreach (var col in Schema.V63SlabColumns)
                 Assert.DoesNotContain(col, ColumnNames(laddered, "pay_head_computation_slabs"));
@@ -337,7 +337,7 @@ public sealed class LabourWelfareFundSchemaTests
 
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn);
+                SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn);
                 Assert.True(HasPrimaryKey(conn, "pay_head_computation_slabs"),
                     "the rebuild lost the PRIMARY KEY — the failure mode RebuildPreservingShape exists to avoid");
                 Assert.True(HasForeignKeyTo(conn, "pay_head_computation_slabs", "pay_heads"),

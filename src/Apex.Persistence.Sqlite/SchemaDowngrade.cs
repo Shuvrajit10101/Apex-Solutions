@@ -755,6 +755,49 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV64ToV65"/> (census 3.4 / defect T0-2 / <b>user ruling 26</b>): removes
+    /// the three <c>stock_items</c> columns (<see cref="Schema.V65StockItemColumns"/>) and stamps
+    /// <c>schema_version</c> back to <b>64</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/>, and the reason is a
+    /// recorded failure rather than a preference.</b> <c>stock_items</c> is an FK <b>PARENT</b> — a dozen tables
+    /// reference <c>stock_items(id)</c> — and a <c>CREATE … AS SELECT</c> rebuild of a parent silently loses the
+    /// PRIMARY KEY, which is the <c>foreign key mismatch</c> failure <see cref="V56ToV55"/> records.
+    /// <see cref="RebuildPreservingShape"/> reconstructs the declaration from <c>PRAGMA table_info</c>, so the PK,
+    /// the NOT NULLs, the DEFAULTs and the outgoing FKs all survive. <see cref="V59ToV58"/> and
+    /// <see cref="V60ToV59"/> rebuild this same table the same way.</para>
+    ///
+    /// <para>🔴 <b>THIS RUNG IS NOT A TRUE INVERSE, AND THE PART IT CANNOT UNDO IS MONEY — say so plainly.</b>
+    /// Dropping the columns discards each item's market-valuation method, its standard price, and the
+    /// <c>valuation_remediated_from</c> marker. <b>It does NOT put a remediated item back on the retired
+    /// <c>LastSaleCost</c> ordinal</b>, and that is deliberate on both counts:
+    /// <list type="bullet">
+    ///   <item>Restoring ordinal 5 would re-create the defect — closing stock valued at the selling price — in a
+    ///   database that is then opened by an older build with no warning machinery at all. A downgrade must not
+    ///   reintroduce a wrong-money defect.</item>
+    ///   <item>What IS lost is the <i>evidence</i>: once the marker is gone, a book that was remediated can no
+    ///   longer tell its operator so. A book that has been upgraded through v65 and then downgraded keeps the
+    ///   corrected valuation and loses the explanation for it.</item>
+    /// </list>
+    /// The downgrade is a test-fixture manoeuvre, never a production path, so this is an acceptable residual —
+    /// but a book carrying any <c>valuation_remediated_from</c> row should not be downgraded and then handed back
+    /// to an operator.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
+    /// every lower rung after it — to reach v63 the caller runs <c>V65ToV64</c> then <see cref="V64ToV63"/>.
+    /// Calling <see cref="V64ToV63"/> alone on a v65 file stamps the marker 63 while the three v65 columns are
+    /// still on <c>stock_items</c>, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V65ToV64(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "stock_items", Schema.V65StockItemColumns, "stock_items_v64");
+
+        Exec(connection, "UPDATE schema_version SET version = 64;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV63ToV64"/> (defect T1-26 / the 4% cess ruling) <b>and nothing else</b>:
     /// drops the one index (<see cref="Schema.V64Indexes"/>) and the one table (<see cref="Schema.V64Tables"/>),
     /// then stamps <c>schema_version</c> back to <b>63</b>.
@@ -774,8 +817,9 @@ public static class SchemaDowngrade
     /// 4% and is then downgraded will start deducting 4% again with nothing on screen to say so. A book carrying any
     /// row in <c>income_tax_cess_rates</c> must not be downgraded and then run.</para>
     ///
-    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
-    /// every lower rung after it — to reach v62 the caller runs <c>V64ToV63</c> then <see cref="V63ToV62"/>. Calling
+    /// <para>⚠️ <b>This is no longer the TOP rung — <see cref="V65ToV64"/> now sits above it.</b> Manufacturing an
+    /// older book out of a CURRENT one runs <see cref="V65ToV64"/> FIRST, then this, then every lower rung — to
+    /// reach v62 the caller runs <c>V65ToV64</c> → <c>V64ToV63</c> → <see cref="V63ToV62"/>. Calling
     /// <see cref="V63ToV62"/> alone on a v64 file stamps the marker 62 while <c>income_tax_cess_rates</c> is still
     /// there, which is a lie the next open cannot detect.</para>
     ///

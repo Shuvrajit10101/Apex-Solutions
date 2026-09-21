@@ -29,11 +29,16 @@ namespace Apex.Ledger.Services;
 /// average or valuing real stock at nothing.</para>
 /// <para><b>Standard cost.</b> <see cref="StockValuationMethod.StandardCost"/> values closing stock at the
 /// item's <see cref="StockItem.StandardCost"/>; when that is unset it falls back to the last purchase cost.</para>
-/// <para><b>Last Purchase / Last Sale graceful fallback.</b> <see cref="StockValuationMethod.LastPurchaseCost"/>
-/// with no rated purchase falls back to running average → StandardCost → last rated inward → 0;
-/// <see cref="StockValuationMethod.LastSaleCost"/> with no rated sale falls back to last purchase → running
-/// average → StandardCost → 0. So real closing stock is never valued at ₹0 merely because the item was never
-/// sold (or never had a rated purchase). Deterministic and paisa-exact.</para>
+/// <para><b>Last Purchase graceful fallback.</b> <see cref="StockValuationMethod.LastPurchaseCost"/>
+/// with no rated purchase falls back to running average → StandardCost → last rated inward → 0, so real closing
+/// stock is never valued at ₹0 merely because the item never had a rated purchase. Deterministic and
+/// paisa-exact.</para>
+/// <para><b>At Zero Cost</b> values closing stock at exactly ₹0 with no fallback chain — the one method whose
+/// definition leaves nothing to interpret.</para>
+/// <para>🔴 <b>NO METHOD HERE CAN VALUE STOCK AT A SELLING PRICE ANY MORE (user ruling 26).</b> The retired
+/// <see cref="StockValuationMethod.LastSaleCost"/> ordinal is mapped explicitly onto Last Purchase Cost, and the
+/// "last rated sale" signal now lives in <see cref="MarketValuationService"/>, which produces a <i>price</i> and
+/// is never consulted by any Balance Sheet or Profit &amp; Loss figure.</para>
 /// <para><b>Accounts↔inventory reconciliation precondition (RQ-25/RQ-26; BR-1).</b> Derived-closing-stock
 /// reporting (<c>ClosingStockMode.InventoryDerived</c> in <see cref="Reports.ProfitAndLoss"/> /
 /// <see cref="Reports.BalanceSheet"/>) assumes (a) every stock inward is paired with an accounting posting
@@ -82,7 +87,18 @@ public sealed class StockValuationService
             StockValuationMethod.Fifo => LayerValue(events, closingQty, lifo: false, cost),
             StockValuationMethod.Lifo => LayerValue(events, closingQty, lifo: true, cost),
             StockValuationMethod.LastPurchaseCost => FlatValue(closingQty, LastPurchaseRate(events, cost)),
-            StockValuationMethod.LastSaleCost => FlatValue(closingQty, LastSaleRate(events, cost)),
+
+            // "The value of stock items will always be zero, irrespective of the cost incurred" — the vendor's
+            // At Zero Cost, exact and with no fallback chain (see StockValuationMethod.AtZeroCost).
+            StockValuationMethod.AtZeroCost => Money.Zero,
+
+            // 🔴 THE RETIRED ORDINAL (user ruling 26). A book that still carries LastSaleCost escaped the v65
+            // migration — restored from an external archive, or hand-edited. It is mapped EXPLICITLY onto the same
+            // basis the migration moves such books to, so closing stock can never be valued at our own SELLING
+            // price, by any route. This arm is the reason the enum member was kept rather than deleted: without a
+            // named member the value 5 would fall through to the `_` arm below and be silently averaged instead.
+            StockValuationMethod.LastSaleCost => FlatValue(closingQty, LastPurchaseRate(events, cost)),
+
             StockValuationMethod.StandardCost => FlatValue(closingQty,
                 item.StandardCost?.Amount ?? LastPurchaseRate(events, cost)),
             _ => AverageValue(events, closingQty, cost),
@@ -406,21 +422,12 @@ public sealed class StockValuationService
         return cost.StandardCost ?? cost.LastRatedInwardRate ?? 0m;
     }
 
-    /// <summary>
-    /// The Last-Sale-Cost rate with graceful fallback (never a silent ₹0 for real stock): the most-recent
-    /// <i>rated</i> outward (sale) rate if the item was ever sold at a rate; else Last Purchase → running
-    /// average → StandardCost → 0. So closing stock of a never-sold item values at its purchase/average cost,
-    /// not nothing.
-    /// </summary>
-    private static decimal LastSaleRate(IReadOnlyList<MovementEvent> events, CostContext cost)
-    {
-        decimal? lastSale = null;
-        foreach (var e in events)
-            if (e.Kind == MovementKind.Outward && e.Rate is { } r)
-                lastSale = r;
-        if (lastSale is { } s) return s;
-        return LastPurchaseRate(events, cost); // Last Purchase → average → standard → 0
-    }
+    // 🔴 `LastSaleRate` USED TO LIVE HERE AND IS GONE ON PURPOSE (user ruling 26). It returned the most-recent
+    // rated SALE rate and was the whole mechanism by which closing stock got valued at our own selling price. The
+    // "last rated sale" signal itself is legitimate — it is the vendor's Last Sales Price — and it has MOVED to
+    // MarketValuationService, where it auto-fills a selling PRICE and cannot reach the Balance Sheet. Deleting it
+    // from this file rather than leaving it unreferenced is deliberate: a dead private helper that values stock at
+    // a sale rate is one call site away from being a defect again.
 
     /// <summary>The most-recent inward that carried an explicit rate, or <c>null</c> when no inward was rated
     /// (every inward was a no-rate stock-journal/opening-less line). This is the raw "last rated purchase"
