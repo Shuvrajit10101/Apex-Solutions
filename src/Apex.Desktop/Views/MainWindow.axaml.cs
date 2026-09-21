@@ -1358,8 +1358,11 @@ public partial class MainWindow : Window
         // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
         // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
         // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
+        // 🔴 `!IsDayBookPickerOpen` matches the door: OpenAddVoucherFromReport refuses while a picker column is on
+        // top, so claiming the chord there would swallow Alt+A to fire nothing. Nothing below this arm claims
+        // Alt+A (the bare-letter menu arm requires KeyModifiers.None), so the fall-through is a clean no-op.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.IsDayBookReport)
+            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
         {
             vm.OpenAddVoucherFromReport();
             e.Handled = true;
@@ -1404,6 +1407,30 @@ public partial class MainWindow : Window
             && vm.IsChartOfAccountsScreen)
         {
             vm.OpenExceptionReports();
+            e.Handled = true;
+            return;
+        }
+
+        // W28 V3 (census 5.2 / 5.7 / 5.8) — Ctrl+J on the DAY BOOK opens the vendor's three EXCEPTION REPORTS:
+        // Optional Vouchers, Cancelled Vouchers, Post-Dated Vouchers. The vendor names both the chord and the
+        // whole set (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+        //
+        // 🔴 IT IS A SECOND ARM ON THE SAME CHORD, AND THE TWO CONTEXTS ARE DISJOINT BY CONSTRUCTION.
+        // `IsChartOfAccountsScreen` above and `IsDayBookReport` here can never both be true — the first requires
+        // Screen.ChartOfAccounts, the second requires Reports bound with Kind == DayBook — so neither rebinds the
+        // other and the order of the two arms does not matter. This is the same resolution the Alt+I and Alt+A
+        // context branches use (see BuildButtonBar), rather than the shadowing trap that a single arm with two
+        // meanings would be.
+        // 🔴 Guarded on BOTH conditions OpenExceptionReportsPicker refuses on, so the key is never swallowed on a
+        // screen where it would fire nothing. The door refuses when the live report is not the Day Book AND when a
+        // Day-Book picker column is already on top (its own, or the Alt+A/Alt+I voucher-type one) — the second
+        // clause used to be missing here while `e.Handled = true` ran unconditionally, so with the picker open
+        // Ctrl+J was consumed and did nothing, which is exactly what the sentence above claimed could not happen.
+        if (e.Key == Key.J && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
+        {
+            vm.OpenExceptionReportsPicker();
             e.Handled = true;
             return;
         }

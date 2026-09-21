@@ -63,6 +63,25 @@ public sealed class PtSlabRow
     public string FebText { get; init; } = string.Empty;
 }
 
+/// <summary>One read-back row of this establishment's own dated Health &amp; Education Cess rates (v64; defect T1-26 /
+/// the 4% cess ruling): the effective-from date and the rate. Empty for every company that has not set one, which
+/// is what leaves the statutory rate in force.</summary>
+public sealed class IncomeTaxCessRateRow
+{
+    /// <summary>The effective-from date, dd-MM-yyyy.</summary>
+    public string EffectiveFromText { get; }
+
+    /// <summary>The rate as a percent with a trailing sign, e.g. "4%".</summary>
+    public string RateText { get; }
+
+    /// <summary>Creates a read-back row.</summary>
+    public IncomeTaxCessRateRow(string effectiveFromText, string rateText)
+    {
+        EffectiveFromText = effectiveFromText;
+        RateText = rateText;
+    }
+}
+
 /// <summary>A VAT <i>"Type of Dealer"</i> picker option (census 15.1): the vendor's value + its label. Only
 /// Regular and Composite exist — see <see cref="VatDealerType"/> for why no other value ships.</summary>
 public sealed class VatDealerTypeOption
@@ -373,6 +392,52 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
     /// <summary>The salary deductor-category options (92B private / 92A govt / 92C union-govt), shared with the reports.</summary>
     public ObservableCollection<SalarySectionCodeOption> SalarySectionCodes { get; } = new();
+
+    // ---- Health & Education Cess (v64; defect T1-26 / the user's ruling on the 4% cess) ---------------------
+    // The ruling: the cess ships DATED, PER-COMPANY EDITABLE, and DEFAULTING TO 4%. This is the editability half.
+    // It deliberately lives INSIDE the existing §192 block and is committed by the existing "Apply Salary TDS"
+    // button, so it inherits the F11 → Payroll Statutory keyboard route rather than inventing a second one: Tab
+    // reaches both fields in order and the same accept commits them.
+
+    /// <summary>The Health &amp; Education Cess rate to apply, as a percent (e.g. "4"). Blank leaves the company's
+    /// existing rates untouched — it is NOT read as 0%, because a blank field must never silently zero a statutory
+    /// deduction.</summary>
+    [ObservableProperty] private string _salaryTdsCessPercentText = string.Empty;
+
+    /// <summary>The date the entered cess rate takes effect, dd-MM-yyyy. Blank ⇒ the start of the company's current
+    /// financial year, so the ordinary case ("this rate, this year") needs no typing.</summary>
+    [ObservableProperty] private string _salaryTdsCessEffectiveFromText = string.Empty;
+
+    /// <summary>
+    /// What the book will actually charge, in words — either the statutory rate for the current FY or this
+    /// establishment's own dated override. Rendered beside the fields so the operator can see which of the two is in
+    /// force <b>before</b> changing anything.
+    /// </summary>
+    public string SalaryTdsCessStatusText
+    {
+        get
+        {
+            var fyEnd = new DateOnly(_company.FinancialYearStart.Year + 1, 3, 31);
+            var rates = SalaryTaxRates.ForCompanyPeriod(_company, fyEnd);
+            var pct = (rates.CessRate * 100m).ToString("0.##", CultureInfo.InvariantCulture);
+            var basis = rates.CessRateIsCompanyOverride
+                ? "set by this company"
+                : "the statutory rate — this company has set none";
+            var note = rates.IsProvisional
+                ? $"  ·  ⚠ FY {rates.FinancialYearStartYear}-{(rates.FinancialYearStartYear + 1) % 100:00} rates are not "
+                  + $"notified in this build; FY {rates.NotifiedFinancialYearStartYear}-{(rates.NotifiedFinancialYearStartYear + 1) % 100:00} "
+                  + "figures are being applied and the computation is provisional."
+                : string.Empty;
+            return $"Currently charging {pct}% ({basis}).{note}";
+        }
+    }
+
+    /// <summary>The establishment's own dated cess rates, oldest first, for the read-back grid. Empty for a company
+    /// that has never set one — which is the overwhelming majority, and is what keeps the statutory 4% in force.</summary>
+    public ObservableCollection<IncomeTaxCessRateRow> SalaryTdsCessRates { get; } = new();
+
+    /// <summary>True when this establishment has set at least one of its own cess rates (drives the grid's visibility).</summary>
+    public bool HasSalaryTdsCessRates => SalaryTdsCessRates.Count > 0;
 
     // ---- Gratuity (Phase 8 slice 9; F11 Payroll Statutory → Gratuity; RQ-14) --------------------------------
     // The establishment's gratuity-provision policy the deterministic accrual reads (Payment of Gratuity Act 1972):
@@ -1463,6 +1528,66 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SelectedSalarySectionCode ??= SalarySectionCodes.FirstOrDefault(o => o.Code == "92B")
                                       ?? SalarySectionCodes.FirstOrDefault();
         OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        RefreshSalaryTdsCess();
+    }
+
+    /// <summary>
+    /// Rebuilds the cess read-back (the rate in force, and this company's own dated rows) from the live aggregate.
+    /// The ENTRY fields are deliberately left blank rather than pre-filled with the current rate: a pre-filled rate
+    /// plus a blank date is one careless Enter away from re-stamping today's rate onto a date it was never in force
+    /// for, and this is a live payroll deduction.
+    /// </summary>
+    private void RefreshSalaryTdsCess()
+    {
+        SalaryTdsCessRates.Clear();
+        foreach (var r in _company.IncomeTaxCessRates)
+            SalaryTdsCessRates.Add(new IncomeTaxCessRateRow(
+                r.EffectiveFrom.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture),
+                (r.Rate * 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%"));
+        OnPropertyChanged(nameof(SalaryTdsCessStatusText));
+        OnPropertyChanged(nameof(HasSalaryTdsCessRates));
+    }
+
+    /// <summary>
+    /// Parses and applies the Health &amp; Education Cess fields onto the live aggregate (v64), returning
+    /// <c>false</c> with <see cref="SalaryTdsMessage"/> set on a bad entry. A <b>blank</b> percent box means "leave
+    /// the cess alone" and is the normal case — it is never read as 0%.
+    /// </summary>
+    private bool TryApplySalaryTdsCess()
+    {
+        var pctText = BlankToNull(SalaryTdsCessPercentText);
+        if (pctText is null) return true; // nothing entered — the company's existing rates (or the statute) stand
+
+        if (!TryParsePercent(pctText, out var percent) || percent < 0m || percent > 100m)
+        {
+            SalaryTdsMessage = "Health & Education Cess must be a percentage between 0 and 100, for example 4 — "
+                               + "or left blank to leave the current rate unchanged.";
+            return false;
+        }
+
+        // Basis points, exactly: 4% ⇒ 400. Rounded rather than truncated so "4.005" cannot silently become 4.00%.
+        var basisPoints = (int)Math.Round(percent * 100m, MidpointRounding.AwayFromZero);
+
+        DateOnly effectiveFrom;
+        var fromText = BlankToNull(SalaryTdsCessEffectiveFromText);
+        if (fromText is null)
+        {
+            effectiveFrom = _company.FinancialYearStart; // the ordinary case: "this rate, from this year"
+        }
+        else if (DateOnly.TryParseExact(fromText, "dd-MM-yyyy", CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None, out var parsed))
+        {
+            effectiveFrom = parsed;
+        }
+        else
+        {
+            SalaryTdsMessage = "Cess effective-from must be a date in dd-MM-yyyy form — or left blank for the "
+                               + "start of the current financial year.";
+            return false;
+        }
+
+        _company.AddIncomeTaxCessRate(new IncomeTaxCessRate(Guid.NewGuid(), effectiveFrom, basisPoints));
+        return true;
     }
 
     /// <summary>
@@ -1478,6 +1603,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         var previousSalaryTds = _company.SalaryTdsEnabled;
         var previousStatutory = _company.PayrollStatutoryEnabled;
+        // v64: snapshot the cess rows BEFORE touching them, so a failed Save restores the aggregate exactly. The
+        // aggregate is shared, and a half-applied cess rate would be a wrong-money residual left behind by an error.
+        var previousCess = _company.IncomeTaxCessRates.ToList();
+        if (!TryApplySalaryTdsCess()) { RevertSalaryTdsCess(previousCess); return false; }
         try
         {
             var service = new PayrollService(_company);
@@ -1487,6 +1616,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            RevertSalaryTdsCess(previousCess);
             // Enable/DisableSalaryTds write the SHARED aggregate before the store is reached, and
             // RevertSalaryTdsToggle re-derives the toggle from Company.SalaryTdsEnabled — so the restore must
             // land first or the revert reads the unpersisted value and is a no-op. See ApplyPf.
@@ -1507,6 +1637,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
               + $"{SalaryTdsPeriodCaptionShort} {SalaryTdsAssessmentYearLabel})."
             : "§192 salary TDS is now OFF for this company. Employee tax declarations are unchanged.";
         OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        SalaryTdsCessPercentText = string.Empty;
+        SalaryTdsCessEffectiveFromText = string.Empty;
+        RefreshSalaryTdsCess();
         _onChanged();
         return true;
     }
@@ -1515,6 +1648,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     private void RevertSalaryTdsToggle()
     {
         if (SalaryTdsEnabled != _company.SalaryTdsEnabled) SalaryTdsEnabled = _company.SalaryTdsEnabled;
+    }
+
+    /// <summary>Restores the company's dated cess rows to <paramref name="previous"/> after a rejected entry or a
+    /// failed Save, so an error never leaves a half-applied rate on a live payroll deduction.</summary>
+    private void RevertSalaryTdsCess(List<IncomeTaxCessRate> previous)
+    {
+        foreach (var r in _company.IncomeTaxCessRates.ToList()) _company.RemoveIncomeTaxCessRate(r);
+        foreach (var r in previous) _company.AddIncomeTaxCessRate(r);
+        RefreshSalaryTdsCess();
     }
 
     // =========================================================== Gratuity (Phase 8 slice 9)

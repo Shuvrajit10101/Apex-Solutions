@@ -10863,7 +10863,11 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PayHeadMasterViewModel">
                           <Grid RowDefinitions="Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Pay Head Creation"
+                            <!-- 7.6 — bound, not literal: this screen now runs TWO verbs off Ctrl+A, and the
+                                 caption is the only signal telling the operator which one they are about to run.
+                                 A screen reading "Pay Head Creation" while Ctrl+A alters an existing head is how
+                                 an operator overwrites a live rate believing they are adding a head. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -11194,6 +11198,11 @@
                                     <DataTemplate x:DataType="vm:PayHeadListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="*,150,150,*" Height="24">
+                                          <!-- 7.6 / 7.16 keyboard highlight — a destructive verb (Alt+D) and an
+                                               alteration (Ctrl+Enter) both act on THIS row, so the cursor has to
+                                               be visible. See the Employee Category list above. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                      TextTrimming="CharacterEllipsis"/>
@@ -12503,6 +12512,49 @@
                                   </Grid>
                                   <TextBlock Text="Average-rate monthly withholding (annual tax spread over the remaining FY months); the per-employee Form 12BB declaration + regime drive the estimate."
                                              FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                  <!-- ===== Health & Education Cess (v64; defect T1-26 / the 4% cess ruling) =====
+                                       DATED + PER-COMPANY EDITABLE + 4% BY DEFAULT. Deliberately inside this block
+                                       and committed by the existing "Apply Salary TDS" button below, so it inherits
+                                       the F11 -> Payroll Statutory keyboard route: Tab reaches both fields in order
+                                       and the same accept commits them. A BLANK rate box means "leave it alone" —
+                                       it is never read as 0%. -->
+                                  <Border Background="#FAFBFD" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="12" Margin="0,4,0,0">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="HEALTH &amp; EDUCATION CESS" FontSize="10" FontWeight="Bold"
+                                                 Foreground="#9098A8" LetterSpacing="1.2"/>
+                                      <TextBlock Text="{Binding SalaryTdsCessStatusText}" FontSize="11.5"
+                                                 Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                      <Grid ColumnDefinitions="170,*,170,*">
+                                        <TextBlock Grid.Column="0" Text="Cess Rate %" FontWeight="SemiBold"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Watermark="leave blank to keep current"
+                                                 Text="{Binding SalaryTdsCessPercentText, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="2" Text="Effective From" FontWeight="SemiBold"
+                                                   FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="3" Watermark="dd-MM-yyyy (blank = FY start)"
+                                                 Text="{Binding SalaryTdsCessEffectiveFromText, Mode=TwoWay}"/>
+                                      </Grid>
+                                      <ItemsControl ItemsSource="{Binding SalaryTdsCessRates}"
+                                                    IsVisible="{Binding HasSalaryTdsCessRates}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:IncomeTaxCessRateRow">
+                                            <Grid ColumnDefinitions="170,*" Margin="0,1">
+                                              <TextBlock Grid.Column="0" Text="{Binding EffectiveFromText}"
+                                                         FontSize="11.5" Foreground="#6A6A6A"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding RateText}"
+                                                         FontSize="11.5" Foreground="#6A6A6A"/>
+                                            </Grid>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                      <TextBlock Text="Charged last, on (income-tax + surcharge − §87A rebate). Leave the rate blank and this company keeps the statutory rate for each year — no existing payslip changes."
+                                                 FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Border>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
@@ -17544,7 +17596,10 @@
                                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Surcharge" Margin="6,2" FontSize="11.5"/>
                                     <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding Surcharge}" TextAlignment="Right"
                                                Margin="0,2,6,2" FontSize="11.5"/>
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Health &amp; edu. cess (4%)" Margin="6,2" FontSize="11.5"/>
+                                    <!-- v64 / T1-26: the rate in the caption is the rate actually charged, not a
+                                         hard-coded "4%". The cess is dated and company-configurable now, so a fixed
+                                         caption could sit above a figure computed at another rate. -->
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="{Binding CessCaption}" Margin="6,2" FontSize="11.5"/>
                                     <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding Cess}" TextAlignment="Right"
                                                Margin="0,2,6,2" FontSize="11.5"/>
                                     <Border Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2" Background="#EEF1F6" Height="1" Margin="0,2"/>
@@ -17555,6 +17610,19 @@
                                   </Grid>
                                   <TextBlock Text="No annual computation for this employee (Part B is built from the Q4 return)."
                                              FontSize="11.5" Foreground="#777777" IsVisible="{Binding !HasPartB}"/>
+
+                                  <!-- ===== The §192 rate basis this certificate was priced on (v64; defect T1-26) =====
+                                       Part B is the document an employee files a return from, so the financial year
+                                       whose law produced these figures is printed ON the certificate rather than
+                                       left to be inferred. Both lines are computed from the table that was actually
+                                       resolved, so neither can drift away from the money above it. -->
+                                  <TextBlock Text="{Binding RateBasisNote}" IsVisible="{Binding HasPartB}"
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap" Margin="6,8,6,0"/>
+                                  <Border IsVisible="{Binding HasProvisionalRates}" Background="#FFF8E6"
+                                          BorderBrush="#E0C068" BorderThickness="1" Padding="8,6" Margin="6,6,6,0">
+                                    <TextBlock Text="{Binding ProvisionalRatesNote}" FontSize="11"
+                                               Foreground="#7A5A10" TextWrapping="Wrap"/>
+                                  </Border>
                                 </StackPanel>
                               </ScrollViewer>
                             </Grid>
