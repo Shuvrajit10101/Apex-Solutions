@@ -22,9 +22,12 @@ namespace Apex.Ledger.Tests;
 ///   attributable to one unit.</item>
 /// </list></para>
 ///
-/// <para><b>The first test is the load-bearing one</b> — it is CBIC's own published worked example, run verbatim.
-/// Source: <c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>, "Input Service
-/// Distributor in GST", the M/s XYZ Ltd illustration. Every figure in it is quoted in the test body.</para>
+/// <para><b>The first test is the load-bearing one</b> — a three-unit distribution worked end to end and asserted
+/// head by head. Its figures are derived from the operative Rule 39 text at
+/// <c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>
+/// (fetched and read by content for this slice). It previously claimed to reproduce a CBIC e-version flier
+/// verbatim; that flier's URL 404s, so the attribution was withdrawn while the arithmetic — independently
+/// re-derived and unchanged — was kept. See that test's own remarks.</para>
 /// </summary>
 public class IsdDistributionRule39Tests
 {
@@ -41,28 +44,37 @@ public class IsdDistributionRule39Tests
     private static long Rupees(decimal r) => (long)(r * 100m);
 
     // ==========================================================================================================
-    //  1. CBIC's own worked example, verbatim
+    //  1. A three-unit distribution worked end to end against the Rule 39 text
     // ==========================================================================================================
 
     /// <summary>
-    /// CBIC, "Input Service Distributor in GST": "<i>M/s XYZ Ltd, having its head Office at Mumbai, is registered
-    /// as ISD. It has three units in different states namely 'Mumbai', 'Jabalpur' and 'Delhi' which are
-    /// operational in the current year</i>", with
-    /// "<i>(i) CGST paid on services used only for Mumbai Unit: Rs.300000/-</i>" and
-    /// "<i>(ii) IGST, CGST &amp; SGST paid on services used for all units: Rs.1200000/-</i>", against turnovers
-    /// "<i>Turnover of Mumbai unit = Rs. 5,00,00,000 (50%) … Jabalpur unit = Rs. 3,00,00,000 (30%) … Delhi unit =
-    /// Rs. 2,00,00,000 (20%)</i>".
+    /// A head office at Mumbai registered as ISD with three operational units — Mumbai (Maharashtra), Jabalpur
+    /// (Madhya Pradesh) and Delhi — turnover ₹5,00,00,000 / ₹3,00,00,000 / ₹2,00,00,000 (50 / 30 / 20), ₹3,00,000
+    /// of CGST on a service used only by the Mumbai unit, and ₹12,00,000 on services used by all three.
     ///
-    /// <para>The flier's answer table is: Mumbai <b>900000</b>, Jabalpur <b>360000</b>, Delhi <b>240000</b>,
-    /// total <b>1500000</b> — with note 1 spelling the pro-rata arithmetic out as
-    /// "<i>(50000000/100000000) *1200000 = Rs.600000</i>" and so on.</para>
+    /// <para>Every figure asserted below is derived from the operative text and can be re-derived by hand:
+    /// Rule 39(1)(c) sends the ₹3,00,000 to Mumbai alone; Rule 39(1)(f)'s <c>C1 = (t1 ÷ T) × C</c> splits the
+    /// ₹12,00,000 into ₹6,00,000 / ₹3,60,000 / ₹2,40,000; Rule 39(1)(j)(i) leaves Mumbai's central and State tax
+    /// as central and State because Mumbai is the distributor's own State, and Rule 39(1)(j)(ii) aggregates the
+    /// central and State halves into integrated tax for Jabalpur and Delhi. Mumbai therefore takes ₹9,00,000 and
+    /// the three sum to ₹15,00,000 — the ₹15,00,000 that came in (Rule 39(1)(b)).</para>
     ///
-    /// <para>The flier states pool (ii) as a lump of "IGST, CGST &amp; SGST" without giving the head mix, so the
-    /// test fixes one (₹4,00,000 each) and asserts the flier's per-unit TOTALS, which are head-independent. The
-    /// head conversion is asserted separately below, and here as a cross-check on Jabalpur and Delhi.</para>
+    /// <para>🔴 <b>THIS TEST USED TO CLAIM A PROVENANCE IT CANNOT SUPPORT, AND THE CLAIM WAS REMOVED RATHER THAN
+    /// THE TEST.</b> It was captioned "CBIC's own worked example, verbatim" and cited the e-version flier
+    /// <c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c> as the source of the
+    /// M/s XYZ Ltd illustration and of the answer table. That URL returns <b>HTTP 404</b>, and the cbic.gov.in
+    /// mirror returns <b>HTTP 500</b>, so the flier's figures could not be read by content and the "verbatim"
+    /// claim could not be checked. Under R7 an unverifiable source may not be shipped. The ARITHMETIC is
+    /// untouched — it was re-derived independently from the Rule 39 text at
+    /// <c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>,
+    /// which WAS fetched and read by content, and it agrees to the rupee. Only the attribution changed.</para>
+    ///
+    /// <para>The all-units pool is stated here as ₹4,00,000 of each of central, State and integrated tax. The
+    /// per-unit TOTALS asserted below are independent of that mix; the head-by-head consequences of the mix are
+    /// asserted separately in the head-conversion tests that follow.</para>
     /// </summary>
     [Fact]
-    public void Cbic_worked_example_XYZ_Ltd_distributes_exactly_as_the_flier_computes()
+    public void A_three_unit_distribution_matches_the_rule_39_arithmetic_head_by_head()
     {
         var recipients = new[]
         {
@@ -89,7 +101,7 @@ public class IsdDistributionRule39Tests
         var jabalpur = Assert.Single(result.Lines, l => l.RecipientId == Jabalpur);
         var delhi = Assert.Single(result.Lines, l => l.RecipientId == DelhiUnit);
 
-        // The flier's answer table, to the rupee.
+        // The hand-derived answer, to the rupee (Rule 39(1)(c) + (f)).
         Assert.Equal(Rupees(900_000m), mumbai.TotalPaisa);
         Assert.Equal(Rupees(360_000m), jabalpur.TotalPaisa);
         Assert.Equal(Rupees(240_000m), delhi.TotalPaisa);

@@ -40,7 +40,15 @@ public sealed class IsdRegistrationPersistenceTests
     {
         // If this ever fails, the "no migration" claim in the slice report is stale and the ladder needs an
         // allocation — which is the thing that must never be assumed.
-        Assert.Equal(63, Schema.CurrentVersion);
+        //
+        // 🔴 THE NUMBER IS origin/main's, NOT THIS SLICE'S, AND IT MOVES WHEN ANOTHER TRACK LANDS A MIGRATION.
+        // It was authored as 63, the value on main when this branch was cut, and it FAILED the first gate ever run
+        // against this branch because main had meanwhile reached 64. That failure was correct in form and wrong in
+        // cause: the ISD slice had still added nothing, but the guard cannot tell "I took a migration" from
+        // "somebody else did". Re-baselined to 64 = origin/main at merge time. A future track that legitimately
+        // takes v65 will trip this again; the response is to re-baseline after confirming this file's own diff
+        // still touches no DDL — NOT to weaken the assertion, which is the only tripwire on the no-migration claim.
+        Assert.Equal(64, Schema.CurrentVersion);
     }
 
     [Fact]

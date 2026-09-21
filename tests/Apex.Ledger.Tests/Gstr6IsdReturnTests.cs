@@ -10,13 +10,18 @@ namespace Apex.Ledger.Tests;
 /// Census row <b>6.24 — the ISD return</b>. <see cref="Gstr6"/> over a real book: the credit an Input Service
 /// Distributor received in a month, and what Rule 39 says each sibling registration may claim.
 ///
-/// <para><b>The fixture is CBIC's own shape.</b> "<i>The Corporate office of ABC Ltd., is at Bangalore, with its
-/// business locations of selling and servicing of goods at Bangalore, Chennai, Mumbai and Kolkata … the Bangalore
-/// Corporate office has to act as ISD to distribute the credit</i>"
-/// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>). So: a Karnataka (29)
-/// operating registration, a Karnataka ISD registration <b>beside it in the same State</b>, and a Tamil Nadu (33)
-/// branch. That same-State pair is exactly what census row 6.23's set rules used to forbid, and relaxing that for
+/// <para><b>The fixture is the shape §24(viii) contemplates.</b> A Karnataka (29) operating registration, a
+/// Karnataka ISD registration <b>beside it in the same State</b>, and a Tamil Nadu (33) branch. The same-State
+/// pair is lawful because CGST Act §24 compels registration of an "<i>Input Service Distributor, whether or not
+/// separately registered under this Act</i>"
+/// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter6/section24_v1.00.html</c>,
+/// fetched and read by content) — the ISD registration is additional to whatever else the person holds, including
+/// in the same State. That pair is exactly what census row 6.23's set rules used to forbid, and relaxing that for
 /// an ISD — and only for an ISD — is part of this slice.</para>
+///
+/// <para>🔴 This paragraph previously cited the CBIC flier's "ABC Ltd., Bangalore" example
+/// (<c>cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf</c>) for the same shape. The URL
+/// 404s, so the citation was replaced with the operative §24(viii) text; the fixture itself is unchanged.</para>
 ///
 /// <para>The arithmetic is worked by hand: a ₹50,000 input service bought intra-Karnataka by the ISD bears
 /// CGST 4,500 + SGST 4,500. Preceding-FY turnover is ₹6,00,000 in Karnataka and ₹4,00,000 in Tamil Nadu, so the
@@ -285,30 +290,92 @@ public class Gstr6IsdReturnTests
         Assert.False(r.IsFullyDistributed);   // the caveat is surfaced, not swallowed
     }
 
+    /// <summary>
+    /// 🔴 <b>THIS TEST WAS INVERTED, AND THE OLD VERSION WAS THE BUG'S ALIBI.</b> It used to assert that an RCM
+    /// voucher left <see cref="Gstr6.TotalReceived"/> UNCHANGED, on the strength of the CBIC flier's "an ISD cannot
+    /// accept any invoices on which tax is to be discharged under reverse charge mechanism". That flier URL 404s,
+    /// and — decisively — it stated the PRE-AMENDMENT position. The substituted §20, in force from 01.04.2025 and
+    /// therefore for every period this app distributes, says the opposite: §20(1) covers invoices "<i>INCLUDING
+    /// invoices in respect of services liable to tax under sub-section (3) or sub-section (4) of section 9</i>",
+    /// and §20(2) requires that credit to be distributed
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html</c>,
+    /// read by content).
+    ///
+    /// <para>The old code dropped the line with a bare <c>continue</c> BEFORE accumulating, so the credit left both
+    /// the received total and the distributed total. <see cref="Gstr6.UndistributedCredit"/> — the one figure a
+    /// filer is told to check — therefore stayed at the amount it would have been anyway, and the return looked
+    /// perfectly footed while being short by the entire RCM figure. A test asserting "received is unchanged" is
+    /// exactly what such a defect needs to survive review.</para>
+    ///
+    /// <para>What is asserted now: the credit IS received (§20(1)), is NOT distributed (this build cannot confirm
+    /// §20(2)'s "paid by a distinct person registered in the same State" condition, having no cross-charge model),
+    /// and the gap is VISIBLE in <see cref="Gstr6.UndistributedCredit"/> and NAMED in the diagnostics.</para>
+    /// </summary>
     [Fact]
-    public void A_reverse_charge_line_under_the_isd_registration_is_not_treated_as_credit_for_distribution()
+    public void Reverse_charge_credit_is_received_withheld_from_distribution_and_visible_in_the_footing()
     {
-        // CBIC: "An ISD cannot accept any invoices on which tax is to be discharged under reverse charge
-        // mechanism … The ISD itself cannot discharge any tax liability".
         var f = Build();
-        var before = Gstr6.Build(f.Company, From, To, f.Isd.Id).TotalReceived.Amount;
+        var before = Gstr6.Build(f.Company, From, To, f.Isd.Id);
+        var beforeReceived = before.TotalReceived.Amount;
+        var beforeUndistributed = before.UndistributedCredit.Amount;
+
+        // 🔴 BUILT BY RcmService, NOT BY HAND. The earlier version of this test assembled the pair itself and posted
+        // the §49(4) liability to the ordinary "Output CGST" ledger. RcmService never does that — it posts the
+        // liability to a dedicated "RCM Output {head}" ledger whose own classification carries IsReverseCharge, and
+        // the ITC to the ordinary Input ledger. The report distinguishes credit from liability by exactly that
+        // classification, so the hand-built shape tested a posting the product cannot produce and would have hidden
+        // a double-count of the credit.
+        f.Gst.SeedAdvancedGst();
+
+        var legal = new Domain.Ledger(
+            Guid.NewGuid(), "Legal Fees", f.Company.FindGroupByName("Indirect Expenses")!.Id, Money.Zero, true)
+        {
+            SalesPurchaseGst = new StockItemGstDetails
+            {
+                Taxability = GstTaxability.Taxable,
+                RateBasisPoints = 1800,
+                SupplyType = GstSupplyType.Services,
+                ReverseChargeApplicable = true,
+                RcmCategoryId = f.Company.Gst!.RcmCategories.First(x => x.SupplyNature == "Legal").Id,
+            },
+        };
+        f.Company.AddLedger(legal);
+
+        var posting = new RcmService(f.Company).BuildReverseCharge(
+            Money.FromRupees(10_000m), null, legal, f.Creditor.PartyGst, PurchaseDate,
+            RcmService.SupplyKind.Domestic);
+        Assert.True(posting.Applies);
 
         var rcmLines = new List<EntryLine>
         {
-            new(f.BlockedServices.Id, Money.FromRupees(10_000m), DrCr.Debit),
+            new(legal.Id, Money.FromRupees(10_000m), DrCr.Debit),
             new(f.Creditor.Id, Money.FromRupees(10_000m), DrCr.Credit),
-            new(f.Company.Ledgers.First(l => l.Name.Contains("Input CGST")).Id, Money.FromRupees(900m), DrCr.Debit,
-                gst: new GstLineTax(GstTaxHead.Central, 900, Money.FromRupees(10_000m), isReverseCharge: true,
-                    rcmScheme: RcmItcScheme.OtherRcm)),
-            new(f.Company.Ledgers.First(l => l.Name.Contains("Output CGST")).Id, Money.FromRupees(900m), DrCr.Credit,
-                gst: new GstLineTax(GstTaxHead.Central, 900, Money.FromRupees(10_000m), isReverseCharge: true,
-                    rcmScheme: RcmItcScheme.OtherRcm)),
         };
+        rcmLines.AddRange(posting.Lines);
+
         new LedgerService(f.Company).Post(
             new Voucher(Guid.NewGuid(), f.PurchaseTypeId, PurchaseDate, rcmLines, partyId: f.Creditor.Id)
             { GstRegistrationId = f.Isd.Id });
 
-        Assert.Equal(before, Gstr6.Build(f.Company, From, To, f.Isd.Id).TotalReceived.Amount);
+        var after = Gstr6.Build(f.Company, From, To, f.Isd.Id);
+
+        // §20(1): the RCM credit IS credit received for distribution. An intra-Karnataka legal service at 18%
+        // brings CGST 900 + SGST 900 = ₹1,800 — and exactly ₹1,800, not ₹3,600: the matching §49(4) output
+        // liability is not credit and must not be counted a second time.
+        Assert.Equal(beforeReceived + 1_800m, after.TotalReceived.Amount);
+
+        // …and it is NOT distributed, so the footing gap grows by exactly the same ₹1,800. This is the assertion the
+        // old test made impossible: with the silent drop, both sides moved by zero and this difference was 0.
+        Assert.Equal(beforeUndistributed + 1_800m, after.UndistributedCredit.Amount);
+
+        // The withheld amount never reaches a recipient row.
+        Assert.Equal(before.TotalDistributed.Amount, after.TotalDistributed.Amount);
+
+        // …and the filer is told which voucher and why, citing the sub-section that withholds it.
+        Assert.Contains(after.Diagnostics, d => d.Contains("reverse-charge credit") && d.Contains("20(2)"));
+
+        // Rule 39(1)(b) invariant: the distribution never exceeds what came in.
+        Assert.True(after.UndistributedCredit.Amount >= 0m);
     }
 
     // ==========================================================================================================

@@ -417,11 +417,19 @@ public sealed class GstConfig
         // 🔴 AMENDED FOR CENSUS ROW 6.24 (ISD), AND THE AMENDMENT IS NARROW ON PURPOSE. The one-registration-per-State
         // rule above is right for ordinary registrations and WRONG for an Input Service Distributor, because the
         // statute makes an ISD a SEPARATE registration that ordinarily sits alongside an operating one in the SAME
-        // State. CBIC's own worked example is exactly that shape: "The Corporate office of ABC Ltd., is at Bangalore,
-        // with its business locations of selling and servicing of goods at Bangalore, Chennai, Mumbai and Kolkata …
-        // the Bangalore Corporate office has to act as ISD to distribute the credit"
-        // (cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf). Two Karnataka registrations,
-        // one Regular and one ISD. Rejecting that would make row 6.24 unbuildable for the documented case.
+        // State. CGST Act §24 ("Compulsory registration in certain cases") says it in the clause that creates the
+        // registration, clause (viii): "Input Service Distributor, WHETHER OR NOT SEPARATELY REGISTERED UNDER THIS
+        // ACT" (taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter6/
+        // section24_v1.00.html, fetched and read by content). Those eight words are the whole point: the ISD
+        // registration is additional to, and independent of, any other registration the same person already holds —
+        // including one in the same State. Rejecting that shape would make row 6.24 unbuildable for the ordinary case
+        // of a head office that is also an operating unit.
+        //
+        // 🔴 THE SOURCE HERE WAS REPLACED. This comment previously rested on the CBIC flier's "ABC Ltd., Bangalore"
+        // worked example, cited to cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf. That
+        // URL 404s (and its cbic.gov.in mirror 500s), so under R7 a shipped relaxation of a validation rule could
+        // not rest on it. §24(viii) is operative text and states the separateness directly, so the rule below is
+        // unchanged and is now grounded on something that resolves.
         //
         // The rule's stated reason does NOT apply to an ISD: "which return does this voucher belong to" stays
         // decidable because an ISD files GSTR-6 alone (§39(4)) and records no outward supply, so it never competes

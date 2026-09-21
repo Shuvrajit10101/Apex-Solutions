@@ -1,9 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -268,6 +270,78 @@ public sealed partial class Gstr6ReportViewModel : ViewModelBase
         StatusText = ret.UndistributedCredit.Amount == 0m
             ? $"₹{TotalReceivedText} received, ₹{TotalDistributedText} distributed across {ret.Distribution.Count} row(s); nothing undistributed. Due {DueDateText}."
             : $"₹{UndistributedText} of the ₹{TotalReceivedText} received was NOT distributed — see the notes below. Due {DueDateText}.";
+    }
+
+    // ==============================================================================================================
+    //  The offline JSON export — Ctrl+A on this screen (census row 6.24)
+    //
+    //  🔴 THIS EXISTS SO THE EMITTER HAS A USER. GSTR-6 is a return that is FILED, and before this the ISD work
+    //  produced a screen and nothing a filer could submit. The export lives HERE rather than on the shared
+    //  "Offline Return Files (JSON)" page for a concrete reason: every other form on that page is scoped by the
+    //  company's own GSTIN and a period, whereas GSTR-6 is filed BY A PARTICULAR ISD REGISTRATION — this screen is
+    //  the only place that already knows which one. Routing it through the shared page would have meant inventing a
+    //  registration picker there and risking a return filed under the wrong GSTIN.
+    // ==============================================================================================================
+
+    /// <summary>The folder the export writes into; empty ⇒ the working directory.</summary>
+    [ObservableProperty] private string? _exportFolder;
+
+    /// <summary>The outcome of the last export attempt, shown on the page.</summary>
+    [ObservableProperty] private string _exportStatus = string.Empty;
+
+    /// <summary>The government financial-period string <c>MMYYYY</c> for the selected month.</summary>
+    public string FinancialPeriodCode =>
+        SelectedMonth is { } m
+            ? m.LastDay.Month.ToString("D2", CultureInfo.InvariantCulture)
+              + m.LastDay.Year.ToString("D4", CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    /// <summary>
+    /// The file name the export writes, e.g. <c>GSTR-6_29AAACC1206D1Z5_052025.json</c>. Named for the <b>ISD's</b>
+    /// GSTIN, not the company's — the return is filed by that registration.
+    /// </summary>
+    public string ExportFileName =>
+        SelectedIsd is null || SelectedMonth is null
+            ? string.Empty
+            : $"GSTR-6_{(string.IsNullOrWhiteSpace(SelectedIsd.Gstin) ? "NOGSTIN" : SelectedIsd.Gstin)}" +
+              $"_{FinancialPeriodCode}.json";
+
+    /// <summary>Builds the offline JSON bytes for the selected ISD + month. Pure — writes nothing.</summary>
+    public byte[] BuildJson()
+        => SelectedIsd is null || SelectedMonth is null
+            ? []
+            : GstReturnJson.Gstr6(_company, SelectedMonth.FirstDay, SelectedMonth.LastDay, SelectedIsd.Id);
+
+    /// <summary>
+    /// Ctrl+A: writes the selected ISD's GSTR-6 offline JSON to <see cref="ExportFolder"/> under
+    /// <see cref="ExportFileName"/>. The write goes through the injectable <paramref name="writeBytes"/> seam
+    /// (null ⇒ the real filesystem) so tests never touch disk, exactly as the offline-returns page does.
+    /// </summary>
+    public bool ExportJson(Action<string, byte[]>? writeBytes = null)
+    {
+        if (SelectedIsd is null || SelectedMonth is null)
+        {
+            ExportStatus = "Choose an Input Service Distributor registration and a month first.";
+            return false;
+        }
+
+        try
+        {
+            var bytes = BuildJson();
+            var folder = ExportFolder ?? string.Empty;
+            var path = string.IsNullOrEmpty(folder) ? ExportFileName : Path.Combine(folder, ExportFileName);
+
+            if (writeBytes is not null) writeBytes(path, bytes);
+            else File.WriteAllBytes(path, bytes);
+
+            ExportStatus = $"Exported {bytes.Length:#,0} bytes to {path}";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = "Could not write the return file: " + ex.Message;
+            return false;
+        }
     }
 
     private void SetZeroes()

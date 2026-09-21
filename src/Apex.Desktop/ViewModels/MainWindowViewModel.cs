@@ -11092,10 +11092,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.Gstr4Report:
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
+            // Census row 6.24: GSTR-6 is a report screen, but unlike its neighbours it has a PRIMARY ACTION — it is
+            // a return that gets FILED, so Ctrl+A writes the selected ISD registration's offline JSON, exactly as it
+            // does on the Offline Return Files page. Left on the no-op list below, the emitter would have had no
+            // user and the row would have been a screen you can read but nothing you can file.
+            case Screen.Gstr6Report:
+                Gstr6Report?.ExportJson();
+                return;
             // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
             case Screen.Gstr9Report:
             case Screen.Gstr9cReport:
-            case Screen.Gstr6Report:
             case Screen.ElectronicLedgersReport:
             case Screen.ItcSetOffReport:
             case Screen.ItcReversalReport:

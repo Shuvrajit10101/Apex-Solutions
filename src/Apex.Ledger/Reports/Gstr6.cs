@@ -29,9 +29,10 @@ public sealed record Gstr6DistributionRow(
 /// available for distribution in a month shall be distributed in the same month and the details thereof shall be
 /// furnished in FORM GSTR-6</i>". §39(4) of the CGST Act sets the due date: "<i>Every taxable person registered as
 /// an Input Service Distributor shall, for every calendar month or part thereof, furnish … a return,
-/// electronically, <b>within thirteen days after the end of such month</b></i>". Both from
-/// <c>cbic-gst.gov.in</c>. <see cref="DueDate"/> is the 13th of the following month, derived, never hard-coded per
-/// year.</para>
+/// electronically, <b>within thirteen days after the end of such month</b></i>". Rule 39 from
+/// <c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>
+/// and §39(4) from <c>…/2017_CGST_act/active/chapter9/section39_v1.00.html</c>, both fetched and read by content.
+/// <see cref="DueDate"/> is the 13th of the following month, derived, never hard-coded per year.</para>
 ///
 /// <para><b>WHERE EACH FIGURE COMES FROM.</b> The credit <i>received</i> for distribution is the posted INPUT tax
 /// on inward vouchers recorded under the ISD registration in the month — read off the posted
@@ -137,23 +138,83 @@ public sealed record Gstr6(
         var pools = new List<IsdCreditPool>();
         decimal recCgst = 0m, recSgst = 0m, recIgst = 0m, recCess = 0m;
         decimal eligibleTotal = 0m, ineligibleTotal = 0m;
+        // Reverse-charge credit received under the ISD registration: counted as RECEIVED (§20(1) puts it there
+        // expressly) but held back from the distribution, and named in a diagnostic. See the long note below.
+        decimal rcmReceived = 0m;
+        var rcmVouchers = new List<string>();
 
         foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(
                      company, from, to, GstTaxDirection.Input, isdRegistrationId))
         {
             long cgst = 0, sgst = 0, igst = 0, cess = 0;
+            long rcm = 0, rcmC = 0, rcmS = 0, rcmI = 0, rcmX = 0;
             foreach (var line in voucher.Lines)
             {
                 if (line.Gst is not { } g) continue;
-                // Reverse-charge lines are excluded on the CBIC flier's own statement: "An ISD cannot accept any
-                // invoices on which tax is to be discharged under reverse charge mechanism … The ISD itself cannot
-                // discharge any tax liability (as person liable to pay tax)"
-                // (cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf). An RCM line under an
-                // ISD registration is a data error, not credit for distribution, so it is left out rather than
-                // distributed. ⚠️ Section 2(61)/20(1) were amended with effect from 01-04-2025 to bring inter-State
-                // RCM supplies INTO the ISD mechanism; that amended flow is not built here and is reported, not guessed.
-                if (g.IsReverseCharge) continue;
                 if (g.Adjustment is not null) continue; // a stat-adjustment tag is not received credit
+
+                // 🔴 REVERSE CHARGE. READ THIS BEFORE CHANGING THE BRANCH BELOW — IT WAS A SILENT `continue` AND
+                // THAT WAS WRONG MONEY ON A FILED RETURN.
+                //
+                // The original code did `if (g.IsReverseCharge) continue;` BEFORE the accumulation, on the strength
+                // of the old CBIC flier's "an ISD cannot accept any invoices on which tax is to be discharged under
+                // reverse charge mechanism". Two things were wrong with that. First, the flier URL does not resolve
+                // (404), so the claim had no retrievable source. Second and much worse, the flier stated the
+                // PRE-AMENDMENT position, and the substituted §20 — in force from 01.04.2025, which is on or before
+                // every date this app distributes for — says the opposite in its own words:
+                //
+                //   §20(1): "Any office of the supplier … which receives tax invoices towards the receipt of input
+                //   services, INCLUDING INVOICES IN RESPECT OF SERVICES LIABLE TO TAX UNDER SUB-SECTION (3) OR
+                //   SUB-SECTION (4) OF SECTION 9 of this Act or under sub-section (3) or sub-section (4) of section 5
+                //   of the Integrated Goods and Services Tax Act, 2017 … shall be required to be registered as Input
+                //   Service Distributor … and shall distribute the input tax credit in respect of such invoices."
+                //
+                //   §20(2): "The Input Service Distributor shall distribute the credit … INCLUDING THE CREDIT … IN
+                //   RESPECT OF SERVICES SUBJECT TO LEVY OF TAX UNDER SUB-SECTION (3) OR SUB-SECTION (4) OF SECTION 9
+                //   … paid by a distinct person registered in the same State as the said Input Service Distributor …"
+                //
+                // (taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/
+                // section20_v1.00.html — fetched and read by content for this slice. §9(3)/(4) IS reverse charge.)
+                //
+                // So RCM credit is squarely INSIDE the ISD mechanism now, and dropping it silently understated both
+                // the credit received and the credit distributed by the same amount — which meant UndistributedCredit
+                // came out at ZERO and the return LOOKED perfectly footed while being short by the whole RCM figure.
+                // That is the exact failure mode this report's own Rule 39(1)(b) footing check exists to catch, and
+                // the drop was positioned to slip past it.
+                //
+                // What is done instead, and why not simply distribute it: §20(2) attaches a condition this build
+                // cannot check — the tax must have been "paid by a distinct person registered in the same State as
+                // the said Input Service Distributor", i.e. the ISD does not discharge it itself and there is a
+                // cross-charge behind it. This app has no cross-charge model and cannot tell that shape from an RCM
+                // purchase mis-posted onto the ISD registration. Distributing regardless would invent the condition;
+                // dropping silently hides money. So the credit is COUNTED AS RECEIVED (§20(1) puts it there
+                // expressly), WITHHELD from the distribution, and NAMED in a diagnostic — leaving UndistributedCredit
+                // non-zero and the reason on the face of the return. That is the same visible-and-fixable convention
+                // IsdDistribution already applies when the Rule 39(1)(f) denominator T is zero.
+                if (g.IsReverseCharge)
+                {
+                    // 🔴 ONE RCM VOUCHER CARRIES TWO TAGGED LINES AND ONLY ONE OF THEM IS CREDIT. The §49(4) output
+                    // liability the recipient bears is posted to a ledger whose own GstClassification is
+                    // IsReverseCharge; the ITC side is not. Counting both double-counts the credit — the first cut of
+                    // this fix did exactly that and reported ₹10,800 received where ₹9,009 was right, which the
+                    // emitted-file footing test caught. The discriminator below is the one this codebase already
+                    // uses for the same distinction in Gstr4 and GstReportSupport, so the three agree by
+                    // construction rather than by coincidence.
+                    if (company.FindLedger(line.LedgerId)?.GstClassification is { IsReverseCharge: true })
+                        continue;
+
+                    var rcmPaisa = PaisaConversion.ToPaisaRounded(line.Amount);
+                    rcm += rcmPaisa;
+                    // Kept per head so TotalReceived stays a truthful per-head figure rather than a lump.
+                    switch (g.TaxHead)
+                    {
+                        case GstTaxHead.Central: rcmC += rcmPaisa; break;
+                        case GstTaxHead.State: rcmS += rcmPaisa; break;
+                        case GstTaxHead.Integrated: rcmI += rcmPaisa; break;
+                        case GstTaxHead.Cess: rcmX += rcmPaisa; break;
+                    }
+                    continue;
+                }
                 var paisa = PaisaConversion.ToPaisaRounded(line.Amount);
                 switch (g.TaxHead)
                 {
@@ -162,6 +223,15 @@ public sealed record Gstr6(
                     case GstTaxHead.Integrated: igst += paisa; break;
                     case GstTaxHead.Cess: cess += paisa; break;
                 }
+            }
+
+            // Reverse-charge credit on this voucher: into RECEIVED (§20(1)), never into a pool, and remembered so
+            // the diagnostic can name the vouchers rather than just an amount.
+            if (rcm > 0)
+            {
+                recCgst += rcmC / 100m; recSgst += rcmS / 100m; recIgst += rcmI / 100m; recCess += rcmX / 100m;
+                rcmReceived += rcm / 100m;
+                rcmVouchers.Add($"{voucher.Number} dated {voucher.Date:dd-MMM-yyyy}");
             }
 
             if (cgst == 0 && sgst == 0 && igst == 0 && cess == 0) continue;
@@ -231,6 +301,20 @@ public sealed record Gstr6(
                 "Every invoice in this month was distributed as COMMON credit (Rule 39(1)(e)). Per-invoice direct "
                 + "attribution under Rule 39(1)(c) is not recorded by this build, so an invoice that was genuinely for a "
                 + "single unit is still being spread pro rata. Check the statement against the invoices before filing.");
+        }
+
+        if (rcmReceived > 0m)
+        {
+            // Loud on purpose: this figure is IN TotalReceived and NOT in TotalDistributed, so it is exactly the
+            // gap UndistributedCredit now shows, and the filer is told which vouchers make it up.
+            diagnostics.Add(
+                $"₹{IndianMoneyFormat.Amount(rcmReceived)} of reverse-charge credit was received under this "
+                + "registration and has NOT been distributed. Section 20(1) brings invoices for services liable to "
+                + "tax under section 9(3)/9(4) into the ISD mechanism with effect from 01-04-2025, so this credit is "
+                + "shown as received; but section 20(2) only allows it to be distributed where the tax was \"paid by "
+                + "a distinct person registered in the same State as the said Input Service Distributor\", and this "
+                + "build records no cross-charge, so it cannot confirm that condition. Confirm the treatment before "
+                + $"filing. Voucher(s): {string.Join("; ", rcmVouchers)}.");
         }
 
         var result = IsdDistribution.Distribute(isd.StateCode, recipients, pools);

@@ -305,4 +305,67 @@ public sealed class Gstr6IsdReachabilityTests
         }
         finally { Cleanup(w, dir); }
     }
+
+    // ================================================================ the filed document
+
+    /// <summary>
+    /// 🔴 <b>THE ROW IS NOT DONE WHEN THE SCREEN RENDERS — GSTR-6 IS A RETURN THAT GETS FILED.</b> Reaching a page
+    /// that shows the distribution is not the same as being able to submit it, and this project has repeatedly
+    /// shipped a capability whose only caller was a test. This drives the whole route from the Gateway by keyboard
+    /// and then presses <b>Ctrl+A</b> — the app's own primary-action chord — and asserts that a real GSTR-6 file
+    /// lands on disk with the right name and the right contents.
+    ///
+    /// <para>The file name is asserted to carry the <b>ISD's</b> GSTIN, not the company's operating GSTIN. GSTR-6
+    /// is filed by the distributor registration, so a file named for the company would be the right figures
+    /// submitted under the wrong registration — and every other writer on the offline-returns page legitimately
+    /// reaches for <c>company.Gst.Gstin</c>, which is exactly the habit that would produce that bug here.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_A_on_the_gstr6_screen_writes_the_isd_return_file()
+    {
+        var (w, vm, dir) = NewWindow("Gstr6Export");
+        try
+        {
+            SeedCompany(vm, "ISD Export Co", withIsd: true);
+            Pump(w);
+
+            KeyboardInto(w, vm, "Statutory Reports");
+            KeyboardInto(w, vm, "GST Returns (Advanced)");
+            KeyboardInto(w, vm, "GSTR-6 (ISD)");
+
+            Assert.Equal(Screen.Gstr6Report, vm.CurrentScreen);
+            var page = Assert.IsType<Gstr6ReportViewModel>(vm.Gstr6Report);
+
+            var outDir = Path.Combine(dir, "export");
+            Directory.CreateDirectory(outDir);
+            page.ExportFolder = outDir;
+
+            // The app's own primary-action chord, through MainWindow's key handler — not a direct method call, so a
+            // regression that drops the dispatch case fails here rather than silently.
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+
+            var written = Directory.GetFiles(outDir, "*.json");
+            var path = Assert.Single(written);
+
+            var isd = vm.Company!.Gst!.IsdRegistrations.Single();
+            var name = Path.GetFileName(path);
+            Assert.Equal(page.ExportFileName, name);
+            Assert.StartsWith($"GSTR-6_{isd.Gstin}_", name, StringComparison.Ordinal);
+            Assert.EndsWith(".json", name, StringComparison.Ordinal);
+            // MMYYYY, so a filer can tell two months apart at a glance.
+            Assert.Equal(6, name[$"GSTR-6_{isd.Gstin}_".Length..^".json".Length].Length);
+            Assert.NotEqual(vm.Company!.Gst!.Gstin, isd.Gstin); // the two really are different registrations
+
+            var text = File.ReadAllText(path);
+            Assert.Contains("\"gstin\": \"" + isd.Gstin + "\"", text, StringComparison.Ordinal);
+            Assert.Contains("tbl8_distribution", text, StringComparison.Ordinal);
+            // Rule 39(1)(b) travels with the file, not only with the screen.
+            Assert.Contains("undistributed_credit_paisa", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Tally", text, StringComparison.OrdinalIgnoreCase);
+
+            Assert.Contains("Exported", page.ExportStatus, StringComparison.Ordinal);
+        }
+        finally { Cleanup(w, dir); }
+    }
 }

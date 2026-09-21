@@ -202,6 +202,65 @@ public static class GstReturnJson
         return Serialize(dto);
     }
 
+    /// <summary>
+    /// Serialises <b>FORM GSTR-6</b> — the Input Service Distributor's monthly return (census row 6.24) — for the
+    /// month <c>[from, to]</c> and the ISD registration <paramref name="isdRegistrationId"/>, to deterministic
+    /// offline JSON bytes (UTF-8, no BOM). Money is integer paisa (ER-10).
+    ///
+    /// <para>The envelope is this class's house shape (<c>gstin</c> / <c>fp</c> / <c>ret_period</c>) and carries the
+    /// same <c>schemaStatus</c> flag as every other writer here: the GSTN offline-utility key names for GSTR-6 are
+    /// not published unauthenticated, so this is a <b>faithful structured emission</b> and is not claimed to be
+    /// portal-accepted. What IS locked by test is the arithmetic, which comes straight off the pure
+    /// <see cref="Reports.Gstr6"/> projection.</para>
+    ///
+    /// <para>🔴 <b><c>undistributed_credit_paisa</c> AND <c>diagnostics</c> ARE EMITTED ON PURPOSE.</b> Rule 39(1)(b)
+    /// caps the distribution at the credit available, and this report's own footing check is
+    /// received − distributed. A GSTR-6 whose distribution does not foot is the single defect that would put wrong
+    /// money on a filed return, so the gap travels WITH the file rather than living only on a screen the filer may
+    /// not have open — together with the reasons, which include any reverse-charge credit withheld under §20(2).
+    /// A consumer that wants only the distribution can ignore both keys; one that silently drops them is discarding
+    /// the evidence that the file is short.</para>
+    /// </summary>
+    public static byte[] Gstr6(Company company, DateOnly from, DateOnly to, Guid isdRegistrationId)
+    {
+        var r = Reports.Gstr6.Build(company, from, to, isdRegistrationId);
+        var dto = new Gstr6Dto
+        {
+            Gstin = r.IsdGstin,
+            Fp = FinancialPeriod(to),
+            RetPeriod = $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}",
+            DueDate = r.DueDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            IsdName = r.IsdName,
+            IsdStateCode = r.IsdStateCode,
+            RelevantPeriodFrom = r.RelevantPeriodFrom.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            RelevantPeriodTo = r.RelevantPeriodTo.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            RelevantPeriodBasis = r.RelevantPeriodBasis,
+            Tbl4ReceivedCamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCgst),
+            Tbl4ReceivedSamtPaisa = MoneyCodec.ToPaisa(r.ReceivedSgst),
+            Tbl4ReceivedIamtPaisa = MoneyCodec.ToPaisa(r.ReceivedIgst),
+            Tbl4ReceivedCsamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCess),
+            EligibleCreditPaisa = MoneyCodec.ToPaisa(r.EligibleCredit),
+            IneligibleCreditPaisa = MoneyCodec.ToPaisa(r.IneligibleCredit),
+            TotalReceivedPaisa = MoneyCodec.ToPaisa(r.TotalReceived),
+            TotalDistributedPaisa = MoneyCodec.ToPaisa(r.TotalDistributed),
+            UndistributedCreditPaisa = MoneyCodec.ToPaisa(r.UndistributedCredit),
+            Tbl8Distribution = r.Distribution.Select(d => new Gstr6DistributionDto
+            {
+                Gstin = d.Gstin,
+                Name = d.Name,
+                StateCode = d.StateCode,
+                Eligible = d.IsEligible,
+                CamtPaisa = MoneyCodec.ToPaisa(d.Cgst),
+                SamtPaisa = MoneyCodec.ToPaisa(d.Sgst),
+                IamtPaisa = MoneyCodec.ToPaisa(d.Igst),
+                CsamtPaisa = MoneyCodec.ToPaisa(d.Cess),
+            }).ToList(),
+            Diagnostics = r.Diagnostics.ToList(),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
     // ==================================================================================================================
     //  GSTR-1 (outward supplies) and GSTR-3B (summary return) — W2-06 slice (a); census row 6.10 / T1-11.
     //
@@ -624,6 +683,45 @@ public static class GstReturnJson
         [JsonPropertyName("tbl12a_books_itc_paisa")] public long Tbl12ABooksItcPaisa { get; init; }
         [JsonPropertyName("tbl12e_return_itc_paisa")] public long Tbl12EReturnItcPaisa { get; init; }
         [JsonPropertyName("tbl12f_unreconciled_itc_paisa")] public long Tbl12FUnreconciledItcPaisa { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    /// <summary>One distribution row of the GSTR-6 payload — a recipient of credit, on one side of the
+    /// Rule 39(1)(g) eligible/ineligible split, after the Rule 39(1)(j) head conversion.</summary>
+    private sealed record Gstr6DistributionDto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("name")] public required string Name { get; init; }
+        [JsonPropertyName("state_cd")] public required string StateCode { get; init; }
+        [JsonPropertyName("eligible")] public bool Eligible { get; init; }
+        [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
+        [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
+        [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+        [JsonPropertyName("csamt_paisa")] public long CsamtPaisa { get; init; }
+    }
+
+    private sealed record Gstr6Dto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+        [JsonPropertyName("due_date")] public required string DueDate { get; init; }
+        [JsonPropertyName("isd_name")] public required string IsdName { get; init; }
+        [JsonPropertyName("isd_state_cd")] public required string IsdStateCode { get; init; }
+        [JsonPropertyName("relevant_period_from")] public required string RelevantPeriodFrom { get; init; }
+        [JsonPropertyName("relevant_period_to")] public required string RelevantPeriodTo { get; init; }
+        [JsonPropertyName("relevant_period_basis")] public required string RelevantPeriodBasis { get; init; }
+        [JsonPropertyName("tbl4_received_camt_paisa")] public long Tbl4ReceivedCamtPaisa { get; init; }
+        [JsonPropertyName("tbl4_received_samt_paisa")] public long Tbl4ReceivedSamtPaisa { get; init; }
+        [JsonPropertyName("tbl4_received_iamt_paisa")] public long Tbl4ReceivedIamtPaisa { get; init; }
+        [JsonPropertyName("tbl4_received_csamt_paisa")] public long Tbl4ReceivedCsamtPaisa { get; init; }
+        [JsonPropertyName("eligible_credit_paisa")] public long EligibleCreditPaisa { get; init; }
+        [JsonPropertyName("ineligible_credit_paisa")] public long IneligibleCreditPaisa { get; init; }
+        [JsonPropertyName("total_received_paisa")] public long TotalReceivedPaisa { get; init; }
+        [JsonPropertyName("total_distributed_paisa")] public long TotalDistributedPaisa { get; init; }
+        [JsonPropertyName("undistributed_credit_paisa")] public long UndistributedCreditPaisa { get; init; }
+        [JsonPropertyName("tbl8_distribution")] public required IReadOnlyList<Gstr6DistributionDto> Tbl8Distribution { get; init; }
+        [JsonPropertyName("diagnostics")] public required IReadOnlyList<string> Diagnostics { get; init; }
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }
 }
