@@ -449,6 +449,27 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// E / P / M are deliberately NOT reserved: their arms are gated on <c>IsExportablePage</c> /
     /// <c>IsPrintablePage</c>, both false while a menu column is on top, so they are free here.
     /// </para>
+    /// <para>
+    /// 🔴 <b>THAT SENTENCE ABOVE WAS ONCE A COMMENT ASSERTING AN INVARIANT THE CODE DID NOT HOLD, AND IT COST A
+    /// CONFIDENTIALITY DEFECT. IT IS NOW ENFORCED — DO NOT UNDO THE THING THAT ENFORCES IT.</b> It was written
+    /// when every menu column came from <c>OpenCompanyMenu</c>, which calls <c>ClearSubScreens</c> and so nulls
+    /// <c>Reports</c>, making both predicates false as a side effect. The four ACTION menus (Ctrl+H, Alt+P,
+    /// Alt+E, Alt+M) arrive by <c>MainWindowViewModel.PushMenuColumn</c>, which deliberately does NOT clear —
+    /// every one of their rows acts on the page beneath. So for a while both predicates stayed TRUE under a
+    /// menu column, the bare-letter arms stayed live, and since those arms sit far earlier in the window's
+    /// first-match-wins chain than <c>HandleMenuLetter</c>, they swallowed the menu's own painted hotkeys.
+    /// Measured result: on a drilled voucher, Alt+M then <b>W</b> — the letter painted on the Share menu's own
+    /// WhatsApp row — shared a document titled <i>"Day Book"</i> instead of the invoice.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>What makes it true now is <c>MainWindowViewModel.IsActionMenuColumn</c></b>, a clause on all three
+    /// of <c>IsReportContext</c> / <c>IsPrintablePage</c> / <c>IsExportablePage</c>. Read that property's
+    /// remarks before changing anything here. The fix was put THERE rather than by extending this array because
+    /// reserving a letter only stops it being PAINTED — the arm would stay live and still fire the wrong verb —
+    /// and because the list would have to be re-derived from the row labels of every menu forever (nobody
+    /// reserving "E, P and M" would have thought to add <b>W</b>).
+    /// <b>Adding letters to this array is therefore NOT the fix if this returns.</b>
+    /// </para>
     /// </summary>
     private static readonly char[] ReservedLetters = { 'O', 'Y' };
 

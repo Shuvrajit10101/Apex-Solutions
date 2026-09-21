@@ -369,28 +369,40 @@ public sealed class VoucherCancelAltXTests
     [AvaloniaFact]
     public void AltX_from_a_column_stacked_over_a_live_report_cancels_nothing()
     {
-        var columns = new (string Name, Action<MainWindowViewModel> Open)[]
+        // 🔴 ActionMenu MARKS THE FOUR COLUMNS THAT ARE NOW SAFE TWICE OVER, AND THE DISTINCTION IS REAL.
+        // For the first five, IsReportContext is still TRUE while the column is stacked — that is what this test
+        // was built to record: the OLD gate WOULD have been reached, and the only thing stopping Alt+X is
+        // IsLiveReportPage. For the four action menus that is no longer so. MainWindowViewModel.IsActionMenuColumn
+        // — added to close the Alt+M/W confidentiality defect — makes IsReportContext FALSE under them, so the old
+        // gate is not reached either, for a second and independent reason.
+        //
+        // 🔴 THIS IS A STRENGTHENING, AND IT IS ASSERTED AS ONE RATHER THAN RELAXED INTO "don't care". The four
+        // rows now assert IsReportContext is FALSE and IsActionMenuColumn is TRUE — flip the fix off and those go
+        // red here too, so this test still fails if the menus stop being safe. What must NOT happen is this
+        // assertion being softened to `Assert.True(... || ...)`, which would stop distinguishing "safe because of
+        // the fix" from "safe because nothing fires at all".
+        var columns = new (string Name, Action<MainWindowViewModel> Open, bool ActionMenu)[]
         {
-            ("F12 report config",      vm => vm.OpenReportConfig()),
-            ("Alt+F12 sort/filter",    vm => vm.OpenReportSortFilter()),
-            ("Alt+A add-voucher",      vm => vm.OpenAddVoucherFromReport()),
+            ("F12 report config",      vm => vm.OpenReportConfig(),          false),
+            ("Alt+F12 sort/filter",    vm => vm.OpenReportSortFilter(),      false),
+            ("Alt+A add-voucher",      vm => vm.OpenAddVoucherFromReport(),  false),
             // 🔴 The label used to read "Alt+K saved views". Saved Views is no longer on Alt+K — it hangs off the
             // vendor's Ctrl+H (Change View) menu — so the label is corrected; the column it opens is the same one.
-            ("Saved Views column",     vm => vm.OpenSavedViews()),
-            ("P print preview",        vm => vm.OpenPrintPreview()),
+            ("Saved Views column",     vm => vm.OpenSavedViews(),            false),
+            ("P print preview",        vm => vm.OpenPrintPreview(),          false),
             // 🔴 THE FOUR REPORT MENUS JOIN THIS LIST THE DAY THEY SHIP, not after they are found to have
             // re-opened the hole. Each is a column stacked over a live report — exactly the shape that let Alt+X
             // void the voucher BEHIND the column — and each sets its own screen id, so IsLiveReportPage goes
             // false and the destructive arm is inert. This asserts that rather than assuming it.
-            ("Ctrl+H change view",     vm => vm.OpenChangeViewMenu()),
-            ("Alt+P print menu",       vm => vm.OpenPrintMenu()),
-            ("Alt+E export menu",      vm => vm.OpenExportMenu()),
-            ("Alt+M share menu",       vm => vm.OpenShareMenu()),
+            ("Ctrl+H change view",     vm => vm.OpenChangeViewMenu(),        true),
+            ("Alt+P print menu",       vm => vm.OpenPrintMenu(),             true),
+            ("Alt+E export menu",      vm => vm.OpenExportMenu(),            true),
+            ("Alt+M share menu",       vm => vm.OpenShareMenu(),             true),
         };
 
         for (var i = 0; i < columns.Length; i++)
         {
-            var (name, open) = columns[i];
+            var (name, open, actionMenu) = columns[i];
             var (window, vm, dir) = NewWindow();
             try
             {
@@ -400,7 +412,15 @@ public sealed class VoucherCancelAltXTests
                 Pump(window);
 
                 Assert.NotEqual(Screen.Report, vm.CurrentScreen);
-                Assert.True(vm.IsReportContext, $"{name}: the old gate would not even have been reached");
+                if (actionMenu)
+                {
+                    Assert.True(vm.IsActionMenuColumn, $"{name}: should be an action-menu column");
+                    Assert.False(vm.IsReportContext, $"{name}: the action-menu clause should have closed the gate");
+                }
+                else
+                {
+                    Assert.True(vm.IsReportContext, $"{name}: the old gate would not even have been reached");
+                }
                 Assert.False(vm.IsLiveReportPage, $"{name}: the report is not the active column here");
                 Assert.Equal(k.Receipt.Id, vm.Reports!.SelectedRow!.DrillVoucherId);   // still highlighted beneath
 

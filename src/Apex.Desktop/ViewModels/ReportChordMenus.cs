@@ -159,15 +159,23 @@ public static class ReportPrintMenu
 /// grounding order reaches first for a chord question, so the table is what is implemented. A later agent who
 /// finds the VAT page should not "fix" this back without a ruling.</para>
 ///
-/// <para>The <b>Current</b> row label is the vendor's own: <i>"Alt+E (Export) &gt; Current"</i>
-/// (help.tallysolutions.com/export-data-in-tally/).</para>
+/// <para>🔴 <b>THE "Current" ROW LABEL IS ATTESTED, BUT NOT IN THE FORM THIS COMMENT ONCE CLAIMED — CORRECTED
+/// AFTER RE-OPENING THE PAGE.</b> It said the label was the vendor's own <i>"Alt+E (Export) &gt; Current"</i>.
+/// help.tallysolutions.com/export-data-in-tally/ was re-read by content and does not contain that string. What
+/// it contains is <i>"Open any voucher or report and press <b>Ctrl+E</b> (Current)."</i> — so <b>Current</b> is
+/// the vendor's own word for this verb, and it is the word the vendor attaches to <b>Ctrl+E</b>, which is
+/// exactly the chord this row carries as its hint. The same page shows the menu form as
+/// <i>"Press <b>Alt+E</b> (Export) &gt; <b>Configuration</b>"</i>. The row label stands; only the quotation
+/// that justified it was wrong, and a misquote in a comment is how the E/P/M invariant next door shipped
+/// false. Do not re-widen this back into a verbatim claim without re-opening the page.</para>
 /// </summary>
 public static class ReportExportMenu
 {
     /// <summary>The column header.</summary>
     public const string ColumnTitle = "Export";
 
-    /// <summary>Vendor row label, verbatim: <i>"Alt+E (Export) &gt; Current"</i>.</summary>
+    /// <summary>The vendor's own word for this verb: <i>"press <b>Ctrl+E</b> (Current)"</i>
+    /// (help.tallysolutions.com/export-data-in-tally/) — the chord this row carries as its hint.</summary>
     public const string CurrentVerb = "Current";
 
     /// <summary>The verbs this menu offers. Read by the shell tests.</summary>

@@ -3475,9 +3475,64 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// beneath it: those shortcuts must be inert there so they never re-parameterise or re-open config on the
     /// underlying report the user has drilled away from (RQ-7). Enter (drill) and Esc/Back still work in the
     /// drill columns via their own handling.
+    ///
+    /// <para>🔴 <b>IT IS ALSO FALSE UNDER AN ACTION-MENU COLUMN, AND THAT CLAUSE CLOSED A CONFIDENTIALITY
+    /// DEFECT.</b> See <see cref="IsActionMenuColumn"/> for the whole account of it. In one line: the four
+    /// action menus deliberately leave <see cref="Reports"/> bound, so without that clause this property went
+    /// TRUE the instant the menu's own screen id replaced <see cref="Screen.VoucherDetail"/> — and the bare-W
+    /// arm, reached from the Share menu's own painted W, then handed a third party the whole Day Book in place
+    /// of the one invoice the operator had drilled into.</para>
     /// </summary>
     public bool IsReportContext => Reports is not null
-        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail)
+        && !IsActionMenuColumn;
+
+    /// <summary>
+    /// True while one of the four ACTION-MENU columns (Ctrl+H Change View, Alt+P Print, Alt+E Export, Alt+M
+    /// Share) is the pane the operator is standing in.
+    ///
+    /// <para>🔴 <b>WHY THIS PROPERTY EXISTS: IT MAKES A COMMENTED INVARIANT TRUE THAT THE CODE WAS
+    /// VIOLATING.</b> <c>GatewayColumn.ReservedLetters</c> reserves only <b>O</b> and <b>Y</b>, and states in
+    /// its own remarks that <b>E / P / M</b> need no reservation "because <see cref="IsExportablePage"/> /
+    /// <see cref="IsPrintablePage"/> are both false while a menu column is on top". That sentence was true of
+    /// <see cref="OpenCompanyMenu"/>, which calls <c>ClearSubScreens</c> and so nulls <see cref="Reports"/>. It
+    /// was NOT true of <see cref="PushMenuColumn"/>, which deliberately does not — clearing would make every
+    /// row of an action menu a no-op on the very thing it acts upon. So the four action menus left both
+    /// predicates TRUE, every bare-letter arm gated on them stayed live, and because those arms sit far earlier
+    /// in the window's first-match-wins chain than the menu-letter dispatch, they swallowed the menu's own
+    /// painted hotkeys before the row could ever run.
+    /// </para>
+    ///
+    /// <para>🔴 <b>THE MEASURED CONSEQUENCE WAS A CONFIDENTIALITY BREACH, NOT A ROUTING NUISANCE.</b> On a
+    /// drilled voucher: Alt+M opens Share, whose WhatsApp row is painted with <b>W</b>. Pressing W matched the
+    /// bare-W arm instead, which calls <c>OpenWhatsAppShare()</c> with the menu column STILL ON TOP — so
+    /// <c>CurrentScreen</c> was <see cref="Screen.ShareMenu"/>, the voucher branch missed, <c>IsReportContext</c>
+    /// went true, and the panel was built from the REPORT. The operator asking to share one invoice was handed a
+    /// document titled "Day Book": every voucher of every party for the period, to a third party.
+    /// <c>PopMenuColumn</c> could not save it, because the row that calls it never ran.
+    /// </para>
+    ///
+    /// <para>🔴 <b>WHY THE FIX IS HERE AND NOT IN <c>ReservedLetters</c>.</b> Reserving E/P/M/W in the hotkey
+    /// assigner would only stop those letters being PAINTED — the arms would stay live, so the letters would
+    /// still fire the wrong verb, and the menu would additionally lose the accelerators the vendor's own menus
+    /// have. Worse, "which letters to reserve" would have to be re-derived every time a row label changes, and
+    /// the list would silently rot; the Share menu's second row is <i>WhatsApp</i> today, and W is not a letter
+    /// anyone reserving "E, P and M" would have thought to add. Making the predicates false instead kills the
+    /// whole class at its root: while an action menu is up, NOTHING outside that menu can claim a bare letter,
+    /// so the only thing that can answer the operator's keystroke is the row the product painted it on. The
+    /// invariant <c>ReservedLetters</c> asserts is now enforced by code rather than assumed by a comment.
+    /// </para>
+    ///
+    /// <para><b>Scope, and why this cannot regress a shipped behaviour.</b> All four screen ids are new with
+    /// this slice, so no keystroke that had a meaning before reaches a different verb because of this clause.
+    /// The menu ROWS are unaffected: each pops its own column through <see cref="PopMenuColumn"/> and only then
+    /// runs its verb, by which time the screen id and the predicates are back to the page underneath. One
+    /// behaviour does change by design — a second menu's chord pressed while a menu is already up is now inert
+    /// rather than swapping menus. That is the correct reading of a modal menu column: Escape pops it, and the
+    /// vendor documents no menu-to-menu route.</para>
+    /// </summary>
+    public bool IsActionMenuColumn =>
+        CurrentScreen is Screen.ChangeViewMenu or Screen.PrintMenu or Screen.ExportMenu or Screen.ShareMenu;
 
     /// <summary>
     /// True only while the report page is the <b>ACTIVE COLUMN</b> — the operator is standing ON the report, not
@@ -3576,11 +3631,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     ///
     /// <para>This widens Print to every master list too (Groups, Cost Centres, Godowns, Units, Currencies, …),
     /// which is the vendor's behaviour and was already true of Export.</para>
+    ///
+    /// <para>🔴 <b>The leading <c>!IsActionMenuColumn</c> is belt AND braces, deliberately.</b> With
+    /// <see cref="IsReportContext"/> now carrying the same clause, and a menu column having no
+    /// <c>Page</c> for <c>TopMasterExportSource()</c> to find, this property is already false under an action
+    /// menu — today. The guard is stated anyway because BOTH of those are incidental: a future menu column
+    /// built with a page view model would silently restore the hole through the third arm, and that hole is a
+    /// confidentiality defect (see <see cref="IsActionMenuColumn"/>), not a cosmetic one. This is the property
+    /// the bare <b>M</b>, <b>W</b> and <b>P</b> arms are gated on; it says so here rather than relying on two
+    /// other files staying shaped as they are.</para>
     /// </summary>
     public bool IsPrintablePage =>
-        IsReportContext
-        || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
-        || TopMasterExportSource() is not null;
+        !IsActionMenuColumn
+        && (IsReportContext
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || TopMasterExportSource() is not null);
 
     /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
@@ -4700,10 +4765,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (Chart of Accounts, the ledger-creation list, the stock-item-creation list; RQ-14/16, slice 13). Master
     /// lists project through <see cref="MasterListTabularProjector"/>; reports through
     /// <see cref="ReportTabularProjector"/>.
+    ///
+    /// <para>🔴 <b><c>!IsActionMenuColumn</c> for the same reason <see cref="IsPrintablePage"/> carries it.</b>
+    /// This is the predicate the bare <b>E</b> arm is gated on, and the Export menu's own first row is painted
+    /// with <b>E</b>. Without the clause that letter would be swallowed by the bare arm and run
+    /// <c>OpenExport()</c> with the menu column still on top — where <c>TopMasterExportSource()</c> reads the
+    /// MENU as the top column and a master list would export as whatever report was last bound. See
+    /// <see cref="IsActionMenuColumn"/>.</para>
     /// </summary>
     public bool IsExportablePage =>
-        IsReportContext
-        || TopMasterExportSource() is not null;
+        !IsActionMenuColumn
+        && (IsReportContext || TopMasterExportSource() is not null);
 
     /// <summary>
     /// The master-list export source on top of the cascade, if any: the currently-displayed master-list page

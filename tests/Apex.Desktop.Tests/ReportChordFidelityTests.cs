@@ -721,4 +721,354 @@ public sealed class ReportChordFidelityTests : IDisposable
         }
         finally { window.Close(); }
     }
+
+    // ================================================================ F — THE CONFIDENTIALITY DEFECT
+    //
+    // 🔴 THIS SECTION EXISTS BECAUSE THIS BRANCH WAS WITHHELD FROM MERGE, ON A FULLY GREEN GATE, FOR A DEFECT
+    // THAT SENT THE WRONG DOCUMENT TO A THIRD PARTY. Everything above this line passed while it was live.
+    //
+    // WHAT THE TESTS ABOVE ASSERT, AND WHY IT WAS NOT ENOUGH. The two wrong-attachment tests above drive each
+    // menu with ENTER. Enter runs the row, the row calls PopMenuColumn, and the screen id is restored before the
+    // verb reads it — so the Enter route was correct all along and green. The operator's other route is the
+    // LETTER the product itself paints red on the row (WI-9). That letter never reached the row: the bare-letter
+    // arms in MainWindow (E / P / M / W) are gated on IsPrintablePage / IsExportablePage, both of which STAYED
+    // TRUE under a menu column because PushMenuColumn deliberately does not ClearSubScreens, and those arms sit
+    // hundreds of lines EARLIER in the first-match-wins chain than HandleMenuLetter. So the letter fired the
+    // bare verb with the menu still on top, and the pop never happened.
+    //
+    // 🔴 THESE ASSERT ON THE DOCUMENT, NOT ON THE KEYSTROKE. A test reading "Alt+M opened a menu", or even
+    // "W opened the WhatsApp panel", passed throughout the defect — the panel opened perfectly, built from the
+    // wrong thing. The only assertion that sees it is WHICH DOCUMENT came out, so these read DocumentTitle and
+    // then the BYTES OF THE EMITTED FILE.
+
+    /// <summary>
+    /// 🔴 <b>THE CONFIDENTIALITY TEST. Drill one voucher out of the Day Book, ask to share it on WhatsApp by the
+    /// product's own painted letter, and the file that comes out must be THAT VOUCHER.</b>
+    ///
+    /// <para>What was measured before the fix: Alt+M put the Share menu up (CurrentScreen = ShareMenu, with
+    /// Reports still bound to the Day Book beneath). W then matched the bare-W arm, whose guard
+    /// <c>IsPrintablePage</c> was still true, and called <c>OpenWhatsAppShare()</c> with the menu column in
+    /// place. Its voucher branch tests <c>CurrentScreen == Screen.VoucherDetail</c> and missed;
+    /// <c>IsReportContext</c> — which excludes VoucherDetail BY SCREEN ID — went true; the panel was built from
+    /// the REPORT. An operator sharing one invoice with one customer was handed a document titled "Day Book":
+    /// every voucher of every party in the period. That is a disclosure of other customers' data, not a routing
+    /// bug, which is why the emitted FILE is asserted here and not merely the panel's title.</para>
+    ///
+    /// <para>The fix is <c>MainWindowViewModel.IsActionMenuColumn</c>, a clause on all three page predicates, so
+    /// that no arm outside an action menu can claim a bare letter while one is up and the letter reaches the row
+    /// the product painted it on. Delete that clause and this test goes red while the whole rest of the gate
+    /// stays green — which is exactly what happened.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Share_menu_W_over_a_drilled_voucher_emits_the_VOUCHER_document_not_the_Day_Book()
+    {
+        var (window, vm) = OpenWindow("Confidentiality Co");
+        try
+        {
+            var voucherId = PostAJournal(vm, "Rent", 1500m);
+
+            // Stand where the operator stands: the Day Book, drilled into ONE voucher. Reports stays bound to
+            // the Day Book beneath the drill column — that is the whole hazard.
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+            var dayBookTitle = vm.Reports!.Title;
+            // The Day Book's OWN shared bytes, produced through the shipped path (same ctor the Share menu uses,
+            // same SaveDocument that writes the file) — no test-only seam. This is the document the defect
+            // handed out; the assertion at the end is that the emitted file is NOT these bytes.
+            var dayBookReference = Path.Combine(_tempDir, "daybook-reference.pdf");
+            Assert.True(new WhatsAppShareViewModel(vm.Reports!).SaveDocument(dayBookReference));
+            var dayBookBytes = File.ReadAllBytes(dayBookReference);
+
+            vm.OpenVoucherDetail(voucherId);
+            Pump(window);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);                       // the Day Book really is still bound beneath
+            var voucherTitle = vm.VoucherDetail!.Title;
+            var voucherBytes = vm.VoucherDetail!.BuildPrintPreview().PdfBytes;
+            Assert.NotEqual(dayBookTitle, voucherTitle);      // the two documents are genuinely different
+
+            window.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ShareMenu, vm.CurrentScreen);
+
+            // 🔴 THE DEFECT'S OWN KEYSTROKE: the bare W the Share menu paints on its WhatsApp row.
+            window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.WhatsAppShare, vm.CurrentScreen);
+            Assert.NotNull(vm.WhatsAppShare);
+            Assert.Equal(voucherTitle, vm.WhatsAppShare!.DocumentTitle);
+            Assert.DoesNotContain("Day Book", vm.WhatsAppShare!.DocumentTitle, StringComparison.OrdinalIgnoreCase);
+
+            // 🔴 AND THE ACTUAL FILE, because the title is a label and the file is what leaves the building.
+            var path = Path.Combine(_tempDir, "shared.pdf");
+            Assert.True(vm.SaveWhatsAppDocument(path));
+            var emitted = File.ReadAllBytes(path);
+            Assert.Equal(voucherBytes, emitted);
+            Assert.NotEqual(dayBookBytes, emitted);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SAME DEFECT ON THE E-MAIL CHANNEL, BY THE SAME LETTER ROUTE.</b> The Share menu's first row is
+    /// <i>E-Mail</i>, so WI-9 paints <b>E</b> on it — and the bare-E arm (guard <c>IsExportablePage</c>) sat
+    /// earlier in the chain. Before the fix this opened the EXPORT panel for the Day Book: a different panel
+    /// entirely from the one the operator chose, over a different document. Asserts the compose panel names the
+    /// voucher, which is what decides the attachment.
+    /// </summary>
+    [AvaloniaFact]
+    public void Share_menu_E_over_a_drilled_voucher_composes_for_the_VOUCHER()
+    {
+        var (window, vm) = OpenWindow("Share Letter EMail Co");
+        try
+        {
+            var voucherId = PostAJournal(vm, "Printing", 900m);
+
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+            vm.OpenVoucherDetail(voucherId);
+            Pump(window);
+            var voucherTitle = vm.VoucherDetail!.Title;
+
+            window.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ShareMenu, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.EmailCompose, vm.CurrentScreen);
+            Assert.Null(vm.ExportPanel);                      // NOT the export panel the bare-E arm used to open
+            Assert.Contains(voucherTitle, vm.EmailCompose!.Subject);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE EXPORT MENU'S OWN LETTER, over a MASTER LIST — and the letter is READ OFF THE COLUMN, not
+    /// hard-coded.</b>
+    ///
+    /// <para>🔴 <b>THIS TEST PREVIOUSLY ASSERTED A FALSE PREMISE AND WAS RED.</b> It pressed <b>E</b>, on the
+    /// stated belief that E is "painted on <i>Current</i>". It is not. <c>GatewayColumn.AssignHotKeys</c> takes
+    /// the label's first FREE letter, and the label is <i>Current</i> — so the letter this menu actually paints
+    /// is <b>C</b>. Pressing E therefore did nothing at all once the fix landed (the bare-E arm is correctly
+    /// dead under a menu column, and no row answers to E), and the menu just stayed up. The premise was wrong,
+    /// not the fix.</para>
+    ///
+    /// <para>So the letter is now taken from <see cref="MenuItemViewModel.HotKey"/> on the live column — the
+    /// very character the product paints red on the row. That is the operator's actual contract ("press the red
+    /// letter"), and it cannot rot when a label changes: rename <i>Current</i> and this test follows it, where a
+    /// hard-coded letter would have gone quietly red again. The <c>Assert.NotEqual('E', …)</c> pins the specific
+    /// mistake so it is not re-introduced.</para>
+    ///
+    /// <para>What it proves: the row runs against the MASTER LIST. Before the fix <c>OpenExport()</c> reached by
+    /// a bare arm ran with the menu column still on top, where <c>TopMasterExportSource()</c> reads the MENU as
+    /// the top column and finds no page — so the Chart of Accounts would have exported as whatever report was
+    /// last bound, or not at all.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Export_menu_letter_over_a_master_list_exports_the_MASTER_LIST()
+    {
+        var (window, vm) = OpenWindow("Export Letter Co");
+        try
+        {
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            Assert.True(vm.IsExportablePage);
+
+            window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ExportMenu, vm.CurrentScreen);
+
+            // The letter the product itself paints on the Current row, read off the live column.
+            var row = vm.Columns[^1].Items.First(i => i.IsSelectable);
+            Assert.Equal(ReportExportMenu.CurrentVerb, row.Label);
+            Assert.True(row.HasHotKey);
+            var painted = char.ToUpperInvariant(row.HotKey!.Value);
+            Assert.Equal('C', painted);
+            Assert.NotEqual('E', painted);   // the false premise this test used to carry
+
+            window.KeyPressQwerty(PhysicalKeyFor(painted), RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.Export, vm.CurrentScreen);
+            Assert.NotNull(vm.ExportPanel);
+            Assert.Contains("Chart of Accounts", vm.ExportPanel!.DocumentTitle, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Maps an uppercase A–Z to its QWERTY <see cref="PhysicalKey"/>, so a test can press a letter it
+    /// read off a menu row rather than one it hard-coded.</summary>
+    private static PhysicalKey PhysicalKeyFor(char upper) =>
+        upper is >= 'A' and <= 'Z'
+            ? (PhysicalKey)Enum.Parse(typeof(PhysicalKey), upper.ToString())
+            : throw new ArgumentOutOfRangeException(nameof(upper), upper, "Not an A-Z letter.");
+
+    /// <summary>
+    /// 🔴 <b>THE INVARIANT ITSELF, stated as an assertion instead of as a comment — which is the lesson this
+    /// defect taught.</b> <c>GatewayColumn.ReservedLetters</c> reserves only O and Y and justifies itself by
+    /// asserting in prose that <c>IsExportablePage</c> / <c>IsPrintablePage</c> "are both false while a menu
+    /// column is on top". That sentence was FALSE for the four action menus for as long as they existed, and
+    /// nothing in the suite could tell. It is now enforced by <c>IsActionMenuColumn</c> and pinned here, for all
+    /// four menus, so the comment and the code cannot drift apart again.
+    /// </summary>
+    [AvaloniaFact]
+    public void All_four_action_menus_make_the_page_predicates_false()
+    {
+        var (window, vm) = OpenWindow("Menu Invariant Co");
+        try
+        {
+            var voucherId = PostAJournal(vm, "Freight", 250m);
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+
+            foreach (var (chord, screen) in new[]
+                     {
+                         (PhysicalKey.P, Screen.PrintMenu),
+                         (PhysicalKey.E, Screen.ExportMenu),
+                         (PhysicalKey.M, Screen.ShareMenu),
+                     })
+            {
+                window.KeyPressQwerty(chord, RawInputModifiers.Alt);
+                Pump(window);
+                Assert.Equal(screen, vm.CurrentScreen);
+
+                Assert.True(vm.IsActionMenuColumn);
+                Assert.False(vm.IsReportContext);
+                Assert.False(vm.IsPrintablePage);
+                Assert.False(vm.IsExportablePage);
+                Assert.NotNull(vm.Reports);      // …and the report is STILL BOUND, which is the point of them
+
+                window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+                Pump(window);
+                Assert.Equal(Screen.Report, vm.CurrentScreen);
+                Assert.True(vm.IsReportContext);   // the predicates come straight back when the menu pops
+            }
+
+            // Ctrl+H is the fourth, and it is a Control chord rather than an Alt one.
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(Screen.ChangeViewMenu, vm.CurrentScreen);
+            Assert.True(vm.IsActionMenuColumn);
+            Assert.False(vm.IsReportContext);
+            Assert.False(vm.IsPrintablePage);
+            Assert.False(vm.IsExportablePage);
+
+            Assert.NotEqual(Guid.Empty, voucherId);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE REGRESSION PROOF FOR THE FIX ITSELF.</b> Narrowing three predicates is exactly the shape of
+    /// change that fixes a symptom by disabling a feature, and this project has shipped that before. The bare
+    /// letters must still do their shipped jobs everywhere an action menu is NOT up: W on a drilled voucher
+    /// still shares that voucher directly, and E on a report still opens Export. If the guard were written too
+    /// wide, these go red.
+    /// </summary>
+    [AvaloniaFact]
+    public void Bare_letters_still_work_where_no_action_menu_is_up()
+    {
+        var (window, vm) = OpenWindow("Bare Letters Preserved Co");
+        try
+        {
+            var voucherId = PostAJournal(vm, "Stationery", 400m);
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+
+            // E on the live report still opens the current-object Export panel (no menu in the way).
+            window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.Export, vm.CurrentScreen);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+
+            // W straight off a drilled voucher still shares THAT VOUCHER — the shipped IV-64 door, untouched.
+            vm.OpenVoucherDetail(voucherId);
+            Pump(window);
+            var voucherTitle = vm.VoucherDetail!.Title;
+
+            window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.WhatsAppShare, vm.CurrentScreen);
+            Assert.Equal(voucherTitle, vm.WhatsAppShare!.DocumentTitle);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE CLASS, NOT THE INSTANCE: the OTHER bare letter that a menu paints, on the one report where it
+    /// is also a live verb.</b>
+    ///
+    /// <para>The reviewed defect was found on <b>W</b>. Fixing only W would have left the class open, so the
+    /// remaining bare-letter arms were enumerated in <c>MainWindow.axaml.cs</c>. Exactly one is a no-modifier
+    /// letter outside the P/E/M/W family: <b>bare C</b> (<c>:812</c>), "convert the highlighted memorandum",
+    /// gated on <c>IsMemorandumRegisterReport</c>. And <b>C is the letter <c>AssignHotKeys</c> paints on the
+    /// <i>Current</i> row of BOTH the Print and the Export menu</b> — the label's first free letter. So on the
+    /// Memorandum Register, and nowhere else, a menu's own painted letter and a live bare verb are the same
+    /// key.</para>
+    ///
+    /// <para>🔴 <b>This one is safe for a DIFFERENT reason than the W family, and that is exactly why it is
+    /// pinned here rather than assumed.</b> <c>IsMemorandumRegisterReport</c> requires
+    /// <c>CurrentScreen == Screen.Report</c>, so it is false under a menu column by screen id — it never
+    /// depended on the three page predicates <c>IsActionMenuColumn</c> fixed. Nothing in the fix protects it;
+    /// it is safe by its own construction, and a later hand relaxing that clause to
+    /// <c>Reports is { Kind: MemorandumRegister }</c> — which reads like a harmless widening, and is the exact
+    /// shape <c>IsChequeRegisterDetailReport</c> next door uses — would silently reopen the class on a new
+    /// letter. Then Alt+P then C would CONVERT A MEMORANDUM INTO A REAL VOUCHER instead of printing: a posting
+    /// to the books from a keystroke the operator pressed to print.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_menu_letter_that_is_also_a_live_bare_verb_runs_the_MENU_row()
+    {
+        var (window, vm) = OpenWindow("Memorandum Letter Co");
+        try
+        {
+            vm.OpenReport(ReportKind.MemorandumRegister);
+            Pump(window);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.True(vm.IsMemorandumRegisterReport);   // the bare-C verb really is live on this page
+
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+
+            // C is what the Print menu paints on Current — and it is the live verb's letter too.
+            var current = vm.Columns[^1].Items.First(i => i.IsSelectable);
+            Assert.Equal(ReportPrintMenu.CurrentVerb, current.Label);
+            Assert.Equal('C', char.ToUpperInvariant(current.HotKey!.Value));
+            Assert.False(vm.IsMemorandumRegisterReport);  // …and it is dead while the menu is up
+
+            window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.None);
+            Pump(window);
+
+            // The MENU ROW ran: the preview opened. Not the conversion verb.
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Posts a two-line journal (expense Dr / Cash Cr) and returns its id.</summary>
+    private static Guid PostAJournal(MainWindowViewModel vm, string expenseName, decimal amount)
+    {
+        var company = vm.Company!;
+        var expense = new DomainLedger(Guid.NewGuid(), expenseName,
+            company.FindGroupByName("Indirect Expenses")!.Id, Money.Zero, openingIsDebit: true);
+        company.AddLedger(expense);
+        var cash = company.FindLedgerByName("Cash")!;
+
+        vm.OpenVoucher(VoucherBaseType.Journal);
+        var entry = vm.VoucherEntry!;
+        entry.Lines[0].SelectedLedger = expense;
+        entry.Lines[0].Side = DrCr.Debit;
+        entry.Lines[0].AmountText = amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        entry.Lines[1].SelectedLedger = cash;
+        entry.Lines[1].Side = DrCr.Credit;
+        entry.Lines[1].AmountText = amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(entry.Accept());
+        return company.Vouchers.Last().Id;
+    }
 }
