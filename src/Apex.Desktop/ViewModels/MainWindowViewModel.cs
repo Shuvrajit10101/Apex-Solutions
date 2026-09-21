@@ -39,6 +39,13 @@ public enum Screen
     // report-config column), so picking a type opens that entry over the Day Book and Esc pops back to it.
     AddVoucherPicker,
 
+    // W28 V3 (census 5.2 / 5.7 / 5.8) — the Day-Book "Exception Reports" (Ctrl+J) picker: a menu column of the
+    // vendor's three exception registers appended to the RIGHT of the live Day Book, exactly like the Alt+A
+    // picker above. The vendor names the set outright: "The Exception Reports available in the Day Book in
+    // TallyPrime are of Optional Vouchers, Cancelled Vouchers, and Post-Dated Vouchers"
+    // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+    ExceptionReportsPicker,
+
     ReportConfig,
 
     // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
@@ -3181,6 +3188,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// <b>F6 (Monthly) on a ledger book — open that ledger's Monthly Summary</b> (census 11.5).
+    ///
+    /// <para>🔴 <b>THE GAP THIS CLOSES IS A MISSING CHORD, NOT A MISSING REPORT.</b>
+    /// <see cref="ReportKind.LedgerMonthlySummary"/> and <see cref="OpenLedgerMonthlySummary"/> already shipped
+    /// for the 11.7 group drill, and a group-summary ledger row could reach the monthly view — but an operator
+    /// who opened the SAME ledger through Reports → Account Books → Ledger had no keystroke that reached it at
+    /// all. A capability reachable from one route and not from the route the vendor documents is the shape this
+    /// project counts as absent.</para>
+    ///
+    /// <para>The summary is opened over the book's OWN window (<see cref="LedgerVouchersViewModel.PeriodFrom"/> /
+    /// <see cref="LedgerVouchersViewModel.PeriodTo"/>) rather than the company's default period, so the months it
+    /// lists foot to the book the operator is standing on. Its month rows drill straight back into
+    /// <see cref="OpenLedgerVouchers"/> for that month, which is the vendor's own next level down.</para>
+    /// </summary>
+    public void OpenMonthlySummaryForLedgerBook()
+    {
+        if (Company is null || LedgerVouchers is not { } book) return;
+        OpenLedgerMonthlySummary(book.LedgerId, book.PeriodFrom, book.PeriodTo);
+    }
+
+    /// <summary>
     /// The keyboard-first report drill (Enter / double-click on the highlighted report row). Dispatched by the
     /// report's own kind: Stock Summary → the item's movement report; TB/BS/P&amp;L → that ledger's vouchers;
     /// Day Book → the voucher's detail. A safe no-op on any non-drillable row. Also serves a drilled
@@ -3470,12 +3498,48 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsLiveReportPage => Reports is not null && CurrentScreen == Screen.Report;
 
     /// <summary>
+    /// True while a <b>ledger book</b> (the Ledger Vouchers list) is the active page — the single context the
+    /// vendor's <b>F6 (Monthly)</b> is offered in (census 11.5).
+    ///
+    /// <para>Fidelity (R7 / ruling 14). The vendor's route is "Gateway of Tally &gt; Display More Reports &gt;
+    /// Accounts Books &gt; Ledger", which lands on the <b>Ledger Vouchers</b> report, and from there
+    /// "Press <b>F6 (Monthly)</b> to view the monthly summary" (<c>help.tallysolutions.com/accounting-faq/</c>).
+    /// So the monthly summary is the vendor's SECOND level, reached by a chord — not the first level the account
+    /// book opens on. This product already had the summary as a primitive
+    /// (<see cref="OpenLedgerMonthlySummary"/>, built for the 11.7 group drill) and no chord reaching it from a
+    /// ledger book, which is the gap this closes.</para>
+    /// </summary>
+    public bool IsLedgerBookPage => CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null;
+
+    /// <summary>
     /// True while the LIVE report is the Day Book (WI-12) — the single context the Alt+A "Add Voucher" picker is
     /// offered in. Stays true while its own picker column is open (<see cref="Reports"/> is left bound beneath the
     /// picker), so Esc/Back returns to the same live Day Book.
     /// </summary>
     public bool IsDayBookReport => Reports is { Kind: ReportKind.DayBook }
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
+    /// <summary>
+    /// 🔴 <b>True while a MENU COLUMN is stacked on top of the live Day Book</b> — the Alt+A / Alt+I voucher-type
+    /// picker, or the Ctrl+J Exception Reports picker. Every Day-Book verb that acts on
+    /// <c>Reports.SelectedRow</c> must refuse while this is true, because the highlighted row is BEHIND the
+    /// column the operator is standing in and they cannot see which row the verb would take.
+    ///
+    /// <para><b>ONE PREDICATE RATHER THAN A SCREEN-NAME EXCLUSION LIST PER VERB, AND THAT IS THE WHOLE POINT.</b>
+    /// <see cref="RequestInsertVoucherAtHighlight"/> and <see cref="OpenAddVoucherFromReport"/> each carried their
+    /// own <c>CurrentScreen == Screen.AddVoucherPicker</c> exclusion. When W28 V3 added
+    /// <see cref="Screen.ExceptionReportsPicker"/> — which also leaves <see cref="Reports"/> bound, so
+    /// <see cref="IsDayBookReport"/> stays TRUE beneath it — neither list was extended, and Alt+I fired on a
+    /// hidden Day Book row: an INSERT renumbers everything after the anchor, so the operator could renumber the
+    /// series off a row they never saw. A per-verb list has now been missed once; the next picker added would
+    /// have to remember three call sites instead of one. It is a single member so it cannot be missed again,
+    /// and <c>ExceptionReportsRegisterTests</c> asserts every verb against it.</para>
+    ///
+    /// <para>It is deliberately NOT folded into <see cref="IsDayBookReport"/> itself: that property must stay
+    /// true under a picker, because the picker is appended BESIDE the live book and Esc pops back to it.</para>
+    /// </summary>
+    public bool IsDayBookPickerOpen =>
+        CurrentScreen is Screen.AddVoucherPicker or Screen.ExceptionReportsPicker;
 
     /// <summary>
     /// True while the LIVE report is the <b>Memorandum Register</b> (census 4.17) — the single context the
@@ -5340,7 +5404,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenAddVoucherFromReport()
     {
         if (Company is null || !IsDayBookReport) return;
-        if (CurrentScreen == Screen.AddVoucherPicker) return; // already open — don't stack a second picker
+        // Refuses under ANY Day-Book picker column, not just its own (see IsDayBookPickerOpen): with the Ctrl+J
+        // Exception Reports column on top, the seed date would be read off a row the operator cannot see.
+        if (IsDayBookPickerOpen) return;
 
         // Seed the new voucher's date from the highlighted Day-Book row (its own voucher's date); resolve it NOW
         // while the report is still bound, before the picker column takes focus.
@@ -5375,6 +5441,81 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = "Add Voucher";
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// <b>Ctrl+J on the Day Book — open the EXCEPTION REPORTS picker</b> (census 5.2(c), 5.7(c), 5.8).
+    ///
+    /// <para>Fidelity (R7 / ruling 14). The vendor names both the chord and the whole set: "The Exception Reports
+    /// available in the Day Book in TallyPrime are of <b>Optional Vouchers</b>, <b>Cancelled Vouchers</b>, and
+    /// <b>Post-Dated Vouchers</b>", reached with <b>Ctrl+J (Exception Reports)</b>
+    /// (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>). Exactly three
+    /// rows are offered and no fourth is invented.</para>
+    ///
+    /// <para><b>The gap this closes is visibility, not storage.</b> Optional, Cancelled and Post-Dated were all
+    /// already settable and already persisted — and all three were invisible: the only surface that listed a
+    /// flagged voucher was the Day Book itself, mixed in with every ordinary voucher of the same day. An operator
+    /// who marked a voucher Optional and moved on had no screen that would ever tell them it was still Optional,
+    /// i.e. still outside the books.</para>
+    ///
+    /// <para>The picker is APPENDED beside the live Day Book rather than replacing it (the same shape as the
+    /// Alt+A Add-Voucher picker and the F12 config column), so <see cref="Reports"/> stays bound beneath and Esc
+    /// pops straight back to the book the operator came from.</para>
+    /// </summary>
+    public void OpenExceptionReportsPicker()
+    {
+        if (Company is null || !IsDayBookReport) return;
+        // Refuses under ANY Day-Book picker column (see IsDayBookPickerOpen) — its own, so a second one is never
+        // stacked, and the Alt+A/Alt+I one, so Ctrl+J cannot bury a half-made voucher choice under a report menu.
+        if (IsDayBookPickerOpen) return;
+
+        // The report's OWN period, resolved while the Day Book is still bound, so each register covers exactly
+        // the window the operator was looking at. Re-deriving it after the picker takes focus would read the
+        // default period instead and silently list a different span than the book beside it.
+        var period = Reports!.Period;
+        var from = period?.From;
+        var to = period?.To;
+
+        var picker = new GatewayColumn("Exception Reports");
+        picker.Add(MenuItemViewModel.Header("Exception Reports"));
+        foreach (var (label, kind) in new (string, ReportKind)[]
+        {
+            ("Optional Vouchers", ReportKind.OptionalVouchersRegister),
+            ("Cancelled Vouchers", ReportKind.CancelledVouchersRegister),
+            ("Post-Dated Vouchers", ReportKind.PostDatedVouchersRegister),
+        })
+        {
+            var chosen = kind;
+            picker.Add(new MenuItemViewModel(
+                label,
+                () => OpenExceptionRegister(chosen, from, to),
+                string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        Columns.Add(picker);
+        picker.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ExceptionReportsPicker;
+        ScreenTitle = "Exception Reports";
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Opens one of the three exception registers over the Day Book's own window (census 5.2 / 5.7 / 5.8). The
+    /// register's rows carry the Day Book's drill ids, so Enter opens the voucher exactly as it does on the book.
+    /// </summary>
+    public void OpenExceptionRegister(ReportKind kind, DateOnly? from, DateOnly? to)
+    {
+        if (Company is null) return;
+
+        var vm = from is { } f && to is { } t
+            ? new ReportsViewModel(Company, kind, period: new Apex.Ledger.Reports.PeriodRange(f, t))
+            : new ReportsViewModel(Company, kind);
+        WireReportDrills(vm);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Report, vm.Title, () => Reports = vm);
     }
 
     /// <summary>
@@ -5489,7 +5630,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public VoucherAlterationRequest RequestInsertVoucherAtHighlight()
     {
         if (Company is null || !IsDayBookReport) return VoucherAlterationRequest.NoVoucherHere;
-        if (CurrentScreen == Screen.AddVoucherPicker) return VoucherAlterationRequest.NoVoucherHere;
+        // 🔴 ANY Day-Book picker column, not just this verb's own (see IsDayBookPickerOpen). This exclusion used to
+        // name Screen.AddVoucherPicker alone; the Ctrl+J Exception Reports column also leaves Reports bound, so
+        // Alt+I under it opened an Insert picker anchored on a row hidden BEHIND the column — and an insert
+        // renumbers every voucher after its anchor.
+        if (IsDayBookPickerOpen) return VoucherAlterationRequest.NoVoucherHere;
 
         // The armed-confirmation gate, copied in effect from the Alt+2 door: an armed Alt+X / Alt+D question
         // names a voucher and is answered by a bare Y, and opening a picker over it would carry the arming into
@@ -10344,15 +10489,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "still working" from it). Without this arm those two statutory returns are permanently, silently empty.
         Screen.EmployeeMaster => EmployeeMaster,
 
-        // 🔴 FIVE OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
-        // Screen.PayHeadMaster is DELIBERATELY absent: PayHeadMasterViewModel implements neither
-        // IPayrollMasterList nor a ForAlter factory, so listing it
-        // here would not compile — and listing it once it merely compiles would be worse, because appearing
+        // W28 V3 (census 7.6 / 7.16; defect T2-38): the PAY HEAD master joins the family. The blocker was one
+        // level further back than this switch — PayHeadService had CreatePayHead, RenamePayHead, SetComputation
+        // and DeletePayHead and NO Alter at all, so a mistyped RATE or a wrong Under-group could never be
+        // corrected: renaming does not fix a rate, and delete-and-recreate is refused the moment a salary
+        // structure references the head or another head computes on it. The rate therefore stayed wrong on every
+        // payslip thereafter. PayHeadService.AlterPayHead now exists, the view model implements
+        // IPayrollMasterList and carries ForAlter, so the kind can be driven end-to-end — which is the bar for
+        // appearing here.
+        Screen.PayHeadMaster => PayHeadMaster,
+
+        // 🔴 SIX OF EIGHT, AND THAT IS THE HONEST STATE OF ROW 7.16 ON THIS BRANCH.
+        // Listing a screen here once it merely compiles would be worse than leaving it out, because appearing
         // in this switch is what grants a screen the arrows, Ctrl+Enter AND Alt+D in a single step. A kind is
         // added here only when it can be driven end-to-end. The remainder, precisely:
-        //   • Pay head   — blocked further back: PayHeadService has NO Alter method at all.
-        //   • Salary structure master and tax declaration master — never considered by the slice.
-        // PayrollMasterHalfWiredKindsTests locks all of the above, so this comment cannot quietly go stale.
+        //   • Salary structure master and tax declaration master — never considered by the slice. The salary
+        //     structure is NOT merely unwired: PayrollService has no alter or delete for it either, and what
+        //     "alter" means for a structure already used to pay a period is an open scoping question (census
+        //     7.7), not a wiring job. The tax declaration master has never been scoped at all.
+        // PayrollMasterHalfWiredKindsTests locks the remainder, so this comment cannot quietly go stale.
         _ => null,
     };
 
@@ -10525,8 +10680,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => AttendanceTypeMaster = m);
                 return true;
             }
-            // No Screen.PayHeadMaster arm: PayHeadMasterViewModel has no ForAlter factory, and it could not have
-            // a working one — PayHeadService has no Alter method for it to call.
+            case Screen.PayHeadMaster:
+            {
+                // W28 V3 / census 7.6 — the route in to correcting a mistyped pay-head RATE. Before this arm the
+                // only recovery was delete-and-recreate, which the engine refuses on any head a salary structure
+                // references.
+                if (PayHeadMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PayHeadMaster, m.Caption,
+                    () => PayHeadMaster = m);
+                return true;
+            }
             default:
                 return false;
         }
@@ -12314,7 +12478,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // straight to OpenVoucher, so a type key can never silently discard keying — see that method.
         ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucherFromTypeKey(VoucherBaseType.Payment), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
+        // F6 is CONTEXT-SENSITIVE, and exactly ONE row is emitted — the shell's Fire()/hint lookup takes the
+        // FIRST key match, so a second F6 row would shadow this one and the badge would fire the wrong handler.
+        // That is the same rule the Alt+I / Alt+A / Alt+C branches below record, learned the hard way.
+        //
+        // On a LEDGER BOOK the vendor's F6 is MONTHLY (census 11.5): "Press F6 (Monthly) to view the monthly
+        // summary" (help.tallysolutions.com/accounting-faq/), reached from Accounts Books > Ledger. Everywhere
+        // else F6 stays the Receipt voucher. The two contexts are disjoint, so neither side is rebound.
+        if (IsLedgerBookPage)
+            ButtonBar.Add(new ButtonBarItem("F6", "Monthly", OpenMonthlySummaryForLedgerBook, true));
+        else
+            ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucherFromTypeKey(VoucherBaseType.Sales), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucherFromTypeKey(VoucherBaseType.Purchase), hasCompany));
@@ -12350,9 +12524,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/); on POS it stays the tender-mode toggle.
         // The two contexts are DISJOINT — see RequestInsertVoucherAtHighlight for why that resolves the U-6 arm
         // without either side being rebound.
+        // ENABLED on the exact predicate the door enforces (IV-31): the door refuses under a picker column, so the
+        // badge is dimmed there too rather than advertising a verb that now returns NoVoucherHere.
         if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Insert Vch",
-                () => RequestInsertVoucherAtHighlight(), true));
+                () => RequestInsertVoucherAtHighlight(), !IsDayBookPickerOpen));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
         // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
@@ -12363,7 +12539,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsOutstandingsScreen)
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Settle Bills", OpenSettlementVoucherFromOutstandings, true));
         else if (IsDayBookReport)
-            ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport,
+                !IsDayBookPickerOpen));   // same IV-31 rule as Alt+I above — the door refuses under a picker
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
@@ -12388,6 +12565,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsMemorandumRegisterReport)
             ButtonBar.Add(new ButtonBarItem("C", "Convert Memo",
                 () => RequestConvertHighlightedMemorandum(), true));
+
 
         // W2-14 (row 14.1) — Alt+G GO TO. Advertised for the same reason Alt+2 above is: a chord nobody can
         // find is not a feature, and this file already states that rule twice. Go To is worse than most in that
@@ -12431,12 +12609,30 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
             Reports is { SupportsScaleFactor: true }));
 
-        // Census 2.13 — Ctrl+J EXCEPTION REPORTS ("Show Unused"). Enabled on exactly the predicate the key arm
-        // and OpenExceptionReports both enforce (the Chart of Accounts is the open page), and dimmed everywhere
-        // else, for the IV-31 reason spelled out on the Ctrl+B row above: an enabled badge that fires nothing is
-        // a defect, not a convenience.
-        ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReports,
-            IsChartOfAccountsScreen));
+        // Ctrl+J EXCEPTION REPORTS — CONTEXT-SENSITIVE, and exactly ONE row is emitted.
+        //
+        // 🔴 THE SINGLE ROW IS LOAD-BEARING, NOT TIDINESS. The shell's Fire()/hint lookup takes the FIRST key
+        // match, so a second Ctrl+J row would shadow this one and the badge would fire the wrong handler. W28 V3
+        // added the Day Book arm as its own `if (IsDayBookReport) ButtonBar.Add(...)` block higher up and that is
+        // EXACTLY what happened — on the Day Book the bar carried two Ctrl+J rows, the new enabled one and this
+        // dimmed one. Caught by ExceptionReportsRegisterTests.The_Ctrl_J_badge_is_on_the_day_book_and_absent_on_
+        // another_report, which is why that test asserts the ABSENCE half as well. It is now one if/else, the
+        // same shape the Alt+I / Alt+A / Alt+C rows above use and for the same measured reason.
+        //
+        //   • Census 2.13 — on the CHART OF ACCOUNTS the chord opens the "Show Unused" filter panel.
+        //   • Census 5.2 / 5.7 / 5.8 — on the DAY BOOK it opens the vendor's three exception registers
+        //     (Optional / Cancelled / Post-Dated Vouchers).
+        //
+        // The two contexts are disjoint by construction (one needs Screen.ChartOfAccounts, the other needs
+        // Reports bound with Kind == DayBook), so neither rebinds the other — the same resolution the key tunnel
+        // uses for its two Ctrl+J arms. Each branch is enabled on exactly the predicate its own door enforces,
+        // for the IV-31 reason the Ctrl+B row above spells out: an enabled badge that fires nothing is a defect.
+        if (IsDayBookReport)
+            ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReportsPicker,
+                !IsDayBookPickerOpen));   // same IV-31 rule — the door refuses while a picker column is on top
+        else
+            ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReports,
+                IsChartOfAccountsScreen));
         // NOTE ON Ctrl+B (updated by W2-13a): Ctrl+B was the Bill-Settlement badge until Phase 10.11 S2 (register
         // row IV-5) removed the binding, and this note used to say there was deliberately no Ctrl+B row at all.
         // The chord now carries the verb the reference product puts on it — Basis of Values — and its row is

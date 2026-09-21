@@ -177,19 +177,25 @@ public sealed class StatuteVocabularyTests
     [Fact]
     public void The_vocabulary_gate_moves_no_number_in_the_tax_engine()
     {
-        Assert.Equal(75_000m, SalaryIncomeTax.NewRegimeStandardDeduction);
-        Assert.Equal(50_000m, SalaryIncomeTax.OldRegimeStandardDeduction);
-        Assert.Equal(12_00_000m, SalaryIncomeTax.NewRegimeRebateTaxableCeiling);
-        Assert.Equal(60_000m, SalaryIncomeTax.NewRegimeRebateCap);
-        Assert.Equal(0.04m, SalaryIncomeTax.CessRate);
+        // 🔴 These used to read bare `SalaryIncomeTax.NewRegimeStandardDeduction` etc. — compile-time constants with
+        // no effective-from, which is defect T1-26 itself. They now read the SAME figures off the FY 2025-26 notified
+        // table, so the assertion is unchanged in value and strictly stronger in meaning: it now says WHICH year's
+        // law these numbers belong to.
+        var fy2025 = SalaryTaxRates.ForFinancialYear(2025);
+        Assert.False(fy2025.IsProvisional); // FY 2025-26 has its own notified table; nothing is carried over
+        Assert.Equal(75_000m, fy2025.NewRegimeStandardDeduction);
+        Assert.Equal(50_000m, fy2025.OldRegimeStandardDeduction);
+        Assert.Equal(12_00_000m, fy2025.NewRegimeRebateTaxableCeiling);
+        Assert.Equal(60_000m, fy2025.NewRegimeRebateCap);
+        Assert.Equal(0.04m, fy2025.CessRate);
 
         // The s.202(1) slab boundaries, exercised through the public marginal-tax entry point (new regime):
         // 0 up to ₹4L, then 5/10/15/20/25/30% — unchanged by anything in S9.
-        Assert.Equal(0m, SalaryIncomeTax.SlabTax(4_00_000m, TaxRegime.New));
-        Assert.Equal(20_000m, SalaryIncomeTax.SlabTax(8_00_000m, TaxRegime.New));
-        Assert.Equal(60_000m, SalaryIncomeTax.SlabTax(12_00_000m, TaxRegime.New));
-        Assert.Equal(1_20_000m, SalaryIncomeTax.SlabTax(16_00_000m, TaxRegime.New));
-        Assert.Equal(2_00_000m, SalaryIncomeTax.SlabTax(20_00_000m, TaxRegime.New));
-        Assert.Equal(3_00_000m, SalaryIncomeTax.SlabTax(24_00_000m, TaxRegime.New));
+        Assert.Equal(0m, SalaryIncomeTax.SlabTax(4_00_000m, TaxRegime.New, fy2025));
+        Assert.Equal(20_000m, SalaryIncomeTax.SlabTax(8_00_000m, TaxRegime.New, fy2025));
+        Assert.Equal(60_000m, SalaryIncomeTax.SlabTax(12_00_000m, TaxRegime.New, fy2025));
+        Assert.Equal(1_20_000m, SalaryIncomeTax.SlabTax(16_00_000m, TaxRegime.New, fy2025));
+        Assert.Equal(2_00_000m, SalaryIncomeTax.SlabTax(20_00_000m, TaxRegime.New, fy2025));
+        Assert.Equal(3_00_000m, SalaryIncomeTax.SlabTax(24_00_000m, TaxRegime.New, fy2025));
     }
 }

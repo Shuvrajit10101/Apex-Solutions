@@ -55,17 +55,18 @@ public sealed record IncomeTaxComputationReport(
     IReadOnlyList<IncomeTaxComputationDetail> Details,
     Money TotalTaxPayable,
     Money TaxDeductedSoFar,
-    Money BalanceTaxPayable)
+    Money BalanceTaxPayable,
+    string RateBasisNote,
+    string? ProvisionalRatesNote)
 {
-    /// <summary>The vintage of the rate tables that produced these figures, printed on the report. See the type
-    /// doc — the engine takes no date, so the year is stated rather than implied.</summary>
-    public const string RateVintageNote =
-        "Computed with the slab, surcharge and cess tables this book encodes for the financial year 2025-26 "
-        + "(assessment year 2026-27). Those tables carry no effective-from date and are not selected by the "
-        + "period shown, so verify them before relying on this report for another year.";
+    /// <summary>
+    /// 🔴 <b>True when this year's rates are not notified in this build and a neighbouring year's were carried
+    /// over</b>, in which case <see cref="ProvisionalRatesNote"/> says so and the report must print it.
+    /// </summary>
+    public bool RatesAreProvisional => ProvisionalRatesNote is not null;
 
     /// <summary>The financial-year label (e.g. "2025-26").</summary>
-    public string FinancialYearLabel => $"{FinancialYearStartYear}-{(FinancialYearStartYear + 1) % 100:00}";
+    public string FinancialYearLabel => SalaryTaxRates.FinancialYearLabelOf(FinancialYearStartYear);
 
     /// <summary>The regime as the report captions it.</summary>
     public string RegimeLabel => Regime == TaxRegime.New ? "New regime (u/s 115BAC)" : "Old regime";
@@ -82,6 +83,13 @@ public sealed record IncomeTaxComputationReport(
 
         var row = Form24Q.BuildAnnexureII(company, fyStartYear).FirstOrDefault(r => r.EmployeeId == employeeId);
         if (row is null) return null;
+
+        // 🔴 The disclosure is read from the SAME resolution that priced the row above, not re-derived and not
+        // written as a literal. The footnote this replaced was a compile-time string naming one financial year and
+        // asserting the tables were undated; after T1-26 dated the engine it stated the opposite of the truth on
+        // the face of a tax computation, and an FY 2024-25 report priced correctly on FY 2024-25 rates still
+        // claimed FY 2025-26 rates had been used.
+        var rates = Form24Q.AnnexureIIRates(company, fyStartYear);
 
         var incomeTaxAndSurcharge = row.IncomeTax + row.Surcharge;
 
@@ -134,7 +142,9 @@ public sealed record IncomeTaxComputationReport(
             details,
             row.TotalTax,
             row.TaxDeducted,
-            row.TotalTax - row.TaxDeducted);
+            row.TotalTax - row.TaxDeducted,
+            rates.BasisNote,
+            rates.ProvisionalNote);
     }
 
     /// <summary>The financial year (its April start year) that <paramref name="date"/> falls in — April to March.

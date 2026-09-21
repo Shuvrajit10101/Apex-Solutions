@@ -34,6 +34,16 @@ public enum ReportKind
     ProfitAndLoss,
     DayBook,
 
+    // ---- W28 V3: the Day Book's three EXCEPTION REPORTS (census 5.2(c), 5.7(c), 5.8) ----
+    // Reached with Ctrl+J on the Day Book. The vendor names the set outright — "The Exception Reports available
+    // in the Day Book in TallyPrime are of Optional Vouchers, Cancelled Vouchers, and Post-Dated Vouchers"
+    // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/). Exactly three; no
+    // fourth is invented. Each is the Day Book filtered by one flag, over the shared ExceptionVouchers engine so
+    // a register can never disagree with the Day Book the operator pressed Ctrl+J on.
+    OptionalVouchersRegister,
+    CancelledVouchersRegister,
+    PostDatedVouchersRegister,
+
     // ---- inventory reports (slice 3.4b) ----
     StockSummary,
     GodownSummary,
@@ -1343,6 +1353,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ProfitAndLoss: BuildProfitAndLoss(); break;
             case ReportKind.DayBook: BuildDayBook(); break;
 
+            // W28 V3 (census 5.2 / 5.7 / 5.8) — the Day Book's three Ctrl+J exception registers.
+            case ReportKind.OptionalVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.Optional); break;
+            case ReportKind.CancelledVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.Cancelled); break;
+            case ReportKind.PostDatedVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.PostDated); break;
+
             case ReportKind.StockSummary: BuildStockSummary(); break;
             case ReportKind.GodownSummary: BuildGodownSummary(); break;
             case ReportKind.StockItemMovement: BuildStockItemMovement(); break;
@@ -1651,6 +1669,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.BalanceSheet] = "BalanceSheet",
         [ReportKind.ProfitAndLoss] = "ProfitAndLoss",
         [ReportKind.DayBook] = "DayBook",
+        [ReportKind.OptionalVouchersRegister] = "OptionalVouchersRegister",
+        [ReportKind.CancelledVouchersRegister] = "CancelledVouchersRegister",
+        [ReportKind.PostDatedVouchersRegister] = "PostDatedVouchersRegister",
         [ReportKind.StockSummary] = "StockSummary",
         [ReportKind.GodownSummary] = "GodownSummary",
         [ReportKind.StockItemMovement] = "StockItemMovement",
@@ -1902,6 +1923,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 break;
 
             case ReportKind.DayBook:
+            // W28 V3 — the three Ctrl+J exception registers drill EXACTLY as the Day Book does, because they are
+            // the Day Book filtered by one flag and carry its rows verbatim. Sharing the arm rather than copying
+            // it is what stops one of the three quietly losing the pure-stock branch below, which is the defect
+            // census rows 4.9–4.16 record against every earlier consumer of a DayBookRow.
+            case ReportKind.OptionalVouchersRegister:
+            case ReportKind.CancelledVouchersRegister:
+            case ReportKind.PostDatedVouchersRegister:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 // Census rows 4.9–4.16: the Day Book now lists the pure-stock aggregate too, and a row nobody
@@ -2278,6 +2306,86 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The particulars text a Day Book row renders (voucher type + number) — the SAME string used for
     /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
     private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.FormattedNumber}";
+
+    // --------------------------------------------------------------- W28 V3: the three Ctrl+J exception registers
+
+    /// <summary>
+    /// One of the Day Book's three <b>Exception Reports</b> — Optional / Cancelled / Post-Dated Vouchers
+    /// (census 5.2(c), 5.7(c), 5.8), reached with <b>Ctrl+J</b> on the Day Book.
+    ///
+    /// <para><b>The gap it closes.</b> All three flags were settable and persisted, and all three were
+    /// <i>invisible</i>: the only surface listing a flagged voucher was the Day Book, mixed in with every
+    /// ordinary voucher of the same day. An operator who marked a voucher Optional and moved on had no screen
+    /// that would ever tell them it was still Optional — still outside the books. A flag with no register is a
+    /// liability the book cannot show you.</para>
+    ///
+    /// <para>Rendered through the SAME row shape and the SAME period as the Day Book, deliberately: these
+    /// registers are the Day Book filtered by one flag, and the operator will compare them against it.</para>
+    /// </summary>
+    private void BuildExceptionRegister(ExceptionVoucherKind kind)
+    {
+        var from = _options.Period?.From ?? _company.BooksBeginFrom;
+        var built = ExceptionVouchers.Build(_company, kind, from, _asOf);
+
+        Title = ExceptionVouchers.TitleFor(kind);
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
+        IsTwoColumn = false;
+
+        // The same sort/filter view the Day Book offers, over the same projections — so Alt+F12 behaves
+        // identically on a register and on the book it was opened from.
+        var rows = _sortFilter.Apply(
+            built,
+            r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
+            r => new Money(Math.Abs(r.Amount.Amount)));
+
+        foreach (var r in rows)
+        {
+            var secondary = r.PartyOrParticulars ?? string.Empty;
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
+                // 🔴 The "(Cancelled)" prefix is kept on the CANCELLED register too, and that is not redundant:
+                // Alt+F12 can leave this list showing rows from a filter the operator forgot, and the muted ink
+                // is a colour-only signal. Every other register shows it for the same reason the Day Book does.
+                Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
+                Amount = IndianFormat.Amount(r.Amount),
+                IsCancelled = r.IsCancelled,
+                // The two-aggregate discipline, carried over verbatim from the Day Book — see
+                // ReportRow.DrillInventoryVoucherId for why a pure-stock id in the accounting slot is a dead key.
+                DrillVoucherId = r.IsInventory ? Guid.Empty : r.VoucherId,
+                DrillInventoryVoucherId = r.IsInventory ? r.VoucherId : Guid.Empty,
+            });
+        }
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = built.Count == 0
+                    ? ExceptionVouchers.EmptyNoteFor(kind)
+                    : "No rows match the current filter.",
+                IsHeader = true,
+            });
+
+        // 🔴 THE OPTIONAL REGISTER'S SCOPE LIMIT IS A ROW ON THE REGISTER, NOT A Footnote() CALL — AND THE
+        // DIFFERENCE IS WHETHER THE OPERATOR EVER SEES IT.
+        //
+        // This line used to call Footnote(), which appends to PayrollFootnotes. The only panel in the shell bound
+        // to PayrollFootnotes sits inside a Grid gated on IsVisible="{Binding IsPayrollMatrix}", and
+        // IsPayrollMatrix (see its definition above) lists the pay sheet / payroll register kinds and NOTHING
+        // else — so the sentence was written into a panel this report kind can never render. Measured: the note
+        // was present in the collection, HasPayrollFootnotes was true, IsPayrollMatrix was false. A dead knob.
+        //
+        // It matters most on an EMPTY register, where the only visible sentence was "No voucher in this period is
+        // marked Optional" — precisely the untrue reading ExceptionVouchers.OptionalScopeNote's own red-flag
+        // comment says must be prevented, since a stock/order voucher cannot carry the flag at all.
+        //
+        // Rendered as a trailing ReportRow instead: the same mechanism the empty-state above already uses, so it
+        // is on screen, and it travels through ReportTabularProjector / ReportPrintProjector into the export and
+        // the print with the register rather than being a screen-only afterthought. It carries no drill key, so
+        // Enter on it is a safe no-op (ReportRow.CanDrill is false).
+        if (kind == ExceptionVoucherKind.Optional)
+            Rows.Add(new ReportRow { Particulars = ExceptionVouchers.OptionalScopeNote, IsHeader = true });
+    }
 
     // =============================================================== inventory reports (slice 3.4b)
 
@@ -6242,7 +6350,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         Footnote("Every figure is the same annual computation that backs Form 16 Part B and Form 24Q Annexure II; "
                + "this report computes no tax of its own.");
-        Footnote(IncomeTaxComputationReport.RateVintageNote);
+        // 🔴 T1-26: the rate basis is read off the report — which read it off the SAME resolution that priced the
+        // rows — rather than printed from a compile-time constant. The constant this replaces named one financial
+        // year and declared the tables undated; once the engine became dated that footnote was false on the face of
+        // a tax computation, because an FY 2024-25 report priced correctly on FY 2024-25 rates still printed that
+        // FY 2025-26 rates had been used.
+        Footnote(report.RateBasisNote);
+        // Printed only when this year's own rates are not notified in this build. The whole defect was that the
+        // substitution used to be silent, so where it happens the report must say so on its face.
+        if (report.ProvisionalRatesNote is { } provisional) Footnote(provisional);
     }
 
     // --------------------------------------------------------------- Payslip (single-employee detail + PDF)

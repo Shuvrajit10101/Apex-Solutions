@@ -263,7 +263,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 63;
+    public const int CurrentVersion = 64;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1002,6 +1002,18 @@ public static class Schema
             prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0   -- previous-employer TDS this FY
         );
         CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
+
+        -- v64 (defect T1-26 / the 4% cess ruling): the establishment's OWN dated Health & Education Cess rate.
+        -- Declarations byte-identical to MigrateV63ToV64. EMPTY for every company that has not edited the rate, and
+        -- empty means "charge the statutory rate for the year" — which is why no existing book changes behaviour on
+        -- upgrade (ER-13). See that constant for the full reasoning.
+        CREATE TABLE income_tax_cess_rates (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            effective_from    TEXT    NOT NULL,   -- ISO yyyy-MM-dd; the first date this rate applies to
+            rate_basis_points INTEGER NOT NULL    -- 10000 = 100%, so the statutory 4% is 400
+        );
+        CREATE INDEX ix_income_tax_cess_rates_company ON income_tax_cess_rates(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -5314,6 +5326,78 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v64 — THE ESTABLISHMENT'S OWN DATED HEALTH & EDUCATION CESS RATE (defect T1-26 / the 4% cess ruling). Object
+    // names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME
+    // set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one table v64 adds — the exact set <see cref="MigrateV63ToV64"/> creates and
+    /// <c>SchemaDowngrade.V64ToV63</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V64Tables = new[] { "income_tax_cess_rates" };
+
+    /// <summary>The one index v64 adds (a by-company lookup, which is the only way the table is ever read).</summary>
+    public static readonly IReadOnlyList<string> V64Indexes = new[] { "ix_income_tax_cess_rates_company" };
+
+    /// <summary>
+    /// v63 → v64 (defect <b>T1-26</b> and the user's ruling on the <b>4% Health &amp; Education Cess</b>): a
+    /// per-company, <b>effective-from-dated</b> cess rate.
+    ///
+    /// <para>🔴 <b>WHAT THE RULING OWED AND WHAT THIS VERSION SUPPLIES.</b> The cess used to be
+    /// <c>public const decimal CessRate = 0.04m;</c> — a single compile-time number applied to a <b>live payroll
+    /// deduction</b> for every company and every period. The ruling is that it ships <b>dated</b>,
+    /// <b>company-configurable</b> and <b>defaulting to 4%</b>. Dating and configurability are what need storage;
+    /// this table is the whole of that storage. The default needs <b>no</b> storage at all, and deliberately gets
+    /// none — see the next paragraph.</para>
+    ///
+    /// <para>🔴 <b>IT BACK-FILLS NOTHING, AND THAT IS THE (c) LIMB OF THE RULING RATHER THAN AN OMISSION.</b> There is
+    /// <b>no INSERT and no UPDATE</b> here. An empty <c>income_tax_cess_rates</c> means "this establishment has not
+    /// set a rate", which the engine reads as "charge the statutory rate for the year" — and every financial year
+    /// this build can source publishes 4%. So every existing payslip, Form 16 Part B figure and Form 24Q Annexure II
+    /// figure recomputes to <b>the same paisa</b> after the upgrade. Seeding a 4% row instead would have been
+    /// strictly worse in two ways: it would assert 4% as this company's own decision when nobody decided it, and it
+    /// would freeze 4% forward past any future statutory change. A silent change to a shipped payroll deduction is
+    /// the worst failure available on this path, so the no-change property is asserted by a dedicated test rather
+    /// than argued for here.</para>
+    ///
+    /// <para>🔴 <b>PURELY ADDITIVE, AND IT ADDS NO COLUMN TO ANY EXISTING TABLE — which is why the downgrade is a
+    /// plain DROP.</b> A version that put the rate on <c>companies</c> would have forced
+    /// <c>SchemaDowngrade.RebuildPreservingShape</c> on an FK <b>parent</b>, the manoeuvre whose PK-losing failure
+    /// mode <c>V56ToV55</c> records. One new child table needs none of it: <c>V64ToV63</c> drops one index and one
+    /// table and stamps the marker back, and that IS the true inverse for any book that has not set a rate.</para>
+    ///
+    /// <para><b>Why a dated ROW rather than a single current value.</b> A lone column could carry today's rate but
+    /// not the rate a past period was computed on, so re-opening an old payroll would silently re-price it — the same
+    /// class of defect as T1-26 itself, one level down. A row per effective date is the smallest shape that makes a
+    /// historical re-computation reproducible. Resolution is anchored on the payroll period's END date
+    /// (<c>Company.ResolveIncomeTaxCessRate</c>), matching the dated salary structure and the v63 dated computation
+    /// slab so the three cannot disagree about which period a date belongs to.</para>
+    ///
+    /// <para><b>SOURCE for the 4% default (R7 / ruling 14).</b> Income Tax Department e-filing portal,
+    /// <c>https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1</c> (AY 2026-27) and
+    /// <c>.../return-applicable-3</c> (AY 2025-26), both retrieved 2026-09-15: "<i>Health &amp; Education cess @ 4% to
+    /// be paid on the amount of income tax plus Surcharge</i>". The rate itself lives in <c>SalaryTaxRates</c>, dated
+    /// per year; this table only ever holds a company's departure from it.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 64. Both declarations are byte-identical to
+    /// their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV63ToV64 = """
+        -- v64 (defect T1-26 / the 4% cess ruling): the establishment's OWN dated Health & Education Cess rate.
+        -- Purely additive: one CHILD table of companies, one index, and NO column on any existing table.
+        -- NOTHING is back-filled and there is no INSERT or UPDATE here — an EMPTY table means "charge the statutory
+        -- rate for the year", which is the 4% every sourceable year publishes, so every existing payslip and every
+        -- existing Form 16 / Form 24Q figure recomputes to the same paisa. See this constant's doc comment.
+        CREATE TABLE income_tax_cess_rates (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            effective_from    TEXT    NOT NULL,   -- ISO yyyy-MM-dd; the first date this rate applies to
+            rate_basis_points INTEGER NOT NULL    -- 10000 = 100%, so the statutory 4% is 400
+        );
+        CREATE INDEX ix_income_tax_cess_rates_company ON income_tax_cess_rates(company_id);
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
