@@ -135,34 +135,109 @@ public sealed class InventoryPostingService
     /// <see cref="DetectNegativeStock"/>.
     /// </summary>
     /// <summary>
-    /// 🔴 <b>DECLARED GAP — the pure-stock aggregate is NOT covered by the voucher edit log (schema v52).</b>
-    /// <c>LedgerService.Cancel</c> / <c>.Delete</c> / <c>.Replace</c> each append a
-    /// <see cref="VoucherEditLogEntry"/>; this aggregate's Cancel and Delete do not, so cancelling or deleting a
-    /// pure-stock voucher (Stock Journal, Physical Stock, Delivery/Receipt Note, order) still leaves no record.
-    /// Recorded here rather than left to be rediscovered. What it would take: <c>VoucherSnapshot.Of</c> is typed to
-    /// <see cref="Voucher"/> and an <see cref="InventoryVoucher"/> is a different type in a different list, so the
-    /// snapshot needs a sibling overload; the table and the entry record need nothing new. Scoped OUT of this
-    /// slice deliberately — the accounting book is where an auditor's question lands, and a half-covered log whose
-    /// boundary is undocumented is worse than one whose boundary is written down.
+    /// ✅ <b>THE DECLARED EDIT-LOG GAP IS CLOSED, and the statement that stood here is kept rather than deleted
+    /// so a reader can see what changed.</b> This summary used to read: <i>"DECLARED GAP — the pure-stock
+    /// aggregate is NOT covered by the voucher edit log (schema v52) … cancelling or deleting a pure-stock
+    /// voucher still leaves no record … What it would take: <c>VoucherSnapshot.Of</c> is typed to
+    /// <see cref="Voucher"/> … so the snapshot needs a sibling overload; the table and the entry record need
+    /// nothing new."</i> That was an exactly correct assessment and this slice acted on it:
+    /// <c>VoucherSnapshot.Of(InventoryVoucher)</c> now exists, <b>no schema change was needed</b>
+    /// (<c>voucher_edit_log.before_snapshot</c> is TEXT and <c>voucher_id</c> is deliberately not a foreign key),
+    /// and <see cref="Cancel"/>/<see cref="Delete"/> append an entry exactly as <c>LedgerService</c> does.
+    ///
+    /// <para>🔴 <b>Why this had to be done in the SAME slice that gave these verbs a user route, not after it.</b>
+    /// Until census rows 4.9–4.16 nothing in the Desktop could reach either verb, so the missing log recorded
+    /// nothing that ever happened. Shipping the route first would have made a posted stock movement destroyable
+    /// from the keyboard with no trace — strictly worse than the state the gap was declared in, where the act was
+    /// merely impossible. A cancelled stock movement that leaves no record is worse than one that cannot be
+    /// cancelled.</para>
+    ///
+    /// <para>Cancels a stock/order voucher (Alt+X): its effect drops to zero but its number is retained, and the
+    /// returned <see cref="VoucherEditLogEntry"/> records the pre-cancel state. ⚠️ NS-3 — CALL SITE 2 of 4: this
+    /// used to be BLOCKED when removing the effect retro-drove a later movement negative. It no longer is; the
+    /// cancel always applies, and the resulting shortfall (if any) is reported by
+    /// <see cref="DetectNegativeStock"/>.</para>
+    ///
+    /// <para><b>The log entry is appended BEFORE the flag is set</b>, mirroring <c>LedgerService.Cancel</c>: the
+    /// snapshot must be the state the operator is leaving, and a "not found" throw must leave no entry behind.</para>
     /// </summary>
-    public void Cancel(Guid voucherId)
+    public VoucherEditLogEntry Cancel(Guid voucherId)
     {
         var v = _company.FindInventoryVoucher(voucherId)
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        var entry = RecordEdit(v, VoucherEditVerb.Cancel);
         v.Cancelled = true;
+        return entry;
     }
 
     /// <summary>
-    /// Deletes a stock/order voucher (Alt+D). ⚠️ NS-3 — CALL SITE 3 of 4: this used to be BLOCKED when removing
+    /// Deletes a stock/order voucher (Alt+D), returning the <see cref="VoucherEditLogEntry"/> that records it —
+    /// the ONLY surviving evidence the voucher ever existed, which is what makes the entry load-bearing here in a
+    /// way it is not for <see cref="Cancel"/>. ⚠️ NS-3 — CALL SITE 3 of 4: this used to be BLOCKED when removing
     /// its (inward) effect retro-drove a later movement's on-hand negative. It no longer is; the delete always
     /// applies, and the resulting shortfall (if any) is reported by <see cref="DetectNegativeStock"/>.
     /// </summary>
-    public void Delete(Guid voucherId)
+    public VoucherEditLogEntry Delete(Guid voucherId)
     {
         var v = _company.FindInventoryVoucher(voucherId)
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
 
+        var entry = RecordEdit(v, VoucherEditVerb.Delete);
         _company.RemoveInventoryVoucherInternal(v);
+        return entry;
+    }
+
+    /// <summary>
+    /// The compensating undo for a <see cref="Cancel"/> whose save did not commit: clears the flag AND discards
+    /// the entry <see cref="Cancel"/> appended, in one call. The pure-stock sibling of
+    /// <c>LedgerService.DiscardUncommittedCancel</c>, and it exists for the identical reason — a screen that
+    /// rolled back by writing <c>voucher.Cancelled = false</c> itself would leave the log asserting a
+    /// cancellation that never reached disk, which is the one lie an append-only audit record must not tell.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, <paramref name="entry"/> does not
+    /// describe a <see cref="VoucherEditVerb.Cancel"/> of that voucher, or it is not the last log entry.</exception>
+    public void DiscardUncommittedCancel(Guid voucherId, VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.Verb != VoucherEditVerb.Cancel || entry.VoucherId != voucherId)
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} ({entry.Verb} of {entry.VoucherId}) does not describe a "
+                + $"Cancel of inventory voucher {voucherId}.");
+
+        var v = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        // Order matters and is the opposite of Cancel's: the log line goes first, because its removal is the
+        // bounded one (last-entry-only, enforced inside Company) and is the half that can legitimately refuse.
+        // Clearing the flag first and then failing to remove the line would leave the two disagreeing.
+        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is not the last entry and cannot be discarded.");
+
+        v.Cancelled = false;
+    }
+
+    /// <summary>
+    /// Appends one <see cref="VoucherEditLogEntry"/> for <paramref name="verb"/> applied to
+    /// <paramref name="before"/>, and returns it. The mirror of <c>LedgerService.RecordEdit</c>.
+    ///
+    /// <para><b>The timestamp comes from <see cref="DateTimeOffset.UtcNow"/> rather than from an injected
+    /// clock, and that is a KNOWN ASYMMETRY with <c>LedgerService</c>, named here rather than left to be
+    /// discovered.</b> <c>LedgerService</c> takes a <c>_now</c> delegate so its tests can pin a stamp; this
+    /// service has no such constructor parameter and adding one would change a public signature that four
+    /// call sites and a fixture loader use. The stamp is documented as "never used in any calculation"
+    /// (<see cref="VoucherEditLogEntry.RecordedAt"/>), so no assertion needs to pin it — the tests for these
+    /// verbs assert on the verb, the voucher id and the snapshot. If a future slice needs a pinned stamp here,
+    /// the fix is the same optional constructor parameter, additively.</para>
+    /// </summary>
+    private VoucherEditLogEntry RecordEdit(InventoryVoucher before, VoucherEditVerb verb)
+    {
+        var entry = new VoucherEditLogEntry(
+            Guid.NewGuid(), before.Id, verb, DateTimeOffset.UtcNow, VoucherSnapshot.Of(before));
+        _company.AddVoucherEditLogEntryInternal(entry);
+        return entry;
     }
 
     /// <summary>Next automatic number for an inventory voucher type = max existing + 1 (per type).</summary>
@@ -442,7 +517,10 @@ public sealed class InventoryPostingService
             if (!v.HasInventoryLines) continue;
             if (v.Cancelled || v.Optional) continue;
             var type = _company.FindVoucherType(v.TypeId);
-            if (type is null || type.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales)) continue;
+            // Census 4.7/4.8 (T0-10): a Debit Note is a purchase RETURN and moves stock OUTWARD, so it can
+            // over-draw on-hand exactly like a Sales invoice and must face the same no-negative guard. Left at
+            // Purchase-or-Sales, a return could drive a key negative and the guard would never look at it.
+            if (type is null || !VoucherEffects.CanCarryItemInvoiceLines(type.BaseType)) continue;
             foreach (var line in v.InventoryLines)
             {
                 keys.Add(new InventoryLedger.Key(line.StockItemId, line.GodownId, Batch(line.BatchLabel)));

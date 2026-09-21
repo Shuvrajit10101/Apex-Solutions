@@ -34,6 +34,16 @@ public enum ReportKind
     ProfitAndLoss,
     DayBook,
 
+    // ---- W28 V3: the Day Book's three EXCEPTION REPORTS (census 5.2(c), 5.7(c), 5.8) ----
+    // Reached with Ctrl+J on the Day Book. The vendor names the set outright — "The Exception Reports available
+    // in the Day Book in TallyPrime are of Optional Vouchers, Cancelled Vouchers, and Post-Dated Vouchers"
+    // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/). Exactly three; no
+    // fourth is invented. Each is the Day Book filtered by one flag, over the shared ExceptionVouchers engine so
+    // a register can never disagree with the Day Book the operator pressed Ctrl+J on.
+    OptionalVouchersRegister,
+    CancelledVouchersRegister,
+    PostDatedVouchersRegister,
+
     // ---- inventory reports (slice 3.4b) ----
     StockSummary,
     GodownSummary,
@@ -735,6 +745,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public event Action<Guid>? DrillToVoucherRequested;
 
     /// <summary>
+    /// Census rows 4.9–4.16. Raised when a Day Book row standing for a <b>pure-stock</b> voucher (Stock Journal,
+    /// Physical Stock, Delivery/Receipt Note, Sales/Purchase Order, Rejection In/Out) is drilled into (Enter):
+    /// carries the <c>InventoryVoucher</c> id so the shell opens that voucher's read-only detail.
+    /// <para>Separate from <see cref="DrillToVoucherRequested"/> because the two aggregates resolve through
+    /// different lookups and render different columns — a stock movement has no debit and no credit.</para>
+    /// </summary>
+    public event Action<Guid>? DrillToInventoryVoucherRequested;
+
+    /// <summary>
     /// W2-12 (census 11.6). Raised when a register's MONTH row is drilled: carries the register's kind and
     /// that month's window, so the shell opens the voucher-wise listing of exactly the vouchers footed into
     /// the clicked figure — the vendor's documented two-level register shape.
@@ -1212,6 +1231,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ProfitAndLoss: BuildProfitAndLoss(); break;
             case ReportKind.DayBook: BuildDayBook(); break;
 
+            // W28 V3 (census 5.2 / 5.7 / 5.8) — the Day Book's three Ctrl+J exception registers.
+            case ReportKind.OptionalVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.Optional); break;
+            case ReportKind.CancelledVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.Cancelled); break;
+            case ReportKind.PostDatedVouchersRegister:
+                BuildExceptionRegister(ExceptionVoucherKind.PostDated); break;
+
             case ReportKind.StockSummary: BuildStockSummary(); break;
             case ReportKind.GodownSummary: BuildGodownSummary(); break;
             case ReportKind.StockItemMovement: BuildStockItemMovement(); break;
@@ -1506,6 +1533,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.BalanceSheet] = "BalanceSheet",
         [ReportKind.ProfitAndLoss] = "ProfitAndLoss",
         [ReportKind.DayBook] = "DayBook",
+        [ReportKind.OptionalVouchersRegister] = "OptionalVouchersRegister",
+        [ReportKind.CancelledVouchersRegister] = "CancelledVouchersRegister",
+        [ReportKind.PostDatedVouchersRegister] = "PostDatedVouchersRegister",
         [ReportKind.StockSummary] = "StockSummary",
         [ReportKind.GodownSummary] = "GodownSummary",
         [ReportKind.StockItemMovement] = "StockItemMovement",
@@ -1743,8 +1773,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 break;
 
             case ReportKind.DayBook:
+            // W28 V3 — the three Ctrl+J exception registers drill EXACTLY as the Day Book does, because they are
+            // the Day Book filtered by one flag and carry its rows verbatim. Sharing the arm rather than copying
+            // it is what stops one of the three quietly losing the pure-stock branch below, which is the defect
+            // census rows 4.9–4.16 record against every earlier consumer of a DayBookRow.
+            case ReportKind.OptionalVouchersRegister:
+            case ReportKind.CancelledVouchersRegister:
+            case ReportKind.PostDatedVouchersRegister:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                // Census rows 4.9–4.16: the Day Book now lists the pure-stock aggregate too, and a row nobody
+                // can open is only half a listing. Its own event because its own drill target is a different
+                // shape — stock lines, not Dr/Cr lines — so one handler could not render both.
+                else if (row.DrillInventoryVoucherId != Guid.Empty)
+                    DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
                 break;
 
             // ---- W2-12 (census 11.6): a register drills month → voucher-wise → the voucher itself. ----
@@ -2090,7 +2132,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 // the muted ink (CancelledRowToBrushConverter). The "(Cancelled)" text above stays — colour alone
                 // is never the only carrier of a fact this material.
                 IsCancelled = r.IsCancelled,
-                DrillVoucherId = r.VoucherId,   // RQ-7: Enter opens this voucher's read-only detail
+                // RQ-7: Enter opens this voucher's read-only detail. 🔴 The engine row says WHICH AGGREGATE its
+                // id addresses and the two go to DIFFERENT slots — see ReportRow.DrillInventoryVoucherId for why
+                // putting a pure-stock id in the accounting slot would make six existing routes silent no-ops.
+                DrillVoucherId = r.IsInventory ? Guid.Empty : r.VoucherId,
+                DrillInventoryVoucherId = r.IsInventory ? r.VoucherId : Guid.Empty,
             });
         }
 
@@ -2110,6 +2156,86 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The particulars text a Day Book row renders (voucher type + number) — the SAME string used for
     /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
     private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.FormattedNumber}";
+
+    // --------------------------------------------------------------- W28 V3: the three Ctrl+J exception registers
+
+    /// <summary>
+    /// One of the Day Book's three <b>Exception Reports</b> — Optional / Cancelled / Post-Dated Vouchers
+    /// (census 5.2(c), 5.7(c), 5.8), reached with <b>Ctrl+J</b> on the Day Book.
+    ///
+    /// <para><b>The gap it closes.</b> All three flags were settable and persisted, and all three were
+    /// <i>invisible</i>: the only surface listing a flagged voucher was the Day Book, mixed in with every
+    /// ordinary voucher of the same day. An operator who marked a voucher Optional and moved on had no screen
+    /// that would ever tell them it was still Optional — still outside the books. A flag with no register is a
+    /// liability the book cannot show you.</para>
+    ///
+    /// <para>Rendered through the SAME row shape and the SAME period as the Day Book, deliberately: these
+    /// registers are the Day Book filtered by one flag, and the operator will compare them against it.</para>
+    /// </summary>
+    private void BuildExceptionRegister(ExceptionVoucherKind kind)
+    {
+        var from = _options.Period?.From ?? _company.BooksBeginFrom;
+        var built = ExceptionVouchers.Build(_company, kind, from, _asOf);
+
+        Title = ExceptionVouchers.TitleFor(kind);
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
+        IsTwoColumn = false;
+
+        // The same sort/filter view the Day Book offers, over the same projections — so Alt+F12 behaves
+        // identically on a register and on the book it was opened from.
+        var rows = _sortFilter.Apply(
+            built,
+            r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
+            r => new Money(Math.Abs(r.Amount.Amount)));
+
+        foreach (var r in rows)
+        {
+            var secondary = r.PartyOrParticulars ?? string.Empty;
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
+                // 🔴 The "(Cancelled)" prefix is kept on the CANCELLED register too, and that is not redundant:
+                // Alt+F12 can leave this list showing rows from a filter the operator forgot, and the muted ink
+                // is a colour-only signal. Every other register shows it for the same reason the Day Book does.
+                Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
+                Amount = IndianFormat.Amount(r.Amount),
+                IsCancelled = r.IsCancelled,
+                // The two-aggregate discipline, carried over verbatim from the Day Book — see
+                // ReportRow.DrillInventoryVoucherId for why a pure-stock id in the accounting slot is a dead key.
+                DrillVoucherId = r.IsInventory ? Guid.Empty : r.VoucherId,
+                DrillInventoryVoucherId = r.IsInventory ? r.VoucherId : Guid.Empty,
+            });
+        }
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow
+            {
+                Particulars = built.Count == 0
+                    ? ExceptionVouchers.EmptyNoteFor(kind)
+                    : "No rows match the current filter.",
+                IsHeader = true,
+            });
+
+        // 🔴 THE OPTIONAL REGISTER'S SCOPE LIMIT IS A ROW ON THE REGISTER, NOT A Footnote() CALL — AND THE
+        // DIFFERENCE IS WHETHER THE OPERATOR EVER SEES IT.
+        //
+        // This line used to call Footnote(), which appends to PayrollFootnotes. The only panel in the shell bound
+        // to PayrollFootnotes sits inside a Grid gated on IsVisible="{Binding IsPayrollMatrix}", and
+        // IsPayrollMatrix (see its definition above) lists the pay sheet / payroll register kinds and NOTHING
+        // else — so the sentence was written into a panel this report kind can never render. Measured: the note
+        // was present in the collection, HasPayrollFootnotes was true, IsPayrollMatrix was false. A dead knob.
+        //
+        // It matters most on an EMPTY register, where the only visible sentence was "No voucher in this period is
+        // marked Optional" — precisely the untrue reading ExceptionVouchers.OptionalScopeNote's own red-flag
+        // comment says must be prevented, since a stock/order voucher cannot carry the flag at all.
+        //
+        // Rendered as a trailing ReportRow instead: the same mechanism the empty-state above already uses, so it
+        // is on screen, and it travels through ReportTabularProjector / ReportPrintProjector into the export and
+        // the print with the register rather than being a screen-only afterthought. It carries no drill key, so
+        // Enter on it is a safe no-op (ReportRow.CanDrill is false).
+        if (kind == ExceptionVoucherKind.Optional)
+            Rows.Add(new ReportRow { Particulars = ExceptionVouchers.OptionalScopeNote, IsHeader = true });
+    }
 
     // =============================================================== inventory reports (slice 3.4b)
 
@@ -3278,6 +3404,31 @@ public sealed partial class ReportsViewModel : ViewModelBase
     // --------------------------------------------------------------- GSTR-3B (summary return)
     //   3.1 Outward supplies; 4 Eligible ITC; Net tax payable per head (display-only, no set-off).
 
+    /// <summary>
+    /// <b>GSTR-3B on screen (census 6.9).</b> Renders Table 3.1 and Table 4 of the form.
+    ///
+    /// <para>🔴 <b>WHAT THIS METHOD USED TO DO, AND WHY IT WAS A MONEY DEFECT RATHER THAN A MISSING FEATURE.</b>
+    /// It rendered six figures and captioned two of them <i>"Total output tax"</i> and <i>"Total eligible ITC"</i>.
+    /// Neither caption was true of the figure beneath it. The first summed Table 3.1(a) ONLY, silently dropping the
+    /// whole of 3.1(d) — the reverse-charge liability, which the projection has always carried in
+    /// <c>RcmOutward*</c> and which <c>Gstr3b.ReadRcm</c> deliberately keeps OUT of <c>ReadSide</c>, so it could
+    /// never have reached the old total. The second summed Table 4(A)(5) ONLY, dropping 4(A)(2), 4(A)(3) and —
+    /// the expensive half — every ITC reversal in 4(B)(1)/(2). An operator reading this screen to key a return
+    /// into the portal therefore <b>under-declared output tax and over-claimed input credit</b>, in both
+    /// directions at once, with nothing on the screen to hint that a figure was missing.</para>
+    ///
+    /// <para><b>Sources, both retrieved by content.</b> Table-4 arithmetic: CBIC Circular No. 170/02/2022-GST
+    /// (<c>cbic-gst.gov.in/pdf/Circular-170-02-2022-GST.pdf</c>) — para 4.3(D) and the Annexure row
+    /// <i>"(C) Net ITC Available (A)-(B)"</i>, whose formula column reads <c>C=A1+A2+A3+A4+A5-B1-B2</c>; and para
+    /// 4.3(C) for the reclaim being reported inside 4(A)(5) as well as in 4(D)(1). The cash-only character of the
+    /// 3.1(d) liability: CGST Act §2(82) + §49(4), quoted on <see cref="Gstr3b.OutwardAndRcmTaxCgst"/>.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS STILL NOT MODELLED IS SAID IN WORDS, NOT RENDERED AS A ZERO.</b> 3.1(b) zero-rated,
+    /// 3.1(e) non-GST, 3.1.1, 3.2, 4(A)(1), 4(A)(4), 4(D)(2), Table 5 and Table 5.1 have no figure in this book.
+    /// A blank cell under a real caption reads as "nil" to an operator, which is the same failure in the other
+    /// direction; so the unmodelled tables are named on an advisory line and given no row of their own. Census
+    /// row 6.9 therefore stays <b>PARTIAL</b> — this slice removes the wrong figures, it does not complete the form.</para>
+    /// </summary>
     private void BuildGstr3b()
     {
         if (GstOffGuard("GSTR-3B")) return;
@@ -3285,11 +3436,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var r = Report.BuildGstr3b(_company, BooksFrom, _asOf);
         Title = "GSTR-3B";
 
-        // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST.
-        Rows.Add(new ReportRow { Col1 = "3.1  Details of outward supplies", IsHeader = true });
+        // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST | Col6 Cess.
         Rows.Add(new ReportRow
         {
-            Col1 = "(a) Taxable outward supplies",
+            Col1 = "3.1  Details of outward supplies and inward supplies liable to reverse charge",
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(a) Outward taxable supplies (other than zero rated, nil rated and exempted)",
             Col2 = IndianFormat.Amount(r.TaxableOutwardValue),
             Col3 = IndianFormat.Amount(r.OutwardCgst),
             Col4 = IndianFormat.Amount(r.OutwardSgst),
@@ -3297,45 +3452,121 @@ public sealed partial class ReportsViewModel : ViewModelBase
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "(c) Exempt / Nil-rated / Non-GST outward",
+            Col1 = "(c) Other outward supplies (nil rated, exempted)",
             Col2 = IndianFormat.Amount(r.ExemptNilNonGstOutward),
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "Total output tax",
-            Col3 = IndianFormat.AmountAlways(r.OutwardCgst),
-            Col4 = IndianFormat.AmountAlways(r.OutwardSgst),
-            Col5 = IndianFormat.AmountAlways(r.OutwardIgst),
+            Col1 = "(d) Inward supplies (liable to reverse charge)",
+            Col3 = IndianFormat.Amount(r.RcmOutwardCgst),
+            Col4 = IndianFormat.Amount(r.RcmOutwardSgst),
+            Col5 = IndianFormat.Amount(r.RcmOutwardIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total tax payable  3.1(a) + 3.1(d)",
+            Col3 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxCgst),
+            Col4 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxSgst),
+            Col5 = IndianFormat.AmountAlways(r.OutwardAndRcmTaxIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
             IsTotal = true,
         });
+        Rows.Add(new ReportRow { Col1 = NotModelled31, IsHeader = true });
 
         Rows.Add(new ReportRow { Col1 = "4  Eligible ITC", IsHeader = true });
         Rows.Add(new ReportRow
         {
-            Col1 = "(A) ITC available (inward supplies)",
-            Col3 = IndianFormat.Amount(r.ItcCgst),
-            Col4 = IndianFormat.Amount(r.ItcSgst),
-            Col5 = IndianFormat.Amount(r.ItcIgst),
+            Col1 = "(A)(2) ITC available — import of services",
+            Col5 = IndianFormat.Amount(r.RcmItcImportIgst),
         });
         Rows.Add(new ReportRow
         {
-            Col1 = "Total eligible ITC",
-            Col3 = IndianFormat.AmountAlways(r.ItcCgst),
-            Col4 = IndianFormat.AmountAlways(r.ItcSgst),
-            Col5 = IndianFormat.AmountAlways(r.ItcIgst),
+            Col1 = "(A)(3) ITC available — inward supplies liable to reverse charge (other than 1 & 2 above)",
+            Col3 = IndianFormat.Amount(r.RcmItcOtherCgst),
+            Col4 = IndianFormat.Amount(r.RcmItcOtherSgst),
+            Col5 = IndianFormat.Amount(r.RcmItcOtherIgst),
+            Col6 = IndianFormat.Amount(r.RcmItcOtherCess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(A)(5) ITC available — all other ITC",
+            Col3 = IndianFormat.Amount(r.ItcReportedAllOtherCgst),
+            Col4 = IndianFormat.Amount(r.ItcReportedAllOtherSgst),
+            Col5 = IndianFormat.Amount(r.ItcReportedAllOtherIgst),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(B)(1) ITC reversed — rules 38, 42 and 43 and section 17(5)",
+            Col3 = IndianFormat.Amount(r.ItcReversed4B1Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReversed4B1Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReversed4B1Igst),
+            Col6 = IndianFormat.Amount(r.ItcReversed4B1Cess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(B)(2) ITC reversed — others (rule 37 / 37A)",
+            Col3 = IndianFormat.Amount(r.ItcReversed4B2Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReversed4B2Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReversed4B2Igst),
+            Col6 = IndianFormat.Amount(r.ItcReversed4B2Cess),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(C) Net ITC available  (A) − (B)",
+            Col3 = IndianFormat.AmountAlways(r.NetItcAvailableCgst),
+            Col4 = IndianFormat.AmountAlways(r.NetItcAvailableSgst),
+            Col5 = IndianFormat.AmountAlways(r.NetItcAvailableIgst),
             IsTotal = true,
         });
-
-        Rows.Add(new ReportRow { Col1 = "Net tax payable  (output − ITC; indicative, no set-off)", IsHeader = true });
         Rows.Add(new ReportRow
         {
-            Col1 = "Net payable / (credit carried forward)",
-            Col3 = IndianFormat.AmountAlways(r.NetCgst),
-            Col4 = IndianFormat.AmountAlways(r.NetSgst),
-            Col5 = IndianFormat.AmountAlways(r.NetIgst),
+            Col1 = "(D)(1) ITC reclaimed, reversed under 4(B)(2) in an earlier period (information only)",
+            Col3 = IndianFormat.Amount(r.ItcReclaimed4D1Cgst),
+            Col4 = IndianFormat.Amount(r.ItcReclaimed4D1Sgst),
+            Col5 = IndianFormat.Amount(r.ItcReclaimed4D1Igst),
+            Col6 = IndianFormat.Amount(r.ItcReclaimed4D1Cess),
+        });
+        Rows.Add(new ReportRow { Col1 = NotModelled4, IsHeader = true });
+
+        // The indicative discharge. Split because the two halves are paid differently: only the 3.1(a) half can be
+        // met from the credit ledger (CGST Act §2(82) + §49(4) — reverse-charge tax is not "output tax"), so
+        // netting the two together would offer the operator a set-off the statute does not allow.
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Indicative discharge  (no Rule-88A set-off is applied here)",
+            IsHeader = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Payable other than reverse charge  3.1(a) − 4(C)",
+            Col3 = IndianFormat.AmountAlways(new Money(r.OutwardCgst.Amount - r.NetItcAvailableCgst.Amount)),
+            Col4 = IndianFormat.AmountAlways(new Money(r.OutwardSgst.Amount - r.NetItcAvailableSgst.Amount)),
+            Col5 = IndianFormat.AmountAlways(new Money(r.OutwardIgst.Amount - r.NetItcAvailableIgst.Amount)),
+            IsTotal = true,
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Payable under reverse charge, in cash  3.1(d)",
+            Col3 = IndianFormat.AmountAlways(r.RcmOutwardCgst),
+            Col4 = IndianFormat.AmountAlways(r.RcmOutwardSgst),
+            Col5 = IndianFormat.AmountAlways(r.RcmOutwardIgst),
+            Col6 = IndianFormat.Amount(r.RcmOutwardCess),
             IsTotal = true,
         });
     }
+
+    /// <summary>The Table-3.1 tables this book does not model, named in words rather than shown as a blank row
+    /// an operator would read as nil (census 6.9). Public so the test asserts the SHIPPED text, not a copy.</summary>
+    public const string NotModelled31 =
+        "Not modelled in this book — 3.1(b) zero rated, 3.1(e) non-GST outward, 3.1.1 supplies u/s 9(5), " +
+        "3.2 inter-State supplies to unregistered / composition / UIN holders. These are NOT nil; they are absent.";
+
+    /// <summary>The Table-4 / Table-5 rows this book does not model (census 6.9). See <see cref="NotModelled31"/>.</summary>
+    public const string NotModelled4 =
+        "Not modelled in this book — 4(A)(1) import of goods, 4(A)(4) inward supplies from an ISD, " +
+        "4(D)(2) ITC unavailable u/s 16(4), Table 5 exempt/nil/non-GST inward, Table 5.1 interest and late fee. " +
+        "These are NOT nil; they are absent.";
 
     // =============================================================== statutory TDS/TCS reports (Phase 7 slice 8)
     //   Pure projections over the S8 Report facades; every amount renders in WHOLE rupees (the returns are filed so).
@@ -3881,6 +4112,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  Memo No. {r.FormattedNumber}",
                 Secondary = r.PartyOrParticulars ?? string.Empty,
                 Amount = IndianFormat.Amount(r.Amount),
+                // 🔴 CENSUS 4.17 — THE ROW NOW CARRIES ITS VOUCHER ID, AND THAT ONE FIELD IS WHAT MAKES THE MEMO
+                // ADDRESSABLE AT ALL. `MemorandumRegisterRow` has always carried `VoucherId` (it is the record's
+                // first component); this projection dropped it, so every memo on this report resolved to
+                // `Guid.Empty` and the shell's `Reports.SelectedRow.DrillVoucherId` — the SAME resolution Alt+X,
+                // Alt+D, Alt+2 and Ctrl+Enter all use — could never name one. That is the identical
+                // "the list row type carries no Guid, so no row can address a unit" blocker the census records
+                // against the master lists, repeated on a report. With it set, the memo gains the ordinary drill
+                // and alteration verbs for free, and `RequestConvertHighlightedMemorandum` has something to convert.
+                DrillVoucherId = r.VoucherId,
             });
 
         if (report.Rows.Count == 0)
@@ -5945,7 +6185,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         Footnote("Every figure is the same annual computation that backs Form 16 Part B and Form 24Q Annexure II; "
                + "this report computes no tax of its own.");
-        Footnote(IncomeTaxComputationReport.RateVintageNote);
+        // 🔴 T1-26: the rate basis is read off the report — which read it off the SAME resolution that priced the
+        // rows — rather than printed from a compile-time constant. The constant this replaces named one financial
+        // year and declared the tables undated; once the engine became dated that footnote was false on the face of
+        // a tax computation, because an FY 2024-25 report priced correctly on FY 2024-25 rates still printed that
+        // FY 2025-26 rates had been used.
+        Footnote(report.RateBasisNote);
+        // Printed only when this year's own rates are not notified in this build. The whole defect was that the
+        // substitution used to be silent, so where it happens the report must say so on its face.
+        if (report.ProvisionalRatesNote is { } provisional) Footnote(provisional);
     }
 
     // --------------------------------------------------------------- Payslip (single-employee detail + PDF)

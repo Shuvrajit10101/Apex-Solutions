@@ -270,6 +270,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W29 U1 (census 2.7, 2.8, 3.2, 3.5, 3.7) — THE SAME CHORD, THE SAME RULE, on the Godown, Unit, Stock
+        // Category, Cost Category and Cost Centre masters' existing-lists. ONE arm for all five: the VM resolves
+        // which of them is open and returns false on every other screen, so this is inert everywhere else.
+        //
+        // 🔴 ORDER IS LOAD-BEARING AND IT IS BELOW THE STOCK-GROUP ARM ON PURPOSE. Census 3.13 already wired
+        // Ctrl+Enter on Screen.StockGroupMaster, so that screen is handled by the arm at the top of this block and
+        // AlterHighlightedMasterListRow deliberately has no case for it. Two arms racing for one screen is exactly
+        // how a master silently ends up gated differently from its siblings, so the absence is documented on the
+        // VM method rather than left for a reader to rediscover.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedMasterListRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -502,6 +518,13 @@ public partial class MainWindow : Window
                 vm.SaveSecurityUsers();
             else if (vm.CurrentScreen == Screen.PasswordPolicy)
                 vm.SavePasswordPolicy();
+            // 🔴 Census 16.1 — Ctrl+A on the Data Vault sets or changes the passphrase, and on the passphrase
+            // prompt it OPENS the vaulted company. Same accelerator, same meaning as everywhere else on this
+            // list: "accept what is on this screen". Both are advertised on the screens' own buttons.
+            else if (vm.CurrentScreen == Screen.DataVault)
+                vm.ApplyDataVault();
+            else if (vm.CurrentScreen == Screen.CompanyUnlock)
+                vm.UnlockCompany();
             // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
             // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
             else if (vm.CurrentScreen == Screen.Form16A)
@@ -766,6 +789,34 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Bare C on the Memorandum Register CONVERTS the highlighted memorandum into a real voucher (census 4.17 /
+        // T2-9). It raises the Y/N confirmation; it never converts on the keystroke — the verb posts money onto the
+        // books and removes the memo, so it is gated exactly as the Alt+X above it is.
+        //
+        // 🔴 THIS CHORD IS OURS, NOT THE VENDOR'S, AND IT IS SCOPED TO ONE REPORT SO IT CANNOT SHADOW ANYTHING.
+        // The vendor attests the CAPABILITY ("You can alter and convert a Memo voucher into a regular voucher")
+        // but names no keystroke for it on any page, and its TallyPrime shortcut table has no entry for it — so it
+        // is deliberately kept OUT of ShellChordTable, whose stated contract is that every chord in it is quoted
+        // from the vendor and "where the vendor is silent the chord is absent". It ships here instead, as a
+        // page-scoped arm and a labelled divergence, the same shape as the BankStatementImport block further down
+        // (bare `R` = "Mark as Regular"), which is this file's own precedent for a page-scoped bare letter.
+        //
+        // 🔴 BARE `C` WAS MEASURED FREE BEFORE IT WAS TAKEN, not assumed. Every `Key.C` arm in this handler carries
+        // Alt (the comparison-column arm, the dashboard tile arm and the global Create-Ledger arm), and the
+        // bare-letter quick-jump arm is gated on `vm.IsMenuScreen`, which a report is not. `== KeyModifiers.None`
+        // matches the quick-jump arm's own predicate so "bare letter" means one thing in both places, and
+        // deliberately excludes Shift. `!IsTyping` keeps it out of the report's own filter/search boxes and
+        // `!IsPickerOpen` off an open dropdown — the identical guard trio the Alt+X, Alt+A and Alt+S report arms
+        // around it carry. The arm sits BELOW the accept-prompt block, so while a confirmation is up a bare C is
+        // not a second question.
+        if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.None
+            && vm.IsMemorandumRegisterReport && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestConvertHighlightedMemorandum();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+A on the Cheque Register's leaf list is the vendor's "Alter Status" (census 8.5;
         // help.tallysolutions.com/cheque-register/). It cycles the highlighted leaf Available → Blank →
         // Cancelled → Available and saves.
@@ -869,6 +920,22 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.AlterCompany)
         {
             vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Census 16.1 — Alt+D on the DATA VAULT screen takes the company OUT of the vault. Same shape and
+        // same reasoning as the Company Alteration arm directly above: this screen has no list behind it (its
+        // subject IS the open company), so the chord can only mean one thing wherever the caret sits, and
+        // guarding it on !IsTyping would make it dead in ordinary use — the operator is on this screen to type
+        // the current passphrase into a field, which is exactly what removal requires. It sits ABOVE the master
+        // Alt+D arm and is disjoint from it: `IsDeleteTargetPage` does not include Screen.DataVault, so neither
+        // arm can swallow the other's surface. Removal refuses without the correct current passphrase, which is
+        // the guard that matters here — an accidental Alt+D with an empty field cannot decrypt anything.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.DataVault)
+        {
+            vm.RemoveDataVault();
             e.Handled = true;
             return;
         }
@@ -1243,8 +1310,11 @@ public partial class MainWindow : Window
         // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
         // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
         // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
+        // 🔴 `!IsDayBookPickerOpen` matches the door: OpenAddVoucherFromReport refuses while a picker column is on
+        // top, so claiming the chord there would swallow Alt+A to fire nothing. Nothing below this arm claims
+        // Alt+A (the bare-letter menu arm requires KeyModifiers.None), so the fall-through is a clean no-op.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.IsDayBookReport)
+            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
         {
             vm.OpenAddVoucherFromReport();
             e.Handled = true;
@@ -1289,6 +1359,30 @@ public partial class MainWindow : Window
             && vm.IsChartOfAccountsScreen)
         {
             vm.OpenExceptionReports();
+            e.Handled = true;
+            return;
+        }
+
+        // W28 V3 (census 5.2 / 5.7 / 5.8) — Ctrl+J on the DAY BOOK opens the vendor's three EXCEPTION REPORTS:
+        // Optional Vouchers, Cancelled Vouchers, Post-Dated Vouchers. The vendor names both the chord and the
+        // whole set (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+        //
+        // 🔴 IT IS A SECOND ARM ON THE SAME CHORD, AND THE TWO CONTEXTS ARE DISJOINT BY CONSTRUCTION.
+        // `IsChartOfAccountsScreen` above and `IsDayBookReport` here can never both be true — the first requires
+        // Screen.ChartOfAccounts, the second requires Reports bound with Kind == DayBook — so neither rebinds the
+        // other and the order of the two arms does not matter. This is the same resolution the Alt+I and Alt+A
+        // context branches use (see BuildButtonBar), rather than the shadowing trap that a single arm with two
+        // meanings would be.
+        // 🔴 Guarded on BOTH conditions OpenExceptionReportsPicker refuses on, so the key is never swallowed on a
+        // screen where it would fire nothing. The door refuses when the live report is not the Day Book AND when a
+        // Day-Book picker column is already on top (its own, or the Alt+A/Alt+I voucher-type one) — the second
+        // clause used to be missing here while `e.Handled = true` ran unconditionally, so with the picker open
+        // Ctrl+J was consumed and did nothing, which is exactly what the sentence above claimed could not happen.
+        if (e.Key == Key.J && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
+        {
+            vm.OpenExceptionReportsPicker();
             e.Handled = true;
             return;
         }
@@ -2697,6 +2791,17 @@ public partial class MainWindow : Window
 
     private void OnSavePasswordPolicyClick(object? sender, RoutedEventArgs e)
         => Vm?.SavePasswordPolicy();
+
+    // 🔴 Census 16.1 — the Data Vault's three buttons. Each mirrors a keyboard route (Ctrl+A / Alt+D / Ctrl+A)
+    // so neither the mouse nor the keyboard is the only way in.
+    private void OnApplyDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyDataVault();
+
+    private void OnRemoveDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.RemoveDataVault();
+
+    private void OnUnlockCompanyClick(object? sender, RoutedEventArgs e)
+        => Vm?.UnlockCompany();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

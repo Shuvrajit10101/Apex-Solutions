@@ -36,8 +36,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     /// Opens (or creates) the company database at <paramref name="databasePath"/> and ensures the
     /// schema is present and at the expected version. A single long-lived connection is held for the
     /// lifetime of the store; dispose it to release the file handle.
+    ///
+    /// <para>🔴 <b><paramref name="passphrase"/> — census row 16.1, the Data Vault.</b> Supply it to open a
+    /// VAULTED book; leave it <c>null</c> (the default) for a plain one, which is every book this application
+    /// has ever written and every fixture in the suite. That default is what kept this change from touching
+    /// the ~40 schema and migration tests that construct a store directly: the native provider is now
+    /// <c>e_sqlcipher</c> rather than <c>e_sqlite3</c>, and an UNKEYED database opens under it byte-for-byte
+    /// as before.</para>
+    ///
+    /// <para>🔴 <b>A WRONG PASSPHRASE THROWS FROM THIS CONSTRUCTOR, NOT FROM THE FIRST QUERY, AND THAT IS
+    /// LOAD-BEARING.</b> SQLCipher defers the key check to the first page actually read, so
+    /// <c>SqliteConnection.Open()</c> on a wrong key SUCCEEDS and the failure surfaces later, wherever the
+    /// caller happened to read first. <see cref="EnsureSchema"/> reads immediately, so the throw lands here —
+    /// where the caller is still holding a passphrase it can re-prompt for — rather than deep inside a screen.
+    /// It arrives as <c>SqliteException</c> "file is not a database" (SQLite error 26), which is also what a
+    /// genuinely corrupt file raises; the two cannot be told apart from inside, which is why
+    /// <c>CompanyVault.TryOpen</c> exists for callers that need to ask before committing to an open.</para>
     /// </summary>
-    public SqliteCompanyStore(string databasePath)
+    public SqliteCompanyStore(string databasePath, string? passphrase = null)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
             throw new ArgumentException("A database path is required.", nameof(databasePath));
@@ -48,11 +64,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        var connStr = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-        }.ToString();
+        var connStr = CompanyVault.ConnectionString(
+            databasePath, passphrase, SqliteOpenMode.ReadWriteCreate);
 
         _connection = new SqliteConnection(connStr);
 
@@ -1607,6 +1620,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 63;
         }
 
+        // v63 → v64 (defect T1-26 / the 4% cess ruling): the establishment's own dated Health & Education Cess rate
+        // — one child table of companies + one index. Purely additive; it back-fills NOTHING, because an EMPTY table
+        // already means "charge the statutory rate for the year", which is the 4% every sourceable year publishes.
+        // Every existing payslip, Form 16 Part B figure and Form 24Q Annexure II figure therefore recomputes to the
+        // same paisa. See Schema.MigrateV63ToV64, and IncomeTaxCessRateSchemaTests for the assertion of that.
+        if (version == 63)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV63ToV64;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 64);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 64;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1915,6 +1953,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v36 per-employee §192 income-tax declarations (empty for a company with no declarations — ER-13).
         foreach (var declaration in ReadTaxDeclarations(companyId))
             company.AddTaxDeclaration(declaration);
+
+        // v64 the establishment's own dated Health & Education Cess rates (empty for a company that has never
+        // edited the rate — ER-13; empty means "the statutory rate for the year").
+        foreach (var cess in ReadIncomeTaxCessRates(companyId))
+            company.AddIncomeTaxCessRate(cess);
 
         // v56 (census 16.2) Security Control: levels (with their facility rules) then users. Empty on every
         // company that never enabled access control — ER-13. 🔴 The password verifiers come back through
@@ -3702,6 +3745,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 PreviousEmployerSalary = new Money(r.GetInt64(8) / 100m),
                 PreviousEmployerTds = new Money(r.GetInt64(9) / 100m),
             });
+        return list;
+    }
+
+    /// <summary>
+    /// The establishment's own dated Health &amp; Education Cess rates (v64; defect T1-26 / the 4% cess ruling), or
+    /// an <b>empty list</b> for the overwhelming majority of books — and empty is the truth rather than a default:
+    /// it means "this establishment has not departed from the statutory rate", which the tax engine reads as
+    /// "charge the statutory rate for the year" (ER-13). Ordered oldest-first so the caller can resolve by date.
+    /// </summary>
+    private IEnumerable<IncomeTaxCessRate> ReadIncomeTaxCessRates(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, effective_from, rate_basis_points
+            FROM income_tax_cess_rates WHERE company_id = $cid ORDER BY effective_from, rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        var list = new List<IncomeTaxCessRate>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new IncomeTaxCessRate(
+                Guid.Parse(r.GetString(0)),
+                DateOnly.ParseExact(r.GetString(1), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                r.GetInt32(2)));
         return list;
     }
 
@@ -5608,6 +5676,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
         // v36 §192 tax declarations FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM employee_tax_declarations WHERE company_id = $cid;", ("$cid", cid));
+        // v64 dated Health & Education Cess rates FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM income_tax_cess_rates WHERE company_id = $cid;", ("$cid", cid));
         // v25 TDS/TCS masters FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM nature_of_payment WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM nature_of_goods WHERE company_id = $cid;", ("$cid", cid));
@@ -5986,6 +6056,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             s.Parameters.AddWithValue("$other", Paisa.FromDecimal(declaration.OtherIncome.Amount));
             s.Parameters.AddWithValue("$prevsal", Paisa.FromDecimal(declaration.PreviousEmployerSalary.Amount));
             s.Parameters.AddWithValue("$prevtds", Paisa.FromDecimal(declaration.PreviousEmployerTds.Amount));
+            s.ExecuteNonQuery();
+        }
+
+        // v64 the establishment's OWN dated Health & Education Cess rates (defect T1-26 / the 4% cess ruling). One
+        // row per effective-from date; a company that has never edited the rate writes NOTHING, and that emptiness
+        // is what keeps its arithmetic identical to a pre-v64 book (ER-13).
+        foreach (var cess in c.IncomeTaxCessRates)
+        {
+            using var s = _connection.CreateCommand();
+            s.Transaction = tx;
+            s.CommandText = """
+                INSERT INTO income_tax_cess_rates (id, company_id, effective_from, rate_basis_points)
+                VALUES ($id, $cid, $from, $bp);
+                """;
+            s.Parameters.AddWithValue("$id", cess.Id.ToString("D"));
+            s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            s.Parameters.AddWithValue("$from", cess.EffectiveFrom.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+            s.Parameters.AddWithValue("$bp", cess.RateBasisPoints);
             s.ExecuteNonQuery();
         }
 

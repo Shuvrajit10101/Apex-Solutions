@@ -492,7 +492,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.Lifo, Display = "LIFO" });
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.StandardCost, Display = "Standard Cost" });
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastPurchaseCost, Display = "Last Purchase Cost" });
-        ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastSaleCost, Display = "Last Sale Cost" });
+        // 🔴 Census 3.4 / defect T0-2 — THE LABEL IS THE HALF THAT NEEDS NO COLUMN. The vendor files "Last Sales
+        // Price" under MARKET VALUATION, a selling-price default, and never among the costing methods; we offer it
+        // in the costing slot because no Market Valuation field exists to hold it yet. Until that field is built
+        // (it needs storage and a user ruling for books that already chose this), the picker at least stops
+        // CALLING it a cost: an operator choosing it can now see it is a selling-price basis, which is exactly the
+        // fact that made T0-2 land on real books — closing stock at our own sale rate, profit overstated by the
+        // unrealised margin. Keep this string and ValuationLabel identical; they are the same option twice.
+        ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastSaleCost, Display = "Last Sale Price (market valuation)" });
         SelectedValuation = ValuationMethods.First();
 
         Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.Taxable, Display = "Taxable" });
@@ -1129,7 +1136,9 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         StockValuationMethod.Lifo => "LIFO",
         StockValuationMethod.StandardCost => "Standard Cost",
         StockValuationMethod.LastPurchaseCost => "Last Purchase Cost",
-        StockValuationMethod.LastSaleCost => "Last Sale Cost",
+        // Census 3.4 / T0-2 — must read identically to the picker entry above; two spellings of one option is how
+        // an operator comes to believe the list and the display are different settings.
+        StockValuationMethod.LastSaleCost => "Last Sale Price (market valuation)",
         _ => method.ToString(),
     };
 }

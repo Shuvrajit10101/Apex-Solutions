@@ -44,8 +44,9 @@ public interface IMasterListRow
 ///
 /// <para>Extracted from <see cref="IPayrollMasterList"/> at W2-03 for the Voucher Type master (census 2.4), which
 /// needs exactly these five members and is not a payroll screen. The extraction is deliberately shape-preserving:
-/// <see cref="IPayrollMasterList"/> now derives from this and adds nothing, so the four payroll kinds that
-/// implement it, the shell arms that resolve it and
+/// <see cref="IPayrollMasterList"/> now derives from this and adds nothing, so the payroll kinds that
+/// implement it (four at the time of the extraction; <b>six</b> since W28 V3 — see that interface's own remarks
+/// for the current list), the shell arms that resolve it and
 /// <c>PayrollMasterHalfWiredKindsTests</c>'s lock on the remainder all behave exactly as before. The alternative
 /// — a second, parallel set of arrow / Ctrl+Enter / Alt+D arms for the new screen — is the very shape
 /// <see cref="IPayrollMasterList"/>'s own remarks give as how one kind silently ends up gated differently from
@@ -83,11 +84,20 @@ public interface IMasterListScreen
 /// Ctrl+Enter and <b>deleted</b> with Alt+D — the capability census row 7.16 records as absent across all eight
 /// payroll master kinds.
 ///
-/// <para>🔴 <b>SHIPPED COVERAGE: FOUR of those eight implement this interface today</b> — employee category,
-/// employee group, payroll unit and attendance/production type. The employee, pay head, salary structure and tax
-/// declaration masters do NOT, and the row is therefore NOT closed. Do not read the "all eight" above as a claim
-/// about what is built: it describes the DEFECT, not the fix. <c>MainWindowViewModel.PayrollMasterScreen</c>
-/// carries the exact remainder and <c>PayrollMasterHalfWiredKindsTests</c> holds it to it.</para>
+/// <para>🔴 <b>SHIPPED COVERAGE: SIX of those eight implement this interface today</b> — employee category,
+/// employee group, payroll unit, attendance/production type, the <b>employee</b> master (wired at W7-D2) and the
+/// <b>pay head</b> (wired at W28 V3, census 7.6 / defect T2-38). The <b>salary structure</b> and <b>tax
+/// declaration</b> masters do NOT, and the row is therefore NOT closed. Do not read the "all eight" above as a
+/// claim about what is built: it describes the DEFECT, not the fix.
+/// <c>MainWindowViewModel.PayrollMasterScreen</c> carries the exact remainder and
+/// <c>PayrollMasterHalfWiredKindsTests</c> holds it to it.</para>
+///
+/// <para>🔴 <b>This count went stale once and it is worth saying why.</b> W7-D2 wired the employee master and
+/// W28 V3 the pay head; both updated the count in <c>MainWindowViewModel</c> and in the test fixtures and both
+/// missed it HERE — on the contract every future implementer reads first. The sentence therefore named the pay
+/// head as unimplemented while the file beside it implemented it. Counted from the source rather than from the
+/// last report: the implementers are the six named above, and <c>PayrollMasterHalfWiredKindsTests</c> asserts the
+/// remainder in the other direction so a seventh landing goes red here rather than silently drifting.</para>
 ///
 /// <para><b>Why an interface rather than eight copies of the same eight members.</b> The shell needs exactly one
 /// arrow arm, one Ctrl+Enter arm, one Alt+D arm and one refresh arm for the whole family. Eight parallel arms is

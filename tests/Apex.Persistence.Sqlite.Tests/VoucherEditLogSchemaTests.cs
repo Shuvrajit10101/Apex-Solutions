@@ -210,7 +210,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -253,7 +253,7 @@ public sealed class VoucherEditLogSchemaTests
 
             using (var conn = Open(dbPath))
             {
-                SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
+                SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SchemaDowngrade.V61ToV60(conn); SchemaDowngrade.V60ToV59(conn); SchemaDowngrade.V59ToV58(conn); SchemaDowngrade.V58ToV57(conn); SchemaDowngrade.V57ToV56(conn); SchemaDowngrade.V56ToV55(conn); SchemaDowngrade.V55ToV54(conn);   // v55 Karnataka PT back-fill (data only, no DDL)
                 SchemaDowngrade.V54ToV53(conn);   // v54 credit limits (census 10.1)
                 SchemaDowngrade.V53ToV52(conn);   // v53 voucher-type user flags
                 SchemaDowngrade.V52ToV51(conn);
@@ -306,6 +306,15 @@ public sealed class VoucherEditLogSchemaTests
                 // migration and the downgrade use.
                 .Concat(Schema.V62Tables.Select(t => "table:" + t))
                 .Concat(Schema.V62Tables.Select(t => "index:ix_" + t + "_class"))
+                // v63 contributes NOTHING here, and that absence is correct rather than an omission: it adds two
+                // COLUMNS to pay_head_computation_slabs and no table or index at all, so a chain that removes every
+                // table and index still removes none of v63's objects.
+                // v64 (defect T1-26 / the 4% cess ruling) adds one table and its one by-company index, so the chain
+                // removes those too. The index name IS derivable — it is the plain "ix_<table>_company" per-company
+                // lookup — so it is computed from the same published list the migration and the downgrade use,
+                // which is what keeps this expectation from drifting.
+                .Concat(Schema.V64Tables.Select(t => "table:" + t))
+                .Concat(Schema.V64Tables.Select(t => "index:ix_" + t + "_company"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.Equal(

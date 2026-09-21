@@ -755,6 +755,47 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV63ToV64"/> (defect T1-26 / the 4% cess ruling) <b>and nothing else</b>:
+    /// drops the one index (<see cref="Schema.V64Indexes"/>) and the one table (<see cref="Schema.V64Tables"/>),
+    /// then stamps <c>schema_version</c> back to <b>63</b>.
+    ///
+    /// <para>🔴 <b>THIS RUNG IS A PLAIN DROP, AND THAT IS BY DESIGN OF v64 RATHER THAN LUCK.</b> v64 adds no column
+    /// to any existing table, so neither <see cref="DropColumns"/> nor <see cref="RebuildPreservingShape"/> is
+    /// needed. That matters because the table v64 hangs off — <c>companies</c> — is an FK <b>PARENT</b>, and
+    /// rebuilding a parent is the manoeuvre whose PK-losing <c>foreign key mismatch</c> <see cref="V56ToV55"/>
+    /// records. Dropping a CHILD table touches no parent's shape at all. Putting the cess rate on a
+    /// <c>companies</c> column would have walked straight into that trap; a child table avoids it entirely.</para>
+    ///
+    /// <para>🔴 <b>A TRUE INVERSE FOR EVERY BOOK THAT HAS NOT SET A RATE — WHICH IS EVERY BOOK MIGRATED UP FROM
+    /// v63.</b> The forward migration inserts nothing, so on such a book this drops an empty table and restores v63
+    /// exactly. <b>WHAT IS LOST OTHERWISE, STATED PLAINLY: an establishment that HAS set its own cess rate reverts
+    /// to the statutory 4%, silently, on the next payroll it computes.</b> No posted voucher changes and no balance
+    /// moves — the rate is read only when a payroll is <i>computed</i> — but a book that deliberately departed from
+    /// 4% and is then downgraded will start deducting 4% again with nothing on screen to say so. A book carrying any
+    /// row in <c>income_tax_cess_rates</c> must not be downgraded and then run.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
+    /// every lower rung after it — to reach v62 the caller runs <c>V64ToV63</c> then <see cref="V63ToV62"/>. Calling
+    /// <see cref="V63ToV62"/> alone on a v64 file stamps the marker 62 while <c>income_tax_cess_rates</c> is still
+    /// there, which is a lie the next open cannot detect.</para>
+    ///
+    /// <para>📐 <b>MEASURED, so nobody mistakes belt for braces: the explicit <c>DROP INDEX</c> below is
+    /// REDUNDANT.</b> SQLite drops a table's indexes with the table, and a mutation that deleted the index line
+    /// alone left all sixteen downgrade tests green — whereas deleting the table line failed five of them. The
+    /// index drop is kept because it mirrors <see cref="V62ToV61"/> and because it states the intent explicitly,
+    /// but <b>the table drop is the load-bearing statement</b> and a reviewer should read it that way.</para>
+    /// </summary>
+    public static void V64ToV63(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        foreach (var index in Schema.V64Indexes) Exec(connection, $"DROP INDEX IF EXISTS {index};");
+        foreach (var table in Schema.V64Tables) Exec(connection, $"DROP TABLE IF EXISTS {table};");
+
+        Exec(connection, "UPDATE schema_version SET version = 63;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV62ToV63"/> (census 7.19 Labour Welfare Fund) <b>and nothing else</b>:
     /// drops the two <c>pay_head_computation_slabs</c> columns (<see cref="Schema.V63SlabColumns"/>) and stamps
     /// <c>schema_version</c> back to <b>62</b>.
@@ -783,10 +824,11 @@ public static class SchemaDowngrade
     /// and the primary key, leaving a table that no longer declares the parent it depends on. Preserving the shape
     /// costs nothing here and keeps the downgraded table comparable to a genuine v61 one.</para>
     ///
-    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
-    /// the lower rungs after it — to reach v61 the caller runs <c>V63ToV62</c> then <see cref="V62ToV61"/>.
-    /// Calling <see cref="V62ToV61"/> alone on a v63 file stamps the marker 61 while the v63 columns are still
-    /// there, which is a lie the next open cannot detect.</para>
+    /// <para>⚠️ <b>This is NO LONGER the top rung — <see cref="V64ToV63"/> is.</b> Manufacturing an older book out
+    /// of a CURRENT one runs <see cref="V64ToV63"/> FIRST, then this, then the lower rungs — to reach v61 the caller
+    /// runs <c>V64ToV63</c>, <c>V63ToV62</c>, then <see cref="V62ToV61"/>. Calling this one alone on a v64 file
+    /// stamps the marker 62 while v64's <c>income_tax_cess_rates</c> table is still there, which is a lie the next
+    /// open cannot detect.</para>
     /// </summary>
     public static void V63ToV62(SqliteConnection connection)
     {

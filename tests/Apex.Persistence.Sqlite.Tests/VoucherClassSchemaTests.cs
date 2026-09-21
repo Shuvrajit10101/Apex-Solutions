@@ -157,7 +157,7 @@ public sealed class VoucherClassSchemaTests
 
             var legacy = CompanyFactory.CreateSeeded("Legacy Class Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
 
             // The manufactured book really is v61 — neither table exists on it yet.
             Assert.Equal(61L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
@@ -192,7 +192,7 @@ public sealed class VoucherClassSchemaTests
             var classesBefore = ReadScalar(path, "SELECT COUNT(*) FROM voucher_type_classes;");
             Assert.True(classesBefore > 0);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V64ToV63(conn); SchemaDowngrade.V63ToV62(conn); SchemaDowngrade.V62ToV61(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(61L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             foreach (var table in Schema.V62Tables) Assert.False(TableExists(path, table));

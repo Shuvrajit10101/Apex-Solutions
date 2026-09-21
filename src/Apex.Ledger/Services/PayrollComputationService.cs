@@ -528,12 +528,17 @@ public sealed class PayrollComputationService
             var estAnnual = PaidToDateTaxableGross() + monthlyGross * monthsRemaining + additionalIncome;
             if (estAnnual <= 0m) return Money.Zero;
 
+            // 🔴 T1-26: the slab table, standard deduction, §87A ceiling/cap, surcharge ladder and cess rate are now
+            // resolved from the FY of THIS payroll period (`_to` is the period-end date, the same anchor the dated
+            // salary structure and the v63 dated computation slab use). Before this fix the engine took no date at
+            // all and applied one hard-coded year's figures to every period a book will ever run.
+            var rates = SalaryTaxRates.ForCompanyPeriod(_company, _to);
             var allowedDeductions = declaration?.AllowedDeductions(regime).Amount ?? 0m;
-            var taxable = SalaryIncomeTax.TaxableIncome(estAnnual, allowedDeductions, regime);
+            var taxable = SalaryIncomeTax.TaxableIncome(estAnnual, allowedDeductions, regime, rates);
             var age = SalaryIncomeTax.AgeBandFor(_employee.DateOfBirth, _to);
             var annualTax = Pan.IsValid(_employee.Pan)
-                ? SalaryIncomeTax.ComputeAnnual(taxable, regime, age).AnnualTax
-                : SalaryIncomeTax.AnnualTaxNoPan(taxable, regime, age); // §206AA higher-of-average-rate-or-20%
+                ? SalaryIncomeTax.ComputeAnnual(taxable, regime, rates, age).AnnualTax
+                : SalaryIncomeTax.AnnualTaxNoPan(taxable, regime, rates, age); // §206AA higher-of-average-rate-or-20%
 
             var prevEmployerTds = declaration?.PreviousEmployerTds.Amount ?? 0m;
             var alreadyByUs = PriorFinancialYearSalaryTds();
