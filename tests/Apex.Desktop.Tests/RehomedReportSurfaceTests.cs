@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Ledger;
@@ -392,26 +394,95 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 <b>THE SETTLE WORKFLOW SURVIVED THE RE-HOME.</b> Routing the Receivables/Payables menu rows to
-    /// ReportKinds means nothing else points at <c>Screen.Outstandings</c> any more — and that page is the only
-    /// place the spacebar bill multi-select and the Alt+A settlement preload live. Alt+A on the report is the
-    /// door that keeps it reachable. Without this the wave would have created a second instance of the very
-    /// defect census row 11.10 records ("one shipped report nobody can reach").
+    /// 🔴 <b>THE SETTLE WORKFLOW SURVIVED THE RE-HOME — DRIVEN BY THE ACTUAL KEYSTROKE.</b> Routing the
+    /// Receivables/Payables menu rows to ReportKinds means nothing else points at <c>Screen.Outstandings</c> any
+    /// more — and that page is the only place the spacebar bill multi-select and the settlement preload live.
+    /// Alt+A on the report is the door that keeps it reachable. Without it the wave would have created a second
+    /// instance of the very defect census row 11.10 records ("one shipped report nobody can reach").
+    ///
+    /// <para>🔴 <b>THE PREVIOUS VERSION OF THIS TEST WAS A DEAD GUARD AND IS THE REASON IT WAS REWRITTEN.</b> It
+    /// called <c>vm.OpenSettlementPageFromOutstandingsReport()</c> directly and never pressed a key, so it
+    /// exercised the view-model method and NOT the chord. The chord lives in
+    /// <c>MainWindow.axaml.cs</c>'s tunnel chain, which no view-model call reaches: deleting that entire arm —
+    /// i.e. removing the operator's only route to the page — left the old test GREEN. A test named after a
+    /// keystroke that never presses the keystroke is exactly the "overstated closure" class this repository
+    /// already has filed. The rewrite opens the real window and drives
+    /// <c>KeyPressQwerty(PhysicalKey.A, Alt)</c>, so the arm is load-bearing.</para>
+    ///
+    /// <para><b>Mutation-verified, measured.</b> Disabling the <c>Key.A</c> arm in <c>MainWindow.axaml.cs</c>
+    /// fails exactly this test and nothing else — <c>Failed: 1, Passed: 43</c>, <c>Expected: Outstandings /
+    /// Actual: Report</c>. Restored, the class is <c>Failed: 0, Passed: 44</c>. The negative case below is what
+    /// stops the fix being "Alt+A navigates from everywhere", which would satisfy this assertion while stealing
+    /// the key from the Day Book's own Alt+A.</para>
     /// </summary>
-    [Fact]
-    public void Alt_A_on_the_rehomed_outstandings_report_still_reaches_the_settlement_page()
+    [AvaloniaFact]
+    public void Alt_A_on_the_rehomed_outstandings_report_reaches_the_settlement_page()
     {
         var vm = FullFixture("Settle Door");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
 
+        // ---- Receivables: the chord, not the method.
         vm.OpenReport(ReportKind.ReceivablesOutstanding);
-        vm.OpenSettlementPageFromOutstandingsReport();
+        Pump(window);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);           // else the press below proves nothing
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+        Pump(window);
+
         Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
+        Assert.NotNull(vm.Outstandings);
         Assert.Equal(OutstandingsKind.Receivables, vm.Outstandings!.Kind);
 
+        // ---- Payables: the SAME chord must carry the side across, not default back to the receivable half.
         vm.OpenReport(ReportKind.PayablesOutstanding);
-        vm.OpenSettlementPageFromOutstandingsReport();
+        Pump(window);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+        Pump(window);
+
         Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
         Assert.Equal(OutstandingsKind.Payables, vm.Outstandings!.Kind);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// 🔴 <b>AND THE GUARD IS NARROW.</b> The positive test above is satisfied just as well by an arm that fires
+    /// Alt+A on every report in the app — which would silently steal the key from the Day Book's "Add voucher in
+    /// a report", a shipped chord on the same modifier. So the same keystroke is driven on a re-homed report
+    /// that is NOT an outstandings side, and must leave the operator exactly where they were.
+    ///
+    /// <para>🔴 <b>MUTATION-VERIFIED, AND THE MEASUREMENT CORRECTED WHAT THIS COMMENT FIRST CLAIMED.</b> The
+    /// obvious mutation — widening the window arm's guard to <c>vm.Reports is not null</c> — left this test
+    /// GREEN (<c>Failed: 0, Passed: 44</c>). The narrowness is enforced TWICE, and the second guard is the one
+    /// carrying the load: <see cref="MainWindowViewModel.OpenSettlementPageFromOutstandingsReport"/> switches on
+    /// the kind with no <c>default</c> arm, so a widened key guard still lands on nothing. Only removing BOTH —
+    /// the widened key guard plus a <c>default: OpenOutstandings(Receivables)</c> in that switch — reddens it:
+    /// <c>Failed: 1, Passed: 43</c>, <c>Expected: Report / Actual: Outstandings</c>. That is the mutation this
+    /// test is proven against, and it is recorded precisely because the first guess was wrong and a mutation
+    /// claim nobody re-ran is worth no more than an unopened citation.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_A_does_not_fire_on_a_rehomed_report_that_is_not_an_outstandings_side()
+    {
+        var vm = FullFixture("Settle Guard");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        vm.OpenReport(ReportKind.CostCentreLedgerBreakup);
+        Pump(window);
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+        Pump(window);
+
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.CostCentreLedgerBreakup, vm.Reports!.Kind);
+
+        window.Close();
     }
 
     /// <summary>

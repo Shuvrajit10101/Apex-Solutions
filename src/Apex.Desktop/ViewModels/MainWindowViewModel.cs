@@ -7229,6 +7229,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ReportKind.ReceivablesOutstanding: OpenOutstandings(OutstandingsKind.Receivables); break;
             case ReportKind.PayablesOutstanding: OpenOutstandings(OutstandingsKind.Payables); break;
         }
+        // 🔴 NO `default:` ARM, DELIBERATELY. This switch is the SECOND of the two guards that keep Alt+A from
+        // navigating off an unrelated report, and measurement showed it is the one actually load-bearing: with
+        // the window's own Kind guard widened to `Reports is not null`, the negative chord test stayed GREEN
+        // because this switch still fell through to nothing. Only removing BOTH reddened it. Adding a default
+        // here would make Alt+A open the settlement page from every report in the app and steal the key from the
+        // Day Book's "Add voucher in a report".
     }
 
     // =============================================================== §192 salary TDS (Phase 8 slice 7)

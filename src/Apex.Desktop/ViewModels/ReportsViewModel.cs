@@ -6518,13 +6518,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// records having shipped once (see the PayrollColumns2 comment).
     ///
     /// <para>🔴 <b>THE AGEING BASIS IS STILL FIXED TO BY-DUE-DATE AND THIS RE-HOME DOES NOT CHANGE THAT.</b>
-    /// Verified by content at help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/:
-    /// the vendor puts the choice on <b>F6 (Ageing Method)</b> and offers <i>Ageing by Bill Date</i> as well as
-    /// <i>Ageing by Due Date</i> — "in the absence of a due date, the bill date becomes the due date", which is
-    /// the right method for a seller who gives no credit. We have neither the chord nor the second basis, and
+    /// Verified by content at help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/,
+    /// which says in as many words <i>"Press F6 (Ageing Method): to display the ageing report for the
+    /// Receivables from each party"</i> and <i>"Select the appropriate Ageing Methods from Ageing by Bill Date
+    /// or Ageing by Due Date and press Enter"</i>. We have neither the chord nor the second basis, and
     /// <c>Outstandings.DefaultBuckets</c> remains a <c>static readonly</c> field with no parameter behind it, so
     /// the bucket edges are not configurable either. Row 11.9 stays PARTIAL for those reasons among others;
     /// nothing here should be read as closing it.</para>
+    ///
+    /// <para>🔴 <b>A THIRD SENTENCE WAS DELETED FROM THIS COMMENT RATHER THAN SOFTENED.</b> It read
+    /// <i>"in the absence of a due date, the bill date becomes the due date"</i>, in quotation marks, attributed
+    /// to the page above — and the page does not contain it, in that or any equivalent wording. The URL resolves;
+    /// the QUOTE was invented, which is the harder failure to catch and exactly as serious as a dead link. The
+    /// two quotes that remain were read off the live page.</para>
     /// </summary>
     private void BuildOutstandingsReport(OutstandingsKind side)
     {
@@ -6741,10 +6747,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// percentage, over each budget's own period.
     ///
     /// <para>🔴 <b>THIS IS A LABELLED DIVERGENCE, NOT A CLONE.</b> The vendor has no dedicated Budget Variance
-    /// screen at all: budget comparison there is <i>Alt+B</i> taken ON Trial Balance or Group Summary
-    /// (help.tallysolutions.com/tally-prime/accounting-masters/budgets-controls-tally/). Moving our page onto
-    /// ReportKind gives it the six report gestures it never had; it does NOT make the surface vendor-shaped,
-    /// and row 11.11 must not be graded as though it did.</para>
+    /// screen at all: budget comparison there is <b>F10 (Budget Variance)</b> taken ON Trial Balance, Group
+    /// Summary or a Monthly Summary, which adds a budget column beside the actuals. Verified by content at
+    /// help.tallysolutions.com/budgets-tally/ ("Create, Alter, and Delete Budgets in TallyPrime"), which states
+    /// it in as many words: <i>"Press F10 (Budget Variance) &gt; select the budget from the List of Budgets"</i>.
+    /// Moving our page onto ReportKind gives it the six report gestures it never had; it does NOT make the
+    /// surface vendor-shaped, and row 11.11 must not be graded as though it did.</para>
+    ///
+    /// <para>🔴 <b>THIS COMMENT PREVIOUSLY SHIPPED A FABRICATED CITATION AND THE WRONG CHORD, AND THE WAVE WAS
+    /// WITHHELD FOR IT.</b> It cited <c>.../accounting-masters/budgets-controls-tally/</c>, which returns
+    /// <b>HTTP 404</b> — it does not exist and never attested anything — and it named the chord <i>Alt+B</i>,
+    /// which is the Tally.ERP 9-era button superseded by F10 in TallyPrime (the same correction is recorded at
+    /// the <see cref="ReportKind.BudgetVariance"/> declaration). Both are fixed above against a page that was
+    /// opened and read. This is the identical R7 failure already stripped once from <c>SeedTdsTcsRates.cs</c>,
+    /// and it is the most serious defect class on this project because it makes the product LOOK verified when
+    /// it is not. A claim that cannot be grounded is DELETED, never softened and never re-pointed at a
+    /// plausible-looking URL.</para>
     ///
     /// <para>Every budget is printed as its own section rather than one being chosen from a picker. The old page
     /// had a single-budget dropdown; a dropdown is a control the matrix surface has no slot for, and the choice
