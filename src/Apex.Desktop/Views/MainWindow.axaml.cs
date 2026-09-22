@@ -1320,7 +1320,18 @@ public partial class MainWindow : Window
         // priority, and ABOVE the Day Book arm below. The guards are disjoint (one tests a page Screen, this
         // one tests Screen.Report via Reports.Kind), but this chain is first-match-wins and the ordering is
         // what keeps that true if the guards ever stop being disjoint.
+        //
+        // 🔴 <c>IsLiveReportPage</c> IS LOAD-BEARING AND THIS ARM SHIPPED WITHOUT IT. The kind test alone is
+        // report-CONTEXT width: <see cref="MainWindowViewModel.Reports"/> stays bound BENEATH an F12 config
+        // panel, an Alt+F12 sort/filter panel, an Alt+K saved-views panel and a Print Preview column, so the
+        // bare pattern fired while the operator was standing INSIDE one of those and teleported them out of the
+        // panel they were working in — measured, not theorised: Alt+A inside F12 over Bills Receivable landed on
+        // Screen.Outstandings, and inside Print Preview over Bills Payable it did the same. IsLiveReportPage is
+        // the predicate this codebase already wrote for exactly this distinction ("the live report page and no
+        // other surface"), and it is the one a verb that NAVIGATES AWAY must use. Both cases are locked by
+        // AltA_on_a_rehomed_outstandings_report_is_refused_while_a_column_is_stacked_over_it.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsLiveReportPage
             && vm.Reports is { Kind: ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding })
         {
             vm.OpenSettlementPageFromOutstandingsReport();

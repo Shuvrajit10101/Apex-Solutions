@@ -486,6 +486,71 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>AND THE CHORD IS REFUSED WHILE A COLUMN IS STACKED OVER THE REPORT — THE DEFECT THE TWO TESTS
+    /// ABOVE DID NOT CATCH, FOUND BY PROBE AND MEASURED BEFORE IT WAS FIXED.</b>
+    ///
+    /// <para>The arm shipped guarded on <c>vm.Reports is { Kind: … }</c> alone. That is report-CONTEXT width,
+    /// and it is the wrong width for a verb that NAVIGATES AWAY: <c>Reports</c> stays bound BENEATH an F12
+    /// config panel, an Alt+F12 sort/filter panel, an Alt+K saved-views panel and a Print Preview column,
+    /// precisely so the report-PARAMETER shortcuts keep acting on the report underneath. So Alt+A fired while
+    /// the operator was standing INSIDE one of those and threw them out of the panel they were working in,
+    /// discarding the column they had open. Measured before the fix, not theorised: F12 over Bills Receivable
+    /// gave <c>Expected: ReportConfig / Actual: Outstandings</c>, and Print Preview over Bills Payable gave
+    /// <c>Expected: PrintPreview / Actual: Outstandings</c>. The fix is <c>IsLiveReportPage</c>, the predicate
+    /// this codebase had already written for exactly this distinction and documented as the one a destructive
+    /// verb needs — the same hole Phase 10.11 S3's Alt+X arm fell into.
+    ///
+    /// <para>🔴 <b>Mutation-verified, measured both ways.</b> Removing <c>vm.IsLiveReportPage</c> from the arm
+    /// in <c>MainWindow.axaml.cs</c> — i.e. restoring exactly what shipped — fails THIS test and nothing else.
+    /// Both stacked surfaces are asserted because they are different code paths into the same predicate: F12
+    /// opens a config column, Print Preview opens a preview column, and an exclusion list written against one
+    /// screen name would have missed the other. The positive test above still passes with the guard in place,
+    /// which is what proves the fix did not simply kill the chord.</para>
+    ///
+    /// <para>🔴 <b>A THIRD PROBE FAILED AND IS NOT FIXED HERE — IT IS REPORTED INSTEAD.</b> The same press on
+    /// the DAY BOOK's own Alt+A arm, which this branch does not touch, also fires through an F12 panel
+    /// (<c>Expected: ReportConfig / Actual: AddVoucherPicker</c>). That arm is guarded on
+    /// <c>IsDayBookReport &amp;&amp; !IsDayBookPickerOpen</c>, and <c>IsDayBookReport</c> excludes only
+    /// LedgerVouchers and VoucherDetail, so a stacked config column passes it. It is a PRE-EXISTING defect on
+    /// main of the identical shape, it is out of this track's scope, and it is written down here rather than
+    /// silently widened into this fix.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void AltA_on_a_rehomed_outstandings_report_is_refused_while_a_column_is_stacked_over_it()
+    {
+        var vm = FullFixture("Stacked Guard");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        // ---- F12 configuration column over Bills Receivable.
+        vm.OpenReport(ReportKind.ReceivablesOutstanding);
+        Pump(window);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.Equal(Screen.ReportConfig, vm.CurrentScreen);   // else the press below proves nothing
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+        Pump(window);
+
+        Assert.Equal(Screen.ReportConfig, vm.CurrentScreen);
+
+        // ---- Print Preview column over Bills Payable: a different column, the same predicate.
+        vm.OpenReport(ReportKind.PayablesOutstanding);
+        Pump(window);
+        vm.OpenPrintPreview();
+        Pump(window);
+        Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+        Pump(window);
+
+        Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+
+        window.Close();
+    }
+
+    /// <summary>
     /// 🔴 <b>NO COLUMN IS NARROWER THAN ITS OWN CAPTION, AND EVERY BODY CELL MATCHES ITS COLUMN'S WIDTH.</b>
     ///
     /// <para>Two separate defects, both invisible to a view-model test that only checks the text. The matrix
