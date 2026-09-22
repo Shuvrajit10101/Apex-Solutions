@@ -114,6 +114,34 @@ public class Gstr1HsnCessAttributionTests
         Assert.Equal(120.00m, cola.Cess.Amount);
     }
 
+    /// <summary>
+    /// 🔴 <b>Table 12 "Total Value" DOES include cess, and that is the whole point of stating it separately from the
+    /// tax amount.</b> <c>TotalTax</c> excludes cess because the return ring-fences it into its own column; Total
+    /// Value is what the supply is WORTH, and the recipient is billed the cess. Getting this backwards would file a
+    /// Total Value short by exactly the cess on every cess-bearing HSN — the same silent understatement as leaving
+    /// the cell blank, only harder to notice because the cell would then look populated.
+    /// </summary>
+    [Fact]
+    public void Table12_total_value_is_taxable_plus_tax_plus_cess_on_a_cess_bearing_row()
+    {
+        var r = Report.BuildGstr1(BuildCessBook(), From, To);
+
+        var cola = Row(r, "220210");
+        // ₹1,000 taxable + ₹280 tax + ₹120 cess = ₹1,400 — NOT ₹1,280.
+        Assert.Equal(1400.00m, cola.TotalValue.Amount);
+        Assert.NotEqual(cola.TaxableValue.Amount + cola.TotalTax.Amount, cola.TotalValue.Amount);
+
+        // A cess-free row in the SAME rate group carries no cess, so its Total Value is taxable + tax exactly.
+        var mug = Row(r, "691200");
+        Assert.Equal(0.00m, mug.Cess.Amount);
+        Assert.Equal(mug.TaxableValue.Amount + mug.TotalTax.Amount, mug.TotalValue.Amount);
+
+        // Every row reconciles to its own parts, so Total Value can never drift from the cells filed beside it.
+        Assert.All(r.HsnSummary, h => Assert.Equal(
+            h.TaxableValue.Amount + h.Cgst.Amount + h.Sgst.Amount + h.Igst.Amount + h.Cess.Amount,
+            h.TotalValue.Amount));
+    }
+
     // ================================================================ fixture
 
     private static Gstr1HsnRow Row(Gstr1 r, string hsn) =>

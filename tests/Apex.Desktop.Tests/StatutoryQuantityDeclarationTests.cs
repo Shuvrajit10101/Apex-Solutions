@@ -322,8 +322,9 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         // The INV-01 now files NIC's own field names and units — Qty (Number 10,3), UnitPrice (Number 12,3) and
         // AssAmt (Number 12,2), all rupee/quantity decimals. Source: the "Schema" sheet of
         // https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx, retrieved 2026-08-14. The invented
-        // qty_millis / unit_price_paisa / ass_amt_paisa keys these lines used to read were never IRP fields; the
-        // e-way assertions below keep their own encoding, which is a DIFFERENT payload and untouched by this.
+        // qty_millis / unit_price_paisa / ass_amt_paisa keys these lines used to read were never IRP fields. T1-29
+        // has since done the same for EWB-01, so the e-way assertions below now read NIC's names too — the two
+        // payloads remain DIFFERENT documents answering to different schemas, but neither invents its own keys.
         var eInvoice = FirstEInvoiceItem(c, posted);
         Assert.Equal("DOZ", eInvoice.GetProperty("Unit").GetString());
         Assert.Equal(2m, eInvoice.GetProperty("Qty").GetDecimal());              // 2 DOZ
@@ -337,9 +338,9 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
 
         // ---- DOCUMENT 3 — the EWB-01 e-way bill ----
         var eWay = FirstEWayItem(c, posted);
-        Assert.Equal("DOZ", eWay.GetProperty("Unit").GetString());
-        Assert.Equal(2000L, eWay.GetProperty("qty_millis").GetInt64());
-        Assert.Equal(2000L, eWay.GetProperty("taxable_amt_paisa").GetInt64());
+        Assert.Equal("DOZ", eWay.GetProperty("qtyUnit").GetString());
+        Assert.Equal(2m, eWay.GetProperty("quantity").GetDecimal());
+        Assert.Equal(20.00m, eWay.GetProperty("taxableAmount").GetDecimal());
 
         // ---- DOCUMENT 4 — the GSTR-1 Table-12 HSN summary (a FILED field) ----
         var hsn = Assert.Single(Gstr1.Build(c, posted.Date, posted.Date).HsnSummary);
@@ -349,18 +350,18 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
 
         // ---- and the four agree with EACH OTHER, not merely with a literal ----
         Assert.Equal(hsn.Uqc, eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(hsn.Uqc, eWay.GetProperty("Unit").GetString());
-        Assert.Equal(eInvoice.GetProperty("Unit").GetString(), eWay.GetProperty("Unit").GetString());
-        // The two statutory payloads now encode the SAME physical quantity in DIFFERENT units — INV-01 files NIC's
-        // Qty decimal, EWB-01 keeps its own millis — so the cross-document check converts rather than compares raw.
-        // That divergence is deliberate: the e-Way payload answers to a different official code set (W0-8).
-        Assert.Equal(eInvoice.GetProperty("Qty").GetDecimal() * 1000m, eWay.GetProperty("qty_millis").GetInt64());
+        Assert.Equal(hsn.Uqc, eWay.GetProperty("qtyUnit").GetString());
+        Assert.Equal(eInvoice.GetProperty("Unit").GetString(), eWay.GetProperty("qtyUnit").GetString());
+        // T1-29: EWB-01 now files NIC's own `quantity` decimal rather than the millis integer this project invented,
+        // so the two statutory payloads state the SAME number in the SAME unit and compare RAW. The conversion this
+        // line used to perform existed only to bridge our non-NIC encoding, and there is nothing left to bridge.
+        Assert.Equal(eInvoice.GetProperty("Qty").GetDecimal(), eWay.GetProperty("quantity").GetDecimal());
         Assert.Equal(hsn.Quantity, eInvoice.GetProperty("Qty").GetDecimal());
         Assert.StartsWith(hsn.Quantity.ToString("0.##"), printed.QuantityText, StringComparison.Ordinal);
 
         // ---- the money is untouched at every site ----
         Assert.Equal(20m, hsn.TaxableValue.Amount);
-        Assert.Equal(2000L, eWay.GetProperty("taxable_amt_paisa").GetInt64());
+        Assert.Equal(20.00m, eWay.GetProperty("taxableAmount").GetDecimal());
         Assert.Equal(Money.FromRupees(20m), print.TotalTaxable);
     }
 
@@ -397,9 +398,9 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
             eInvoice.GetProperty("Qty").GetDecimal() * eInvoice.GetProperty("UnitPrice").GetDecimal());
 
         var eWay = FirstEWayItem(c, posted);
-        Assert.Equal("NOS", eWay.GetProperty("Unit").GetString());
-        Assert.Equal(24000L, eWay.GetProperty("qty_millis").GetInt64());
-        Assert.Equal(24000L, eWay.GetProperty("taxable_amt_paisa").GetInt64());
+        Assert.Equal("NOS", eWay.GetProperty("qtyUnit").GetString());
+        Assert.Equal(24m, eWay.GetProperty("quantity").GetDecimal());
+        Assert.Equal(240.00m, eWay.GetProperty("taxableAmount").GetDecimal());
 
         var hsn = Assert.Single(Gstr1.Build(c, posted.Date, posted.Date).HsnSummary);
         Assert.Equal("NOS", hsn.Uqc);
@@ -461,8 +462,8 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         // The e-way bill and the printed invoice state the SAME 20 — where before the fix the payloads said
         // 240 NOS while print said "20 Crate-Nos", the four documents now agree.
         var eWay = FirstEWayItem(c, posted);
-        Assert.Equal("OTH", eWay.GetProperty("Unit").GetString());
-        Assert.Equal(20000L, eWay.GetProperty("qty_millis").GetInt64());
+        Assert.Equal("OTH", eWay.GetProperty("qtyUnit").GetString());
+        Assert.Equal(20m, eWay.GetProperty("quantity").GetDecimal());
         Assert.Equal("20 Crate-Nos", Assert.Single(VoucherPrintProjector.ProjectInvoice(c, posted).Items).QuantityText);
     }
 
@@ -496,8 +497,8 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(10.00m, eInvoice.GetProperty("UnitPrice").GetDecimal());   // the RAW rate, untouched
 
         var eWay = FirstEWayItem(c, posted);
-        Assert.Equal("NOS", eWay.GetProperty("Unit").GetString());
-        Assert.Equal(24000L, eWay.GetProperty("qty_millis").GetInt64());
+        Assert.Equal("NOS", eWay.GetProperty("qtyUnit").GetString());
+        Assert.Equal(24m, eWay.GetProperty("quantity").GetDecimal());
 
         var hsn = Assert.Single(Gstr1.Build(c, posted.Date, posted.Date).HsnSummary);
         Assert.Equal("NOS", hsn.Uqc);
@@ -552,7 +553,7 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(3.33m, decl.Rate);
 
         // The e-way bill and GSTR-1 state the same supply; the money map is untouched.
-        Assert.Equal(7000L, FirstEWayItem(c, posted).GetProperty("qty_millis").GetInt64());
+        Assert.Equal(7m, FirstEWayItem(c, posted).GetProperty("quantity").GetDecimal());
         var hsn = Assert.Single(Gstr1.Build(c, posted.Date, posted.Date).HsnSummary);
         Assert.Equal("NOS", hsn.Uqc);
         Assert.Equal(7m, hsn.Quantity);
@@ -1118,7 +1119,7 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
 
         // And at all three emission sites, which write decl.Code verbatim into filed/verified documents.
         Assert.Equal("doz", FirstEInvoiceItem(c, posted).GetProperty("Unit").GetString());
-        Assert.Equal("doz", FirstEWayItem(c, posted).GetProperty("Unit").GetString());
+        Assert.Equal("doz", FirstEWayItem(c, posted).GetProperty("qtyUnit").GetString());
 
         var hsn = Assert.Single(Gstr1.Build(c, date, date).HsnSummary, h => h.HsnSac == "190590");
         Assert.Equal("doz", hsn.Uqc);

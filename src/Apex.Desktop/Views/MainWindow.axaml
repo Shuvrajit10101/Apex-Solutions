@@ -1790,9 +1790,15 @@
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
                               <Grid ColumnDefinitions="*,120,115,75,120,110,110,110,90" MinWidth="950">
                                 <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
+                                <!-- 🔴 HEADER TEXT, NOT TRACK WIDTH. Paying for the Cess column narrowed this track
+                                     150->120, whose colHdr slot is 120-16=104px; "GSTIN / Description" is 19 chars
+                                     = 125.4px at the colHdr's 12pt Consolas advance (6.5977px), so it ELLIPSIZED to
+                                     "GSTIN / Descrip...". The track is already spoken for, so the label is shortened
+                                     instead: "GSTIN / Desc." is 13 chars = 85.8px and sits inside 104px with room.
+                                     Same for col 3 below ("POS / Qty" 59.4px vs a 59px slot — truncating by 0.4px). -->
+                                <TextBlock Grid.Column="1" Text="GSTIN / Desc." Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
-                                <TextBlock Grid.Column="3" Text="POS / Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="POS/Qty" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="5" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="6" Text="SGST" Classes="colHdr" TextAlignment="Right"/>

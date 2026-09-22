@@ -285,6 +285,7 @@ public static class GstReturnJson
                 Description = h.Description,
                 Uqc = h.Uqc,
                 Quantity = h.Quantity,
+                TotvalPaisa = MoneyCodec.ToPaisa(h.TotalValue),
                 TxvalPaisa = MoneyCodec.ToPaisa(h.TaxableValue),
                 CamtPaisa = MoneyCodec.ToPaisa(h.Cgst),
                 SamtPaisa = MoneyCodec.ToPaisa(h.Sgst),
@@ -542,6 +543,9 @@ public static class GstReturnJson
         [JsonPropertyName("desc")] public required string Description { get; init; }
         [JsonPropertyName("uqc")] public string? Uqc { get; init; }
         [JsonPropertyName("qty")] public decimal Quantity { get; init; }
+        /// <summary>Table 12 "Total Value" — taxable value plus every tax INCLUDING cess. Stated beside, not instead
+        /// of, <c>txval_paisa</c>; this payload filed the cell BLANK until it was added here.</summary>
+        [JsonPropertyName("totval_paisa")] public long TotvalPaisa { get; init; }
         [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
         [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
         [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }

@@ -117,6 +117,25 @@ public sealed record Gstr1HsnRow(
     /// states Compensation-Cess in its own column beside the tax amount, and the cess ring-fence (ER-2) is the
     /// same distinction carried onto the filed row.</summary>
     public Money TotalTax => new(Cgst.Amount + Sgst.Amount + Igst.Amount);
+
+    /// <summary>
+    /// <b>Table 12 "Total Value"</b> — the total value of the supplies under this HSN, i.e. the taxable value plus
+    /// every tax levied on it. This is the SECOND of the two statutory cells Table 12 filed blank: the return states
+    /// Total Value and Taxable Value as separate columns, and the GST portal's own HSN tile reports
+    /// "Total Value, Total Taxable Value and Total Tax Liability" against the summary
+    /// (https://tutorial.gst.gov.in/userguide/returns/Creation_of_Outward_Supplies_Return_in_GSTR-1.htm).
+    ///
+    /// <para><b>🔴 CESS IS INCLUDED HERE, AND THAT IS NOT A CONTRADICTION OF <see cref="TotalTax"/>.</b> The two
+    /// members answer different questions. <c>TotalTax</c> is the return's <i>tax amount</i> cell, which ring-fences
+    /// Compensation-Cess into its own column (ER-2) and so must exclude it. <c>TotalValue</c> is what the consignment
+    /// is worth in total — a value, not a tax classification — and cess is unquestionably part of what the recipient
+    /// is billed. Excluding cess here would file a Total Value that is short by exactly the cess on every cess-bearing
+    /// HSN, which is the same class of silent understatement this slice exists to close.</para>
+    ///
+    /// <para>Derived rather than accumulated on purpose: every component is already folded correctly across the line
+    /// fold and the cross-period fold, so a stored copy could only ever drift out of agreement with them.</para>
+    /// </summary>
+    public Money TotalValue => new(TaxableValue.Amount + TotalTax.Amount + Cess.Amount);
 }
 
 /// <summary>
