@@ -224,7 +224,7 @@ public sealed class Gstr6IsdJsonTests
 
         // …and the rows themselves still sum to it, so the absorption happened in a row and not in the summary.
         long rowSum = 0;
-        foreach (var row in root.GetProperty("tbl8_distribution").EnumerateArray())
+        foreach (var row in root.GetProperty("tbl5_8_distribution").EnumerateArray())
         {
             rowSum += row.GetProperty("camt_paisa").GetInt64()
                     + row.GetProperty("samt_paisa").GetInt64()
@@ -249,7 +249,7 @@ public sealed class Gstr6IsdJsonTests
         var root = Emit(c, isdId);
 
         long rowSum = 0;
-        foreach (var row in root.GetProperty("tbl8_distribution").EnumerateArray())
+        foreach (var row in root.GetProperty("tbl5_8_distribution").EnumerateArray())
         {
             rowSum += row.GetProperty("camt_paisa").GetInt64()
                     + row.GetProperty("samt_paisa").GetInt64()
@@ -258,6 +258,39 @@ public sealed class Gstr6IsdJsonTests
         }
 
         Assert.Equal(root.GetProperty("total_distributed_paisa").GetInt64(), rowSum);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The credit RECEIVED is Form GSTR-6 Table 3, and these keys were emitted as <c>tbl4_received_*</c>.</b>
+    /// Table 3 is "<i>Input tax credit received for distribution</i>"; Table 4 is "<i>Total ITC available and
+    /// Eligible ITC/Ineligible ITC distributed</i>" — the eligible/ineligible split, not the receipts. The GSTR-6
+    /// offline-utility documentation enumerates the tables it captures as "<i>3. ITC Received, 5, 8 Distribution of
+    /// ITC, 6B CDN, 6A ITC received (B2BA), 6C CDNA and 9 Amendment of distribution of ITC</i>"
+    /// (<c>tutorial.gst.gov.in/downloads/gstr6offlineutility.pdf</c>; table titles cross-checked against
+    /// <c>tutorial.gst.gov.in/userguide/returns/GSTR-6_faq.htm</c>, both read by content).
+    ///
+    /// <para><b>Nothing asserted these four keys at all before this test</b> — the emitted receipts could have been
+    /// renamed, mis-numbered or dropped and the whole suite would still have been green. They are pinned here by
+    /// name AND by value, and against the summary total, so the four heads cannot drift apart from it.</para>
+    /// </summary>
+    [Fact]
+    public void The_received_credit_is_emitted_under_the_table_3_keys_and_foots_to_the_received_total()
+    {
+        var (c, isdId) = Build();
+        var root = Emit(c, isdId);
+
+        // The Table 4 name must be gone — a wrong table number on a filed return is a wrong return.
+        Assert.False(root.TryGetProperty("tbl4_received_camt_paisa", out _));
+
+        var camt = root.GetProperty("tbl3_received_camt_paisa").GetInt64();
+        var samt = root.GetProperty("tbl3_received_samt_paisa").GetInt64();
+        var iamt = root.GetProperty("tbl3_received_iamt_paisa").GetInt64();
+        var csamt = root.GetProperty("tbl3_received_csamt_paisa").GetInt64();
+
+        Assert.Equal(root.GetProperty("total_received_paisa").GetInt64(), camt + samt + iamt + csamt);
+
+        // Non-vacuous: this fixture genuinely receives credit.
+        Assert.True(camt + samt + iamt + csamt > 0);
     }
 
     // ==============================================================================================================
@@ -277,7 +310,7 @@ public sealed class Gstr6IsdJsonTests
         var (c, isdId) = Build();
         var root = Emit(c, isdId);
 
-        var rows = root.GetProperty("tbl8_distribution").EnumerateArray().ToList();
+        var rows = root.GetProperty("tbl5_8_distribution").EnumerateArray().ToList();
 
         var home = rows.Single(r => r.GetProperty("state_cd").GetString() == Karnataka);
         Assert.Equal(270_000L, home.GetProperty("camt_paisa").GetInt64());
@@ -433,6 +466,6 @@ public sealed class Gstr6IsdJsonTests
 
         Assert.Equal(0L, root.GetProperty("total_received_paisa").GetInt64());
         Assert.Equal(0L, root.GetProperty("total_distributed_paisa").GetInt64());
-        Assert.Empty(root.GetProperty("tbl8_distribution").EnumerateArray());
+        Assert.Empty(root.GetProperty("tbl5_8_distribution").EnumerateArray());
     }
 }

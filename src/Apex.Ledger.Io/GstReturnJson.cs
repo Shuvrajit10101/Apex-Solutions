@@ -235,16 +235,16 @@ public static class GstReturnJson
             RelevantPeriodFrom = r.RelevantPeriodFrom.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             RelevantPeriodTo = r.RelevantPeriodTo.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             RelevantPeriodBasis = r.RelevantPeriodBasis,
-            Tbl4ReceivedCamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCgst),
-            Tbl4ReceivedSamtPaisa = MoneyCodec.ToPaisa(r.ReceivedSgst),
-            Tbl4ReceivedIamtPaisa = MoneyCodec.ToPaisa(r.ReceivedIgst),
-            Tbl4ReceivedCsamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCess),
+            Tbl3ReceivedCamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCgst),
+            Tbl3ReceivedSamtPaisa = MoneyCodec.ToPaisa(r.ReceivedSgst),
+            Tbl3ReceivedIamtPaisa = MoneyCodec.ToPaisa(r.ReceivedIgst),
+            Tbl3ReceivedCsamtPaisa = MoneyCodec.ToPaisa(r.ReceivedCess),
             EligibleCreditPaisa = MoneyCodec.ToPaisa(r.EligibleCredit),
             IneligibleCreditPaisa = MoneyCodec.ToPaisa(r.IneligibleCredit),
             TotalReceivedPaisa = MoneyCodec.ToPaisa(r.TotalReceived),
             TotalDistributedPaisa = MoneyCodec.ToPaisa(r.TotalDistributed),
             UndistributedCreditPaisa = MoneyCodec.ToPaisa(r.UndistributedCredit),
-            Tbl8Distribution = r.Distribution.Select(d => new Gstr6DistributionDto
+            Tbl5And8Distribution = r.Distribution.Select(d => new Gstr6DistributionDto
             {
                 Gstin = d.Gstin,
                 Name = d.Name,
@@ -711,16 +711,28 @@ public static class GstReturnJson
         [JsonPropertyName("relevant_period_from")] public required string RelevantPeriodFrom { get; init; }
         [JsonPropertyName("relevant_period_to")] public required string RelevantPeriodTo { get; init; }
         [JsonPropertyName("relevant_period_basis")] public required string RelevantPeriodBasis { get; init; }
-        [JsonPropertyName("tbl4_received_camt_paisa")] public long Tbl4ReceivedCamtPaisa { get; init; }
-        [JsonPropertyName("tbl4_received_samt_paisa")] public long Tbl4ReceivedSamtPaisa { get; init; }
-        [JsonPropertyName("tbl4_received_iamt_paisa")] public long Tbl4ReceivedIamtPaisa { get; init; }
-        [JsonPropertyName("tbl4_received_csamt_paisa")] public long Tbl4ReceivedCsamtPaisa { get; init; }
+        // 🔴 THESE WERE NAMED tbl4_received_* AND THAT WAS THE WRONG TABLE ON A FILED RETURN.
+        // Credit RECEIVED for distribution is Form GSTR-6 **Table 3**, "Input tax credit received for
+        // distribution". Table 4 is "Total ITC available and Eligible ITC/Ineligible ITC distributed" — the
+        // eligible/ineligible split below, not the receipts. Checked by content against the GSTN user guide
+        // (tutorial.gst.gov.in/userguide/returns/GSTR-6_faq.htm) and the GSTR-6 offline-utility documentation
+        // (tutorial.gst.gov.in/downloads/gstr6offlineutility.pdf), which enumerates "3. ITC Received, 5, 8
+        // Distribution of ITC, 6B CDN, 6A ITC received (B2BA), 6C CDNA and 9 Amendment of distribution of ITC".
+        [JsonPropertyName("tbl3_received_camt_paisa")] public long Tbl3ReceivedCamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_received_samt_paisa")] public long Tbl3ReceivedSamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_received_iamt_paisa")] public long Tbl3ReceivedIamtPaisa { get; init; }
+        [JsonPropertyName("tbl3_received_csamt_paisa")] public long Tbl3ReceivedCsamtPaisa { get; init; }
+        // Table 4's eligible/ineligible split. Left WITHOUT a table-number prefix deliberately: the sub-row
+        // lettering within Table 4 was not retrievable by content, and a guessed "tbl4a"/"tbl4b" would be an
+        // invented claim on a filed document. The unprefixed name asserts nothing it cannot support.
         [JsonPropertyName("eligible_credit_paisa")] public long EligibleCreditPaisa { get; init; }
         [JsonPropertyName("ineligible_credit_paisa")] public long IneligibleCreditPaisa { get; init; }
         [JsonPropertyName("total_received_paisa")] public long TotalReceivedPaisa { get; init; }
         [JsonPropertyName("total_distributed_paisa")] public long TotalDistributedPaisa { get; init; }
         [JsonPropertyName("undistributed_credit_paisa")] public long UndistributedCreditPaisa { get; init; }
-        [JsonPropertyName("tbl8_distribution")] public required IReadOnlyList<Gstr6DistributionDto> Tbl8Distribution { get; init; }
+        // The GSTN offline utility captures the distribution across Tables 5 AND 8 together ("5, 8 Distribution of
+        // ITC" in its own documentation), so the key names both rather than claiming either alone.
+        [JsonPropertyName("tbl5_8_distribution")] public required IReadOnlyList<Gstr6DistributionDto> Tbl5And8Distribution { get; init; }
         [JsonPropertyName("diagnostics")] public required IReadOnlyList<string> Diagnostics { get; init; }
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }

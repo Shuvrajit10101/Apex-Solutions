@@ -238,6 +238,87 @@ public class IsdDistributionRule39Tests
         Assert.Equal(pool.CessPaisa, result.Lines.Sum(l => l.CessPaisa));
     }
 
+    /// <summary>
+    /// 🔴 <b>NO DISTRIBUTED HEAD MAY EVER BE NEGATIVE — the remainder convention can drive the LAST recipient
+    /// below zero, and this is wrong money on a filed return.</b>
+    ///
+    /// <para><b>The arithmetic that breaks it.</b> <c>Split</c> gives the first n−1 targets
+    /// <c>ProRata.Paisa</c>, which rounds <b>away from zero</b>, and hands the last target
+    /// <c>credit − Σ(the others)</c>. When every rounding goes UP, the others can between them absorb more than
+    /// the whole pool, and the remainder the last target receives is negative. Five recipients of equal turnover
+    /// sharing 3 paisa is the smallest witness: each true share is 0.6 paisa, each of the first four rounds up to
+    /// 1, and 3 − 4 = <b>−1</b>.</para>
+    ///
+    /// <para><b>Why this is not a rounding quibble.</b> Rule 39 distributes credit; it has no concept of a
+    /// negative distribution. Reducing credit already distributed is an <b>ISD credit note</b> under
+    /// Rule 39(1)(l)/(n) — a different document with its own apportionment — and <see cref="IsdDistribution"/>
+    /// refuses a negative head on the way IN for exactly that reason. Emitting one on the way OUT contradicts
+    /// that guard. On GSTR-6 it would file a negative ITC figure against a real GSTIN in table 5/6.</para>
+    ///
+    /// <para><b>The fix keeps Rule 39(1)(b) intact.</b> The pool must still foot exactly, so the paisa cannot
+    /// simply be dropped; the overshoot is clawed back off the largest shares instead, which keeps Σ = C while no
+    /// share goes below zero.</para>
+    /// </summary>
+    [Fact]
+    public void No_distributed_head_is_ever_negative_even_when_every_rounding_goes_up()
+    {
+        var r4 = Guid.Parse("00000000-0000-0000-0000-0000000000a4");
+        var r5 = Guid.Parse("00000000-0000-0000-0000-0000000000a5");
+
+        // Five equal turnovers, 3 paisa of credit. Each true share is 0.6p; away-from-zero rounding makes the
+        // first four 1p each, which is 4p — more than the pool.
+        var recipients = new[]
+        {
+            new IsdRecipient(Mumbai, "A", Maharashtra, null, 1_000),
+            new IsdRecipient(Jabalpur, "B", Maharashtra, null, 1_000),
+            new IsdRecipient(DelhiUnit, "C", Maharashtra, null, 1_000),
+            new IsdRecipient(r4, "D", Maharashtra, null, 1_000),
+            new IsdRecipient(r5, "E", Maharashtra, null, 1_000),
+        };
+
+        var result = IsdDistribution.Distribute(Maharashtra, recipients,
+            new[] { new IsdCreditPool("three paisa, five ways", 3, 0, 0, 0) });
+
+        // Rule 39(1)(b) — the pool still foots exactly.
+        Assert.Equal(3, result.DistributedPaisa);
+
+        // ...and not by handing one recipient a negative share.
+        Assert.All(result.Lines, l =>
+        {
+            Assert.True(l.CgstPaisa >= 0, $"{l.RecipientName} received negative central tax: {l.CgstPaisa}");
+            Assert.True(l.SgstPaisa >= 0, $"{l.RecipientName} received negative State tax: {l.SgstPaisa}");
+            Assert.True(l.IgstPaisa >= 0, $"{l.RecipientName} received negative integrated tax: {l.IgstPaisa}");
+            Assert.True(l.CessPaisa >= 0, $"{l.RecipientName} received negative cess: {l.CessPaisa}");
+        });
+    }
+
+    /// <summary>
+    /// The same defect reached through the <b>cess</b> head and an UNEQUAL turnover split, so the fix cannot be a
+    /// special case for equal shares or for a single head. Turnovers 1/1/1/1/96 over 3 paisa of cess: the four
+    /// small recipients each round 0.03p up to... 0, but the large one dominates — the witness here is the
+    /// mirror case where many tiny shares each round up to 1p and the final LARGE share still has to absorb them.
+    /// </summary>
+    [Fact]
+    public void No_head_goes_negative_when_many_small_recipients_each_round_up()
+    {
+        var ids = Enumerable.Range(0, 9)
+            .Select(i => Guid.Parse($"00000000-0000-0000-0000-0000000000b{i}"))
+            .ToArray();
+
+        // Nine equal turnovers sharing 5 paisa: each true share is 0.555p, rounding up to 1p for the first eight
+        // = 8p against a 5p pool.
+        var recipients = ids
+            .Select((id, i) => new IsdRecipient(id, $"U{i}", Maharashtra, null, 1_000))
+            .ToArray();
+
+        var result = IsdDistribution.Distribute(Maharashtra, recipients,
+            new[] { new IsdCreditPool("five paisa, nine ways", 0, 0, 0, 5) });
+
+        Assert.Equal(5, result.DistributedPaisa);
+        Assert.All(result.Lines, l => Assert.True(l.CessPaisa >= 0,
+            $"{l.RecipientName} received negative cess: {l.CessPaisa}"));
+    }
+
     // ==========================================================================================================
     //  4. Rule 39(1)(c)/(d)/(e) — who is in the denominator
     // ==========================================================================================================

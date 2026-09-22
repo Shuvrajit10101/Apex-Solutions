@@ -292,6 +292,28 @@ public static class IsdDistribution
     /// Rule 39(1)(f): <c>C1 = (t1 ÷ T) × C</c> for every target, with the LAST target taking
     /// <c>C − Σ(the others)</c> so the split foots to <paramref name="credit"/> exactly (Rule 39(1)(b)). This mirrors
     /// the convention <see cref="ProRata"/> documents for every other apportioned group total in this app.
+    ///
+    /// <para>🔴 <b>PLUS A CLAWBACK, BECAUSE THE BARE CONVENTION CAN DISTRIBUTE A NEGATIVE SHARE.</b>
+    /// <see cref="ProRata.Paisa"/> rounds <b>away from zero</b>. When the pool is small relative to the number of
+    /// targets, EVERY one of the first n−1 roundings can go up, and between them they absorb more than the whole
+    /// pool — so <c>credit − Σ(the others)</c>, which the last target receives, comes out <b>below zero</b>. The
+    /// smallest witness is five recipients of equal turnover sharing <b>3 paisa</b>: each true share is 0.6p, each
+    /// of the first four rounds up to 1p, and 3 − 4 = <b>−1p</b> for the fifth.
+    /// <c>IsdDistributionRule39Tests.No_distributed_head_is_ever_negative_even_when_every_rounding_goes_up</c>
+    /// reproduces it, and a second test reaches the same defect through the cess head.</para>
+    ///
+    /// <para><b>Why that had to be fixed rather than tolerated as a rounding quibble.</b> Rule 39 distributes
+    /// credit and has no concept of a negative distribution; reducing credit already distributed is an <b>ISD
+    /// credit note</b> under Rule 39(1)(l)/(n), a separate document with its own apportionment that this engine
+    /// deliberately does not build. <see cref="Distribute"/> already refuses a negative head on the way IN for
+    /// precisely that reason — emitting one on the way OUT contradicted its own guard, and on GSTR-6 it files a
+    /// negative ITC figure against a real GSTIN.</para>
+    ///
+    /// <para><b>What the clawback does, and what it preserves.</b> The overshoot is taken back off the other
+    /// shares a paisa at a time, in descending order of share and never below zero, while the last target is held
+    /// at zero. Σ therefore still equals <paramref name="credit"/> exactly — Rule 39(1)(b) is untouched, the paisa
+    /// is not dropped — and no share is negative. It engages ONLY when the remainder would have gone negative, so
+    /// every ordinary distribution keeps the documented last-takes-the-remainder answer unchanged.</para>
     /// </summary>
     private static long[] Split(long credit, List<IsdRecipient> targets, long t)
     {
@@ -304,7 +326,36 @@ public static class IsdDistribution
             shares[i] = ProRata.Paisa(credit, targets[i].TurnoverPaisa, t);
             assigned += shares[i];
         }
-        shares[^1] = credit - assigned;
+
+        var remainder = credit - assigned;
+        if (remainder >= 0)
+        {
+            shares[^1] = remainder;
+            return shares;
+        }
+
+        // Every rounding went up. Hold the last target at zero and claw the overshoot back off the largest
+        // shares. This terminates: the deficit is (assigned − credit) ≤ assigned, which is exactly the total
+        // available to reclaim, and `credit` is non-negative because Distribute refuses a negative head.
+        shares[^1] = 0;
+        var deficit = -remainder;
+        var order = Enumerable.Range(0, targets.Count - 1)
+            .OrderByDescending(i => shares[i])
+            .ThenBy(i => i)
+            .ToArray();
+
+        var k = 0;
+        while (deficit > 0 && order.Length > 0)
+        {
+            var i = order[k % order.Length];
+            if (shares[i] > 0)
+            {
+                shares[i]--;
+                deficit--;
+            }
+            k++;
+        }
+
         return shares;
     }
 

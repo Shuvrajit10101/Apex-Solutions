@@ -45,9 +45,16 @@ public enum GstRegistrationType
     /// every stored 0–3 keeps its meaning and <c>PRAGMA table_info</c> is byte-identical. Inserting it anywhere
     /// above would silently re-label every existing book's registration.</para>
     ///
-    /// <para>An ISD is <b>not</b> an outward-supply dealer: it "<i>itself cannot discharge any tax liability</i>"
-    /// (same CBIC flier), so it files <b>GSTR-6</b> (§39(4), within thirteen days after the end of the month) and
-    /// not GSTR-1/3B. Nothing in this build treats it as a Regular dealer — <c>IsRegularGstDealer</c> compares
+    /// <para>An ISD is <b>not</b> an outward-supply dealer. It files <b>GSTR-6</b> and not GSTR-1/3B, and that is
+    /// taken from the operative text rather than from an explainer: CGST Act <b>§39(4)</b> — "<i>Every taxable
+    /// person registered as an Input Service Distributor shall, for every calendar month or part thereof, furnish,
+    /// in such form and manner as may be prescribed, a return, electronically, within thirteen days after the end
+    /// of such month</i>"
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter9/section39_v1.00.html</c>,
+    /// fetched and read by content for this slice). 🔴 This sentence previously quoted the 404'd flier for the
+    /// proposition that an ISD "itself cannot discharge any tax liability"; that quote was withdrawn with the rest
+    /// of the flier's claims, and §39(4) carries the filing obligation directly.
+    /// Nothing in this build treats it as a Regular dealer — <c>IsRegularGstDealer</c> compares
     /// against <see cref="Regular"/> — so a company that never creates one is byte-identical (ER-13).</para>
     /// </summary>
     InputServiceDistributor,

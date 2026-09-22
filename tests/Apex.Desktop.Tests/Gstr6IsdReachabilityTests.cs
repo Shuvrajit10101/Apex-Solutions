@@ -359,7 +359,11 @@ public sealed class Gstr6IsdReachabilityTests
 
             var text = File.ReadAllText(path);
             Assert.Contains("\"gstin\": \"" + isd.Gstin + "\"", text, StringComparison.Ordinal);
-            Assert.Contains("tbl8_distribution", text, StringComparison.Ordinal);
+            // Tables 5 and 8 — the GSTN offline utility captures the distribution across both, so the key names
+            // both. (This was "tbl8_distribution"; the receipts key alongside it was "tbl4_received_*", which was
+            // the WRONG table — credit received is Table 3. See Gstr6IsdJsonTests for the sourcing.)
+            Assert.Contains("tbl5_8_distribution", text, StringComparison.Ordinal);
+            Assert.Contains("tbl3_received_camt_paisa", text, StringComparison.Ordinal);
             // Rule 39(1)(b) travels with the file, not only with the screen.
             Assert.Contains("undistributed_credit_paisa", text, StringComparison.Ordinal);
             Assert.DoesNotContain("Tally", text, StringComparison.OrdinalIgnoreCase);

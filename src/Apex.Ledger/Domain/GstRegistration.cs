@@ -127,10 +127,21 @@ public sealed class GstRegistration
 
         // A registered person is a registered person whichever State the registration is in — the same rule
         // GstConfig.EnsureValid applies to the first registration, applied here so the second cannot be weaker.
-        // 🔴 InputServiceDistributor is in this list for the same reason and not by analogy: the CBIC flier
-        // "Input Service Distributor in GST" states an ISD "will have to compulsorily take a separate registration
-        // as such ISD", so an ISD registration that carries no GSTIN is not a thing that exists. GSTR-6 prints the
+        // 🔴 InputServiceDistributor is in this list for the same reason and not by analogy. CGST Act §24 —
+        // "Compulsory registration in certain cases" — names at clause (viii) the "Input Service Distributor,
+        // whether or not separately registered under this Act", and §20(1) (as substituted w.e.f. 01.04.2025 by
+        // s. 12 of the Finance (No. 8) Act, 2024) says such an office "shall be required to be registered as
+        // Input Service Distributor under clause (viii) of section 24". Registration is therefore compulsory and
+        // separate, so an ISD registration carrying no GSTIN is not a thing that exists. GSTR-6 prints the
         // distributor's GSTIN on every ISD invoice, so allowing a null here would produce an unfileable return.
+        // Sources, both fetched and read BY CONTENT for this slice:
+        //   taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter6/section24_v1.00.html
+        //   taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html
+        // 🔴 This comment previously rested on the CBIC e-version flier "Input Service Distributor in GST"
+        // (cbic-gst.gov.in/pdf/e-version-gst-fliers/InputServiceDistributorinGST.pdf). That URL returns HTTP 404
+        // with a 255-byte HTML error body — re-checked by content on 2026-09-21, not taken on trust — so under R7
+        // the claim may not rest on it. §24(viii) is the stronger authority anyway: operative text, not an
+        // explainer, and it carries the separateness point expressly.
         if (registrationType is GstRegistrationType.Regular or GstRegistrationType.Composition
                 or GstRegistrationType.InputServiceDistributor
             && gstin is null)
