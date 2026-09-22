@@ -757,8 +757,29 @@ public sealed class ReportChordFidelityTests : IDisposable
     ///
     /// <para>The fix is <c>MainWindowViewModel.IsActionMenuColumn</c>, a clause on all three page predicates, so
     /// that no arm outside an action menu can claim a bare letter while one is up and the letter reaches the row
-    /// the product painted it on. Delete that clause and this test goes red while the whole rest of the gate
-    /// stays green — which is exactly what happened.</para>
+    /// the product painted it on.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS TEST ACTUALLY CATCHES, MEASURED BY MUTATION RATHER THAN ASSERTED.</b> An earlier
+    /// draft of this remark claimed "delete that clause and this test goes red". That claim was run and is
+    /// <b>FALSE for either clause on its own</b>, because the clauses are deliberately redundant — the sentence
+    /// is corrected here rather than left standing, since a comment asserting something the code does not hold is
+    /// precisely how the defect below shipped. The three measurements, each a separate build and run of this
+    /// class (29 tests):
+    /// <list type="bullet">
+    /// <item>Neutralise <c>!IsActionMenuColumn</c> on <see cref="MainWindowViewModel.IsPrintablePage"/> alone →
+    /// <b>29/29 still pass.</b> That clause is the belt of belt-and-braces; <c>IsReportContext</c> is still false
+    /// under the menu, so the bare-letter arm stays shut.</item>
+    /// <item>Neutralise it on <see cref="MainWindowViewModel.IsReportContext"/> alone → <b>1 failure</b>, and it
+    /// is <c>All_four_action_menus_make_the_page_predicates_false</c>, NOT this test:
+    /// <c>IsPrintablePage</c>'s own clause still guards the W arm.</item>
+    /// <item>Neutralise <see cref="MainWindowViewModel.IsActionMenuColumn"/> itself — the true pre-fix code —
+    /// → <b>3 failures</b>: this test, its e-mail twin, and the predicate test. This test's message is the defect
+    /// verbatim: <c>Expected: "Journal No. 1" / Actual: "Day Book"</c>.</item>
+    /// </list>
+    /// So the honest statement is: <b>this test is the only assertion in the suite that sees the BREACH</b> (the
+    /// predicate test sees only the predicates), and it fires when the fix is genuinely absent — but the two
+    /// clauses each independently close the hole, so no single-clause edit can be used to prove it live. Revert
+    /// <c>IsActionMenuColumn</c> to <c>false</c> if you need to watch it fail.</para>
     /// </summary>
     [AvaloniaFact]
     public void Share_menu_W_over_a_drilled_voucher_emits_the_VOUCHER_document_not_the_Day_Book()
