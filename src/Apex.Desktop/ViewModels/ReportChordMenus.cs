@@ -29,7 +29,18 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public static class ChangeViewMenu
 {
-    /// <summary>The column header. Also the screen title while the menu is the active pane.</summary>
+    /// <summary>
+    /// The column header. Also the screen title while the menu is the active pane.
+    /// <para>Attested in BOTH tiers of the vendor's own documentation, which matters because this is the one
+    /// chord in the slice that lands beside a shipped incumbent (Change Mode, ruling 17). The product-wide
+    /// shortcut table gives <c>Ctrl+H</c> as <i>"To change view – display report details in different views"</i>
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/), and the feature page writes the menu by
+    /// this exact name — <i>"press <b>Ctrl+H</b> (Change View), and select the view under <b>Saved Views</b>"</i>
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/). Both pages were opened by content for
+    /// this slice. The shortcut table's own wording also settles the SCOPE question the guard encodes: it says
+    /// <i>report</i> details, which is why <see cref="MainWindowViewModel.OpenChangeViewMenu"/> refuses off a
+    /// live report and the voucher's Change Mode keeps the chord where it had it.</para>
+    /// </summary>
     public const string ColumnTitle = "Change View";
 
     /// <summary>Vendor row label, verbatim (help.tallysolutions.com/use-save-view-feature-in-tallyprime/,
@@ -51,9 +62,12 @@ public static class ChangeViewMenu
         new[] { SavedViewsVerb, DeleteSavedViewsVerb, ShowOriginalViewVerb };
 
     /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE. The vendor's Change View also carries a <i>default view</i> setting — a saved
-    /// view designated to open automatically — and this build has no default-view concept at all: a view is
-    /// applied when the operator chooses it and never otherwise. A row that opened a "not available" message
+    /// 🔴 THE HONEST DISCLOSURE, and the vendor page was re-opened by content to confirm the gap is real rather
+    /// than assumed. help.tallysolutions.com/use-save-view-feature-in-tallyprime/ lets the operator tick
+    /// <i>"Set this as default view for the report"</i> when saving, and manage it afterwards through
+    /// <i>"Set/Alter Default View"</i> — a saved view designated to open automatically. This build has no
+    /// default-view concept at all: a view is applied when the operator chooses it and never otherwise, so
+    /// neither the tick nor the management row has anything to act on. A row that opened a "not available" message
     /// would be worse than no row (the standing rule this menu inherits from <see cref="CompanyMenu"/>), so the
     /// capability is NAMED here instead. Length-budgeted: a cascade header is drawn uppercase at LetterSpacing
     /// 1.5, ~12.5px per character against ~350px of column, so this must stay short enough to wrap to two lines.
@@ -103,23 +117,43 @@ public static class ReportPrintMenu
     /// <summary>The column header.</summary>
     public const string ColumnTitle = "Print";
 
-    /// <summary>The vendor's pairing: Alt+P's first row is what Ctrl+P does on its own.</summary>
+    /// <summary>
+    /// <b>Current</b> — and this label is ATTESTED, not inferred. This doc-comment previously justified it only
+    /// as "the vendor's pairing: Alt+P's first row is what Ctrl+P does on its own", which is an inference; the
+    /// page was re-opened by content and it does better than that. help.tallysolutions.com/print-invoices-reports/
+    /// writes the chord with this exact word attached, repeatedly: <i>"Open the invoice or report you want to
+    /// print and press <b>Ctrl+P</b> (Current)."</i>, and again <i>"press <b>Ctrl+P</b> (Current) &gt; <b>C</b>
+    /// (Configure)"</i>. So <b>Current</b> is the vendor's own name for this verb, exactly as it is on the export
+    /// side ("press <b>Ctrl+E</b> (Current)"), and the hint this row carries is the chord the vendor attaches it
+    /// to. <b>Do not weaken this back to an inference, and do not widen it into a claim that the vendor prints
+    /// the word as a ROW of the Alt+P menu — it does not; what is attested is the verb's name.</b>
+    /// </summary>
     public const string CurrentVerb = "Current";
 
-    /// <summary>Vendor row label: <i>Alt+P &gt; Others</i>, the multi-account report job.</summary>
+    /// <summary>Vendor row label, verbatim (help.tallysolutions.com/print-invoices-reports/, <i>Print
+    /// Multi-Account Reports</i>): <i>"Press <b>Alt+P</b> (Print) &gt; <b>Others</b>."</i></summary>
     public const string OthersVerb = "Others";
 
     /// <summary>The verbs this menu offers, in order. Read by the shell tests.</summary>
     public static readonly IReadOnlyList<string> OfferedVerbs = new[] { CurrentVerb, OthersVerb };
 
     /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE. The vendor's print menu also carries a <b>Configuration</b> row that opens the
-    /// print knobs directly from here. In this build those knobs live on the preview's own F12 panel
-    /// (<see cref="MainWindowViewModel.OpenPrintConfig"/>) and <b>cannot be opened before a preview exists</b> —
-    /// the panel is constructed from a live <c>PrintPreviewViewModel</c>. Offering a Configuration row that
-    /// opened nothing would advertise a route the product does not have.
+    /// 🔴 THE HONEST DISCLOSURE, and it names TWO withheld rows because the vendor's menu has three.
+    /// help.tallysolutions.com/print-invoices-reports/ was re-opened by content for this slice and its Alt+P
+    /// menu carries <b>Configuration</b>, <b>All Tiles</b> and <b>Others</b>; this build offers Current and
+    /// Others, so two things are missing and only one of them used to be admitted here.
+    /// <para>• <b>Configuration</b> opens the print knobs directly from the menu. In this build those knobs live
+    /// on the preview's own F12 panel (<see cref="MainWindowViewModel.OpenPrintConfig"/>) and <b>cannot be opened
+    /// before a preview exists</b> — the panel is constructed from a live <c>PrintPreviewViewModel</c>. The route
+    /// exists, one step later; the disclosure says where.</para>
+    /// <para>• <b>All Tiles</b> prints every tile of the dashboard in one job (<i>"To print a specific tile in
+    /// Dashboard, press <b>Ctrl+P</b> (Current)"</i> is the single-tile half the same page documents). This build
+    /// HAS a dashboard with tiles (<see cref="DashboardViewModel.Tiles"/>) and has NO print route to any of them:
+    /// <see cref="MainWindowViewModel.IsPrintablePage"/> needs a report, a drilled voucher or a master list, and
+    /// the dashboard is none of the three, so Alt+P does not even open over it. That is a real gap, it is not
+    /// this slice's to close, and it is named rather than left for a later reader to discover.</para>
     /// </summary>
-    public const string Disclosure = "Configuration is F12 on the preview";
+    public const string Disclosure = "Configuration is F12 on the preview - no All Tiles";
 
     /// <summary>Builds the Alt+P column.</summary>
     public static GatewayColumn BuildColumn(Action current, Action others)

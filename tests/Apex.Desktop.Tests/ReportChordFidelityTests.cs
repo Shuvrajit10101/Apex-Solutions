@@ -8,6 +8,7 @@ using Avalonia.Controls.Documents;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Ledger;
@@ -1049,6 +1050,286 @@ public sealed class ReportChordFidelityTests : IDisposable
             Assert.NotNull(vm.PrintPreview);
         }
         finally { window.Close(); }
+    }
+
+    // ============================================ G — EVERY ROW REACHABLE BY THE LETTER THE PRODUCT PAINTS
+    //
+    // 🔴 WHY THIS SECTION WAS ADDED ON TOP OF A GREEN SECTION F. Section F drives the menus by ENTER and, for
+    // the three rows the confidentiality defect touched, by their painted LETTER. That leaves rows whose ONLY
+    // proven door is Enter — and the defect above was precisely a row whose Enter route was green while its
+    // letter route handed a third party the wrong document. "Reachable from the keyboard" is the project's
+    // completeness bar, and the letter is half of the keyboard here: the product paints it red on the row, so
+    // it is a promise to the operator. Every selectable row of all four menus is driven by its own painted
+    // letter below.
+
+    /// <summary>
+    /// 🔴 <b>EVERY SELECTABLE ROW OF ALL FOUR MENUS IS PAINTED WITH A LETTER, AND NO TWO ROWS OF A MENU SHARE
+    /// ONE.</b> <c>GatewayColumn.AssignHotKeys</c> leaves <c>HotKeyIndex</c> at −1 when a row's every letter is
+    /// already claimed — deliberately, because a missing accelerator beats two rows answering one key — so a row
+    /// silently having NO door is a real outcome of the assigner, not a hypothetical. It is one relabel away at
+    /// any time: <b>O</b> is reserved, and <i>Others</i> begins with O.
+    ///
+    /// <para>The <c>Assert.DoesNotContain</c> on the reserved set is the second half. A painted letter that is
+    /// also a reserved bare accelerator is the exact shape of the defect this branch was withheld for — a red
+    /// letter on a row that does something else entirely.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Every_action_menu_row_is_painted_with_its_own_unreserved_letter()
+    {
+        var (window, vm) = OpenWindow("Painted Letters Co");
+        try
+        {
+            OpenAReport(window, vm);
+
+            foreach (var (key, mods, screen) in new[]
+                     {
+                         (PhysicalKey.H, RawInputModifiers.Control, Screen.ChangeViewMenu),
+                         (PhysicalKey.P, RawInputModifiers.Alt, Screen.PrintMenu),
+                         (PhysicalKey.E, RawInputModifiers.Alt, Screen.ExportMenu),
+                         (PhysicalKey.M, RawInputModifiers.Alt, Screen.ShareMenu),
+                     })
+            {
+                window.KeyPressQwerty(key, mods);
+                Pump(window);
+                Assert.Equal(screen, vm.CurrentScreen);
+
+                var rows = vm.Columns[^1].Items.Where(i => i.IsSelectable).ToList();
+                Assert.NotEmpty(rows);
+
+                var painted = new List<char>();
+                foreach (var row in rows)
+                {
+                    Assert.True(row.HasHotKey, $"{screen}: row '{row.Label}' has NO painted letter — unreachable.");
+                    var letter = char.ToUpperInvariant(row.HotKey!.Value);
+                    Assert.Contains(letter, row.Label.ToUpperInvariant());   // it really is a letter OF the label
+                    painted.Add(letter);
+                }
+
+                // O and Y are the bare Gateway accelerators GatewayColumn reserves; no row may wear one.
+                Assert.DoesNotContain('O', painted);
+                Assert.DoesNotContain('Y', painted);
+                Assert.Equal(painted.Count, painted.Distinct().Count());     // no two rows share a letter
+
+                window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+                Pump(window);
+                Assert.Equal(Screen.Report, vm.CurrentScreen);
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE ONE MENU ROW NO TEST REACHED BY ITS LETTER, AND THE LETTER IS A LOADED ONE.</b> <i>Others</i>
+    /// cannot be painted with <b>O</b> — O is reserved (it is the Gateway's bare Import key) — so
+    /// <c>AssignHotKeys</c> walks the label and lands on the next free letter, <b>T</b>. And <b>T is one of the
+    /// four bare-letter QUICK-JUMPS</b> in <c>MainWindow.axaml.cs</c> (B/P/T/D, the button-bar jumps). So this
+    /// row's painted letter collides by name with a live navigation verb, exactly as <b>W</b> did on the Share
+    /// menu and <b>C</b> does on the Memorandum Register.
+    ///
+    /// <para><b>It is safe for a THIRD reason again, which is why it is pinned rather than assumed.</b> The
+    /// quick-jumps are gated on <c>CanQuickJump</c> → <c>vm.IsMenuScreen</c>, and <c>IsMenuScreen</c> requires
+    /// <c>Reports is null</c> and <c>!IsGatewayCascade</c> — it describes the PRE-COMPANY centred menus only, so
+    /// it is false over any report. Neither <c>IsActionMenuColumn</c> nor <c>ReservedLetters</c> protects this
+    /// one; a later hand widening <c>CanQuickJump</c> to "any menu column" would read like a generalisation and
+    /// would silently make Alt+P then T open the Trial Balance instead of the multi-account print job.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Print_menu_Others_painted_letter_opens_the_multi_account_print_job()
+    {
+        var (window, vm) = OpenWindow("Print Others Letter Co");
+        try
+        {
+            OpenAReport(window, vm);
+            Assert.Equal(ReportKind.TrialBalance, vm.Reports!.Kind);
+
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+
+            var row = vm.Columns[^1].Items.Last(i => i.IsSelectable);
+            Assert.Equal(ReportPrintMenu.OthersVerb, row.Label);
+            Assert.True(row.HasHotKey);
+            var painted = char.ToUpperInvariant(row.HotKey!.Value);
+            Assert.NotEqual('O', painted);   // O is reserved — the assigner had to walk past the first letter
+            Assert.Equal('T', painted);
+
+            window.KeyPressQwerty(PhysicalKeyFor(painted), RawInputModifiers.None);
+            Pump(window);
+
+            // The MENU ROW ran. Not the T quick-jump, which would have swapped the report underneath.
+            Assert.Equal(Screen.MultiAccountPrint, vm.CurrentScreen);
+            Assert.NotNull(vm.MultiAccountPrint);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE CHANGE VIEW MENU'S THREE ROWS, EACH BY ITS OWN PAINTED LETTER.</b> Section F reaches these rows
+    /// with Enter and arrow keys only. <i>Show Original View</i> is the interesting one: <b>S</b> is taken by
+    /// <i>Saved Views</i> above it, so the assigner walks into the label and paints <b>H</b> — a letter that is
+    /// not the row's initial, which is precisely the case a hard-coded expectation gets wrong and a reader
+    /// guesses wrong. Each row is driven from a FRESH menu, because taking a row pops the column.
+    /// </summary>
+    [AvaloniaFact]
+    public void Change_view_rows_each_run_from_their_own_painted_letter()
+    {
+        var (window, vm) = OpenWindow("Change View Letters Co");
+        try
+        {
+            OpenAReport(window, vm);
+            var detailedDefault = vm.Reports!.Detailed;
+
+            // Row 1 — Saved Views. Opens the saved-views panel (empty here, which is the panel's own state).
+            var savedViews = PaintedLetterOf(window, vm, ChangeViewMenu.SavedViewsVerb);
+            window.KeyPressQwerty(PhysicalKeyFor(savedViews), RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
+            Assert.NotNull(vm.SavedViews);
+            Assert.DoesNotContain("Ctrl+S", vm.SavedViews!.Status);   // the invented chord is gone from the copy
+            Assert.Contains("Ctrl+L", vm.SavedViews!.Status);         // the vendor's Save View chord is named
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+
+            // Row 3 — Show Original View, whose painted letter is NOT its initial.
+            window.KeyPressQwerty(PhysicalKey.F1, RawInputModifiers.Alt);   // move the report off its default
+            Pump(window);
+            Assert.NotEqual(detailedDefault, vm.Reports!.Detailed);
+
+            var showOriginal = PaintedLetterOf(window, vm, ChangeViewMenu.ShowOriginalViewVerb);
+            Assert.NotEqual('S', showOriginal);   // Saved Views took S; the assigner had to walk the label
+            Assert.Equal('H', showOriginal);
+            window.KeyPressQwerty(PhysicalKeyFor(showOriginal), RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.Equal(ReportKind.TrialBalance, vm.Reports!.Kind);
+            Assert.Equal(detailedDefault, vm.Reports!.Detailed);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>ALL FOUR DISCLOSURES ARE MEASURED ON SCREEN, BECAUSE A DISCLOSURE THAT IS CUT IN HALF IS WORSE THAN
+    /// NO DISCLOSURE — IT READS AS A DIFFERENT, SHORTER, FALSE SENTENCE.</b> This is a filed defect of this
+    /// shell, not a hypothetical: the COMPANY menu's disclosure needed 888px, was arranged into 350, and with
+    /// <c>NoWrap</c>/<c>TextTrimming=None</c> the screen read a hard cut at 39% with nothing signalling the loss.
+    /// <c>ShellNavigationRowsTests.The_company_menus_disclosure_is_fully_readable_and_not_silently_cut</c> locks
+    /// that one; these four were never measured, and one of them was LENGTHENED in this slice (the print menu's,
+    /// to admit the vendor's <i>All Tiles</i> row as well as <i>Configuration</i>) — so the budget is now proven
+    /// rather than asserted in a code comment.
+    ///
+    /// <para>A string assertion cannot see this. <c>TextBlock.Text</c> is what the view model set, not what the
+    /// operator read, so every "the disclosure is on screen" test in this file passes on the cut render. The
+    /// probe re-measures the realised block in its own font, wrapped to the width it was actually given.</para>
+    ///
+    /// <para>🔴 <b>THE LINE BUDGET IS THE ASSERTION THAT ACTUALLY BITES, AND IT IS HERE BECAUSE THE OBVIOUS
+    /// ASSERTION IS A DEAD GUARD. THIS WAS MEASURED, NOT REASONED.</b> The first draft of this test copied the
+    /// shipped width probe from
+    /// <c>ShellNavigationRowsTests.The_company_menus_disclosure_is_fully_readable_and_not_silently_cut</c> —
+    /// <c>probe.DesiredSize.Width &lt;= block.Bounds.Width</c>. It was then mutated: the print disclosure was
+    /// replaced with a <b>152-character</b> sentence, roughly five times its budget, and <b>all 29 tests stayed
+    /// green</b>. The reason is structural and applies to that shipped test too. Once the shared cascade header
+    /// template carries <c>TextWrapping="Wrap"</c>, a wrapped block's desired WIDTH can never exceed the
+    /// constraint it was measured against — that is what wrapping means — so the width comparison is a
+    /// tautology, and the height comparison only re-states that the Border grew to fit. Both survive as
+    /// regression guards on the TEMPLATE (they fail the day someone puts <c>NoWrap</c> back, which is the cut
+    /// they were written for), but neither can see an over-long STRING, which is the other half of the original
+    /// two-sided fix. <b>The line count is what sees it</b>: the header is budgeted at two lines in its own
+    /// source remarks, so that budget is measured here rather than asserted in prose. The mutation above takes
+    /// this test red at six lines.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Every_action_menu_disclosure_is_fully_readable_and_not_silently_cut()
+    {
+        var (window, vm) = OpenWindow("Disclosure Fit Co");
+        try
+        {
+            OpenAReport(window, vm);
+
+            foreach (var (key, mods, screen, disclosure) in new[]
+                     {
+                         (PhysicalKey.H, RawInputModifiers.Control, Screen.ChangeViewMenu, ChangeViewMenu.Disclosure),
+                         (PhysicalKey.P, RawInputModifiers.Alt, Screen.PrintMenu, ReportPrintMenu.Disclosure),
+                         (PhysicalKey.E, RawInputModifiers.Alt, Screen.ExportMenu, ReportExportMenu.Disclosure),
+                         (PhysicalKey.M, RawInputModifiers.Alt, Screen.ShareMenu, ReportShareMenu.Disclosure),
+                     })
+            {
+                window.KeyPressQwerty(key, mods);
+                Pump(window);
+                Assert.Equal(screen, vm.CurrentScreen);
+
+                var block = Descendants(window)
+                    .OfType<TextBlock>()
+                    .Single(t => t.IsEffectivelyVisible
+                                 && (t.Text ?? string.Empty)
+                                     .Contains(disclosure, StringComparison.OrdinalIgnoreCase));
+
+                Assert.True(block.Bounds.Width > 0 && block.Bounds.Height > 0,
+                    $"{screen}: the disclosure is not laid out at all.");
+                Assert.True(
+                    block.TextWrapping != TextWrapping.NoWrap || block.TextTrimming != TextTrimming.None,
+                    $"{screen}: the header can neither wrap nor trim — any overflow is a silent mid-word cut.");
+
+                var probe = new TextBlock
+                {
+                    Text = block.Text,
+                    FontSize = block.FontSize,
+                    FontFamily = block.FontFamily,
+                    FontWeight = block.FontWeight,
+                    FontStyle = block.FontStyle,
+                    LetterSpacing = block.LetterSpacing,
+                    TextWrapping = block.TextWrapping,
+                };
+                probe.Measure(new Size(block.Bounds.Width, double.PositiveInfinity));
+
+                Assert.True(probe.DesiredSize.Width <= block.Bounds.Width + 0.5,
+                    $"{screen}: the disclosure needs {probe.DesiredSize.Width:F0}px but was arranged into " +
+                    $"{block.Bounds.Width:F0}px, so part of it is not on screen.");
+                Assert.True(block.Bounds.Height + 0.5 >= probe.DesiredSize.Height,
+                    $"{screen}: the disclosure wraps to {probe.DesiredSize.Height:F0}px but was arranged into " +
+                    $"{block.Bounds.Height:F0}px, so a wrapped line is clipped.");
+
+                // 🔴 The line budget — the only one of the four assertions that an over-long STRING can fail.
+                // One line's height in this very block, measured by re-probing the same text unwrapped.
+                var oneLine = new TextBlock
+                {
+                    Text = block.Text,
+                    FontSize = block.FontSize,
+                    FontFamily = block.FontFamily,
+                    FontWeight = block.FontWeight,
+                    FontStyle = block.FontStyle,
+                    LetterSpacing = block.LetterSpacing,
+                    TextWrapping = TextWrapping.NoWrap,
+                };
+                oneLine.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Assert.True(oneLine.DesiredSize.Height > 0, $"{screen}: cannot measure a line height.");
+
+                var lines = (int)Math.Round(probe.DesiredSize.Height / oneLine.DesiredSize.Height,
+                                            MidpointRounding.AwayFromZero);
+                Assert.True(lines <= 2,
+                    $"{screen}: the disclosure \"{block.Text}\" wraps to {lines} lines in " +
+                    $"{block.Bounds.Width:F0}px. The cascade header is budgeted at two; a taller one pushes the " +
+                    "menu's own rows down and reads as a paragraph rather than a caveat. Shorten the string.");
+
+                window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+                Pump(window);
+                Assert.Equal(Screen.Report, vm.CurrentScreen);
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Opens the Change View menu and returns the letter the product paints on <paramref name="label"/>,
+    /// leaving the menu up and ready for that keystroke.</summary>
+    private static char PaintedLetterOf(MainWindow window, MainWindowViewModel vm, string label)
+    {
+        window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+        Pump(window);
+        Assert.Equal(Screen.ChangeViewMenu, vm.CurrentScreen);
+
+        var row = vm.Columns[^1].Items.Single(i => i.IsSelectable && i.Label == label);
+        Assert.True(row.HasHotKey, $"'{label}' has no painted letter — it is unreachable by letter.");
+        return char.ToUpperInvariant(row.HotKey!.Value);
     }
 
     /// <summary>Posts a two-line journal (expense Dr / Cash Cr) and returns its id.</summary>
