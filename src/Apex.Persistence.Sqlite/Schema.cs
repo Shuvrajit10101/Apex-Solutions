@@ -156,7 +156,7 @@ namespace Apex.Persistence.Sqlite;
 /// goods GST never absorbed: seven <c>companies</c> columns, five <c>ledgers</c> columns, two
 /// <c>stock_items</c> columns and four <c>vouchers</c> columns. Purely additive; every default is 0/NULL. See
 /// <see cref="MigrateV58ToV59"/>.
-/// <b><see cref="CurrentVersion"/> = 59</b> (v59 = State VAT &amp; CST, see below); a fresh DB is always
+/// <b><see cref="CurrentVersion"/> = 65</b> (v65 = Market Valuation + ruling 26, see below); a fresh DB is always
 /// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema

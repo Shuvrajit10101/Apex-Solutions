@@ -91,7 +91,14 @@ public sealed class IncomeTaxCessRateSchemaTests
     {
         Assert.Equal(new[] { Table }, Schema.V64Tables);
         Assert.Equal(new[] { Index }, Schema.V64Indexes);
-        Assert.Equal(64, Schema.CurrentVersion);
+
+        // 🔴 The "v64 is the NEWEST migration" pin that used to sit here has MOVED, it was not deleted.
+        // Exactly one test in the suite pins Schema.CurrentVersion to a literal, and it belongs with the
+        // newest migration — otherwise every future bump would fail this v64-specific file for a reason
+        // that has nothing to do with the cess table it is about. Schema v65 (census 3.4 / defect T0-2 /
+        // user ruling 26) took the top rung, so the pin now lives in
+        // MarketValuationSchemaTests.The_published_v65_constants_describe_what_the_migration_creates.
+        // What THIS test is for is unchanged: v64's own published object lists still describe v64.
     }
 
     // ================================================================= 🔴 limb (c): nothing changes on upgrade

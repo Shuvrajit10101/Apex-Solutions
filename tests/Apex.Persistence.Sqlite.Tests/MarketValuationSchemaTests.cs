@@ -308,6 +308,33 @@ public sealed class MarketValuationSchemaTests
         finally { TempDbFile.Delete(path); }
     }
 
+    /// <summary>
+    /// The published v65 constants are the ones the migration actually uses — the single source of truth the
+    /// migration SQL, <c>CreateV1</c>, the downgrade, the operator warning and these tests all read, so they
+    /// cannot drift apart.
+    ///
+    /// <para>🔴 <b>This test also carries the suite's ONE "newest migration" pin.</b> It inherited it from
+    /// <c>IncomeTaxCessRateSchemaTests</c> when v65 took the top rung. Its job is to fail loudly if
+    /// <c>Schema.CurrentVersion</c> is bumped without a migration, a downgrade rung and a ladder step being
+    /// added alongside it — the renumber collision this project has paid for twice.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void The_published_v65_constants_describe_what_the_migration_creates()
+    {
+        Assert.Equal(
+            new[] { "market_valuation_method", "standard_price_paisa", "valuation_remediated_from" },
+            Schema.V65StockItemColumns);
+
+        // The remediation moves items OFF the retired sale-price ordinal ONTO a real cost basis. If these two
+        // were ever swapped, the migration would move every book the wrong way and value stock at the sale rate.
+        Assert.Equal((int)StockValuationMethod.LastSaleCost, Schema.V65RetiredSaleCostMethod);
+        Assert.Equal((int)StockValuationMethod.LastPurchaseCost, Schema.V65RemediationTargetMethod);
+        Assert.NotEqual(Schema.V65RetiredSaleCostMethod, Schema.V65RemediationTargetMethod);
+
+        Assert.Equal(65, Schema.CurrentVersion);
+    }
+
     // ================================================================= fixtures & helpers
 
     /// <summary>
