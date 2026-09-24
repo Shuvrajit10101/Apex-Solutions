@@ -166,7 +166,25 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v59</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes — <b>it is the value of this constant and
+    /// nothing else</b>.
+    ///
+    /// <para>🔴 <b>THE LADDER BELOW IS A HISTORICAL RECORD AND IT STOPS AT v59. DO NOT READ ITS HEAD AS "THE
+    /// CURRENT VERSION".</b> This sentence used to open <i>"<b>v59</b> is the latest bump"</i> and went on saying
+    /// it through five further bumps, so it claimed v59 while the constant read 64 — the same defect as the one
+    /// corrected in this type's own doc comment above, one summary lower and therefore more misleading, because it
+    /// sits directly on the constant. Both were corrected on 2026-09-23/24 by <b>deleting the restated digit
+    /// rather than updating it</b>: a second copy of a number that already has one authoritative home is a defect
+    /// whatever value it currently holds, and this file has now been wrong about itself twice in the same way.</para>
+    ///
+    /// <para><b>The five bumps missing from the ladder</b>, named by their migration constants so a reader can go
+    /// and read them rather than trust a summary: <see cref="MigrateV59ToV60"/>, <see cref="MigrateV60ToV61"/>,
+    /// <see cref="MigrateV61ToV62"/>, <see cref="MigrateV62ToV63"/> and <see cref="MigrateV63ToV64"/>. They are
+    /// deliberately <b>not</b> summarised here — an unverified summary of a migration is worse than a pointer to
+    /// it, and writing five from memory is how the stale claim above got written in the first place.</para>
+    ///
+    /// <para>▼ <i>The ladder as it stood, kept because each entry was accurate when written:</i></para>
+    /// v59 was a bump
     /// (<b>State VAT &amp; Central Sales Tax for the goods GST never absorbed</b>, census 15.1 State VAT / 15.2
     /// Tax Rate on the masters / 15.5 VAT Computation / 15.6 CST declaration forms: seven <c>companies</c>
     /// columns carrying the vendor's Company VAT Details screen, five <c>ledgers</c> columns (the sales/purchase
