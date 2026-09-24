@@ -76,15 +76,74 @@ public sealed partial class SavedViewsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// True while the panel was entered through Ctrl+H &gt; <b>Delete Saved Views</b> rather than
+    /// <b>Saved Views</b>. It decides what the panel's <b>Enter</b> means, which is the only difference between
+    /// the two menu rows — the vendor reaches ONE list by both.
+    /// </summary>
+    [ObservableProperty] private bool _isDeleteMode;
+
+    /// <summary>The view name the next Enter will delete, once the first Enter has armed it. Null otherwise.
+    /// This is the panel's whole confirmation state; it is cleared by any reload and by leaving delete mode.
+    /// </summary>
+    [ObservableProperty] private string? _pendingDeleteName;
+
+    /// <summary>
     /// The Ctrl+H &gt; <b>Delete Saved Views</b> intent (see <see cref="ChangeViewMenu"/>). The vendor's Change
-    /// View menu reaches this SAME list by two rows — one to apply a view, one to remove one — so this sets the
-    /// panel's status line to say which verb the operator came for rather than opening a second, near-identical
-    /// screen. A no-op on an empty list, where the empty-state sentence is the more useful thing to read.
+    /// View menu reaches this SAME list by two rows — one to apply a view, one to remove one — so this arms the
+    /// panel's delete verb rather than opening a second, near-identical screen. A no-op on an empty list, where
+    /// the empty-state sentence is the more useful thing to read.
     /// </summary>
     public void EnterDeleteMode()
     {
         if (Views.Count == 0) return;
-        Status = "Highlight a view and choose Delete to remove it.";
+        IsDeleteMode = true;
+        PendingDeleteName = null;
+        Status = "Highlight a view and press Enter to delete it.";
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE KEYBOARD DOOR FOR DELETE, AND BEFORE IT EXISTED THE <i>Delete Saved Views</i> MENU ROW LED
+    /// NOWHERE A KEYBOARD COULD FOLLOW.</b> The row is reachable — Ctrl+H, then its painted letter — and it
+    /// brought the operator to this panel with the right status line; but the only door to <c>Delete()</c> in
+    /// the entire product was a mouse <c>Click</c> handler on the panel's button
+    /// (<c>MainWindow.axaml.cs: OnDeleteSavedViewClick</c>), and the panel's Enter opened the view instead. A
+    /// menu row whose verb has no keystroke fails this project's own completeness bar, and it is the same
+    /// species of dead end census 14.4 was graded ABSENT for.
+    ///
+    /// <para><b>Two presses, because the vendor documents two and because this destroys something.</b>
+    /// help.tallysolutions.com/use-save-view-feature-in-tallyprime/ (<i>Delete Saved View of a Report</i>,
+    /// re-opened by content 2026-09-23): choose the view and press <b>Enter</b>, then <i>"Press Enter or Y to
+    /// confirm deletion"</i>. The first Enter names the view it is about to delete in the status line; only the
+    /// second removes it. Moving the highlight cancels the arming, so a stale confirmation cannot delete the
+    /// row the operator arrowed onto afterwards — that is the mis-target this shell has already filed once
+    /// (Alt+X acting on the voucher behind a stacked column).</para>
+    ///
+    /// <para>Returns true when it consumed the keystroke, so the shell's Enter arm knows not to fall through.
+    /// Outside delete mode it returns false and Enter keeps meaning <see cref="Open"/>.</para>
+    /// </summary>
+    public bool TakeDeleteStep()
+    {
+        if (!IsDeleteMode) return false;
+        if (Selected is not { } item) return false;
+
+        if (PendingDeleteName != item.Name)
+        {
+            PendingDeleteName = item.Name;
+            Status = $"Delete “{item.Name}”? Press Enter again to confirm, Esc to leave it.";
+            return true;
+        }
+
+        Delete();
+        return true;
+    }
+
+    /// <summary>Arming is per-row: moving the highlight throws the pending confirmation away, so the second
+    /// Enter can only ever delete the row the first Enter named.</summary>
+    partial void OnSelectedChanged(SavedViewItem? value)
+    {
+        if (PendingDeleteName is null) return;
+        PendingDeleteName = null;
+        if (IsDeleteMode) Status = "Highlight a view and press Enter to delete it.";
     }
 
     /// <summary>Opens (applies) the highlighted saved view: raises <see cref="OpenRequested"/> so the shell opens a

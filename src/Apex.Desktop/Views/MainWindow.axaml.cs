@@ -455,8 +455,14 @@ public partial class MainWindow : Window
                 vm.ApplyAutoColumns();
             else if (vm.CurrentScreen == Screen.SaveView)
                 vm.ApplySaveView();
+            // 🔴 TakeSavedViewsRow, NOT OpenSelectedSavedView. The Saved-Views panel is reached by TWO Ctrl+H
+            // rows — "Saved Views" and "Delete Saved Views" — so the accept chord has to mean what the row the
+            // operator chose means. Before this, Ctrl+A always OPENED, bare Enter had no case at all in
+            // ActivateSelected, and Delete's only door in the whole product was a mouse Click handler
+            // (OnDeleteSavedViewClick) — so the Delete row led to a verb no keyboard could reach. Both chords
+            // now route here. See MainWindowViewModel.TakeSavedViewsRow for the vendor's two-press confirm.
             else if (vm.CurrentScreen == Screen.SavedViews)
-                vm.OpenSelectedSavedView();
+                vm.TakeSavedViewsRow();
             // Ctrl+G "Switch To" (census 14.2): Ctrl+A is the accept every other column in this shell
             // advertises, so the panel answers it as well as Enter. Without this arm Ctrl+A on the panel would
             // fall through to the voucher/company accept below and act on whatever page happens to be sitting
@@ -1648,9 +1654,15 @@ public partial class MainWindow : Window
         // and it reads `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)` — it excludes Alt by construction — so the
         // vendor's Share chord matched nothing anywhere. The W-chord remarks below already recorded that Alt+M
         // was free and that IV-64's recommended route was a channel picker on it; this is that picker.
+        //
+        // 🔴 THE GUARD IS IsShareablePage, NOT IsPrintablePage, AND THAT IS A CORRECTION. Printability is TRUE on
+        // every master list (its third arm is TopMasterExportSource()), but NEITHER share channel can build a
+        // panel from a master list — so this arm used to match on the Chart of Accounts, set e.Handled, and draw
+        // a Share menu whose two rows were both inert. Matching the view model's own gate keeps Alt+M from being
+        // swallowed where it cannot act. See MainWindowViewModel.IsShareablePage.
         if (e.Key == Key.M && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.IsPrintablePage && !IsTyping(e))
+            && vm.IsShareablePage && !IsTyping(e))
         {
             vm.OpenShareMenu();
             e.Handled = true;

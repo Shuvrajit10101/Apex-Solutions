@@ -156,6 +156,14 @@ public sealed class ReportChordFidelityTests : IDisposable
 
             Assert.NotNull(vm.SaveView);
             Assert.Equal(Screen.SaveView, vm.CurrentScreen);
+
+            // 🔴 AND THE CAPTION THE OPERATOR READS NAMES THE VENDOR'S CHORD. It used to read
+            // "Save View — Ctrl+S" — an Apex-invented key — while this very slice bound Ctrl+L and corrected the
+            // Saved-Views empty-state sentence to say so. A caption is a promise about a keystroke; two strings
+            // in one feature promising different keys is how a half-done correction survives a green gate.
+            // Asserted on the REALISED screen, not the property, because the property is what was already right.
+            Assert.Contains(VisibleText(window), s => s.Contains("Ctrl+L", StringComparison.Ordinal));
+            Assert.DoesNotContain(VisibleText(window), s => s.Contains("Ctrl+S", StringComparison.Ordinal));
         }
         finally { window.Close(); }
     }
@@ -693,6 +701,252 @@ public sealed class ReportChordFidelityTests : IDisposable
             // DocumentTitle is what the panel was BUILT FROM (its Title is the constant "Export"), so this is the
             // assertion that distinguishes "exported the master list" from "exported some report".
             Assert.Contains("Chart of Accounts", vm.ExportPanel!.DocumentTitle, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SHARE MENU HAS NO MASTER-LIST HALF, AND BEFORE THIS TEST IT PRETENDED TO — Alt+M DREW A MENU
+    /// WHOSE EVERY ROW WAS DEAD.</b> <c>OpenShareMenu</c> was gated on <c>IsPrintablePage</c> under a comment
+    /// reading "the gate both channels already carry". It is not that gate. Printability has a third arm,
+    /// <c>TopMasterExportSource()</c>, so it is TRUE on every master list in the product; but
+    /// <c>OpenEmailCompose</c> and <c>OpenWhatsAppShare</c> each accept only a drilled voucher or a live report
+    /// and <c>return</c> otherwise. On the Chart of Accounts the operator therefore got a <i>Share</i> column
+    /// with <i>E-Mail</i> and <i>WhatsApp</i> painted and lettered, and taking either one popped the column and
+    /// did nothing at all.
+    ///
+    /// <para><b>It is the same shape of bug as the one this branch was withheld for, one step milder.</b> There,
+    /// a comment asserted an invariant the code did not hold and a letter reached the wrong document; here, a
+    /// comment asserted a gate the code did not have and a row reached nothing. Both were green on the full
+    /// gate, and both are invisible to any assertion about keystrokes — "Alt+M opened the Share menu" passed.</para>
+    ///
+    /// <para><b>What this asserts is the two halves that matter:</b> the menu does not open where it cannot act,
+    /// AND Alt+M is not swallowed there (a handled-but-inert key is the dead-chord defect census 14.4 was graded
+    /// ABSENT for). Export is exercised alongside as the control — it genuinely DOES have a master-list half, so
+    /// a fix that simply narrowed every menu would fail this test.</para>
+    ///
+    /// <para>🔴 <b>FAILS WITHOUT THE FIX</b> at the first assertion: <c>Expected: ChartOfAccounts / Actual:
+    /// ShareMenu</c>.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_M_over_a_master_list_draws_no_menu_because_neither_channel_can_act()
+    {
+        var (window, vm) = OpenWindow("Share Master List Co");
+        try
+        {
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            Assert.Equal(Screen.ChartOfAccounts, vm.CurrentScreen);
+
+            // The premise, measured rather than assumed: this page IS printable and IS exportable…
+            Assert.True(vm.IsPrintablePage);
+            Assert.True(vm.IsExportablePage);
+            // …and is NOT shareable, because neither channel can build a document from a master list.
+            Assert.False(vm.IsShareablePage);
+
+            var depth = vm.Columns.Count;
+            window.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Alt);
+            Pump(window);
+
+            // No menu was drawn, and nothing was pushed onto the cascade.
+            Assert.Equal(Screen.ChartOfAccounts, vm.CurrentScreen);
+            Assert.Equal(depth, vm.Columns.Count);
+
+            // Prove the rows really cannot act, so the gate is not merely a taste call: call both channels
+            // directly on this page and watch each refuse to construct a panel.
+            vm.OpenEmailCompose();
+            vm.OpenWhatsAppShare();
+            Pump(window);
+            Assert.Null(vm.EmailCompose);
+            Assert.Null(vm.WhatsAppShare);
+            Assert.Equal(Screen.ChartOfAccounts, vm.CurrentScreen);
+
+            // THE CONTROL: Export's menu has a real master-list half and must be untouched by the narrowing.
+            window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ExportMenu, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The Share menu still opens, and both of its rows still act, on the two pages that CAN share — the live
+    /// report and the drilled voucher. The narrowing above must not have taken the menu away from either.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_share_menu_still_opens_on_both_pages_that_can_actually_share()
+    {
+        var (window, vm) = OpenWindow("Share Still Opens Co");
+        try
+        {
+            // (1) the live report
+            OpenAReport(window, vm);
+            Assert.True(vm.IsShareablePage);
+            window.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ShareMenu, vm.CurrentScreen);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+
+            // (2) the drilled voucher — the page the confidentiality defect was measured on.
+            var voucherId = PostAJournal(vm, "Share Gate Expense", 410m);
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+            vm.OpenVoucherDetail(voucherId);
+            Pump(window);
+            Assert.Equal(Screen.VoucherDetail, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);                        // the Day Book is still bound beneath
+            Assert.True(vm.IsShareablePage);
+
+            window.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ShareMenu, vm.CurrentScreen);
+
+            // And the WhatsApp row still reaches the VOUCHER by its painted letter — the confidentiality
+            // assertion, re-run through the narrowed gate so the fix above cannot have re-opened it.
+            var voucherTitle = vm.VoucherDetail!.Title;
+            window.KeyPressQwerty(PhysicalKey.W, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.WhatsAppShare, vm.CurrentScreen);
+            Assert.Equal(voucherTitle, vm.WhatsAppShare!.DocumentTitle);
+            Assert.DoesNotContain("Day Book", vm.WhatsAppShare!.DocumentTitle, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE <i>Delete Saved Views</i> ROW LED TO A VERB NO KEYBOARD COULD REACH, AND THAT IS THIS
+    /// PROJECT'S NAMED COMPLETENESS FAILURE, NOT A NICETY.</b> The row itself was reachable — Ctrl+H, then its
+    /// painted <b>D</b> — and it brought the operator to the Saved-Views panel with the right status line. But
+    /// the ONLY route to <c>DeleteSelectedSavedView</c> anywhere in the product was a mouse <c>Click</c> handler
+    /// (<c>MainWindow.axaml.cs: OnDeleteSavedViewClick</c>): <c>ActivateSelected</c> had no
+    /// <c>Screen.SavedViews</c> case at all, so the panel's bare Enter did nothing, and Ctrl+A OPENED the view
+    /// instead. A row whose verb has no keystroke is the dead end census 14.4 was graded ABSENT for, and this
+    /// branch ADDED the row.
+    ///
+    /// <para><b>The flow asserted here is the vendor's own, quoted</b>
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/, <i>Delete Saved View of a Report</i>,
+    /// opened by content): Ctrl+H (Change View) → <i>Delete Saved Views</i> → choose the view and press
+    /// <b>Enter</b> → <i>"Press Enter or Y to confirm deletion"</i>. Two presses, because this destroys
+    /// something; one press must NOT delete.</para>
+    ///
+    /// <para>🔴 <b>AND THE ARMING IS PER-ROW, WHICH IS THE ASSERTION WITH TEETH.</b> Moving the highlight after
+    /// the first Enter throws the confirmation away. Without that, a stale confirmation deletes whichever row
+    /// the operator arrowed onto afterwards — the exact mis-target this shell has already filed once, where
+    /// Alt+X raised a cancellation for the voucher BEHIND the column the operator was standing in.</para>
+    ///
+    /// <para>🔴 <b>FAILS WITHOUT THE FIX</b> at "the second Enter deleted it": on today's branch the store still
+    /// holds both views, because no keystroke ever reached Delete.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Change_view_delete_saved_views_row_can_delete_from_the_keyboard_and_needs_two_presses()
+    {
+        var (window, vm) = OpenWindow("Delete Saved Views Co");
+        try
+        {
+            // Two saved views, made the way an operator makes them: Ctrl+L on a report, name it, accept.
+            foreach (var name in new[] { "Alpha View", "Beta View" })
+            {
+                vm.OpenReport(ReportKind.TrialBalance);
+                Pump(window);
+                window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.Control);
+                Pump(window);
+                Assert.Equal(Screen.SaveView, vm.CurrentScreen);
+                vm.SaveView!.Name = name;
+                window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+                Pump(window);
+            }
+
+            OpenAReport(window, vm);
+
+            // Ctrl+H, then the letter the product paints on "Delete Saved Views".
+            var letter = PaintedLetterOf(window, vm, ChangeViewMenu.DeleteSavedViewsVerb);
+            window.KeyPressQwerty(PhysicalKeyFor(letter), RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
+            var panel = vm.SavedViews!;
+            Assert.True(panel.IsDeleteMode);          // arrived by the DELETE row, not the open row
+            Assert.Equal(2, panel.Views.Count);
+
+            var doomed = panel.Views[0].Name;
+            var survivor = panel.Views[1].Name;
+            panel.Selected = panel.Views[0];
+            Pump(window);
+
+            // PRESS ONE — arms, names the view it is about to delete, and DELETES NOTHING.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+            Assert.Contains(doomed, panel.Status, StringComparison.Ordinal);
+
+            // MOVING THE HIGHLIGHT CANCELS IT — the stale-confirmation mis-target.
+            panel.Selected = panel.Views[1];
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);   // re-arms on the NEW row
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+            Assert.Contains(survivor, panel.Status, StringComparison.Ordinal);
+
+            // Back to the doomed row: one press to arm, a second to delete.
+            panel.Selected = panel.Views[0];
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            // 🔴 THE ASSERTION THAT SEES IT: the LIST, not the keystroke. Exactly one view is gone, and it is
+            // the one that was armed.
+            Assert.Single(panel.Views);
+            Assert.Equal(survivor, panel.Views[0].Name);
+            Assert.DoesNotContain(panel.Views, v => v.Name == doomed);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The OTHER Ctrl+H row onto the same panel must be unchanged: arriving by <i>Saved Views</i>, Enter still
+    /// OPENS (applies) the highlighted view and deletes nothing. The delete door above is a second meaning for
+    /// one key, and the whole risk of that is the first meaning quietly becoming destructive.
+    /// </summary>
+    [AvaloniaFact]
+    public void Saved_views_row_still_opens_and_never_deletes()
+    {
+        var (window, vm) = OpenWindow("Saved Views Open Co");
+        try
+        {
+            vm.OpenReport(ReportKind.TrialBalance);
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.Control);
+            Pump(window);
+            vm.SaveView!.Name = "Kept View";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+
+            OpenAReport(window, vm);
+            var letter = PaintedLetterOf(window, vm, ChangeViewMenu.SavedViewsVerb);
+            window.KeyPressQwerty(PhysicalKeyFor(letter), RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
+            Assert.False(vm.SavedViews!.IsDeleteMode);
+            Assert.Single(vm.SavedViews!.Views);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            // It APPLIED the view — a live report is the active pane again — and the view still exists.
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);
+
+            OpenAReport(window, vm);
+            var again = PaintedLetterOf(window, vm, ChangeViewMenu.SavedViewsVerb);
+            window.KeyPressQwerty(PhysicalKeyFor(again), RawInputModifiers.None);
+            Pump(window);
+            Assert.Single(vm.SavedViews!.Views);
+            Assert.Equal("Kept View", vm.SavedViews!.Views[0].Name);
         }
         finally { window.Close(); }
     }

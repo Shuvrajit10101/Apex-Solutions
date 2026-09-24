@@ -462,8 +462,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// WhatsApp row — shared a document titled <i>"Day Book"</i> instead of the invoice.
     /// </para>
     /// <para>
-    /// 🔴 <b>What makes it true now is <c>MainWindowViewModel.IsActionMenuColumn</c></b>, a clause on all three
-    /// of <c>IsReportContext</c> / <c>IsPrintablePage</c> / <c>IsExportablePage</c>. Read that property's
+    /// 🔴 <b>What makes it true now is <c>MainWindowViewModel.IsActionMenuColumn</c></b>, a clause on all four
+    /// of <c>IsReportContext</c> / <c>IsPrintablePage</c> / <c>IsExportablePage</c> / <c>IsShareablePage</c>
+    /// (the fourth is newer than the fix and carries the clause for the same reason). Read that property's
     /// remarks before changing anything here. The fix was put THERE rather than by extending this array because
     /// reserving a letter only stops it being PAINTED — the arm would stay live and still fire the wrong verb —
     /// and because the list would have to be re-derived from the row labels of every menu forever (nobody

@@ -3648,6 +3648,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || TopMasterExportSource() is not null);
 
     /// <summary>
+    /// True on a page either SHARE channel can actually build a document from — a drilled voucher, or a live
+    /// report. It is deliberately the EXACT disjunction <see cref="OpenEmailCompose"/> and
+    /// <see cref="OpenWhatsAppShare"/> test internally before they will construct a panel, restated once here
+    /// so a caller can ask the question before it opens a door.
+    ///
+    /// <para>🔴 <b>IT IS NARROWER THAN <see cref="IsPrintablePage"/>, AND THE DIFFERENCE IS A MENU OF DEAD
+    /// ROWS.</b> <c>IsPrintablePage</c> carries a third arm — <c>TopMasterExportSource()</c> — so it is TRUE on
+    /// every master list (Chart of Accounts, Groups, Godowns, Units, …). Neither share channel can act on a
+    /// master list: both fall through their two branches and <c>return</c>. Gating <c>OpenShareMenu</c> on
+    /// printability therefore DREW THE SHARE MENU over a master list with <b>both</b> of its rows inert — E-Mail
+    /// and WhatsApp each popped the column and did nothing. That fails this project's own completeness bar
+    /// ("every row reachable by a user from the keyboard") in the worst way: the row is on screen, painted with
+    /// its letter, and answers nothing. A menu that opens and cannot act is the same species of defect as the
+    /// dead chord census 14.4 was graded ABSENT for.</para>
+    ///
+    /// <para><b>The leading <c>!IsActionMenuColumn</c> is kept for the reason <see cref="IsPrintablePage"/>
+    /// states.</b> It is already implied — <see cref="IsReportContext"/> carries the clause and an action-menu
+    /// screen id is never <see cref="Screen.VoucherDetail"/> — but the confidentiality invariant is stated
+    /// where it is relied on rather than inherited from the shape of two other properties.</para>
+    ///
+    /// <para><b>The bare M / W arms are deliberately NOT re-gated onto this.</b> They are shipped doors; on a
+    /// master list they already match, swallow the key and no-op, so moving them would change what an unclaimed
+    /// letter falls through to (type-ahead on a data-driven column) — a behaviour change this slice did not
+    /// measure. That dead bare key is pre-existing and is reported rather than quietly altered.</para>
+    /// </summary>
+    public bool IsShareablePage =>
+        !IsActionMenuColumn
+        && ((CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || (IsReportContext && Reports is not null));
+
+    /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
     /// the keyboard-first date-entry surface (there is no modal date dialog); it opens seeded from the report's
     /// current as-of with the period window off, so accepting sets the as-of.
@@ -4005,7 +4036,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// panel, which raises the open request the shell services via <see cref="ApplySavedView"/>).</summary>
     public void OpenSelectedSavedView() => SavedViews?.Open();
 
-    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
+    /// <summary>
+    /// The Saved-Views panel's <b>Enter</b>, which means different things by the menu row the operator arrived
+    /// through — and this method exists because one of those two rows previously led to a verb with NO KEYBOARD
+    /// DOOR AT ALL.
+    ///
+    /// <para>Arriving by <c>Ctrl+H &gt; Saved Views</c>, Enter OPENS (applies) the highlighted view, exactly as
+    /// before. Arriving by <c>Ctrl+H &gt; Delete Saved Views</c>, Enter arms and then confirms the delete —
+    /// the vendor's own two-press flow (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: choose the
+    /// view and press <b>Enter</b>, then <i>"Press Enter or Y to confirm deletion"</i>). Before this, the only
+    /// route to <see cref="DeleteSelectedSavedView"/> in the entire product was a mouse Click handler on the
+    /// panel's button, so the <i>Delete Saved Views</i> menu row was keyboard-reachable and its verb was not.
+    /// See <see cref="SavedViewsViewModel.TakeDeleteStep"/>.</para>
+    /// </summary>
+    public void TakeSavedViewsRow()
+    {
+        if (SavedViews is not { } panel) return;
+        if (panel.TakeDeleteStep()) return;
+        panel.Open();
+    }
+
+    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.
+    /// Kept as the direct verb for the panel's mouse button; the keyboard reaches it through
+    /// <see cref="TakeSavedViewsRow"/>, which carries the vendor's confirmation step.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
 
     // ============================= the four report menus: Ctrl+H / Alt+P / Alt+E / Alt+M (11.16, 12.1, 12.6, 13.5)
@@ -4159,7 +4212,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenShareMenu()
     {
-        if (!IsPrintablePage) return;                   // the gate both channels already carry
+        // 🔴 IsShareablePage, NOT IsPrintablePage — CORRECTED AFTER MEASUREMENT. This line read
+        // `if (!IsPrintablePage) return;` with the comment "the gate both channels already carry". That comment
+        // was false in the same way the E/P/M invariant next door was false: printability includes every MASTER
+        // LIST through TopMasterExportSource(), and NEITHER share channel can build a panel from one — both
+        // OpenEmailCompose and OpenWhatsAppShare fall through their branches and return. So on the Chart of
+        // Accounts, Alt+M drew a Share menu whose E-Mail and WhatsApp rows were BOTH inert. See IsShareablePage.
+        if (!IsShareablePage) return;                   // the gate both channels really do carry
         if (CurrentScreen == Screen.ShareMenu) return;  // re-press must not stack a second
 
         PushMenuColumn(
@@ -11418,6 +11477,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // the fall-through the rest of them rely on.
             case Screen.Report when Reports?.Kind == ReportKind.EPayments:
                 Reports.ExportPaymentInstructions();
+                return;
+
+            // 🔴 THE SAVED-VIEWS PANEL HAD NO CASE HERE AT ALL, SO ITS **ENTER DID NOTHING** — and the vendor's
+            // flow is built on Enter: "choose the view to delete … and press Enter", then "Press Enter or Y to
+            // confirm deletion" (help.tallysolutions.com/use-save-view-feature-in-tallyprime/, re-opened by
+            // content 2026-09-23). Open had a keyboard door only through this method's Ctrl+A caller, and Delete
+            // had NO keyboard door in the product — a mouse Click handler was its only route — which left the
+            // Ctrl+H > "Delete Saved Views" row leading somewhere a keyboard user could not follow.
+            // TakeSavedViewsRow decides by the row the operator arrived through; see its remarks.
+            case Screen.SavedViews:
+                TakeSavedViewsRow();
                 return;
         }
 

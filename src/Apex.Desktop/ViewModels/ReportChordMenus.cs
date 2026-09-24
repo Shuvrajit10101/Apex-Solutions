@@ -124,7 +124,10 @@ public static class ReportPrintMenu
     /// writes the chord with this exact word attached, repeatedly: <i>"Open the invoice or report you want to
     /// print and press <b>Ctrl+P</b> (Current)."</i>, and again <i>"press <b>Ctrl+P</b> (Current) &gt; <b>C</b>
     /// (Configure)"</i>. So <b>Current</b> is the vendor's own name for this verb, exactly as it is on the export
-    /// side ("press <b>Ctrl+E</b> (Current)"), and the hint this row carries is the chord the vendor attaches it
+    /// side — <i>"Open any voucher or report and press <b>Ctrl+E</b> (Current)."</i>, which is on
+    /// help.tallysolutions.com/<b>export-data-in-tally</b>/ and <b>NOT</b> on the print page this paragraph is
+    /// otherwise quoting (re-checked by content 2026-09-23; naming the page is the point, because the previous
+    /// wording left a reader to assume the print page carried it) — and the hint this row carries is the chord the vendor attaches it
     /// to. <b>Do not weaken this back to an inference, and do not widen it into a claim that the vendor prints
     /// the word as a ROW of the Alt+P menu — it does not; what is attested is the verb's name.</b>
     /// </summary>
@@ -216,13 +219,22 @@ public static class ReportExportMenu
     public static readonly IReadOnlyList<string> OfferedVerbs = new[] { CurrentVerb };
 
     /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE, and it is the whole reason this menu is one row long. The vendor's export menu
-    /// also exports <b>all masters</b> and <b>all transactions</b> in bulk, without standing on the screen that
-    /// shows them. This build exports only what is ON SCREEN: <c>BuildExportPanel</c> reads the top cascade
-    /// column or the live report and nothing else, so there is no bulk-family export to route here. Census row
-    /// 13.5 keeps that gap; a row that opened an empty picker would hide it.
+    /// 🔴 THE HONEST DISCLOSURE, and it is the whole reason this menu is one row long. It names THREE withheld
+    /// rows, because the vendor's export menu has four and this build has one —
+    /// help.tallysolutions.com/export-data-in-tally/ was re-opened by content for this correction and shows all
+    /// three beside the <b>Current</b> row we do have: <i>"Press <b>Alt+E</b> (Export) &gt; select
+    /// <b>Masters</b> or <b>Transactions</b>"</i> (the two bulk families) and <i>"Press <b>Alt+E</b> (Export)
+    /// &gt; <b>Others</b> &gt; and select any of the report listed above"</i> (a report picker that does not
+    /// require standing on the report). This build exports only what is ON SCREEN: <c>BuildExportPanel</c> reads
+    /// the top cascade column or the live report and nothing else, so none of the three has anything to route
+    /// to. Census row 13.5 keeps the gap; a row that opened an empty picker would hide it.
+    ///
+    /// <para>🔴 <b>The string previously named only the master half</b> ("Bulk master export is not on this
+    /// build") — accurate as far as it went, and therefore the more dangerous kind of disclosure: a reader
+    /// checking the menu against the vendor page would have concluded the other two rows were considered and
+    /// found present. They were not considered. Two-line budget as for every cascade header.</para>
     /// </summary>
-    public const string Disclosure = "Bulk master export is not on this build";
+    public const string Disclosure = "No bulk Masters, Transactions or Others";
 
     /// <summary>Builds the Alt+E column.</summary>
     public static GatewayColumn BuildColumn(Action current)
@@ -270,12 +282,26 @@ public static class ReportShareMenu
     public static readonly IReadOnlyList<string> OfferedVerbs = new[] { EmailVerb, WhatsAppVerb };
 
     /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE, and it is the same one both panels already carry on their own status lines:
-    /// this application SENDS nothing. E-Mail writes an <c>.eml</c> or opens a <c>mailto:</c> draft; WhatsApp
-    /// hands over a prepared link. There is no SMTP socket and no WhatsApp Business API in this build. The
-    /// statement is repeated at the menu because the menu is now the first thing the operator sees.
+    /// 🔴 THE HONEST DISCLOSURE, and it names TWO things because this menu falls short of the vendor's in two
+    /// different ways.
+    /// <para>• <b>Nothing is sent.</b> The same statement both panels already carry on their own status lines:
+    /// E-Mail writes an <c>.eml</c> or opens a <c>mailto:</c> draft; WhatsApp hands over a prepared link. There
+    /// is no SMTP socket and no WhatsApp Business API in this build — a SOURCED limit, not a shortcut:
+    /// help.tallysolutions.com/share-documents-using-whatsapp-for-business-faq/ requires WhatsApp Business API
+    /// on-boarding and records that Meta forbids re-using a number already on a WhatsApp Business account
+    /// (re-opened by content 2026-09-23). The statement is repeated at the menu because the menu is now the
+    /// first thing the operator sees.</para>
+    /// <para>• 🔴 <b>No <i>Others</i> row, and that was previously undisclosed.</b> The vendor's Share menu is
+    /// not two rows: help.tallysolutions.com/configure-for-print-export-share/ documents
+    /// <i>"For WhatsApp: <b>Alt+M</b> (Share) &gt; <b>Others</b> under <b>WHATSAPP</b> &gt; select a report from
+    /// the <b>List of Reports</b>"</i> — a picker that shares a report WITHOUT standing on it, the share-side
+    /// twin of <c>ReportPrintMenu.OthersVerb</c>. This build shares only what is on screen (see
+    /// <see cref="MainWindowViewModel.IsShareablePage"/>: a drilled voucher or the live report, nothing else),
+    /// so there is nothing to route a picker to. Census row 13.7 already records the row as owed; the menu now
+    /// says so on its own face instead of leaving a reader to infer it was considered.</para>
+    /// <para>Two-line budget as for every cascade header.</para>
     /// </summary>
-    public const string Disclosure = "Both channels prepare only - nothing is sent";
+    public const string Disclosure = "Prepares only - nothing sent, and no Others";
 
     /// <summary>Builds the Alt+M column.</summary>
     public static GatewayColumn BuildColumn(Action email, Action whatsApp)
