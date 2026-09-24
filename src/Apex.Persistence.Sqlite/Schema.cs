@@ -156,8 +156,13 @@ namespace Apex.Persistence.Sqlite;
 /// goods GST never absorbed: seven <c>companies</c> columns, five <c>ledgers</c> columns, two
 /// <c>stock_items</c> columns and four <c>vouchers</c> columns. Purely additive; every default is 0/NULL. See
 /// <see cref="MigrateV58ToV59"/>.
-/// <b><see cref="CurrentVersion"/> = 59</b> (v59 = State VAT &amp; CST, see below); a fresh DB is always
-/// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
+/// 🔴 <b>THE CURRENT VERSION IS THE CONSTANT <see cref="CurrentVersion"/> AND NOTHING ELSE — READ IT, NEVER THIS
+/// SENTENCE.</b> This line used to restate the digit (<i>"<c>CurrentVersion</c> = 59"</i>) and was left behind by
+/// every migration after v59, so it read 59 while the constant read 64; it misled two agents before being
+/// corrected on 2026-09-23. The restated digit is therefore <b>deleted rather than updated</b> — a second copy of
+/// a number that already has one authoritative home is a defect whatever value it currently holds. A fresh DB is
+/// always stamped to <see cref="CurrentVersion"/> via <see cref="CreateV1"/>, which therefore mirrors the
+/// cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
