@@ -31,6 +31,13 @@ namespace Apex.Desktop.Tests;
 /// report context null, and that one fact switches off Ctrl+P print, Ctrl+E export, F2/Alt+F2 period,
 /// F12 configuration, Alt+F12 sort/filter and Alt+K saved views simultaneously. Six gestures off per report.</para>
 ///
+/// <para>🔴 <b>WHAT COMES BACK IS FOUR AND A HALF OF THOSE SIX, AND THIS FILE SAYS SO RATHER THAN ROUNDING
+/// UP.</b> Ctrl+P, Ctrl+E, F2/Alt+F2 and Alt+K arrive in full; F12 arrives with its PERIOD half only, because
+/// its three display knobs genuinely do not act on these kinds and are now hidden; Alt+F12 arrives saying it
+/// cannot act. Hiding a knob that does nothing and refusing out loud are both the right behaviour — and both
+/// make the honest count smaller. This branch has twice been withheld for a claim stronger than the code
+/// behind it, so the count is written down where it can be checked.</para>
+///
 /// <para>🔴 <b>AND THE OBVIOUS FIX HAS A TRAP IN IT, WHICH IS WHY HALF THE TESTS BELOW ARE ABOUT EGRESS.</b>
 /// Adding a <see cref="ReportKind"/> member is not re-homing. The per-kind export caption table covers a
 /// minority of kinds and the print path had NO caption table for a non-accounting kind at all, so a report
@@ -136,7 +143,7 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     /// <summary>
     /// Alt+K (save this view) indexes the persisted-token map DIRECTLY, so a kind missing from it throws
     /// <see cref="KeyNotFoundException"/> the instant an operator presses the chord. Saved views are one of the
-    /// six gestures this re-home exists to hand these reports, so a missing token would have turned the fix
+    /// gestures this re-home exists to hand these reports, so a missing token would have turned the fix
     /// into a crash on the very feature being delivered.
     /// </summary>
     [Theory]
@@ -895,30 +902,45 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     /// and if a future builder ever DOES honour one of them on a matrix kind, this test reddens and the
     /// <see cref="ReportsViewModel.SupportsDisplayOptions"/> predicate has to be revisited, which is exactly the
     /// notice that should fire.</para>
+    ///
+    /// <para>🔴 <b>AND THE ANTI-VACUITY GUARD NOW BITES FOR ALL EIGHT CASES (review finding N4).</b> The first
+    /// version of this theory snapshotted the COLUMN BAND ahead of the rows, so the snapshot was non-empty at
+    /// ZERO rows and <c>Assert.NotEqual(string.Empty, before)</c> passed for the wrong reason. MEASURED by the
+    /// review: under <see cref="FullFixture"/>, which deliberately never enables payroll, the gratuity and bonus
+    /// cases ran at <c>rows=0</c> — a QUARTER of the theory was comparing a band that
+    /// <c>ApplyConfiguration</c> cannot alter under any circumstance, so a future builder that DID start
+    /// honouring hide-zero on the gratuity register would not have reddened the test this comment promises will
+    /// redden. The snapshot is now ROWS ONLY, the row count is asserted before and after, and the two payroll
+    /// registers get a fixture that enrols the statute and hires an employee. All eight cases now compare real
+    /// cells.</para>
     /// </summary>
     [Theory]
     [MemberData(nameof(RehomedKinds))]
     public void The_three_F12_display_knobs_cannot_change_a_rehomed_report(ReportKind kind)
     {
-        var vm = FullFixture($"Dead Knobs {kind}");
-        var reports = new ReportsViewModel(vm.Company!, kind);
-        WidenToAllTime(reports, vm.Company!);
+        var reports = PopulatedRehomedReport($"Dead Knobs {kind}", kind);
 
         Assert.False(reports.SupportsDisplayOptions,
             $"{kind} claims the F12 display knobs act on it; if that became true the panel must show them again.");
+        Assert.False(reports.SupportsHideZeroBalances, $"{kind} claims F12 hide-zero acts on it.");
+        Assert.False(reports.SupportsPercentages, $"{kind} claims F12 percentages act on it.");
+        Assert.False(reports.SupportsClosingStockBasis, $"{kind} claims the F12 closing-stock basis acts on it.");
 
+        // 🔴 ROWS ONLY — no column band. See the N4 paragraph above: the band is exactly the half
+        // ApplyConfiguration could never touch, so including it is what made this comparison vacuous.
         string Snapshot(ReportsViewModel r) => string.Join("|",
-            r.PayrollColumns.Select(c => c.Header + ":" + c.Width.ToString(CultureInfo.InvariantCulture))
-             .Concat(r.PayrollRows.Select(row => string.Join(",", row.Cells.Select(x => x.Text))))
+            r.PayrollRows.Select(row => string.Join(",", row.Cells.Select(x => x.Text)))
              .Concat(r.PayrollRows2.Select(row => string.Join(",", row.Cells.Select(x => x.Text)))));
 
+        Assert.NotEmpty(reports.PayrollRows);   // ← THE GUARD THAT ACTUALLY BITES: no rows, nothing compared.
         var before = Snapshot(reports);
-        Assert.NotEqual(string.Empty, before);                  // an empty report would pass for the wrong reason
+        Assert.NotEqual(string.Empty, before);
 
         reports.ApplyConfiguration(hideZero: true, showPercentages: true,
             Apex.Ledger.Reports.ClosingStockMode.InventoryDerived);
 
         Assert.Equal(before, Snapshot(reports));
+        Assert.NotEmpty(reports.PayrollRows);   // and hide-zero did not simply empty the report instead.
     }
 
     /// <summary>
@@ -952,6 +974,571 @@ public sealed class RehomedReportSurfaceTests : IDisposable
         trialBalance.Apply();
 
         Assert.Contains("Applied", trialBalance.Status);
+    }
+
+    // ============================== closing the CLASS, not the list (review pass 3: N1, N2, N3, N5, N7, N8)
+
+    /// <summary>
+    /// 🔴🔴 <b>THE BLOCKER. A SAVED VIEW MUST NOT RENDER THE PAY SHEET ON A COMPANY WHOSE F11 PAYROLL SWITCH IS
+    /// OFF — AND THE PAY SHEET IS EVERY EMPLOYEE'S GROSS, DEDUCTIONS AND NET PAY.</b>
+    ///
+    /// <para>MEASURED by an adversarial review against a fully green gate, on the real view model:
+    /// <c>vm.ApplySavedView(view)</c> left <c>screen=Report kind=PaySheet Company.PayrollEnabled=False</c> with
+    /// <c>Message</c> empty. The previous pass's saved-view guard enumerated the FIFTEEN kinds whose OPENERS
+    /// happened to carry a guard — counted from its arms, not the eighteen the review's prose said — and
+    /// permitted the other seventy-eight, while saying in a red-flagged comment that it had closed the door on
+    /// every company-feature gate in the product. The Payroll report family has no opener
+    /// guard to copy: its ER-13 gate is the conditional <c>col.Add("Payroll Reports")</c> on the MENU ROW. So the
+    /// menu group vanished, and Alt+K walked in behind it.</para>
+    ///
+    /// <para>🔴 <b>THIS TEST IS ON THE REALISED WINDOW AND IT ASSERTS ON PAY, NOT ON A FLAG.</b> The employee's
+    /// name and their basic figure must be absent from the rendered visual tree, because a predicate returning
+    /// false is not the thing that protects the data — what protects the data is the report not being drawn. The
+    /// positive direction is asserted on the same window with the same saved view, or "always refuse" would pass
+    /// the confidentiality half and destroy the feature.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_saved_view_cannot_render_the_pay_sheet_when_F11_payroll_is_switched_off()
+    {
+        var vm = PaidEmployeeFixture("Pay Sheet Saved View", out var c, out var wageMonth);
+
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        // ---- Capture an Alt+K saved view off a POPULATED Pay Sheet, exactly as an operator would.
+        OpenPaySheetForMonth(vm, wageMonth);
+        Pump(window);
+        Assert.Contains(vm.Reports!.PayrollRows, r => r.Cells[0].Text == "Zara Mehta");
+        var savedView = vm.Reports!.ToSavedView();
+        Assert.Contains(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text == "Zara Mehta");
+        vm.Back();
+        Pump(window);
+
+        // ---- F11 → Maintain Payroll OFF. The menu group goes with it; the saved view must go with it too.
+        vm.ShowGstConfig();
+        vm.GstConfig!.PayrollEnabled = false;
+        vm.Back();
+        Pump(window);
+        Assert.False(c.PayrollEnabled);
+        vm.ShowGateway();
+        Assert.DoesNotContain(vm.Columns[0].Items, i => i.Label == "Payroll Reports");
+
+        vm.ApplySavedView(savedView);
+        Pump(window);
+
+        // 🔴 THE ASSERTION THAT MATTERS COMES FIRST, DELIBERATELY: the employee's pay must not be on screen.
+        // Asserting the screen enum first would make the mutation report "Expected: Not Report / Actual: Report",
+        // which is a navigation complaint. What this test is for is the payroll data, so the payroll data is what
+        // the failure message names.
+        Assert.DoesNotContain(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text == "Zara Mehta");
+        Assert.DoesNotContain(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text is { } s && s.Contains("41,000", StringComparison.Ordinal));
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Contains("switched off", vm.Message);
+
+        // ---- And the gate is not a wall: switch Payroll back on and the same saved view renders again.
+        vm.ShowGstConfig();
+        vm.GstConfig!.PayrollEnabled = true;
+        vm.Back();
+        vm.ApplySavedView(savedView);
+        Pump(window);
+
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.PaySheet, vm.Reports!.Kind);
+        SelectWageMonth(vm.Reports!, wageMonth);
+        Pump(window);
+        Assert.Contains(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text == "Zara Mehta");
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// 🔴 <b>EVERY <see cref="ReportKind"/> CARRIES AN EXPLICIT ER-13 DECISION. THIS IS THE TEST THAT MAKES THE
+    /// CLASS STAY CLOSED.</b>
+    ///
+    /// <para>The predicate's predecessor was an enumeration of exceptions over a <c>_ => true</c> default, so a
+    /// report kind added later was ungated by DEFAULT and nothing anywhere noticed. The decision table is now
+    /// total and the default is DENY, which means a new kind arrives unreachable-by-saved-view rather than
+    /// unguarded — and this test fails naming it, so the developer who added it is the one who decides its gate
+    /// rather than an operator discovering it.</para>
+    ///
+    /// <para>Fails on today's main and on the previous two passes of this branch: there was no table to be total.</para>
+    /// </summary>
+    [Fact]
+    public void Every_report_kind_carries_a_saved_view_gate_decision()
+    {
+        var undecided = Enum.GetValues<ReportKind>()
+            .Where(k => MainWindowViewModel.SavedViewGateFor(k) is null)
+            .ToList();
+
+        Assert.True(undecided.Count == 0,
+            "These ReportKind members have no ER-13 gate decision in MainWindowViewModel.ReportKindGates, so a "
+            + "saved view of them is REFUSED (deny by default) and nobody has said whether that is right: "
+            + string.Join(", ", undecided));
+
+        // And the table has no entry for a kind that no longer exists — a stale row would quietly gate nothing.
+        Assert.Equal(Enum.GetValues<ReportKind>().Length,
+            Enum.GetValues<ReportKind>().Count(k => MainWindowViewModel.SavedViewGateFor(k) is not null));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SAVED-VIEW DOOR AND THE MENU ROW ANSWER THE SAME QUESTION, CHECKED FAMILY BY FAMILY ON A FRESH
+    /// COMPANY.</b> A fresh company has Payroll, Payroll Statutory, TDS, TCS, VAT, batch-wise details, price
+    /// levels, tracking numbers, cost tracking, job costing and job order processing all OFF, so every menu row
+    /// below is absent from the real cascade. The saved view for each of those families must be absent too.
+    ///
+    /// <para>One representative kind per gated family, so the test names the family that broke rather than
+    /// failing ninety times. The kinds NOT listed here are the <c>None</c> decisions, and the totality test above
+    /// is what stops a new kind slipping between the two lists.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(ReportKind.PaySheet, ReportFeatureGate.Payroll)]
+    [InlineData(ReportKind.AttendanceSheet, ReportFeatureGate.Payroll)]
+    [InlineData(ReportKind.PfForm3A, ReportFeatureGate.PayrollStatutory)]
+    [InlineData(ReportKind.IncomeTaxComputation, ReportFeatureGate.PayrollStatutory)]
+    [InlineData(ReportKind.TdsOutstanding, ReportFeatureGate.Tds)]
+    [InlineData(ReportKind.TcsOutstanding, ReportFeatureGate.Tcs)]
+    [InlineData(ReportKind.LedgersWithoutPan, ReportFeatureGate.TdsOrTcs)]
+    [InlineData(ReportKind.VatComputation, ReportFeatureGate.Vat)]
+    [InlineData(ReportKind.Batchwise, ReportFeatureGate.Batchwise)]
+    [InlineData(ReportKind.PriceList, ReportFeatureGate.PriceLevels)]
+    [InlineData(ReportKind.PosRegister, ReportFeatureGate.PosSales)]
+    [InlineData(ReportKind.PurchaseBillsPending, ReportFeatureGate.TrackingNumbers)]
+    [InlineData(ReportKind.StockItemCostAnalysis, ReportFeatureGate.CostTracking)]
+    [InlineData(ReportKind.JobWorkAnalysis, ReportFeatureGate.JobCosting)]
+    [InlineData(ReportKind.MaterialInRegister, ReportFeatureGate.JobOrderProcessing)]
+    [InlineData(ReportKind.GratuityProvisionRegister, ReportFeatureGate.GratuityEnrolment)]
+    [InlineData(ReportKind.BonusRegister, ReportFeatureGate.BonusEnrolment)]
+    public void A_saved_view_refuses_a_report_family_this_company_has_not_switched_on(
+        ReportKind kind, ReportFeatureGate expectedGate)
+    {
+        Assert.Equal(expectedGate, MainWindowViewModel.SavedViewGateFor(kind));
+
+        var vm = NewCompany($"Gate {kind}");
+        var view = new Apex.Ledger.Reports.SavedReportView
+        {
+            ReportKind = ReportsViewModel.TokenFor(kind),
+            AsOfDate = vm.Company!.FinancialYearStart.AddMonths(1),
+        };
+
+        vm.ApplySavedView(view);
+
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Null(vm.Reports);
+        Assert.Contains("switched off", vm.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>NO <see cref="ReportFeatureGate"/> MEMBER IS AN ORPHAN.</b> A gate member that no kind maps to is a
+    /// gate nobody can reach, and a gate member is exactly the kind of thing that gets added for a family and
+    /// then wired to nothing. Paired with the theory above — which drives every non-<c>None</c> arm of
+    /// <c>ReportFeatureGateIsOpen</c> through a company that has the feature off — this is what makes the
+    /// enum's own coverage a measurement rather than a claim.
+    /// </summary>
+    [Fact]
+    public void Every_report_feature_gate_member_is_reached_by_a_report_kind()
+    {
+        var used = Enum.GetValues<ReportKind>()
+            .Select(MainWindowViewModel.SavedViewGateFor)
+            .Where(g => g is not null)
+            .Select(g => g!.Value)
+            .ToHashSet();
+
+        var orphans = Enum.GetValues<ReportFeatureGate>().Where(g => !used.Contains(g)).ToList();
+
+        Assert.True(orphans.Count == 0,
+            "These ReportFeatureGate members are mapped to by no ReportKind at all, so nothing evaluates them "
+            + "and nobody would notice if their arm were wrong: " + string.Join(", ", orphans));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE COST-CENTRE ARM, WHICH THE FAMILY THEORY ABOVE CANNOT COVER.</b> Every other gated family is
+    /// OFF on a fresh company, so the theory gets them for free. <c>EnableCostCentres</c> is the one flag whose
+    /// shipped convention is that an unset company is <b>ON</b> (<c>!= false</c>, not <c>== true</c>), so its
+    /// arm has to be driven by switching the feature off deliberately — and without this test that arm of
+    /// <c>ReportFeatureGateIsOpen</c> would be the only one nothing exercises.
+    ///
+    /// <para>Both directions, and the MENU is asserted alongside the saved view, because the point of deriving
+    /// the gate from <c>CostCentresFeatureOn</c> is that those two answers cannot differ.</para>
+    /// </summary>
+    [Fact]
+    public void A_saved_view_refuses_a_cost_centre_report_when_the_feature_is_switched_off()
+    {
+        var vm = FullFixture("Cost Centre Saved View");
+        var c = vm.Company!;
+
+        vm.OpenReport(ReportKind.CostCentreBreakup);
+        var savedView = vm.Reports!.ToSavedView();
+        vm.Back();
+
+        c.EnableCostCentres = false;
+
+        // The menu row goes …
+        vm.ShowGateway();
+        ArrowToAndDrill(vm, "Statements of Accounts");
+        Assert.DoesNotContain(vm.Columns[^1].Items, i => i.Label == "Cost Centres");
+
+        // … and so does the saved view.
+        vm.ApplySavedView(savedView);
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Contains("switched off", vm.Message);
+
+        // Not a wall: switch the feature back on and the same saved view opens.
+        c.EnableCostCentres = true;
+        vm.ApplySavedView(savedView);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.CostCentreBreakup, vm.Reports!.Kind);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE PF / ESI HALF OF THE GATE, WHICH UNTIL NOW WAS ASSERTED ONLY BY A COMMENT (review finding N5).</b>
+    /// The previous pass deliberately widened the guard beyond this wave to cover the ten payroll-statutory kinds
+    /// and said so in a red-flagged comment, while every test exercised only the Gratuity register. A later
+    /// refactor could have trimmed that arm and the suite would have stayed green.
+    ///
+    /// <para>Both directions, on a company that HAS the statutory enrolments, so the refusal cannot be an
+    /// accident of an empty company: the form refuses while F11 → Payroll Statutory is off, and the SAME saved
+    /// view opens once it is back on.</para>
+    /// </summary>
+    [Fact]
+    public void A_saved_view_cannot_reopen_a_payroll_statutory_form_while_the_statute_is_off()
+    {
+        var vm = PayrollFixture("Pf Form Saved View", gratuity: false, bonus: false);
+
+        vm.OpenPayrollStatutoryForm(ReportKind.PfForm3A);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        var savedView = vm.Reports!.ToSavedView();
+        vm.Back();
+
+        SetPayrollStatutory(vm, false);
+
+        vm.OpenPayrollStatutoryForm(ReportKind.PfForm3A);        // the gated opener: refuses, as it always did
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+
+        vm.ApplySavedView(savedView);                            // the second door: must refuse too
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Contains("switched off", vm.Message);
+
+        SetPayrollStatutory(vm, true);
+        vm.ApplySavedView(savedView);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.PfForm3A, vm.Reports!.Kind);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE THIRD DOOR. GO TO (ALT+G) MUST NOT REACH A REPORT THE COMPANY HAS SWITCHED OFF EITHER — AND
+    /// THIS IS THE PATTERN SWEEP OF THE CLASS, TURNED INTO A MEASUREMENT.</b>
+    ///
+    /// <para>Two doors into a <see cref="ReportKind"/> were counted and closed above: the MENU row (an inline
+    /// feature condition in a builder) and the SAVED VIEW (<see cref="MainWindowViewModel.ApplySavedView"/>, the
+    /// hole this pass fixed). A grep for the pattern found exactly one more surface that navigates to a report
+    /// by NAME rather than by walking the cascade — the Go To overlay — plus exactly two
+    /// <c>OpenReport(kind)</c> call sites taking a variable rather than a literal
+    /// (<c>OpenPayrollStatutoryForm</c>, gated, and <c>ApplySavedView</c>, now gated). The previous review
+    /// asserted Go To was safe because it REPLAYS menu paths and so inherits the menu gates. That is true by
+    /// construction — <c>ActivateGoTo</c> re-resolves each Group row in the rebuilt column and bails when one is
+    /// gone — but on this branch "true by reading" has been wrong three times, so it is measured here.</para>
+    ///
+    /// <para>Both halves: the destination must be ABSENT from the index while the feature is off (so it cannot be
+    /// typed at all), and PRESENT once the feature is back on (so the sweep has not simply proven Go To is
+    /// broken). Payroll for the family whose exposure was the blocker, and Cost Centres because it is the one
+    /// flag whose unset default is ON.</para>
+    /// </summary>
+    [Fact]
+    public void The_go_to_overlay_cannot_reach_a_report_family_the_company_has_switched_off()
+    {
+        var vm = PayrollFixture("Go To Gate", gratuity: false, bonus: false);
+        var c = vm.Company!;
+
+        // ---- Payroll ON: the Pay Sheet is findable by name, which is what makes the negative half meaningful.
+        vm.OpenGoTo();
+        vm.GoTo!.SearchText = "Pay Sheet";
+        Assert.Contains(vm.GoTo!.Results, r => r.Label == "Pay Sheet");
+        vm.CloseGoTo();
+
+        // ---- F11 → Maintain Payroll OFF through the real page. The whole family must leave the index with the
+        // menu group, because Go To builds its index by WALKING the real menu.
+        vm.ShowGstConfig();
+        vm.GstConfig!.PayrollEnabled = false;
+        vm.Back();
+        Assert.False(c.PayrollEnabled);
+
+        vm.OpenGoTo();
+        vm.GoTo!.SearchText = "Pay Sheet";
+        Assert.DoesNotContain(vm.GoTo!.Results, r => r.Label == "Pay Sheet");
+        Assert.Empty(vm.GoTo!.AllDestinations.Where(d => d.Label == "Pay Sheet"));
+        Assert.False(vm.ActivateGoTo() && vm.CurrentScreen == Screen.Report,
+            "Go To jumped to a report on a company that has the feature switched off.");
+        vm.CloseGoTo();
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+
+        // ---- and the cost-centre flag, whose unset default is ON, so it has to be switched off deliberately.
+        vm.OpenGoTo();
+        vm.GoTo!.SearchText = "Cost Centre Break-up";
+        var hadCostCentre = vm.GoTo!.AllDestinations.Any(d => d.Label.Contains("Cost Centre", StringComparison.Ordinal));
+        vm.CloseGoTo();
+        Assert.True(hadCostCentre, "No Cost Centre destination in the Go To index at all — the sweep proves nothing.");
+
+        c.EnableCostCentres = false;
+        vm.OpenGoTo();
+        Assert.DoesNotContain(vm.GoTo!.AllDestinations,
+            d => d.Label.Contains("Cost Centre", StringComparison.Ordinal));
+        vm.CloseGoTo();
+    }
+
+    /// <summary>
+    /// 🔴🔴 <b>BARE ENTER ON THE E-PAYMENTS REPORT MUST NOT WRITE A BANK PAYMENT-INSTRUCTION FILE (review
+    /// finding N2).</b> This is the OTHER half of the class the <c>viaAcceptChord</c> parameter was introduced to
+    /// close. The previous pass guarded the gratuity arm three lines below this one, wrote a comment naming
+    /// "any <c>case Screen.Report when …</c> arm below that WRITES", and left this arm untouched.
+    ///
+    /// <para>MEASURED by the review on a shown window with a real Enter press: <c>EPaymentsExportStatus</c> went
+    /// from empty to the arm's own "Nothing is ready to send…" message, i.e. the arm RAN and only an early
+    /// return stopped the file. This fixture makes the report READY — a complete bank master, a complete
+    /// beneficiary and a posted NEFT payment — so nothing but the guard stands between Enter and the file.</para>
+    ///
+    /// <para>Both gestures on the same window: Enter must leave the export folder untouched and say which key
+    /// exports; Ctrl+A must still write the file, or the fix is the feature removed.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Bare_Enter_on_the_e_payments_report_writes_no_file_but_Ctrl_A_still_does()
+    {
+        var vm = ReadyEPaymentsFixture("EPay Enter Guard", out var company);
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        vm.OpenReport(ReportKind.EPayments);
+        Pump(window);
+        vm.Reports!.SetPeriod(company.BooksBeginFrom, company.BooksBeginFrom.AddYears(1));
+        Pump(window);
+
+        var report = vm.Reports!;
+        Assert.NotEmpty(report.Rows);
+        Assert.Contains(report.Rows,
+            r => r.Particulars.Contains("Ready for Sending to Bank", StringComparison.Ordinal));
+
+        var folder = ExportFolderDefault.Resolve();
+        var expected = Path.Combine(folder,
+            $"PaymentInstructions-{company.BooksBeginFrom:yyyyMMdd}-{company.BooksBeginFrom.AddYears(1):yyyyMMdd}.csv");
+        if (File.Exists(expected)) File.Delete(expected);        // a stale file from another run proves nothing
+
+        try
+        {
+            // ---- the drill key. It must not export.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.False(File.Exists(expected),
+                "A bare Enter on the e-Payments report wrote the bank payment-instruction file. Enter is the "
+                + "DRILL key on every report in this product; an operator aiming at a drill must not produce a "
+                + "payment file.");
+            Assert.DoesNotContain("Saved", report.EPaymentsExportStatus);
+            Assert.Contains("Press Ctrl+A", report.EPaymentsExportStatus);
+
+            // ---- and the accept chord on the same window still exports.
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+
+            Assert.True(File.Exists(expected),
+                "Ctrl+A no longer exports the payment instruction file. Status was: " + report.EPaymentsExportStatus);
+            Assert.Contains("Saved", report.EPaymentsExportStatus);
+            Assert.Contains("Acme Supplies", File.ReadAllText(expected));
+        }
+        finally
+        {
+            try { if (File.Exists(expected)) File.Delete(expected); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// 🔴 <b>EACH F12 DISPLAY KNOB IS OFFERED ONLY WHERE ITS OWN BUILDER READS IT (review finding N3).</b>
+    ///
+    /// <para>The previous pass gated all three on <c>!IsPayrollMatrix</c> and defended it in a comment saying the
+    /// three options "are consumed in exactly one place — the row-bearing builders". MEASURED, that is wrong in
+    /// BOTH directions. Day Book is row-bearing and honours none of the three — a posted voucher's row comes back
+    /// byte-identical after hide-zero + percentages + a closing-stock basis — and so does every register, GSTR-1,
+    /// GSTR-3B and Statistics, about eighty kinds in all, on which the panel still showed all three. Meanwhile
+    /// the Attendance Sheet DOES honour hide-zero (<c>BuildAttendanceSheet</c> passes
+    /// <c>_options.HideZeroBalances</c> straight into <c>Report.BuildAttendanceSheet</c> as the vendor's own
+    /// "Remove zero-valued transactions") and the matrix predicate HID it there.</para>
+    ///
+    /// <para>The inertness half is behavioural, over a report with ROWS in it — not a flag assertion and not a
+    /// snapshot that leads with a column band that <c>ApplyConfiguration</c> could never alter anyway.</para>
+    /// </summary>
+    [Fact]
+    public void The_F12_display_knobs_are_offered_only_where_the_builder_reads_them()
+    {
+        var vm = FullFixture("Knob Scope");
+        var c = vm.Company!;
+
+        // ---- Day Book: row-bearing, honours NONE of the three. The defect the old predicate left open.
+        var dayBook = new ReportsViewModel(c, ReportKind.DayBook);
+        WidenToAllTime(dayBook, c);
+        Assert.NotEmpty(dayBook.Rows);                          // rows, so the comparison below is not vacuous
+        Assert.False(dayBook.SupportsHideZeroBalances);
+        Assert.False(dayBook.SupportsPercentages);
+        Assert.False(dayBook.SupportsClosingStockBasis);
+        Assert.False(dayBook.SupportsDisplayOptions);
+
+        var before = RowText(dayBook);
+        Assert.NotEqual(string.Empty, before);
+        dayBook.ApplyConfiguration(hideZero: true, showPercentages: true,
+            Apex.Ledger.Reports.ClosingStockMode.InventoryDerived);
+        Assert.Equal(before, RowText(dayBook));
+
+        // ---- Trial Balance: hide-zero and percentages act; the closing-stock basis does NOT (only BS and P&L
+        // read it, through ReportOptions).
+        var trialBalance = new ReportsViewModel(c, ReportKind.TrialBalance);
+        Assert.True(trialBalance.SupportsHideZeroBalances);
+        Assert.True(trialBalance.SupportsPercentages);
+        Assert.False(trialBalance.SupportsClosingStockBasis);
+
+        // ---- Balance Sheet / P&L: all three.
+        foreach (var kind in new[] { ReportKind.BalanceSheet, ReportKind.ProfitAndLoss })
+        {
+            var r = new ReportsViewModel(c, kind);
+            Assert.True(r.SupportsHideZeroBalances, $"{kind} lost hide-zero.");
+            Assert.True(r.SupportsPercentages, $"{kind} lost percentages.");
+            Assert.True(r.SupportsClosingStockBasis, $"{kind} lost the closing-stock basis.");
+        }
+
+        // ---- Stock Summary: hide-zero and percentages, but it values stock directly and ignores the basis.
+        var stock = new ReportsViewModel(c, ReportKind.StockSummary);
+        Assert.True(stock.SupportsHideZeroBalances);
+        Assert.True(stock.SupportsPercentages);
+        Assert.False(stock.SupportsClosingStockBasis);
+
+        // ---- Attendance Sheet: hide-zero is LIVE here and the matrix predicate hid it. Percentages and the
+        // closing-stock basis are not.
+        var payroll = PayrollFixture("Knob Scope Payroll", gratuity: false, bonus: false);
+        var attendance = new ReportsViewModel(payroll.Company!, ReportKind.AttendanceSheet);
+        Assert.True(attendance.SupportsHideZeroBalances,
+            "The Attendance Sheet honours F12 hide-zero (the vendor's 'Remove zero-valued transactions'); "
+            + "hiding the knob there is the same defect as showing a dead one, one direction over.");
+        Assert.False(attendance.SupportsPercentages);
+        Assert.False(attendance.SupportsClosingStockBasis);
+        Assert.True(attendance.SupportsDisplayOptions);          // the section heading must still appear
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE F12 PANEL RENDERS ONLY THE KNOBS THAT ACT, PROVEN ON THE VISUAL TREE (review finding N8).</b>
+    /// The two visibility bindings added by the previous pass were asserted at view-model level only, on a branch
+    /// whose filed failure mode is precisely a knob that renders and does nothing. A binding that resolves is not
+    /// a control that left the panel.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_F12_panel_renders_only_the_display_knobs_that_act_on_the_open_report()
+    {
+        var vm = FullFixture("F12 Visual Tree");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 1000 };
+        window.Show();
+        Pump(window);
+
+        // ---- A Trial Balance: hide-zero and percentages are on screen, the closing-stock row is not.
+        vm.OpenReport(ReportKind.TrialBalance);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.True(VisibleCheckBox(window, "Hide zero balances"));
+        Assert.True(VisibleCheckBox(window, "Show percentages (of section/column total)"));
+        Assert.False(VisibleLabel(window, "Closing stock"));
+        vm.Back();
+        vm.Back();
+        Pump(window);
+
+        // ---- A Balance Sheet: all three, including the closing-stock basis.
+        vm.OpenReport(ReportKind.BalanceSheet);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.True(VisibleCheckBox(window, "Hide zero balances"));
+        Assert.True(VisibleLabel(window, "Closing stock"));
+        vm.Back();
+        vm.Back();
+        Pump(window);
+
+        // ---- Bills Receivable, a re-homed matrix report: none of the three, and no "Display" heading standing
+        // over nothing.
+        vm.OpenReport(ReportKind.ReceivablesOutstanding);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.False(VisibleCheckBox(window, "Hide zero balances"));
+        Assert.False(VisibleCheckBox(window, "Show percentages (of section/column total)"));
+        Assert.False(VisibleLabel(window, "Closing stock"));
+        Assert.False(VisibleLabel(window, "Display"));
+        // The panel is genuinely open — otherwise every assertion above passes for the wrong reason.
+        Assert.NotNull(vm.ReportConfig);
+        Assert.True(VisibleCheckBox(window, "Detailed (ledger/item-level; unchecked = group summary)")
+                    || VisibleLabel(window, "Configure — F12"));
+
+        // ---- Day Book: row-bearing, and the knobs must be gone there too. This is the case the matrix
+        // predicate could never have covered.
+        vm.Back();
+        vm.Back();
+        vm.OpenReport(ReportKind.DayBook);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.False(VisibleCheckBox(window, "Hide zero balances"));
+        Assert.False(VisibleLabel(window, "Display"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE ALT+F12 PANEL DISABLES THE CONTROLS IT CANNOT ACT WITH, PROVEN ON THE VISUAL TREE (review
+    /// findings N7 and N8).</b> The banner plus the refusal in <c>Apply()</c> was only half the fix: the sort
+    /// combo, the Ascending box, Min, Max, "Name has" and Apply were all still live on a report the panel cannot
+    /// touch, so an operator could type a filter into an enabled box, press an enabled Apply, and learn only
+    /// afterwards that nothing happened. A control that cannot do anything must not accept input.
+    ///
+    /// <para>Both directions, and the banner's own visibility is checked on the rendered tree rather than through
+    /// its view-model flag.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_sort_filter_panel_disables_the_controls_it_cannot_act_with()
+    {
+        var vm = FullFixture("Alt F12 Visual Tree");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 1000 };
+        window.Show();
+        Pump(window);
+
+        // ---- a re-homed report: the banner is drawn and Apply is dead.
+        vm.OpenReport(ReportKind.ReceivablesOutstanding);
+        vm.OpenReportSortFilter();
+        Pump(window);
+
+        Assert.NotNull(vm.ReportSortFilter);
+        Assert.Contains(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text is { } s && s.Contains("does not act on this report", StringComparison.Ordinal));
+
+        var apply = ApplyButton(window);
+        Assert.False(apply.IsEffectivelyEnabled,
+            "The Alt+F12 Apply button is live on a report the panel cannot sort or filter.");
+        Assert.All(FilterInputs(window), box => Assert.False(box.IsEffectivelyEnabled,
+            "An Alt+F12 filter box accepts typing on a report the panel cannot act on."));
+
+        vm.Back();
+        vm.Back();
+        Pump(window);
+
+        // ---- a Trial Balance: no banner, and every control live.
+        vm.OpenReport(ReportKind.TrialBalance);
+        vm.OpenReportSortFilter();
+        Pump(window);
+
+        Assert.DoesNotContain(Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
+            t => t.Text is { } s && s.Contains("does not act on this report", StringComparison.Ordinal));
+        Assert.True(ApplyButton(window).IsEffectivelyEnabled,
+            "The Alt+F12 Apply button is dead on a Trial Balance, which the panel does act on.");
+        Assert.All(FilterInputs(window), box => Assert.True(box.IsEffectivelyEnabled));
+
+        window.Close();
     }
 
     // ================================================================= harness
@@ -1136,5 +1723,149 @@ public sealed class RehomedReportSurfaceTests : IDisposable
             yield return c;
             foreach (var g in Descendants(c)) yield return g;
         }
+    }
+
+    /// <summary>The report's ROW text only — no column band. The band is what
+    /// <c>ApplyConfiguration</c> could never alter under any circumstance, so a snapshot that includes it is
+    /// non-empty at zero rows and its own anti-vacuity guard stops biting.</summary>
+    private static string RowText(ReportsViewModel r) => string.Join("|",
+        r.Rows.Select(row => string.Join(",", row.Particulars, row.Secondary, row.Amount, row.Debit, row.Credit)));
+
+    /// <summary>
+    /// A re-homed report of <paramref name="kind"/> that actually HAS ROWS IN IT (review finding N4).
+    ///
+    /// <para>The six accounting kinds are populated by <see cref="FullFixture"/>, which seeds the bills, cost
+    /// allocations and budget this wave's reports read. The two payroll REGISTERS are not: <c>FullFixture</c>
+    /// deliberately never enables payroll, so both of them come back through this wave's own
+    /// <c>PayrollStatutoryEnabled</c> degrade at zero rows — which is correct behaviour and a useless fixture
+    /// for a test that has to compare cells. They therefore get the statute switched on, the enrolment created
+    /// and one employee hired, exactly as the golden-figure tests above do.</para>
+    /// </summary>
+    private ReportsViewModel PopulatedRehomedReport(string name, ReportKind kind)
+    {
+        if (kind is ReportKind.GratuityProvisionRegister or ReportKind.BonusRegister)
+        {
+            var wantsGratuity = kind == ReportKind.GratuityProvisionRegister;
+            var payrollVm = PayrollFixture(name, gratuity: wantsGratuity, bonus: !wantsGratuity);
+            var pc = payrollVm.Company!;
+            var basic = CreateBasicHead(pc);
+            var groupId = new PayrollService(pc).CreateEmployeeGroup("Staff").Id;
+            AddEmployee(pc, basic, groupId, "Bina Roy", "B001", pc.FinancialYearStart.AddYears(-3), 18_000m);
+            _storage.Save(pc);
+
+            var register = new ReportsViewModel(pc, kind);
+            register.SetAsOf(pc.FinancialYearStart.AddYears(1).AddDays(-1));
+            return register;
+        }
+
+        var vm = FullFixture(name);
+        var reports = new ReportsViewModel(vm.Company!, kind);
+        WidenToAllTime(reports, vm.Company!);
+        return reports;
+    }
+
+    /// <summary>True when a <see cref="CheckBox"/> with this exact content is laid out and visible.</summary>
+    private static bool VisibleCheckBox(Visual root, string content) =>
+        Descendants(root).OfType<CheckBox>()
+            .Any(cb => cb.IsEffectivelyVisible && cb.Content as string == content);
+
+    /// <summary>True when a <see cref="TextBlock"/> carrying this exact text is laid out and visible.</summary>
+    private static bool VisibleLabel(Visual root, string text) =>
+        Descendants(root).OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
+
+    /// <summary>The Alt+F12 panel's Apply button, found by its own caption so the test breaks loudly if the
+    /// template is restructured rather than passing over a control that is no longer there.</summary>
+    private static Button ApplyButton(Visual root) =>
+        Assert.Single(Descendants(root).OfType<Button>()
+            .Where(b => b.IsEffectivelyVisible && b.Content as string == "Apply (Ctrl+A)"));
+
+    /// <summary>The Alt+F12 panel's three filter text boxes, found by their placeholders.</summary>
+    private static IReadOnlyList<TextBox> FilterInputs(Visual root)
+    {
+        var boxes = Descendants(root).OfType<TextBox>()
+            .Where(b => b.IsEffectivelyVisible && b.PlaceholderText is
+                "rupees (blank = no lower bound)" or "rupees (blank = no upper bound)" or "substring (blank = all)")
+            .ToList();
+        Assert.Equal(3, boxes.Count);
+        return boxes;
+    }
+
+    /// <summary>
+    /// A payroll company with ONE employee whose salary run for the FY-start wage month is POSTED, so the Pay
+    /// Sheet has a real row in it. The posted voucher is what matters: the payroll presentation reports project
+    /// the POSTED run, not the salary structure, so a company with a structure and no run renders "No employees
+    /// with salary for this wage month" and a confidentiality test over it would pass for the wrong reason
+    /// (measured — that is exactly what the first draft of this fixture did).
+    /// </summary>
+    private MainWindowViewModel PaidEmployeeFixture(string name, out Company company, out DateOnly wageMonth)
+    {
+        var vm = PayrollFixture(name, gratuity: false, bonus: false);
+        var c = vm.Company!;
+        var basic = CreateBasicHead(c);
+        var groupId = new PayrollService(c).CreateEmployeeGroup("Staff").Id;
+        var month = new DateOnly(c.FinancialYearStart.Year, c.FinancialYearStart.Month, 1);
+        var monthTo = month.AddMonths(1).AddDays(-1);
+
+        var empId = AddEmployee(c, basic, groupId, "Zara Mehta", "Z001",
+            c.FinancialYearStart.AddYears(-2), 41_000m);
+        new PayrollVoucherService(c).Post(month, monthTo, new[] { empId });
+
+        _storage.Save(c);
+        company = c;
+        wageMonth = month;
+        return vm;
+    }
+
+    /// <summary>Opens the Pay Sheet and scopes it to the posted wage month, as the F4 month picker does.</summary>
+    private static void OpenPaySheetForMonth(MainWindowViewModel vm, DateOnly wageMonth)
+    {
+        vm.OpenReport(ReportKind.PaySheet);
+        SelectWageMonth(vm.Reports!, wageMonth);
+    }
+
+    private static void SelectWageMonth(ReportsViewModel reports, DateOnly wageMonth) =>
+        reports.SelectedPayrollMonth = reports.PayrollMonths.First(m => m.FirstDay == wageMonth);
+
+    /// <summary>
+    /// A company whose e-Payments report has a row in "Ready for Sending to Bank": a bank ledger with both its
+    /// account number and IFS code, a beneficiary with both, and a posted NEFT payment between them. Without
+    /// ALL of that the export takes its nothing-ready early return and an Enter-does-not-write assertion would
+    /// pass for the wrong reason.
+    /// </summary>
+    private MainWindowViewModel ReadyEPaymentsFixture(string name, out Company company)
+    {
+        var vm = NewCompany(name);
+        var c = vm.Company!;
+
+        var bank = new DomainLedger(Guid.NewGuid(), "HDFC Bank", c.FindGroupByName("Bank Accounts")!.Id,
+            Money.FromRupees(500_000m), openingIsDebit: true)
+        {
+            EnableChequePrinting = true,
+            BankAccountNumber = "50200012345678",
+            BankIfsc = "HDFC0000123",
+        };
+        c.AddLedger(bank);
+
+        var acme = new DomainLedger(Guid.NewGuid(), "Acme Supplies", c.FindGroupByName("Sundry Creditors")!.Id,
+            Money.Zero, openingIsDebit: false)
+        {
+            BankAccountNumber = "9876543210",
+            BankIfsc = "ICIC0000456",
+        };
+        c.AddLedger(acme);
+
+        new LedgerService(c).Post(new Voucher(
+            Guid.NewGuid(), c.FindVoucherTypeByName("Payment")!.Id, c.BooksBeginFrom.AddDays(20),
+            new[]
+            {
+                new EntryLine(acme.Id, Money.FromRupees(125_000m), DrCr.Debit),
+                new EntryLine(bank.Id, Money.FromRupees(125_000m), DrCr.Credit,
+                    bankAllocation: new BankAllocation(BankTransactionType.NEFT, "NEFT-77")),
+            },
+            partyId: acme.Id));
+
+        _storage.Save(c);
+        company = c;
+        return vm;
     }
 }

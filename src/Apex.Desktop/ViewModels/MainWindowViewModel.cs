@@ -1530,7 +1530,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
         // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
         // so a company that never enables Payroll is byte-identical to the pre-slice Reports menu.
-        if (Company is { PayrollEnabled: true })
+        if (PayrollFeatureOn)
             col.Add(new MenuItemViewModel("Payroll Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
@@ -1546,8 +1546,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // missing for exactly the companies census area 15 exists to serve, and the three VAT reports below it
         // were unreachable through the real cascade. That is the same omission that once made all ten Phase-9
         // UI-1 screens unreachable by leaving IsRegularGstDealer out of this line.
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true }
-                or { VatEnabled: true }
+        if (TdsFeatureOn || TcsFeatureOn || PayrollStatutoryFeatureOn || VatFeatureOn
             || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
@@ -1867,7 +1866,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // F11 → Accounting → "Enable Cost Centres" (census row 1.7). The whole Cost Masters SECTION goes with
         // the flag — the header too, because a section heading standing over nothing is the kind of empty
         // scaffolding this cascade is not allowed to show.
-        if (Company?.EnableCostCentres != false)
+        if (CostCentresFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Cost Masters"));
             col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -1963,7 +1962,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Outstandings", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // F11 → Accounting → "Enable Cost Centres" / "Enable Interest Calculation" (census row 1.7): the two
         // report entries the vendor gates on those company features leave the hub with them.
-        if (Company?.EnableCostCentres != false)
+        if (CostCentresFeatureOn)
             col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         if (Company?.EnableInterestCalculation != false)
@@ -2068,12 +2067,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Reorder Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Batch reports (Phase 6 Cluster 1; RQ-8/RQ-54) nest under a Batch sub-group — surfaced only when the
         // company flag "Maintain Batch-wise details" is on (RQ-52).
-        if (Company is { MaintainBatchwiseDetails: true })
+        if (BatchwiseFeatureOn)
             col.Add(new MenuItemViewModel("Batch", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Price List report (Phase 6 slice 5; RQ-31/RQ-54) nests beside the analysis reports — surfaced only when
         // the F11 flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
-        if (Company is { EnableMultiplePriceLevels: true })
+        if (PriceLevelsFeatureOn)
             col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Registers"));
@@ -2084,13 +2083,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Order Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // POS Register (Phase 6 slice 7; RQ-44): the day-close tender view of POS bills — surfaced only when a
         // POS-flagged Sales type exists (mirrors the batch/price-list conditional surfacing).
-        if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
+        if (PosSalesFeatureOn)
             col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         // W-K1 (census 9.8): the two Bills Pending reports — the unreconciled ends of the Tracking Number
         // mechanism — nest under their own sub-section, surfaced only when the F11 feature "Use tracking numbers"
         // is on. With the flag off there is no way to key a tracking number, so the reports would always be empty.
-        if (Company is { UseTrackingNumbers: true })
+        if (TrackingNumbersFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Bills Pending"));
             col.Add(new MenuItemViewModel("Purchase Bills Pending", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2100,7 +2099,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W-K1 (census 9.7): the vendor's three Item Cost Analysis reports, surfaced only when F11 "Enable Cost
         // Tracking" is on. The vendor groups them under Statements of Inventory → Item Cost Analysis; this
         // product's equivalent home is the Inventory Reports column, and they keep the vendor's own heading.
-        if (Company is { EnableCostTracking: true })
+        if (CostTrackingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Item Cost Analysis"));
             col.Add(new MenuItemViewModel("Stock Item Cost Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2112,7 +2111,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // 🔴 It sits BESIDE the Job WORK ORDER reports below, not inside them: job COSTING (a cost dimension over
         // projects) and job WORK ORDER PROCESSING (sending material to a sub-contractor) are different features
         // with different F11 gates, and folding them into one section would imply one switch drives both.
-        if (Company is { EnableJobCosting: true })
+        if (JobCostingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Job Costing"));
             col.Add(new MenuItemViewModel("Job Work Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2120,7 +2119,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Job Work reports (Phase 6 slice 8; RQ-51/RQ-54) nest under their own sub-section — surfaced only when the
         // F11 feature "Enable Job Order Processing" is on (RQ-52), so a non-job-work company is byte-identical (ER-13).
-        if (Company is { EnableJobOrderProcessing: true })
+        if (JobOrderProcessingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Job Work Reports"));
             col.Add(new MenuItemViewModel("Job Work In Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2203,7 +2202,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Challan Reconciliation (Phase 7 slice 3; catalog §13) — deposits vs deductions per section. Surfaced
         // under its own TDS header only when the F11 feature "Enable TDS" is on (ER-13), reached by Alt+R too.
-        if (Company is { TdsEnabled: true })
+        if (TdsFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
@@ -2216,7 +2215,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // TCS Challan Reconciliation + Form 27EQ (Phase 7 slice 6; catalog §13) — the collector's mirror of the TDS
         // pair. Surfaced under their own TCS header only when the F11 feature "Enable TCS" is on (ER-13). No global
         // open accelerator (Alt+R stays the TDS recon even when both taxes are on — no colliding/dead key).
-        if (Company is { TcsEnabled: true })
+        if (TcsFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("TCS"));
             col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2632,13 +2631,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var col = new GatewayColumn("Statutory Reports");
         col.Add(MenuItemViewModel.Header("Statutory Reports"));
-        if (Company is { TdsEnabled: true })
+        if (TdsFeatureOn)
             col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        if (Company is { TcsEnabled: true })
+        if (TcsFeatureOn)
             col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // Payroll statutory reports (Phase 8 slice 4/5; RQ-9/RQ-10) nest under their own Payroll sub-group, surfaced
         // only when the F11 feature "Enable Payroll Statutory" is on (ER-13).
-        if (Company is { PayrollStatutoryEnabled: true })
+        if (PayrollStatutoryFeatureOn)
             col.Add(new MenuItemViewModel("Payroll", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // Composition Returns (Phase 9 slice 3; RQ-16) nest under their own sub-group, surfaced only for a Composition
         // dealer (ER-13). A Regular company never sees CMP-08 / GSTR-4.
@@ -2665,11 +2664,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // F11 VAT switch, so a company that never enabled VAT is byte-identical to the pre-slice menu (ER-13).
         // A dealer in ordinary GST goods must never meet a VAT menu row: it would invite them to compute a tax
         // abolished for their trade, which is the harm this whole area is gated against.
-        if (Company is { VatEnabled: true })
+        if (VatFeatureOn)
             col.Add(new MenuItemViewModel("VAT Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        if (TdsFeatureOn || TcsFeatureOn)
             col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -3005,7 +3004,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void ShowPayrollReportsMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
-        if (Company is not { PayrollEnabled: true }) return;   // group hidden when Payroll is off (ER-13)
+        if (!PayrollFeatureOn) return;   // group hidden when Payroll is off (ER-13)
         SelectRootItem("Payroll Reports");
         OpenSubmenuColumn(BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
             "Gateway of Apex Solutions — Payroll Reports");
@@ -3114,7 +3113,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenPayrollStatutoryForm(ReportKind kind)
     {
-        if (Company is not { PayrollStatutoryEnabled: true }) return;
+        if (!PayrollStatutoryFeatureOn) return;
         OpenReport(kind);
     }
 
@@ -4299,20 +4298,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (view is null || Company is null) return;
         if (ReportsViewModel.KindFor(view.ReportKind) is not { } kind) return; // token this build cannot map
 
-        // 🔴🔴 A SAVED VIEW IS A SECOND DOOR TO EVERY REPORT KIND, AND UNTIL THIS GUARD IT WALKED PAST EVERY
-        // COMPANY-FEATURE GATE IN THE PRODUCT. A saved view stores a kind TOKEN, and this method opened that
-        // kind directly — so Alt+K on a company whose Payroll Statutory had been switched off still rendered
-        // every employee's wage base and accrued gratuity liability, and the register's own Ctrl+A still posted
-        // a real Journal voucher into the books. MEASURED on the realised window, twice: "opened=True, rows=2,
-        // vouchers 0 -> 1" through this door, while OpenGratuityProvisionReport refused correctly in the same
-        // fixture seconds earlier. A gate a second door walks around is not a gate — the button bar's own
-        // comment for the Cost Centres quick-button says exactly that, and this is the same defect one surface
-        // over.
+        // 🔴🔴 A SAVED VIEW IS A SECOND DOOR TO EVERY REPORT KIND. A saved view stores a kind TOKEN, and this
+        // method opened that kind directly — so Alt+K on a company whose Payroll Statutory had been switched off
+        // still rendered every employee's wage base and accrued gratuity liability, and the register's own Ctrl+A
+        // still posted a real Journal voucher into the books. MEASURED on the realised window, twice:
+        // "opened=True, rows=2, vouchers 0 -> 1" through this door, while OpenGratuityProvisionReport refused
+        // correctly in the same fixture seconds earlier. A gate a second door walks around is not a gate.
         //
-        // The hole is NOT this wave's invention and the fix is deliberately NOT scoped to this wave's eight
-        // kinds: OpenPayrollStatutoryForm has been gated on PayrollStatutoryEnabled since W7-D2 while this
-        // method has been ungated beside it, so the PF and ESI forms were reachable the same way on main. One
-        // predicate closes both. See ReportKindIsPermitted for what each kind requires.
+        // 🔴 AND THE FIRST ATTEMPT AT THIS GUARD DID NOT CLOSE THE CLASS, WHICH IS WHY THE PREDICATE IS SHAPED
+        // THE WAY IT IS NOW. That attempt enumerated the kinds whose OPENERS already carried a guard — FIFTEEN
+        // of ninety-three, counted from its own arms, not the eighteen the review's prose said — and permitted
+        // everything else, and a comment here claimed the door was shut on every
+        // company-feature gate in the product. It was not: the product gates most report kinds on the MENU ROW,
+        // not on an opener, so a review then measured a saved view opening the PAY SHEET (every employee's gross,
+        // deductions and net pay) on a company with F11 Payroll switched OFF, screen=Report kind=PaySheet
+        // payrollEnabled=False Message empty. ReportKindIsPermitted now DENIES a kind that carries no explicit
+        // gate decision, and the decision table is total over ReportKind with a test that fails when a new kind
+        // is added without one — see MainWindowViewModel.ReportFeatureGates.cs.
         if (!ReportKindIsPermitted(kind))
         {
             Message = "That saved view is for a report this company has switched off. "
@@ -4324,42 +4326,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Reports?.ApplySavedView(view);
     }
 
-    /// <summary>
-    /// The ER-13 company-feature gate for a report KIND, factored out of the openers so every door into a
-    /// report asks the same question. Returns true when the company may see this kind at all.
-    ///
-    /// <para>🔴 <b>THIS EXISTS BECAUSE THE GATES WERE ON THE OPENERS AND NOT ON THE KINDS.</b> Each opener below
-    /// carries its own inline guard and always has; what had no guard was <see cref="ApplySavedView"/>, which
-    /// takes a persisted kind token and opens it. A gate that only one of two doors asks about is cosmetic, and
-    /// on the Gratuity register the ungated door could also WRITE. Kept as one predicate rather than duplicated
-    /// into the second door so the two can never drift: if an opener's gate changes, change it here.</para>
-    ///
-    /// <para>Everything not named here returns true. That is deliberate and it is the honest default — this
-    /// predicate must never become a second, quietly diverging copy of the product's feature map. A kind belongs
-    /// on this list only when an opener already refuses it.</para>
-    /// </summary>
-    private bool ReportKindIsPermitted(ReportKind kind) => kind switch
-    {
-        // Census 7.13 / 7.14 — the two-part ER-13 gate: the statute master switch AND the establishment's own
-        // enrolment. Matches OpenGratuityProvisionReport / OpenBonusRegisterReport exactly.
-        ReportKind.GratuityProvisionRegister => Company is { PayrollStatutoryEnabled: true, GratuityConfig: not null },
-        ReportKind.BonusRegister => Company is { PayrollStatutoryEnabled: true, BonusConfig: not null },
-
-        // Census 7.20 / 7.21 and the payroll statutory summary / income-tax computation — matches
-        // OpenPayrollStatutoryForm. PRE-EXISTING on main; closed here because it is the identical hole.
-        ReportKind.PfForm3A or ReportKind.PfForm5 or ReportKind.PfForm6A or ReportKind.PfForm10
-            or ReportKind.PfForm12A or ReportKind.EsiForm3 or ReportKind.EsiForm5 or ReportKind.EsiForm6
-            or ReportKind.PayrollStatutorySummary or ReportKind.IncomeTaxComputation
-            => Company is { PayrollStatutoryEnabled: true },
-
-        // Census 11.10 — F11 → Accounting → Enable Cost Centres (census row 1.7). The menu column and the "C"
-        // quick-button both close with the flag; the saved view was the third door and did not.
-        // `!= false` rather than `== true`: the flag's own shipped convention is that an unset company is on.
-        ReportKind.CostCategorySummary or ReportKind.CostCentreBreakup or ReportKind.CostCentreLedgerBreakup
-            => Company?.EnableCostCentres != false,
-
-        _ => true,
-    };
+    // ReportKindIsPermitted and the total ReportKind → ReportFeatureGate decision table now live in
+    // MainWindowViewModel.ReportFeatureGates.cs, alongside the named menu-gate properties the menu builders
+    // branch on. They were moved out of this file BECAUSE the predicate that used to sit here permitted every
+    // kind it did not name, and reading it here made that look like a complete gate.
 
     // =============================================================== screen: Print Preview (RQ-9 / DP-8)
 
@@ -7196,7 +7166,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenGratuityProvisionReport()
     {
-        if (Company is not { PayrollStatutoryEnabled: true, GratuityConfig: not null }) return;
+        if (!GratuityRegisterFeatureOn) return;
         OpenReport(ReportKind.GratuityProvisionRegister);
     }
 
@@ -7204,7 +7174,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// register has no action of its own, which is why nothing had to be carried across with it.</summary>
     public void OpenBonusRegisterReport()
     {
-        if (Company is not { PayrollStatutoryEnabled: true, BonusConfig: not null }) return;
+        if (!BonusRegisterFeatureOn) return;
         OpenReport(ReportKind.BonusRegister);
     }
 
@@ -7237,7 +7207,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // clears the flag and LEAVES GratuityConfig in place, so that state is one F11 tick away on any company
         // that ever enrolled. The saved-view door is now gated as well (see ReportKindIsPermitted), and this
         // guard is the second lock: a write path is the wrong place to rely on the reachability of its opener.
-        if (Company is not { PayrollStatutoryEnabled: true })
+        // The two halves are checked SEPARATELY rather than through GratuityRegisterFeatureOn so each can name
+        // the switch the operator has to go and change; the opener asks the composite question.
+        if (!PayrollStatutoryFeatureOn)
         {
             reports.ReportActionStatus =
                 "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory) — nothing was posted.";
@@ -11414,8 +11386,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Census 8.10 — Ctrl+A on the e-Payments report writes the payment-instruction file. `when`-guarded
             // deliberately: an unguarded `case Screen.Report:` would swallow Ctrl+A on EVERY report and silence
             // the fall-through the rest of them rely on.
+            //
+            // 🔴 AND IT IS GESTURE-GUARDED FOR THE SAME REASON THE GRATUITY ARM BELOW IS — this arm is the OTHER
+            // half of the class `viaAcceptChord` exists to close, and an earlier pass guarded one of the two and
+            // said in a comment that it had closed the class. Measured on a shown MainWindow with a real Enter
+            // press before this guard: EPaymentsExportStatus went from empty to "Nothing is ready to send. …",
+            // i.e. the arm RAN and only a nothing-ready early return stopped the file being written. On a
+            // populated e-Payments report the same Enter writes PaymentInstructions-<from>-<to>.csv to the export
+            // folder — a bank payment-instruction file produced by an operator pressing the DRILL key. Enter now
+            // says which key exports and exports nothing; Ctrl+A is unchanged.
             case Screen.Report when Reports?.Kind == ReportKind.EPayments:
-                Reports.ExportPaymentInstructions();
+                if (viaAcceptChord) Reports.ExportPaymentInstructions();
+                else Reports.EPaymentsExportStatus =
+                    "Press Ctrl+A to export the payment instruction file. Enter does not export it.";
                 return;
 
             // W-V2 census 7.13 — Ctrl+A on the re-homed Gratuity Provision register posts the period-end
@@ -12778,7 +12761,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // gate on the button is unchanged — it must stay, or the gate becomes cosmetic (the menu row vanishes
         // and one click on the bar still opens the report the company switched off).
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenReport(ReportKind.CostCentreBreakup),
-            hasCompany && Company?.EnableCostCentres != false));
+            hasCompany && CostCentresFeatureOn));
         ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport,
             hasCompany && Company?.EnableInterestCalculation != false));
         ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));

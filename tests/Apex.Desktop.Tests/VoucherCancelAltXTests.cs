@@ -426,7 +426,7 @@ public sealed class VoucherCancelAltXTests
     }
 
     /// <summary>
-    /// The F12 config column with a DROPDOWN UP is refused, and popping the column makes the same keystroke work.
+    /// A report-parameter column with a DROPDOWN UP is refused, and popping the column makes the same keystroke work.
     ///
     /// <para><b>What this test used to claim and no longer does.</b> It was written as the pin for
     /// <c>!IsPickerOpen</c>, with a positive control that shut the dropdown and expected the prompt to appear
@@ -435,6 +435,15 @@ public sealed class VoucherCancelAltXTests
     /// re-enables the verb. <c>!IsPickerOpen</c> is no longer independently pinnable (every picker that sits over a
     /// report lives in a column the screen gate refuses) and the arm's comment says so rather than pretending
     /// otherwise.</para>
+    ///
+    /// <para>🔴 <b>THE PICKER IS NOW THE ALT+F12 SORT COMBO RATHER THAN F12's CLOSING-STOCK COMBO, AND THE
+    /// SWAP IS ITSELF A FINDING.</b> This test used to open F12 over the Day Book and grab the first visible
+    /// <c>ComboBox</c>, which was the closing-stock basis picker — a control the Day Book's builder never reads.
+    /// When that dead knob was correctly hidden, this test's own <c>Assert.NotNull(picker)</c> fired, which is
+    /// exactly the guard it carries the comment "otherwise this test proves nothing" for. The Alt+F12 sort combo
+    /// IS live on the Day Book (<c>SupportsSortFilter</c> lists it), so the test now drives a picker that the
+    /// product actually offers there, and the screen gate it pins is unchanged: Alt+F12 leaves
+    /// <c>CurrentScreen</c> on its own column exactly as F12 did.</para>
     /// </summary>
     [AvaloniaFact]
     public void AltX_with_a_picker_open_over_a_report_raises_nothing()
@@ -444,7 +453,7 @@ public sealed class VoucherCancelAltXTests
         {
             var k = SeedOneReceipt(window, vm, "Cancel Picker Co");
             OpenDayBookOn(window, vm, k.Receipt.Id);
-            vm.OpenReportConfig();
+            vm.OpenReportSortFilter();
             Pump(window);
 
             var picker = Descendants(window).OfType<ComboBox>().FirstOrDefault(cb => cb.IsEffectivelyVisible);

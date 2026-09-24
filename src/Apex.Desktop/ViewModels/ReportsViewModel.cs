@@ -280,6 +280,13 @@ public enum ReportKind
     // off per report, and it is why these five rows sat at PARTIAL for several census passes with nothing actually
     // wrong with their arithmetic.
     //
+    // ⚠️ SIX OFF IS NOT SIX BACK, AND THIS COMMENT IS THE ONE A READER MEETS FIRST, SO IT SAYS SO HERE. The count
+    // above is what the page Screen SWITCHED OFF — a measurement, and it stands. What the re-home HANDS BACK is
+    // four and a half: Ctrl+P, Ctrl+E, F2/Alt+F2 and Alt+K in full, plus the PERIOD half of F12. The three F12
+    // display knobs do not act on these kinds and are hidden (SupportsHideZeroBalances and its two siblings), and
+    // Alt+F12 says out loud that it cannot act. Both of those are correct behaviour and both make the count
+    // SMALLER. The full derivation is at the re-homed builders' banner further down this file.
+    //
     // 🔴 THEY RENDER THROUGH THE SHARED DYNAMIC MATRIX (IsWideMatrixReport → IsPayrollMatrix), NOT THROUGH A NEW
     // BESPOKE GRID, AND THE REASON IS THE EXPORT AND THE PRINT. A report re-homed onto a bespoke grid GAINS a
     // blank export header row and a blank printed header band — worse than the dedicated Screen it replaced.
@@ -540,8 +547,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
     ///
     /// <para>Deliberately NOT part of <see cref="IsPayrollReport"/>, including for the two payroll registers:
     /// that flag also turns on the wage-MONTH picker, and none of these eight is scoped to a wage month. They
-    /// are scoped by the ordinary report period (F2 / Alt+F2), which is one of the six gestures the re-home
-    /// exists to hand them.</para>
+    /// are scoped by the ordinary report period (F2 / Alt+F2), which is one of the gestures the re-home exists
+    /// to hand them.</para>
     /// </summary>
     public bool IsWideMatrixReport => Kind is ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding
         or ReportKind.CostCategorySummary or ReportKind.CostCentreBreakup or ReportKind.CostCentreLedgerBreakup
@@ -1179,25 +1186,54 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
 
+    // =============================================================== RQ-6: the three F12 DISPLAY knobs
+    //
+    // 🔴 A DEAD KNOB IS NOT A COSMETIC PROBLEM: IT IS THE PANEL LYING ABOUT WHAT IT DID. An operator who ticks
+    // "Hide zero balances", presses Apply and is told "Applied — view updated" now believes the list in front of
+    // them is filtered. That is worse than the option being absent.
+    //
+    // 🔴 AND THE FIRST ATTEMPT AT THIS FIX GOT THE PREDICATE WRONG IN THE SAFE-LOOKING DIRECTION, WHICH IS WHY
+    // THERE ARE NOW THREE OF THEM. It was `!IsPayrollMatrix && !IsPayrollReport`, defended in a comment that said
+    // the three options "are consumed in exactly one place — the row-bearing builders". They are not. MEASURED
+    // by grepping every read of `_options.HideZeroBalances`, `_options.ShowPercentages` and `_options.ClosingStock`
+    // in this file and naming the enclosing method:
+    //   • hide-zero  — BuildTrialBalance, AddBalanceSheetSide, AddProfitAndLossSide, BuildStockSummary AND
+    //                  BuildAttendanceSheet (which passes it straight into Report.BuildAttendanceSheet).
+    //   • percentages — the same four, WITHOUT the Attendance Sheet.
+    //   • closing stock — read only through ReportOptions by BalanceSheet.Build and ProfitAndLoss.Build.
+    // Day Book is row-bearing and honours NONE of them — measured, a posted voucher's row is byte-identical
+    // after hideZero + percentages + a closing-stock basis — and so is every register, GSTR-1, GSTR-3B and
+    // Statistics. The old predicate therefore SHOWED all three on ~80 kinds that ignore them, and HID hide-zero
+    // on the Attendance Sheet, which honours it. Both directions were wrong.
+    //
+    // So each knob is now gated on the kinds whose builder actually reads THAT knob. The lists are short,
+    // explicit and checkable against the grep above; a kind that starts honouring one has to be added here,
+    // which is a line of code rather than a silent lie on the panel.
+
+    /// <summary>True when F12's <b>Hide zero balances</b> actually changes this report. TB / BS / P&amp;L /
+    /// Stock Summary filter their rows on it; the Attendance Sheet passes it into the engine as the vendor's own
+    /// "Remove zero-valued transactions".</summary>
+    public bool SupportsHideZeroBalances => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.AttendanceSheet;
+
+    /// <summary>True when F12's <b>Show percentages</b> actually changes this report — the four row-bearing
+    /// builders that compute a section/column share. The Attendance Sheet is excluded: it counts days, and a
+    /// percentage of a day-count column is not a figure this product claims to produce.</summary>
+    public bool SupportsPercentages => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
+
+    /// <summary>True when F12's <b>closing-stock basis</b> actually changes this report. Only the Balance Sheet
+    /// and the P&amp;L read it (through <c>ReportOptions</c>, in <c>BalanceSheet.Build</c> /
+    /// <c>ProfitAndLoss.Build</c>); the Stock Summary values stock directly and ignores the switch.</summary>
+    public bool SupportsClosingStockBasis => Kind is ReportKind.BalanceSheet or ReportKind.ProfitAndLoss;
+
     /// <summary>
-    /// True when the F12 panel's three RQ-6 <b>display</b> knobs — hide-zero-balances, show-percentages and the
-    /// closing-stock basis — can actually change this report.
-    ///
-    /// <para>🔴 <b>A DEAD KNOB IS NOT A COSMETIC PROBLEM: IT IS THE PANEL LYING ABOUT WHAT IT DID.</b> All three
-    /// options are consumed in exactly one place — the row-bearing builders, through
-    /// <c>ReportConfig.HideZeroBalances</c> / <c>ReportConfig.Percentages</c> and the closing-stock basis passed
-    /// into the Balance-Sheet and P&amp;L builds. The matrix surface has no <c>Rows</c> at all; it renders
-    /// <see cref="PayrollRows"/>, which no builder filters or percentages. So on every matrix kind an operator
-    /// could tick "Hide zero balances", press Apply, be told the view updated, and watch nothing change. This
-    /// wave extended that surface by eight reports, which is why it is closed here rather than deferred.</para>
-    ///
-    /// <para>The predicate is the matrix flag and NOT a hand-written kind list, deliberately: a list would have
-    /// to be re-derived every time a kind joins the matrix, and it would be wrong the first time someone forgot.
-    /// The inertness is PROVEN behaviourally rather than asserted — see
-    /// <c>The_three_F12_display_knobs_cannot_change_a_rehomed_report</c>, which applies all three to a populated
-    /// report and asserts the projection is unchanged cell for cell.</para>
+    /// True when AT LEAST ONE of the three F12 display knobs acts on this report — the gate on the panel's
+    /// "Display" section HEADING, so a heading never stands over nothing. Each individual control is gated on
+    /// its OWN predicate, not on this one.
     /// </summary>
-    public bool SupportsDisplayOptions => !IsPayrollMatrix && !IsPayrollReport;
+    public bool SupportsDisplayOptions =>
+        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis;
 
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
@@ -1799,7 +1835,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // W-V2 (census 11.9 / 11.10 / 11.11 / 7.13 / 7.14). Same rule as every block above and it is not
         // optional: TokenFor indexes this dictionary DIRECTLY, so a kind missing from it throws
         // KeyNotFoundException the moment an operator presses Alt+K on that report — and Alt+K saved views is
-        // one of the six gestures the re-home exists to hand these reports, so omitting a token here would have
+        // one of the gestures the re-home exists to hand these reports, so omitting a token here would have
         // turned the fix into a crash. Frozen strings: a saved view persists the STRING, so renaming the enum
         // member must never change what is written here.
         [ReportKind.ReceivablesOutstanding] = "ReceivablesOutstanding",
@@ -6485,7 +6521,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     // GratuityProvisionRegister and BonusRegister. What was missing was never the arithmetic; it was the
     // SURFACE. Each of these five reports lived on its own page Screen, and a page Screen leaves the shell's
     // report context null, which switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once. These
-    // builders exist so the same numbers arrive on the surface where those six gestures already work.
+    // builders exist so the same numbers arrive on the surface where those gestures already work.
+    //
+    // 🔴 AND THE HONEST COUNT OF WHAT ARRIVES IS FOUR AND A HALF, NOT SIX. Six gestures were switched OFF by the
+    // page Screen — that part is a measurement and it stands. What the re-home HANDS BACK is Ctrl+P print,
+    // Ctrl+E export, F2/Alt+F2 period and Alt+K saved views in full, plus the PERIOD half of F12: the three F12
+    // display knobs do not act on these kinds and are now correctly hidden (see SupportsHideZeroBalances and
+    // its two siblings), and Alt+F12 says out loud that it cannot act rather than answering "Applied". Both of
+    // those are the right behaviour and both make the count smaller, not larger. Any comment or census note
+    // reading "six gestures arrive" is an overstatement and should be corrected to this sentence.
     //
     // Widths: the label column is deliberately wider than PayrollLabelWidth on the reports whose label is a
     // party/ledger/centre NAME rather than an employee name, because those are the names that actually run long.
