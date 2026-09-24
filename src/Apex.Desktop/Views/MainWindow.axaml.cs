@@ -1313,6 +1313,29 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 BARE Y — THE VENDOR'S SECOND CONFIRMATION KEY FOR A SAVED-VIEW DELETE, AND IT WAS QUOTED IN THE CODE
+        // WITHOUT BEING IMPLEMENTED. help.tallysolutions.com/use-save-view-feature-in-tallyprime/ (Delete Saved
+        // View of a Report): choose the view and press Enter, then "Press Enter or Y to confirm deletion". Only
+        // Enter answered — Y was pressed on the realised window and the view survived — so the panel's own remark
+        // quoted a behaviour the product did not have.
+        //
+        // SCOPED TO THE ARMED STATE, NOT TO THE SCREEN, AND THE DIFFERENCE IS THE WHOLE SAFETY OF IT.
+        // `IsSavedViewDeleteArmed` requires the panel to be the active pane, in delete mode, with THIS row already
+        // named by a first Enter. So Y cannot arm anything (the vendor's arming press is Enter alone), cannot act
+        // after the highlight has moved (OnSelectedChanged throws the arming away), and is not claimed on any other
+        // screen — bare Y elsewhere still reaches its owners below, Export Data on the Gateway root among them.
+        //
+        // POSITION: deliberately ABOVE the letter arms further down this first-match-wins chain, because a bare
+        // letter over a data-driven column must not be able to swallow a confirmation the operator can see on
+        // screen. `!IsTyping(e)` for the reason every letter arm here carries it.
+        if (e.Key == Key.Y && e.KeyModifiers == KeyModifiers.None
+            && vm.IsSavedViewDeleteArmed && !IsTyping(e))
+        {
+            vm.ConfirmSavedViewDeleteWithY();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+I toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42). Scoped to
         // the POS Billing screen so it never collides elsewhere. (Since ruling 17 the item-invoice toggle is on
         // Ctrl+H, not Ctrl+I; this arm is Alt+I and was never related to either, but the exact-modifier guard

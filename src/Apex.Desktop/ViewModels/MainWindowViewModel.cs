@@ -4018,7 +4018,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenSavedViews(bool forDeletion = false)
     {
         if (Company is null) return;      // needs a company to scope the views to
-        if (SavedViews is not null) return; // panel already open — don't stack a second
+
+        // 🔴 THE PANEL IS ALREADY OPEN — DO NOT STACK A SECOND, AND DO NOT SILENTLY DO NOTHING EITHER.
+        //
+        // The guard used to be a bare `return`, and it was BLIND: this method is reached through
+        // `PopMenuColumn(Screen.ChangeViewMenu)` → BackFromPage → ClearSubScreens, which has nulled `SavedViews`
+        // one statement earlier. `RehydratePageFromRightmostColumn` now re-binds the surviving panel column
+        // before this line runs (see BindPageColumn's SavedViewsViewModel arm), which is what makes the guard
+        // able to see the panel on screen at all — measured: Ctrl+H over an open Saved Views panel used to draw a
+        // SECOND identical column, the first a dead ghost, with `Reports` unbound beneath both.
+        //
+        // And it answers the row instead of swallowing it: the vendor reaches ONE list by two rows, so arriving by
+        // "Delete Saved Views" over an already-open panel arms the delete verb on the panel that is up and focuses
+        // it, rather than leaving a documented menu row inert whenever the list happens to be open already.
+        if (SavedViews is { } open)
+        {
+            if (forDeletion) open.EnterDeleteMode();
+            FocusRightmostPageColumn(open);
+            return;
+        }
 
         var panel = new SavedViewsViewModel(Company, _storage);
         panel.OpenRequested += ApplySavedView;
@@ -4030,6 +4048,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = panel.Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Makes the RIGHTMOST column the active pane again when it is the one projecting <paramref name="page"/>,
+    /// without pushing anything. Used by a panel opener that finds its own panel already up: the operator asked
+    /// for that panel, so the honest answer is to put them back on it rather than to no-op or stack a duplicate.
+    ///
+    /// <para><b>Deliberately the rightmost only.</b> Moving <see cref="ActiveColumnIndex"/> to a column with other
+    /// columns still drawn to its right would invent a cascade state this shell does not otherwise produce (the
+    /// active pane is always the last one), and the alternative — trimming those columns away — would discard a
+    /// panel the operator never asked to close. When the panel is buried, this reports false and the caller leaves
+    /// the cascade exactly as it is.</para>
+    /// </summary>
+    private bool FocusRightmostPageColumn(object page)
+    {
+        if (Columns.Count == 0 || !ReferenceEquals(Columns[^1].Page, page)) return false;
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = BindPageColumn(Columns[^1]);
+        ScreenTitle = Columns[^1].Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+        return true;
     }
 
     /// <summary>The Open action on the Saved-Views panel: apply the highlighted saved view (delegates to the
@@ -4055,6 +4095,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (panel.TakeDeleteStep()) return;
         panel.Open();
     }
+
+    /// <summary>
+    /// True only while the Saved-Views panel is the active pane AND its delete is ARMED on the highlighted row —
+    /// the one state in which the vendor's <c>Y</c> confirmation key means anything. The key arm that reads this is
+    /// scoped by it rather than by the screen, so a bare <b>Y</b> on that panel is claimed only where it acts and
+    /// falls through untouched everywhere else.
+    /// </summary>
+    public bool IsSavedViewDeleteArmed =>
+        CurrentScreen == Screen.SavedViews
+        && SavedViews is { IsDeleteMode: true, PendingDeleteName: not null };
+
+    /// <summary>
+    /// The vendor's second confirmation key for a saved-view delete: <i>"Press Enter or Y to confirm deletion"</i>
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/). Confirms an already-armed delete and never
+    /// arms one — see <see cref="SavedViewsViewModel.ConfirmDeleteWithY"/>. Returns true when it consumed the key.
+    /// </summary>
+    public bool ConfirmSavedViewDeleteWithY() => SavedViews?.ConfirmDeleteWithY() ?? false;
 
     /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.
     /// Kept as the direct verb for the panel's mouse button; the keyboard reaches it through
@@ -12167,30 +12224,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// After a column pop, re-binds the surviving rightmost column's page view model to its shell property
-    /// and restores <see cref="CurrentScreen"/> so a page that sat to the LEFT of a just-closed column (e.g.
-    /// a report under its F12 config panel) is not left orphaned. When the rightmost column is a menu, the
-    /// shell returns to the Gateway. Only the page kinds that can sit beneath another page column need be
-    /// handled here; the rest fall through to the Gateway (unchanged behaviour).
+    /// After a column pop, re-binds EVERY surviving page column's view model to its shell property and restores
+    /// <see cref="CurrentScreen"/> from the rightmost one, so no page that is still drawn in the cascade is left
+    /// orphaned. When the rightmost column is a menu, the shell returns to the Gateway.
+    ///
+    /// <para>🔴 <b>IT BINDS ALL OF THEM, NOT ONLY THE RIGHTMOST, AND THAT IS THE FIX FOR A WHOLE DEFECT CLASS
+    /// RATHER THAN ONE MORE INSTANCE OF IT.</b> <c>BackFromPage</c> calls <c>ClearSubScreens</c>, which nulls
+    /// EVERY page property unconditionally; the markup, however, binds each column's own
+    /// <see cref="GatewayColumn"/> projection, so a column whose shell property has been nulled keeps rendering,
+    /// keeps its enabled buttons and keeps its highlight — and every verb that reaches for the shell property
+    /// finds <c>null</c> and silently does nothing. The invariant is therefore simple and was being applied one
+    /// column at a time: <b>a column still in <see cref="Columns"/> must be bound.</b> Binding only the rightmost
+    /// satisfied it for depth 1 and left depth 2+ broken, which is why this method already carried a
+    /// create-on-the-fly special case (WI-1 DEPTH 2, below) — the general rule with one caller's name on it.</para>
+    ///
+    /// <para>🔴 <b>THE MEASURED DEFECT THAT FORCED THE GENERALISATION.</b> The four action menus (Ctrl+H Change
+    /// View, Alt+P Print, Alt+E Export, Alt+M Share) are built on "pop my own column, THEN run the verb against
+    /// the page beneath" — see <see cref="PopMenuColumn"/>. Over the <b>Saved Views</b> panel that page is two
+    /// deep: the panel sits on the report it was opened from. With rightmost-only binding, choosing any row of any
+    /// of those four menus from that panel re-bound the panel and left <see cref="Reports"/> null, so Alt+P
+    /// Current printed nothing, Alt+E Current exported nothing, Alt+M's two rows composed nothing and Ctrl+H Show
+    /// Original View reverted nothing — four dead rows, no message. Worse, before the
+    /// <see cref="SavedViewsViewModel"/> arm existed in <see cref="BindPageColumn"/> the panel itself fell to
+    /// <c>default</c>, so the shell was left at <see cref="Screen.Gateway"/> with a page column still drawn: the
+    /// Gateway's own bare letters (Y = Export Data, O = Import) went live over a report cascade, which is the
+    /// blank-shell-that-owns-the-keyboard state <see cref="HasLiveCompanyShell"/> exists to prevent.</para>
+    ///
+    /// <para><b>Why binding a deeper page cannot re-arm a report shortcut it should not.</b> Every predicate that
+    /// gates the report-parameter and print/export/share verbs is written on <see cref="CurrentScreen"/> as well
+    /// as on null-ness — <see cref="IsReportContext"/> excludes the drill screens by id,
+    /// <see cref="IsLiveReportPage"/> is <see cref="Screen.Report"/> and nothing else — and only the RIGHTMOST
+    /// column sets <c>CurrentScreen</c> here. So a report re-bound beneath a drill column is reachable by the
+    /// shell (which is the point) and is still not re-parameterisable from on top of it (which is RQ-7).</para>
     /// </summary>
     private void RehydratePageFromRightmostColumn()
     {
-        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex]);
+        // The columns BENEATH the active one first, so the rightmost binds LAST and wins both its shell property
+        // and CurrentScreen when two columns project the same page kind.
+        //
+        // (WI-1 DEPTH 2 recorded the create-on-the-fly half of this: while a create column is still open the page
+        // columns beneath it must stay bound too, or the in-progress voucher is unreachable from the shell —
+        // VoucherEntry null — even though its column and all its data are still there, and the write-back that
+        // follows a nested create silently skips it. That is this loop, no longer conditional on the caller.)
+        for (var i = 0; i < ActiveColumnIndex; i++)
+            if (Columns[i].IsPage) BindPageColumn(Columns[i], isActiveColumn: false);
 
-        // WI-1 DEPTH 2 — while a create column is STILL open, the page columns BENEATH it must stay bound too.
-        // BackFromPage's ClearSubScreens nulls every page property, and binding only the rightmost would leave
-        // the in-progress voucher unreachable from the shell (VoucherEntry null) even though its column, and all
-        // its data, are still there — so the write-back that follows a nested create would silently skip it.
-        if (IsCreateOnTheFlyOpen)
-            for (var i = 0; i < ActiveColumnIndex; i++)
-                if (Columns[i].IsPage) BindPageColumn(Columns[i]);
+        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex], isActiveColumn: true);
     }
 
     /// <summary>
     /// Re-binds ONE surviving column's page view model to its shell property and reports the screen it
     /// represents (Gateway for a menu column or a page kind that never sits beneath another).
     /// </summary>
-    private Screen BindPageColumn(GatewayColumn col)
+    /// <param name="isActiveColumn">True when <paramref name="col"/> is the rightmost (active) column. Only the
+    /// active column's returned screen is used, and one arm's side effect is scoped to it — see the Dashboard
+    /// arm, which must not close a tile-configuration panel whose own column is still open above it.</param>
+    private Screen BindPageColumn(GatewayColumn col, bool isActiveColumn = true)
     {
         switch (col.Page)
         {
@@ -12221,9 +12310,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // `Dashboard.TileConfig` and rendered as a stacked overlay ON the dashboard column. That defect is
             // fixed — MainWindow.axaml now binds `DashboardTileConfig`, the pushed column's own projection — so
             // the reopen guard is the only thing this call now protects. It still must be called.)
+            // 🔴 SCOPED TO THE ACTIVE COLUMN, and that clause arrived with the all-columns rehydrate above. The
+            // reopen guard must be released only when the dashboard is the column the operator is standing on,
+            // i.e. when the panel above it really is gone. A dashboard bound as a column BENEATH something still
+            // open may have its own Alt+C tile-configuration column sitting right there; closing the panel then
+            // would null `dash.TileConfig` while that column is still drawn — the exact enabled-but-inert survivor
+            // this method exists to prevent, arriving from the fix for it.
             case DashboardViewModel d:
                 Dashboard = d;
-                d.CloseTileConfig();
+                if (isActiveColumn) d.CloseTileConfig();
                 return Screen.Dashboard;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
@@ -12317,6 +12412,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ChartOfAccountsViewModel coa:
                 ChartOfAccounts = coa;
                 return Screen.ChartOfAccounts;
+            // 🔴 THE SAVED VIEWS PANEL, AND WITHOUT THIS ARM THE FOUR ACTION MENUS ARE ALL DEAD ON IT.
+            //
+            // The panel is a page column pushed OVER a live report (<see cref="OpenSavedViews"/> deliberately does
+            // not ClearSubScreens, so the report stays bound beneath it and the report chords keep working). Every
+            // row of Ctrl+H / Alt+P / Alt+E / Alt+M pops its own menu column through <see cref="PopMenuColumn"/>
+            // before running its verb, and that pop lands here. With no arm the panel fell to `default`:
+            // CurrentScreen became <see cref="Screen.Gateway"/> while the panel's column was still the rightmost
+            // pane drawn, `SavedViews` stayed null — so the re-entrancy guard in <see cref="OpenSavedViews"/>
+            // ("panel already open — don't stack a second") could not see the panel that was on screen and Ctrl+H
+            // STACKED A DUPLICATE, and the Gateway's own bare letters went live over a report cascade.
+            //
+            // It is the same missed arm the Printer and Chart-of-Accounts notes above record, and it is listed
+            // here for the same reason: this column can carry another column above it.
+            case SavedViewsViewModel sv:
+                SavedViews = sv;
+                return Screen.SavedViews;
             default:
                 return Screen.Gateway;
         }
@@ -12821,16 +12932,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));
         ButtonBar.Add(new ButtonBarItem("D", "Day Book", () => OpenReport(ReportKind.DayBook), hasCompany));
 
+        // 🔴 BOTH SHARE BADGES ARE GATED ON IsShareablePage, NOT IsPrintablePage, AND THAT IS A CORRECTION.
+        //
+        // Both rows read `IsPrintablePage` — the same wrong predicate `OpenShareMenu` was corrected off (see
+        // IsShareablePage). Printability carries a third arm, TopMasterExportSource(), so it is TRUE on every
+        // master list (Chart of Accounts, Groups, Godowns, Units, …) and NEITHER share channel can build a
+        // document from one: OpenEmailCompose and OpenWhatsAppShare each fall through their two branches and
+        // return. So on a master list both badges rendered ENABLED, in their normal colour, and clicking either
+        // did nothing at all — the dead-affordance class ruling 21 and IV-31 both settle against ("an enabled
+        // badge that fires nothing is a defect"), left live three lines from the new predicate.
+        //
+        // The measured argument that protects the BARE M / W KEY arms does not reach here, and the difference is
+        // worth stating because it is why this is not a one-line copy of that decision: a key arm that matches and
+        // no-ops changes what an unclaimed letter would otherwise fall through to (type-ahead on a data-driven
+        // column), so re-gating it is a behaviour change on a keystroke. A badge has no fall-through — its gate IS
+        // its IsEnabled — so narrowing it removes an affordance that lies and takes nothing away.
+        //
         // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
-        // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
-        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
-        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, with the
-        // same printable-page gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
+        // Nothing is sent.
+        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsShareablePage));
+        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, on the same
+        // gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
         // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point) —
         // recorded in docs/invented-vs-cloned.md as IV-64. This note used to add "and our M is already spent";
         // that was false — the vendor's chord is Alt+M and Alt+M is unclaimed here (the M arm in the key tunnel
         // excludes Alt), so W was chosen, not forced. See the corrected IV-64 row.
-        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsPrintablePage));
+        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsShareablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
 

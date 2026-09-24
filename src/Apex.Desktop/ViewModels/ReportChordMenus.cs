@@ -288,9 +288,14 @@ public static class ReportShareMenu
     /// E-Mail writes an <c>.eml</c> or opens a <c>mailto:</c> draft; WhatsApp hands over a prepared link. There
     /// is no SMTP socket and no WhatsApp Business API in this build — a SOURCED limit, not a shortcut:
     /// help.tallysolutions.com/share-documents-using-whatsapp-for-business-faq/ requires WhatsApp Business API
-    /// on-boarding and records that Meta forbids re-using a number already on a WhatsApp Business account
-    /// (re-opened by content 2026-09-23). The statement is repeated at the menu because the menu is now the
-    /// first thing the operator sees.</para>
+    /// on-boarding through its own BSP — <i>"It is mandatory for you to be onboarded to a WhatsApp Business API
+    /// account with Interakt as Tally has tied up with the BSP"</i> — and states of the number itself: <i>"Using a
+    /// number that is already in use for an existing WhatsApp Business Account (Business App) for WhatsApp Business
+    /// API on-boarding is <b>not allowed by Meta</b>."</i> (re-opened by content 2026-09-24). 🔴 <b>QUOTED IN THE
+    /// VENDOR'S OWN WORDS ON PURPOSE.</b> This sentence previously read "Meta forbids re-using a number …", which
+    /// is one attribution hop loose: it turns a vendor's report of a third party's rule into a direct claim about
+    /// that third party. The rule is cited as the vendor states it, and is not restated as ours. The statement is
+    /// repeated at the menu because the menu is now the first thing the operator sees.</para>
     /// <para>• 🔴 <b>No <i>Others</i> row, and that was previously undisclosed.</b> The vendor's Share menu is
     /// not two rows: help.tallysolutions.com/configure-for-print-export-share/ documents
     /// <i>"For WhatsApp: <b>Alt+M</b> (Share) &gt; <b>Others</b> under <b>WHATSAPP</b> &gt; select a report from

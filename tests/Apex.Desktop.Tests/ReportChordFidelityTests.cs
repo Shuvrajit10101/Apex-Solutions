@@ -1627,4 +1627,390 @@ public sealed class ReportChordFidelityTests : IDisposable
         Assert.True(entry.Accept());
         return company.Vouchers.Last().Id;
     }
+
+    // ================================================================ G — THE SAVED VIEWS PANEL AS A PAGE
+    //
+    // 🔴 THIS SECTION EXISTS BECAUSE THE SLICE ABOVE SHIPPED FOUR MENUS THAT WERE ALL DEAD ON ONE SCREEN, AND
+    // EVERY TEST ABOVE PASSED WHILE THEY WERE. The four action menus are built on "pop my own column, THEN act on
+    // the page beneath" (PopMenuColumn). That pop runs BackFromPage → ClearSubScreens, which nulls every page
+    // property, and RehydratePageFromRightmostColumn then re-bound only the RIGHTMOST surviving column. Over the
+    // Saved Views panel the page the menus act on is TWO deep — the panel sits on the report it was opened from —
+    // so the report came back null and every row acted on nothing. And the panel itself had no arm in
+    // BindPageColumn at all, so the shell fell to Screen.Gateway with a page column still drawn.
+    //
+    // The tests below drive the REALISED WINDOW with real keystrokes, because the state is reached by a gesture
+    // and every view-model flag involved was individually correct at each step.
+
+    /// <summary>Saves one view off a fresh report the way an operator does: Ctrl+L, name it, Ctrl+A.</summary>
+    private void SaveOneView(MainWindow window, MainWindowViewModel vm, string name)
+    {
+        vm.OpenReport(ReportKind.TrialBalance);
+        Pump(window);
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.Control);
+        Pump(window);
+        Assert.Equal(Screen.SaveView, vm.CurrentScreen);
+        vm.SaveView!.Name = name;
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+        Pump(window);
+    }
+
+    /// <summary>Report → Ctrl+H → the painted letter of the given Change View row, entirely from the keyboard.</summary>
+    private static void OpenSavedViewsPanelByKeyboard(MainWindow window, MainWindowViewModel vm, string verb)
+    {
+        var letter = PaintedLetterOf(window, vm, verb);
+        window.KeyPressQwerty(PhysicalKeyFor(letter), RawInputModifiers.None);
+        Pump(window);
+        Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
+        Assert.NotNull(vm.SavedViews);
+    }
+
+    /// <summary>The REALISED button-bar Button whose item carries <paramref name="key"/> as its badge.</summary>
+    private static Button BarButton(MainWindow window, string key) =>
+        Descendants(window)
+            .OfType<Button>()
+            .Single(b => b.DataContext is ButtonBarItem item && item.Key == key);
+
+    /// <summary>
+    /// 🔴 <b>Alt+P &gt; Current, INVOKED FROM THE SAVED VIEWS PANEL, MUST ACTUALLY PRINT — AND IT DID NOT.</b>
+    ///
+    /// <para><b>Measured before the fix</b>, on this exact sequence: the Print menu drew, <i>Current</i> was
+    /// chosen, and nothing appeared. <c>CurrentScreen</c> was <c>Gateway</c>, <c>PrintPreview</c> was null,
+    /// <c>Reports</c> was null and <c>SavedViews</c> was null — while the Saved Views column was still the
+    /// rightmost pane drawn on screen. That second half is worse than a dead row: the Gateway's own bare letters
+    /// (Y = Export Data, O = Import) became live over a report cascade, which is precisely the
+    /// blank-shell-that-owns-the-keyboard state <c>HasLiveCompanyShell</c> was written to prevent.</para>
+    ///
+    /// <para><b>Both halves are asserted, and the second is the one that matters most</b>: the preview really
+    /// opens, AND the shell is never left at the Gateway with a page column drawn.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Print_menu_current_row_prints_when_it_is_invoked_from_the_Saved_Views_panel()
+    {
+        var (window, vm) = OpenWindow("Saved Views Print Co");
+        try
+        {
+            SaveOneView(window, vm, "Printable View");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.SavedViewsVerb);
+
+            // The report is deliberately still bound BENEATH the panel — that is what makes Alt+P offer itself.
+            Assert.NotNull(vm.Reports);
+            Assert.True(vm.IsPrintablePage);
+
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            Assert.Equal(ReportPrintMenu.CurrentVerb, vm.Columns[^1].Selected?.Label);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            // 🔴 THE ASSERTION THAT SEES IT: a preview really exists. A "the menu opened" assertion passed
+            // throughout the defect.
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+
+            // 🔴 AND THE SHELL IS COHERENT: not Gateway, and the screen matches the rightmost column that is drawn.
+            Assert.NotEqual(Screen.Gateway, vm.CurrentScreen);
+            Assert.Equal(vm.Columns.Count - 1, vm.ActiveColumnIndex);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SAME ROOT CAUSE SEEN THROUGH A SECOND MENU, AND THIS ONE PROVES THE PAGE BENEATH IS RE-BOUND
+    /// RATHER THAN MERELY NON-NULL.</b> Alt+E &gt; Current from the Saved Views panel must export the REPORT the
+    /// panel was opened over — so the assertion is the exported panel's <c>DocumentTitle</c>, not that a column
+    /// appeared. Before the fix <c>Reports</c> was null at the moment <c>OpenExport</c> ran and no panel was
+    /// built at all.
+    /// </summary>
+    [AvaloniaFact]
+    public void Export_menu_current_row_exports_the_report_beneath_the_Saved_Views_panel()
+    {
+        var (window, vm) = OpenWindow("Saved Views Export Co");
+        try
+        {
+            SaveOneView(window, vm, "Exportable View");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.SavedViewsVerb);
+
+            window.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ExportMenu, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.Export, vm.CurrentScreen);
+            Assert.NotNull(vm.ExportPanel);
+            Assert.Contains("Trial Balance", vm.ExportPanel!.DocumentTitle, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>Ctrl+H OVER AN ALREADY-OPEN SAVED VIEWS PANEL STACKED A SECOND, IDENTICAL COLUMN.</b>
+    ///
+    /// <para><b>Measured before the fix</b>: two Saved Views columns side by side, the first a dead ghost whose
+    /// Enter did nothing, and <c>Reports</c> null beneath both — so every report chord on that cascade went inert
+    /// as well. The re-entrancy guard in <c>OpenSavedViews</c> ("panel already open — don't stack a second")
+    /// could not help, because <c>PopMenuColumn</c> had nulled <c>SavedViews</c> one statement earlier and the
+    /// rehydrate had no arm to bring it back. The guard was not wrong; it was BLIND.</para>
+    ///
+    /// <para>The second half of the assertion is the one a "column count" test would miss: the report must still
+    /// be bound beneath, or the panel is a cul-de-sac.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_H_over_an_open_Saved_Views_panel_does_not_stack_a_second_one()
+    {
+        var (window, vm) = OpenWindow("Saved Views No Stack Co");
+        try
+        {
+            SaveOneView(window, vm, "Only View");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.SavedViewsVerb);
+
+            var depth = vm.Columns.Count;
+            var panel = vm.SavedViews!;
+
+            // Ctrl+H again — it is offered here, because IsReportContext is TRUE on the panel — then the same row.
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.SavedViewsVerb);
+
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.Equal(1, vm.Columns.Count(c => c.Page is SavedViewsViewModel));
+            Assert.Same(panel, vm.SavedViews);                 // the SAME panel, not a replacement
+            Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);                        // the report beneath is still live
+            Assert.Equal(vm.Columns.Count - 1, vm.ActiveColumnIndex);
+
+            // And the panel that is on screen still answers Enter: it applies the view, it is not a ghost.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The OTHER Ctrl+H row over an already-open panel must not be swallowed either: arriving by <b>Delete Saved
+    /// Views</b> while the list is up arms the delete on the panel that is there, rather than no-opping because a
+    /// guard saw a non-null panel. A documented vendor row that does nothing in a reachable state is the dead-row
+    /// defect this slice exists to remove.
+    /// </summary>
+    [AvaloniaFact]
+    public void Delete_saved_views_row_arms_the_panel_that_is_already_open()
+    {
+        var (window, vm) = OpenWindow("Saved Views Rearm Co");
+        try
+        {
+            SaveOneView(window, vm, "Armable View");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.SavedViewsVerb);
+            Assert.False(vm.SavedViews!.IsDeleteMode);
+
+            var depth = vm.Columns.Count;
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.DeleteSavedViewsVerb);
+
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.True(vm.SavedViews!.IsDeleteMode);
+        }
+        finally { window.Close(); }
+    }
+
+    // ================================================================ H — THE VENDOR'S Y CONFIRMATION
+    //
+    // 🔴 The panel's own remark quoted help.tallysolutions.com/use-save-view-feature-in-tallyprime/ verbatim —
+    // "Press Enter or Y to confirm deletion" — and only Enter answered. A red-flagged vendor quote with half its
+    // behaviour behind it is worse than no quote, because the next reader takes it as measured.
+
+    /// <summary>
+    /// 🔴 <b>Y CONFIRMS AN ARMED DELETE.</b> Arm with Enter, press <b>Y</b> on the realised window, and the view
+    /// is gone — the vendor's second confirmation key. <b>Measured before the fix: the view survived.</b>
+    /// </summary>
+    [AvaloniaFact]
+    public void Y_confirms_an_armed_saved_view_delete_as_the_vendor_documents()
+    {
+        var (window, vm) = OpenWindow("Saved Views Y Confirm Co");
+        try
+        {
+            SaveOneView(window, vm, "Doomed By Y");
+            SaveOneView(window, vm, "Survivor");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.DeleteSavedViewsVerb);
+
+            var panel = vm.SavedViews!;
+            Assert.True(panel.IsDeleteMode);
+            Assert.Equal(2, panel.Views.Count);
+            panel.Selected = panel.Views.Single(v => v.Name == "Doomed By Y");
+            Pump(window);
+
+            // PRESS ONE — Enter arms and deletes nothing, and the status line now offers BOTH keys.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+            Assert.True(vm.IsSavedViewDeleteArmed);
+            Assert.Contains("Y", panel.Status, StringComparison.Ordinal);
+
+            // PRESS TWO — the vendor's Y.
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Single(panel.Views);
+            Assert.Equal("Survivor", panel.Views[0].Name);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>Y NEVER ARMS, AND THAT IS THE SAFETY HALF OF THE SAME FIX.</b> The vendor's arming press is Enter
+    /// alone ("choose the view and press Enter"); Y appears only in the confirmation sentence. So a bare Y on a
+    /// delete-mode panel with nothing armed must change NOTHING — not delete, and not put a confirmation on
+    /// screen the operator never asked for. Moving the highlight must disarm it for Y exactly as it does for
+    /// Enter, so this also drives the stale-confirmation mis-target.
+    /// </summary>
+    [AvaloniaFact]
+    public void Y_alone_neither_arms_nor_deletes_a_saved_view()
+    {
+        var (window, vm) = OpenWindow("Saved Views Y Safety Co");
+        try
+        {
+            SaveOneView(window, vm, "Alpha Kept");
+            SaveOneView(window, vm, "Beta Kept");
+            OpenAReport(window, vm);
+            OpenSavedViewsPanelByKeyboard(window, vm, ChangeViewMenu.DeleteSavedViewsVerb);
+
+            var panel = vm.SavedViews!;
+            panel.Selected = panel.Views[0];
+            Pump(window);
+
+            // Y with nothing armed: no delete, and nothing armed by it either.
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+            Assert.Null(panel.PendingDeleteName);
+            Assert.False(vm.IsSavedViewDeleteArmed);
+
+            // Arm row 0 with Enter, then ARROW AWAY: the arming is thrown away, so Y on the new row is inert.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.True(vm.IsSavedViewDeleteArmed);
+
+            panel.Selected = panel.Views[1];
+            Pump(window);
+            Assert.False(vm.IsSavedViewDeleteArmed);
+
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(2, panel.Views.Count);
+        }
+        finally { window.Close(); }
+    }
+
+    // ================================================================ I — THE TWO SHARE BADGES
+    //
+    // 🔴 The branch corrected OpenShareMenu off IsPrintablePage and onto IsShareablePage, and left the button
+    // bar's own M and W badges on the wrong predicate three lines away. Printability is TRUE on every master list
+    // (its third arm is TopMasterExportSource()); neither share channel can build a document from one.
+
+    /// <summary>
+    /// 🔴 <b>ON A MASTER LIST BOTH SHARE BADGES RENDERED ENABLED AND FIRED NOTHING.</b> Asserted on the REALISED
+    /// Button's own enabled state, and then by clicking it — because the defect is an affordance that lies, and a
+    /// view-model flag assertion is exactly the one that passed while it did.
+    ///
+    /// <para>The report half is the control: narrowing the gate must not dim a badge where the channel really
+    /// works, which is what distinguishes this fix from simply switching the badges off.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_share_badges_are_dead_on_a_master_list_and_live_on_a_report()
+    {
+        var (window, vm) = OpenWindow("Share Badge Co");
+        try
+        {
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            Assert.Equal(Screen.ChartOfAccounts, vm.CurrentScreen);
+            Assert.True(vm.IsPrintablePage);        // the wrong predicate IS true here — that was the whole bug
+            Assert.False(vm.IsShareablePage);       // and the right one is not
+
+            foreach (var badge in new[] { "M", "W" })
+            {
+                var button = BarButton(window, badge);
+                Assert.False(button.IsEffectivelyEnabled,
+                    $"the '{badge}' share badge renders enabled on a master list and fires nothing");
+            }
+
+            // Belt and braces: the verbs behind them really cannot act here, so the dimming is honest.
+            vm.OpenEmailCompose();
+            vm.OpenWhatsAppShare();
+            Pump(window);
+            Assert.Null(vm.EmailCompose);
+            Assert.Null(vm.WhatsAppShare);
+            Assert.Equal(Screen.ChartOfAccounts, vm.CurrentScreen);
+
+            // THE CONTROL — on a live report both channels work, so both badges must be live.
+            OpenAReport(window, vm);
+            foreach (var badge in new[] { "M", "W" })
+                Assert.True(BarButton(window, badge).IsEffectivelyEnabled,
+                    $"the '{badge}' share badge is dimmed on a report, where the channel does work");
+
+            BarButton(window, "W").Command!.Execute(null);
+            Pump(window);
+            Assert.NotNull(vm.WhatsAppShare);
+        }
+        finally { window.Close(); }
+    }
+
+    // ================================================================ J — Alt+K OVER AN ACTION MENU
+    //
+    // 🔴 HasLiveCompanyShell excludes only the company-select screens, so it is TRUE on all four action-menu
+    // screen ids. Alt+K therefore ran OpenCompanyMenu with an action menu up: ClearSubScreens unbound the report
+    // the menu was standing on, and a NAVIGATION column landed on top of the ACTION menu, which stayed drawn
+    // beneath it with every row now pointing at a null page.
+
+    /// <summary>
+    /// A shell navigation chord must be inert while one of the four modal action menus is up — Escape pops the
+    /// menu first, exactly as for the other three menu chords. Both table entries that can fire there are driven:
+    /// <b>Alt+K</b> (Company) and <b>Ctrl+G</b> (Switch To). Then the menu is escaped and Alt+K must still work,
+    /// so this is a narrowing and not a deletion.
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_K_and_Ctrl_G_are_inert_while_an_action_menu_is_up()
+    {
+        var (window, vm) = OpenWindow("Action Menu Shell Chord Co");
+        try
+        {
+            OpenAReport(window, vm);
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            var depth = vm.Columns.Count;
+
+            // 🔴 ASSERTED SEPARATELY, ONE CHORD AT A TIME, SO EACH CLAUSE IS INDEPENDENTLY COVERED. Driving both
+            // keys and then asserting once let whichever chord fired FIRST mask the other — measured: with only
+            // the Ctrl+G clause removed the test went red on SwitchTo and said nothing about Alt+K.
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.NotNull(vm.Reports);        // the report the menu acts on is still bound
+
+            window.KeyPressQwerty(PhysicalKey.G, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.Null(vm.SwitchTo);
+            Assert.NotNull(vm.Reports);
+
+            // Escape pops the menu, and the vendor's chord works again on the report beneath.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.CompanyMenu, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
 }

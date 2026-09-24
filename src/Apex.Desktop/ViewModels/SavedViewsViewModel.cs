@@ -118,6 +118,10 @@ public sealed partial class SavedViewsViewModel : ViewModelBase
     /// row the operator arrowed onto afterwards — that is the mis-target this shell has already filed once
     /// (Alt+X acting on the voucher behind a stacked column).</para>
     ///
+    /// <para><b>The vendor's <c>Y</c> is implemented too, and it lives next door.</b> This method is the Enter
+    /// half; <see cref="ConfirmDeleteWithY"/> is the Y half, and it confirms without ever arming. The quote above
+    /// is therefore fully behind code — it was not when it was first written, which is recorded there.</para>
+    ///
     /// <para>Returns true when it consumed the keystroke, so the shell's Enter arm knows not to fall through.
     /// Outside delete mode it returns false and Enter keeps meaning <see cref="Open"/>.</para>
     /// </summary>
@@ -129,9 +133,36 @@ public sealed partial class SavedViewsViewModel : ViewModelBase
         if (PendingDeleteName != item.Name)
         {
             PendingDeleteName = item.Name;
-            Status = $"Delete “{item.Name}”? Press Enter again to confirm, Esc to leave it.";
+            Status = $"Delete “{item.Name}”? Press Enter or Y to confirm, Esc to leave it.";
             return true;
         }
+
+        Delete();
+        return true;
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE <c>Y</c> HALF OF THE VENDOR'S CONFIRMATION, WHICH THIS PANEL QUOTED AND DID NOT IMPLEMENT.</b>
+    /// The remark on <see cref="TakeDeleteStep"/> quotes
+    /// help.tallysolutions.com/use-save-view-feature-in-tallyprime/ verbatim — <i>"Press Enter or Y to confirm
+    /// deletion"</i> — and only Enter answered; Y was pressed on the realised window and the view survived. A
+    /// red-flagged vendor quote with half its behaviour behind it is worse than no quote, because the next reader
+    /// takes it as measured.
+    ///
+    /// <para><b>Y CONFIRMS; IT NEVER ARMS.</b> The vendor's sentence is the SECOND press, and the arming press is
+    /// documented as Enter alone ("choose the view and press Enter"). So this returns false on an unarmed panel
+    /// rather than arming one — otherwise a single stray Y over a list in delete mode would put a named
+    /// confirmation on screen that the operator never asked for, and the destructive direction would be one key
+    /// closer than the vendor puts it. It also re-checks that the armed name is still the highlighted row, so the
+    /// per-row cancellation in <see cref="OnSelectedChanged"/> governs Y exactly as it governs Enter.</para>
+    ///
+    /// <para>Returns true when it consumed the keystroke.</para>
+    /// </summary>
+    public bool ConfirmDeleteWithY()
+    {
+        if (!IsDeleteMode) return false;
+        if (PendingDeleteName is null) return false;            // Y confirms an armed delete; it does not arm one
+        if (Selected is not { } item || PendingDeleteName != item.Name) return false;
 
         Delete();
         return true;

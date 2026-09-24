@@ -82,8 +82,15 @@ public static class ShellChordTable
         // company stays LOADED while ShowCompanySelect's LeaveCascade() empties and hides the cascade region.
         // `Company is not null` is true there, so Ctrl+G pushed this panel into a region nothing draws and set
         // CurrentScreen to it: two keystrokes from the Gateway to a blank window that owned the keyboard.
+        //
+        // 🔴 `!vm.IsActionMenuColumn` FOR THE REASON WRITTEN OUT AT Alt+K BELOW, and it is here because that
+        // reasoning is a CLASS, not one chord: a shell NAVIGATION chord that pushes or replaces columns must be
+        // inert while one of the four modal ACTION-MENU columns is up, or it stacks a navigation surface over a
+        // menu that is still drawn and whose rows act on the page beneath. Both entries in this table that can
+        // fire over an action menu carry the clause; nothing shipped is narrowed, because all four of those screen
+        // ids are new with the report-chord slice.
         new("Ctrl+G", Key.G, KeyModifiers.Control,
-            vm => vm.HasLiveCompanyShell,
+            vm => vm.HasLiveCompanyShell && !vm.IsActionMenuColumn,
             vm => vm.OpenSwitchTo()),
 
         // ── Alt+K — Company menu ──────────────────────────────────────────────────────────────────────────
@@ -104,8 +111,19 @@ public static class ShellChordTable
         // sitting on a documented vendor chord.
         // 🔴 And the same `HasLiveCompanyShell` narrowing as Ctrl+G above, for the same measured reason: Alt+F3
         // then Alt+K put this MENU COLUMN into the hidden cascade region and left the shell blank.
+        //
+        // 🔴 `!vm.IsActionMenuColumn` IS THE SECOND HALF OF THAT SAME NARROWING, ADDED AFTER MEASUREMENT.
+        // `HasLiveCompanyShell` is TRUE on Screen.ChangeViewMenu / PrintMenu / ExportMenu / ShareMenu — it excludes
+        // only the company-select screens — so Alt+K pressed with one of the four ACTION MENUS up ran
+        // OpenCompanyMenu, whose ClearSubScreens unbinds the report the menu was standing on and whose column then
+        // lands ON TOP of that menu: a NAVIGATION menu stacked over an ACTION menu, with the action menu still
+        // drawn beneath it and every row of it now pointing at a null page. That is the state the "re-press must
+        // not stack a second" rule in each opener exists against, reached by a different key. An action menu is a
+        // modal column — Escape pops it, and the vendor documents no route out of one except choosing a row — so
+        // the chord is inert there and the operator presses Esc first, exactly as for the other three menu chords
+        // (IsActionMenuColumn already makes each of those inert while a sibling menu is up).
         new("Alt+K", Key.K, KeyModifiers.Alt,
-            vm => vm.HasLiveCompanyShell,
+            vm => vm.HasLiveCompanyShell && !vm.IsActionMenuColumn,
             vm => vm.OpenCompanyMenu()),
 
         // ── Alt+F3 — Select Company ───────────────────────────────────────────────────────────────────────
