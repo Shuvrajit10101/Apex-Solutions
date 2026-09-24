@@ -115,6 +115,41 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 
 **A full clone requires 219 named capabilities. We have 73 complete, 141 partial, 5 absent, 0 undetermined.**
 
+> **▶ ⚪ WAVE 33 LANDED THREE BRANCHES AND MOVED **NOT ONE ROW**. THAT IS THE HONEST RESULT, NOT AN
+> OVERSIGHT, AND IT IS THE FIRST THING A READER SHOULD TAKE FROM THIS BLOCK.** Literal `awk` output now:
+> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`**; and before, at **both** of the shas this wave's landings
+> moved `origin/main` through — `d31f275` (after PR #114) and `306779b` (after PR #116) —
+> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`** each time. The delta is exactly **`+0 rows, +0 complete,
+> +0 partial, +0 absent`**, and **no area heading moved**. All three runs are the literal output of §1.2a's own
+> `awk`, transcribed; nothing was edited to fit. The before-run was taken **twice on purpose**: a single
+> before-figure cannot distinguish "nothing moved" from "I measured the wrong commit". **The grading below is A12's own, not a reviewer's** — neither
+> review graded a row, so the call and the responsibility for it are mine.
+>
+> **WHY NOTHING MOVED, BRANCH BY BRANCH.**
+> - **`claude/apex-x3-invoice-qr` (PR #114) — test-only, and 🔴 ROW 6.14 IS EXPLICITLY NOT GRADED AS MOVED.**
+>   The branch adds an independent QR decoder that proves the printed symbol actually decodes; it contains
+>   **zero** `src/` changes. The capability itself shipped earlier on main in `7328a42` (verified an ancestor
+>   of `origin/main`). **Proof of a shipped capability is not a new capability**, and grading it as one would
+>   be the precise kind of cell-disagreeing-with-code that wave 32 spent a whole pass undoing.
+> - **`claude/apex-v1-report-chords` (PR #116) — defect closure inside rows that were already `PARTIAL`.**
+>   It touches **5.5** (Insert Voucher Alt+I), **11.4** (Day Book) and **14.6 / 14.7** (Save View, Saved
+>   Views list). Every one of them stays `PARTIAL`. The branch makes the Day Book write doors **inert** where
+>   they previously fired on a row the operator could not see, and stops the shell reporting `Screen.Gateway`
+>   with a live cascade drawn. **Strictly safer is not more complete:** nothing that was missing is now
+>   present, so no token may move on it.
+> - **`claude/apex-v2-rehome-reports` (PR #117) — a REGRESSION REPAIR, which is the opposite of a promotion.**
+>   Its headline fix restores the F12 closing-stock basis on **11.14** (Cash Flow / Funds Flow / Ratio
+>   Analysis) — a control that **worked on main** and that the branch itself had hidden. Grading 11.14 up for
+>   restoring what main already had would book a repair as progress. It stays `PARTIAL`. Its second fix
+>   (the §192 two-part gate reaching **6.39** / Income Tax Computation) closes a hole where a saved view
+>   rendered a report its own menu row withheld — again a correctness fix inside a graded row.
+>
+> 🔴 **THE STANDING TRAP THIS BLOCK EXISTS TO REFUSE.** Three branches, ~4,600 net new lines, two HIGH
+> blockers and one regression closed — and the correct census delta is **zero**. A wave that ships real work
+> and moves no token is the normal case once a row is already `PARTIAL`, because the token measures *presence
+> of the capability*, not *quality of it*. Every previous wave that moved tokens on defect-fix work had to be
+> reversed later. **Do not "reconcile" this block by finding a row to move.**
+
 > **▶ 🟢 RE-SUMMED 2026-09-24 BY A12 ON WAVE 32 — THE CENSUS-CORRECTION PASS. TWENTY TOKENS MOVED AND
 > ZERO LINES OF PRODUCT CODE WERE WRITTEN, SO READ THIS AS BOOKKEEPING AND NOT AS PROGRESS. THAT SENTENCE IS
 > THE MOST IMPORTANT ONE IN THIS BLOCK.** Literal `awk` output now:
