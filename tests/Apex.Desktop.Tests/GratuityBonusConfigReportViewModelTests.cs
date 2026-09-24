@@ -377,10 +377,18 @@ public sealed class GratuityBonusConfigReportViewModelTests : IDisposable
         Assert.Contains("PF ECR / Challan", items);
     }
 
+    /// <summary>
+    /// 🔴 W-V2 (census 7.13 / 7.14): both rows were RE-HOMED onto <see cref="ReportKind"/>, so both now open
+    /// <see cref="Screen.Report"/> rather than their own page Screen. Measured before the move: neither
+    /// <c>GratuityProvisionRegisterViewModel</c> nor <c>BonusRegisterViewModel</c> had a single Export / Print /
+    /// Pdf hit, because a page Screen leaves the shell's report context null and that switches off Ctrl+P,
+    /// Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once. What this test guards — that the menu row actually
+    /// activates its destination — is unchanged; the expected destination is now a report kind.
+    /// </summary>
     [Theory]
-    [InlineData("Gratuity Provision", Screen.GratuityProvisionRegister)]
-    [InlineData("Bonus Register", Screen.BonusRegister)]
-    public void Activating_a_payroll_statutory_report_opens_that_screen(string label, Screen expected)
+    [InlineData("Gratuity Provision", ReportKind.GratuityProvisionRegister)]
+    [InlineData("Bonus Register", ReportKind.BonusRegister)]
+    public void Activating_a_payroll_statutory_report_opens_that_report(string label, ReportKind expected)
     {
         var vm = NewPayrollCompany("Payroll Stat Route Co");
         var c = vm.Company!;
@@ -392,6 +400,7 @@ public sealed class GratuityBonusConfigReportViewModelTests : IDisposable
         while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
         vm.ActivateSelected();
 
-        Assert.Equal(expected, vm.CurrentScreen);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(expected, vm.Reports!.Kind);
     }
 }

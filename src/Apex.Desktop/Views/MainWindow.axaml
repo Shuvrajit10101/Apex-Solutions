@@ -562,6 +562,20 @@
                                      HorizontalAlignment="Center" Margin="12,4,12,0"
                                      TextWrapping="Wrap"
                                      ToolTip.Tip="{Binding EPaymentsExportStatus}"/>
+
+                          <!-- W-V2 — what a report's own primary ACTION just did. Today that is Ctrl+A on the
+                               re-homed Gratuity Provision register (census 7.13), which posts the period-end
+                               provision voucher. Stacked in the same panel for the reason stated above: two
+                               children sharing one Auto grid row draw on top of each other, and this line
+                               wraps. Invisible (and zero-height) on every report that sets no status. -->
+                          <TextBlock Text="{Binding ReportActionStatus}"
+                                     IsVisible="{Binding ReportActionStatus,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     HorizontalAlignment="Center" Margin="12,4,12,0"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding ReportActionStatus}"/>
                         </StackPanel>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
@@ -18890,16 +18904,26 @@
                                           IsVisible="{Binding SupportsDetailToggle}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-6: display config -->
+                                <!-- RQ-6: display config. EACH KNOB IS GATED ON ITS OWN PREDICATE, and the
+                                     section heading on "at least one of the three". A previous pass gated all
+                                     four on one flag (!IsPayrollMatrix), which was wrong in BOTH directions:
+                                     it still showed all three on ~80 non-matrix kinds that ignore them (Day
+                                     Book, every register, GSTR-1/3B, Statistics — measured), and it HID
+                                     hide-zero on the Attendance Sheet, whose builder passes it straight into
+                                     the engine. A live control that changes nothing and then answers "Applied —
+                                     view updated" is the panel lying about what it did. -->
                                 <TextBlock Text="Display" FontWeight="Bold"
+                                           IsVisible="{Binding SupportsDisplayOptions}"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                 <CheckBox Content="Hide zero balances"
                                           IsChecked="{Binding HideZeroBalances, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsHideZeroBalances}"
                                           Foreground="{StaticResource BrandNavy}"/>
                                 <CheckBox Content="Show percentages (of section/column total)"
                                           IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsPercentages}"
                                           Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="130,*">
+                                <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -20813,7 +20837,21 @@
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
 
-                                <!-- Sort -->
+                                <!-- The panel says so when it cannot act on this report, instead of accepting a
+                                     filter and answering "Applied — view updated" over unchanged rows.
+                                     SupportsSortFilter has existed on this view model since RQ-3 and was bound
+                                     NOWHERE until now. -->
+                                <TextBlock Text="{Binding CannotSortOrFilterNote}"
+                                           IsVisible="{Binding CannotSortOrFilter}"
+                                           FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Sort. IsEnabled="{Binding SupportsSortFilter}" on every editable control
+                                     and on Apply: the banner above plus a refusal in Apply() was only half the
+                                     fix — an operator could still type a filter into a LIVE box, press a LIVE
+                                     Apply, and learn only afterwards that the panel does not act here. A
+                                     control that cannot do anything must not accept input. Clear stays enabled:
+                                     it is not a claim, and resetting to the identity view is always valid. -->
                                 <TextBlock Text="Sort" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
                                 <Grid>
@@ -20824,6 +20862,7 @@
                                   <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            IsEnabled="{Binding SupportsSortFilter}"
                                             ItemsSource="{Binding SortKeys}"
                                             SelectedItem="{Binding SelectedSortKey, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
@@ -20835,6 +20874,7 @@
                                 </Grid>
                                 <CheckBox Content="Ascending (unchecked = descending)"
                                           IsChecked="{Binding Ascending, Mode=TwoWay}"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- Filter: amount range + name -->
@@ -20848,6 +20888,7 @@
                                   <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MinText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no lower bound)"/>
                                 </Grid>
@@ -20859,6 +20900,7 @@
                                   <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MaxText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no upper bound)"/>
                                 </Grid>
@@ -20870,6 +20912,7 @@
                                   <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding NameContains, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            PlaceholderText="substring (blank = all)"/>
                                 </Grid>
 
@@ -20881,6 +20924,7 @@
                                   <Button Grid.Column="1" Content="Clear" Padding="14,6" Margin="0,0,8,0"
                                           Click="OnClearReportSortFilterClick"/>
                                   <Button Grid.Column="2" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnApplyReportSortFilterClick"/>
                                 </Grid>

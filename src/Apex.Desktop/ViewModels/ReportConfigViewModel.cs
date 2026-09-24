@@ -55,6 +55,22 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
     /// <summary>True when the configured report supports the detailed↔summary toggle (TB / BS / P&amp;L / Stock Summary).</summary>
     public bool SupportsDetailToggle => _report.SupportsDetailToggle;
 
+    /// <summary>True when AT LEAST ONE of the three RQ-6 display knobs acts on this report — the gate on the
+    /// "Display" section HEADING only. See <see cref="ReportsViewModel.SupportsDisplayOptions"/> for why an inert
+    /// knob that answers "Applied — view updated" is a defect and not a tidiness point.</summary>
+    public bool SupportsDisplayOptions => _report.SupportsDisplayOptions;
+
+    /// <summary>True when F12's <b>Hide zero balances</b> acts on this report. Each knob is gated on its OWN
+    /// predicate: an earlier pass gated all three on one flag, which both showed them on ~80 kinds that ignore
+    /// them and HID hide-zero on the Attendance Sheet, which honours it.</summary>
+    public bool SupportsHideZeroBalances => _report.SupportsHideZeroBalances;
+
+    /// <summary>True when F12's <b>Show percentages</b> acts on this report.</summary>
+    public bool SupportsPercentages => _report.SupportsPercentages;
+
+    /// <summary>True when F12's <b>closing-stock basis</b> acts on this report (Balance Sheet / P&amp;L only).</summary>
+    public bool SupportsClosingStockBasis => _report.SupportsClosingStockBasis;
+
     // ---- RQ-6: F12 display config ----
 
     /// <summary>Hide rows whose balance is exactly zero.</summary>

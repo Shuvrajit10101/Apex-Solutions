@@ -271,6 +271,97 @@ public enum ReportKind
     /// suppliers against inter-State purchases,
     /// help.tallysolutions.com/tally-prime/reports/forms-issuables-tally/.</summary>
     CstFormsIssuable,
+
+    // ---- W-V2: the five reports RE-HOMED off dedicated page Screens (census 11.9 / 11.10 / 11.11 / 7.13 / 7.14)
+    //
+    // Each of these already shipped, correctly computed, on its own bespoke page Screen — and a page Screen leaves
+    // the report context null, which switches off Ctrl+P print, Ctrl+E export, F2/Alt+F2 period, F12 configuration,
+    // Alt+F12 sort/filter and Alt+K saved views ALL AT ONCE (docs/full-clone-census.md:612). That is six gestures
+    // off per report, and it is why these five rows sat at PARTIAL for several census passes with nothing actually
+    // wrong with their arithmetic.
+    //
+    // ⚠️ SIX OFF IS NOT SIX BACK, AND THIS COMMENT IS THE ONE A READER MEETS FIRST, SO IT SAYS SO HERE. The count
+    // above is what the page Screen SWITCHED OFF — a measurement, and it stands. What the re-home HANDS BACK is
+    // four and a half: Ctrl+P, Ctrl+E, F2/Alt+F2 and Alt+K in full, plus the PERIOD half of F12. The three F12
+    // display knobs do not act on these kinds and are hidden (SupportsHideZeroBalances and its two siblings), and
+    // Alt+F12 says out loud that it cannot act. Both of those are correct behaviour and both make the count
+    // SMALLER. The full derivation is at the re-homed builders' banner further down this file.
+    //
+    // 🔴 THEY RENDER THROUGH THE SHARED DYNAMIC MATRIX (IsWideMatrixReport → IsPayrollMatrix), NOT THROUGH A NEW
+    // BESPOKE GRID, AND THE REASON IS THE EXPORT AND THE PRINT. A report re-homed onto a bespoke grid GAINS a
+    // blank export header row and a blank printed header band — worse than the dedicated Screen it replaced.
+    //
+    // THE TWO CAPTION HELPERS, NAMED SO A READER CAN CHECK THIS, AND THE FIGURES RE-COUNTED AT HEAD:
+    //   • EXPORT — ReportTabularProjector.HeadersFor(ReportKind) (src/Apex.Desktop/Services/, the switch under
+    //     BuildColumns). It maps 16 kinds; ReportKind has 93 members; every unmapped kind falls to
+    //     `Array.Empty<string>()`, i.e. blank captions. 16 of 93.
+    //   • PRINT — ReportPrintProjector.BuildColumns(ReportsViewModel). It has NO per-kind caption table at all:
+    //     an accounting report gets Particulars/Debit/Credit or Particulars/Amount, and every OTHER kind gets a
+    //     hardcoded "Particulars" followed by `new PrintColumn(string.Empty, …)` for each remaining cell. Zero
+    //     non-accounting kinds carry real printed captions.
+    //
+    // ⚠️ AN EARLIER DRAFT OF THIS BLOCK POINTED AT A SYMBOL CALLED `ReportColumnCaptions` "for the same argument
+    // stated once". THAT SYMBOL DOES NOT EXIST ANYWHERE IN src/ — the reference was unresolvable, which on a
+    // branch whose measured failure mode is unverifiable claims is the same defect one layer in. It is replaced
+    // above by the two helpers that are really there.
+    //
+    // The matrix's column band, by contrast, is a live list that both ReportTabularProjector.ProjectPayrollMatrix
+    // and ReportPrintProjector.ProjectPayrollMatrix read directly, so screen, export and print take their captions
+    // from ONE source and cannot drift apart.
+
+    /// <summary>Census 11.9 — <b>Bills Receivable</b>: the open bills of every bill-by-bill debtor, with each
+    /// bill's due date, pending amount, overdue days and ageing bucket.
+    /// help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/ (the vendor calls this
+    /// side the <i>Pending Bills Receivables Summary</i>).</summary>
+    ReceivablesOutstanding,
+
+    /// <summary>Census 11.9 — <b>Bills Payable</b>: the creditor-side mirror of
+    /// <see cref="ReceivablesOutstanding"/>, over the same projection with the party nature flipped.</summary>
+    PayablesOutstanding,
+
+    /// <summary>Census 11.10 — <b>Category Summary</b>: the total allocated amount per cost category.</summary>
+    CostCategorySummary,
+
+    /// <summary>Census 11.10 — <b>Cost Centre Break-up</b>: every centre's own and rolled-up totals, indented
+    /// depth-first inside its category.</summary>
+    CostCentreBreakup,
+
+    /// <summary>Census 11.10 — <b>Ledger Break-up</b>: per cost centre, the amount allocated to it split by the
+    /// ledger its line posts to.
+    /// 🔴 <b>THIS KIND IS THE ROUTE IN FOR A REPORT THAT SHIPPED WITH NO CALLER AT ALL.</b>
+    /// <c>CostReports.BuildLedgerBreakup</c> has been implemented and unit-tested since Phase 2 with <b>zero</b>
+    /// production callers — this project's own canonical example of unreachable delivered code, cited by name in
+    /// seven separate source comments. Nothing about the engine needed fixing; it simply had no door.</summary>
+    CostCentreLedgerBreakup,
+
+    /// <summary>Census 11.11 — <b>Budget Variance</b>: per budget line, Budget / Actual / Variance and the
+    /// variance percentage, over the posted vouchers in the budget's own period.
+    /// 🔴 <b>A KNOWN DIVERGENCE, LABELLED RATHER THAN HIDDEN.</b> The vendor has no dedicated Budget Variance
+    /// screen at all: its budget comparison is <b>F10 (Budget Variance)</b> taken ON an existing report, which
+    /// adds a budget column beside the actuals. Verified by content at help.tallysolutions.com/budgets-tally/,
+    /// quoted rather than paraphrased because the paraphrase is where this comment previously drifted — the page
+    /// says <i>"You can view the Budget Variance report from Trial Balance, Group Summary, and Monthly
+    /// Summary"</i> and, for the chord itself, <i>"Press F10 (Budget Variance) &gt; select the budget from the
+    /// List of Budgets"</i>. (The chord is stated on the Trial Balance and Group Summary routes; the page names
+    /// Monthly Summary as a third surface without repeating the keystroke there, so do not assert F10-on-Monthly
+    /// Summary as sourced.) Re-homing our page onto ReportKind gives it
+    /// print, export and the report parameters it never had, but it does NOT make the surface itself
+    /// vendor-shaped, and this row must not be graded as though it did.
+    /// <para>🔴 The wave-28 gap analysis named this chord <b>Alt+B</b>. That is the Tally.ERP 9 button; the
+    /// TallyPrime page says F10. Recorded here so the eventual F10-on-Trial-Balance slice does not inherit the
+    /// wrong key from the analysis.</para></summary>
+    BudgetVariance,
+
+    /// <summary>Census 7.13 — the <b>Gratuity Provision</b> register: per employee, join date, completed years,
+    /// vested flag, Basic + DA and the accrued provision as at the report date, with the prior posted provision
+    /// and the delta still to post. Payment of Gratuity Act 1972; the 15/26 accrual the voucher itself posts, so
+    /// the register reconciles to the Gratuity Provision ledger by construction.</summary>
+    GratuityProvisionRegister,
+
+    /// <summary>Census 7.14 — the <b>Statutory Bonus</b> register: per employee, eligibility, actual Basic + DA,
+    /// the §12-capped base, the applied rate and the annual bonus for the accounting year containing the report
+    /// date. Payment of Bonus Act 1965.</summary>
+    BonusRegister,
 }
 
 /// <summary>
@@ -371,8 +462,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// this is always false and the C7 EmptyState never covers the payroll pane (a genuinely-empty payroll report
     /// still shows its own note). Note <see cref="PayrollRows"/> is unreliable as an emptiness signal because the
     /// matrix always foots a Grand-Total row even when there are no employees.</para>
+    ///
+    /// <para>🔴 W-V2 — <see cref="IsWideMatrixReport"/> IS EXCLUDED FOR THE IDENTICAL REASON, AND IT IS NOT A
+    /// SYMMETRY TIDY-UP. The eight re-homed reports fill <see cref="PayrollColumns"/> / <see cref="PayrollRows"/>
+    /// and leave <see cref="Rows"/> empty, exactly like a payroll matrix — but they are deliberately not
+    /// <see cref="IsPayrollReport"/> (no wage-month picker), so the existing payroll exclusion does not cover
+    /// them. Without this clause a fully populated Bills Receivable would have rendered under a "No entries for
+    /// the selected period." overlay: the report is correct, the figures are on screen underneath, and the
+    /// operator is told there is nothing there. They carry the matrix's own in-pane note
+    /// (<see cref="IsPayrollEmpty"/>) when they are genuinely empty.</para>
     /// </summary>
-    public bool IsEmpty => !IsPayrollReport && Rows.Count == 0;
+    public bool IsEmpty => !IsPayrollReport && !IsWideMatrixReport && Rows.Count == 0;
 
     /// <summary>The one-line message the empty-state shows for a report with no data.</summary>
     public string EmptyMessage => "No entries for the selected period.";
@@ -434,9 +534,44 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.TcsOutstanding or ReportKind.TcsNotCollected
         or ReportKind.TcsInterest or ReportKind.TcsNatureSummary or ReportKind.LedgersWithoutPan;
 
+    /// <summary>
+    /// True for the eight W-V2 reports re-homed off their own page Screens (census 11.9 Outstandings ×2 ·
+    /// 11.10 Cost Centre ×3 · 11.11 Budget Variance · 7.13 Gratuity Provision · 7.14 Statutory Bonus).
+    ///
+    /// <para>They render through the SAME dynamic column/row matrix as the payroll family — see
+    /// <see cref="IsPayrollMatrix"/>, which this flag feeds. The matrix is generic despite its payroll-era name:
+    /// its columns carry their own caption, width and numeric flag, and BOTH egress projectors read that live
+    /// column band rather than a per-kind caption table. Re-homing into the matrix is therefore the only shape
+    /// that gives a report a correct screen, a correct export header row and a correct printed header band from
+    /// one definition — a bespoke grid would have given the first and left the other two blank.</para>
+    ///
+    /// <para>Deliberately NOT part of <see cref="IsPayrollReport"/>, including for the two payroll registers:
+    /// that flag also turns on the wage-MONTH picker, and none of these eight is scoped to a wage month. They
+    /// are scoped by the ordinary report period (F2 / Alt+F2), which is one of the gestures the re-home exists
+    /// to hand them.</para>
+    /// </summary>
+    public bool IsWideMatrixReport => Kind is ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding
+        or ReportKind.CostCategorySummary or ReportKind.CostCentreBreakup or ReportKind.CostCentreLedgerBreakup
+        or ReportKind.BudgetVariance
+        or ReportKind.GratuityProvisionRegister or ReportKind.BonusRegister;
+
+    /// <summary>True for either side of the re-homed Outstandings report (census 11.9).</summary>
+    public bool IsOutstandingsReport =>
+        Kind is ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding;
+
+    /// <summary>True for any of the three re-homed cost-centre reports (census 11.10).</summary>
+    public bool IsCostCentreReport => Kind is ReportKind.CostCategorySummary
+        or ReportKind.CostCentreBreakup or ReportKind.CostCentreLedgerBreakup;
+
     /// <summary>True to show the accounting (Particulars/Dr/Cr/Amount) grid — a report that is neither
-    /// inventory, GST, statutory, nor payroll (TB / BS / P&amp;L / Day Book + the accounting exception reports).</summary>
-    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport && !IsPayrollReport;
+    /// inventory, GST, statutory, payroll, nor one of the W-V2 wide-matrix reports (TB / BS / P&amp;L / Day Book
+    /// + the accounting exception reports).
+    /// <para>🔴 <see cref="IsWideMatrixReport"/> MUST be excluded here. It is not a tidiness point: this
+    /// property is the accounting grid's own IsVisible, and a matrix report left inside it renders the empty
+    /// Particulars/Dr/Cr table stacked on top of its own grid — two tables at once, which is the exact defect
+    /// the W-K1 comment on <see cref="IsInventoryReport"/> records having already been shipped once.</para></summary>
+    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport
+        && !IsPayrollReport && !IsWideMatrixReport;
 
     // ---- statutory-report layout flags (drive which statutory DataTemplate the view shows; Phase 7 slice 8) ----
     // The TDS and TCS reports mirror each other, so each pair shares a column layout; the header labels that differ
@@ -569,9 +704,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>True for the four wide tabular payroll reports (Pay Sheet / Payroll Register / Attendance Register /
     /// Payment Advice) — all rendered through the shared, horizontally-scrolling <see cref="PayrollColumns"/> /
     /// <see cref="PayrollRows"/> matrix so one DataTemplate serves every payroll grid.</summary>
+    /// <para>W-V2: <see cref="IsWideMatrixReport"/> joins the same band, which is what hands the eight re-homed
+    /// reports a captioned export header row and a captioned printed header band with no per-kind caption table
+    /// to keep in step.</para>
     public bool IsPayrollMatrix => Kind is ReportKind.PaySheet or ReportKind.PayrollRegister
         or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice
-        || IsPayrollStatutoryForm || IsPayrollBreakupReport;
+        || IsPayrollStatutoryForm || IsPayrollBreakupReport || IsWideMatrixReport;
 
     /// <summary>Show the wage-month picker — every payroll report is scoped to one wage month, EXCEPT the four
     /// statutory forms that run over a multi-month statutory period (see <see cref="IsStatutoryPeriodForm"/>).
@@ -1048,6 +1186,74 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
 
+    // =============================================================== RQ-6: the three F12 DISPLAY knobs
+    //
+    // 🔴 A DEAD KNOB IS NOT A COSMETIC PROBLEM: IT IS THE PANEL LYING ABOUT WHAT IT DID. An operator who ticks
+    // "Hide zero balances", presses Apply and is told "Applied — view updated" now believes the list in front of
+    // them is filtered. That is worse than the option being absent.
+    //
+    // 🔴 AND THE FIRST ATTEMPT AT THIS FIX GOT THE PREDICATE WRONG IN THE SAFE-LOOKING DIRECTION, WHICH IS WHY
+    // THERE ARE NOW THREE OF THEM. It was `!IsPayrollMatrix && !IsPayrollReport`, defended in a comment that said
+    // the three options "are consumed in exactly one place — the row-bearing builders". They are not. MEASURED
+    // by grepping every read of `_options.HideZeroBalances`, `_options.ShowPercentages` and `_options.ClosingStock`
+    // in this file and naming the enclosing method:
+    //   • hide-zero  — BuildTrialBalance, AddBalanceSheetSide, AddProfitAndLossSide, BuildStockSummary AND
+    //                  BuildAttendanceSheet (which passes it straight into Report.BuildAttendanceSheet).
+    //   • percentages — the same four, WITHOUT the Attendance Sheet.
+    //   • closing stock — read through ReportOptions by BalanceSheet.Build and ProfitAndLoss.Build, and so ALSO
+    //                  by every report BUILT OUT OF those two. Ratio Analysis is one: BuildRatioAnalysis passes
+    //                  `_options` into RatioAnalysis.Build, which calls BalanceSheet.Build and ProfitAndLoss.Build
+    //                  with the same options (RatioAnalysis.cs:86-87). A TRANSITIVE read is still a read.
+    // Day Book is row-bearing and honours NONE of them — measured, a posted voucher's row is byte-identical
+    // after hideZero + percentages + a closing-stock basis — and so is every register, GSTR-1, GSTR-3B and
+    // Statistics. The old predicate therefore SHOWED all three on ~80 kinds that ignore them, and HID hide-zero
+    // on the Attendance Sheet, which honours it. Both directions were wrong.
+    //
+    // So each knob is now gated on the kinds whose builder actually reads THAT knob. The lists are short,
+    // explicit and checkable against the grep above; a kind that starts honouring one has to be added here,
+    // which is a line of code rather than a silent lie on the panel.
+
+    /// <summary>True when F12's <b>Hide zero balances</b> actually changes this report. TB / BS / P&amp;L /
+    /// Stock Summary filter their rows on it; the Attendance Sheet passes it into the engine as the vendor's own
+    /// "Remove zero-valued transactions".</summary>
+    public bool SupportsHideZeroBalances => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.AttendanceSheet;
+
+    /// <summary>True when F12's <b>Show percentages</b> actually changes this report — the four row-bearing
+    /// builders that compute a section/column share. The Attendance Sheet is excluded: it counts days, and a
+    /// percentage of a day-count column is not a figure this product claims to produce.</summary>
+    public bool SupportsPercentages => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
+
+    /// <summary>
+    /// True when F12's <b>closing-stock basis</b> actually changes this report — the Balance Sheet and the P&amp;L,
+    /// which read it directly through <c>ReportOptions</c> (<c>BalanceSheet.Build</c> / <c>ProfitAndLoss.Build</c>),
+    /// and the Ratio Analysis, which is BUILT OUT OF BOTH OF THEM under the caller's own options. The Stock
+    /// Summary values stock directly and ignores the switch.
+    ///
+    /// <para>🔴 <b>RATIO ANALYSIS IS ON THIS LIST BECAUSE LEAVING IT OFF WAS A MEASURED REGRESSION AGAINST MAIN,
+    /// NOT BECAUSE OF A JUDGEMENT CALL.</b> On <c>main</c> the closing-stock row carried no visibility binding at
+    /// all, so the control was on screen and working on every report. The first draft of this predicate listed
+    /// only the two kinds whose own <c>Build</c> names <c>options.ClosingStock</c> and defended that scope in a
+    /// comment reading "only the Balance Sheet and the P&amp;L read it" — which is false:
+    /// <c>BuildRatioAnalysis</c> passes <c>_options</c> into <c>RatioAnalysis.Build</c>, which rebuilds both of
+    /// those reports from it. The effect was that an operator could set the inventory-derived basis on the Balance
+    /// Sheet and the P&amp;L but not on the Ratio Analysis computed from them, so Working Capital, Current Assets,
+    /// Nett Profit, the Current Ratio and Return on Investment all sat on the other basis with no control on the
+    /// panel and no message. The rule is therefore the TRANSITIVE one: a kind belongs here when the basis moves
+    /// its figures, whoever does the reading.</para>
+    /// </summary>
+    public bool SupportsClosingStockBasis => Kind is ReportKind.BalanceSheet or ReportKind.ProfitAndLoss
+        or ReportKind.RatioAnalysis;
+
+    /// <summary>
+    /// True when AT LEAST ONE of the three F12 display knobs acts on this report — the gate on the panel's
+    /// "Display" section HEADING, so a heading never stands over nothing. Each individual control is gated on
+    /// its OWN predicate, not on this one.
+    /// </summary>
+    public bool SupportsDisplayOptions =>
+        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis;
+
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
     {
@@ -1205,8 +1411,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // it does not scope.
         OnPropertyChanged(nameof(IsPayrollBreakupReport));
         OnPropertyChanged(nameof(ShowPayrollPayHeadPicker));
+        // W-V2 (census 11.9 / 11.10 / 11.11 / 7.13 / 7.14). Same argument as every block above, and it bites
+        // harder here because IsWideMatrixReport gates BOTH the matrix pane and (through IsAccountingReport)
+        // the accounting pane: an operator arriving on Bills Receivable from Trial Balance in the same viewer
+        // would otherwise get the Trial Balance grid, empty, over the matrix's own rows.
+        OnPropertyChanged(nameof(IsWideMatrixReport));
+        OnPropertyChanged(nameof(IsOutstandingsReport));
+        OnPropertyChanged(nameof(IsCostCentreReport));
         PayrollFootnotes.Clear();
         HasPayrollFootnotes = false;
+        // W-V2: a message about what an ACTION did on the previous report must not survive onto the next one.
+        ReportActionStatus = string.Empty;
         PayrollColumns2.Clear();
         PayrollRows2.Clear();
         PayrollSection2Title = string.Empty;
@@ -1262,6 +1477,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.StockGroupCostAnalysis: BuildItemCostAnalysis(ReportKind.StockGroupCostAnalysis); break;
             case ReportKind.CostTrackBreakup: BuildItemCostAnalysis(ReportKind.CostTrackBreakup); break;
             case ReportKind.JobWorkAnalysis: BuildJobWorkAnalysis(); break;
+
+            // W-V2 — the five reports re-homed off dedicated page Screens (census 11.9 / 11.10 / 11.11 /
+            // 7.13 / 7.14). Every one runs through RunStatutoryForm's guard, not because they are statutory
+            // forms, but because three of them read payroll/budget masters that a half-configured company can
+            // leave incomplete, and Show() has no handler of its own — an InvalidOperationException escaping
+            // here takes the whole shell down rather than showing a message in the pane.
+            case ReportKind.ReceivablesOutstanding: RunStatutoryForm(() => BuildOutstandingsReport(OutstandingsKind.Receivables)); break;
+            case ReportKind.PayablesOutstanding: RunStatutoryForm(() => BuildOutstandingsReport(OutstandingsKind.Payables)); break;
+            case ReportKind.CostCategorySummary: RunStatutoryForm(BuildCostCategorySummary); break;
+            case ReportKind.CostCentreBreakup: RunStatutoryForm(BuildCostCentreBreakupReport); break;
+            case ReportKind.CostCentreLedgerBreakup: RunStatutoryForm(BuildCostCentreLedgerBreakup); break;
+            case ReportKind.BudgetVariance: RunStatutoryForm(BuildBudgetVarianceReport); break;
+            case ReportKind.GratuityProvisionRegister: RunStatutoryForm(BuildGratuityProvisionRegister); break;
+            case ReportKind.BonusRegister: RunStatutoryForm(BuildBonusRegister); break;
 
             case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
             case ReportKind.Gstr1: BuildGstr1(); break;
@@ -1622,6 +1851,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.StockGroupCostAnalysis] = "StockGroupCostAnalysis",
         [ReportKind.CostTrackBreakup] = "CostTrackBreakup",
         [ReportKind.JobWorkAnalysis] = "JobWorkAnalysis",
+        // W-V2 (census 11.9 / 11.10 / 11.11 / 7.13 / 7.14). Same rule as every block above and it is not
+        // optional: TokenFor indexes this dictionary DIRECTLY, so a kind missing from it throws
+        // KeyNotFoundException the moment an operator presses Alt+K on that report — and Alt+K saved views is
+        // one of the gestures the re-home exists to hand these reports, so omitting a token here would have
+        // turned the fix into a crash. Frozen strings: a saved view persists the STRING, so renaming the enum
+        // member must never change what is written here.
+        [ReportKind.ReceivablesOutstanding] = "ReceivablesOutstanding",
+        [ReportKind.PayablesOutstanding] = "PayablesOutstanding",
+        [ReportKind.CostCategorySummary] = "CostCategorySummary",
+        [ReportKind.CostCentreBreakup] = "CostCentreBreakup",
+        [ReportKind.CostCentreLedgerBreakup] = "CostCentreLedgerBreakup",
+        [ReportKind.BudgetVariance] = "BudgetVariance",
+        [ReportKind.GratuityProvisionRegister] = "GratuityProvisionRegister",
+        [ReportKind.BonusRegister] = "BonusRegister",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -4759,6 +5002,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
     [ObservableProperty] private string _ePaymentsExportStatus = string.Empty;
 
     /// <summary>
+    /// What the report's own primary ACTION just did, or why it did nothing — shown on the report header
+    /// (W-V2). Today its only writer is the Ctrl+A gratuity provision post that came across with census row
+    /// 7.13 when that register was re-homed off its page Screen.
+    ///
+    /// <para>Kept generic rather than named for gratuity because the shape recurs: a report with a primary
+    /// action needs somewhere to say what the keystroke did, and a keystroke with no visible result is
+    /// indistinguishable from a broken one. <see cref="EPaymentsExportStatus"/> is the same idea arrived at
+    /// once already; this one is the reusable slot so the third such report does not add a third property.</para>
+    ///
+    /// <para>🔴 Cleared by <see cref="Show"/>, so a caller that rebuilds the report and then wants the message
+    /// to survive must set it AFTER the rebuild. Setting it first and refreshing second silently discards it.</para>
+    /// </summary>
+    [ObservableProperty] private string _reportActionStatus = string.Empty;
+
+    /// <summary>
     /// <b>e-Payments</b> (census row 8.10) — <c>help.tallysolutions.com/e-payments-report/</c>. The electronic
     /// payments in the period, under the vendor's own section headings: <b>Ready for Sending to Bank</b> first,
     /// then <b>Incomplete/Incorrect Bank Ledger Master Details</b> and <b>Incomplete/Incorrect Transaction
@@ -6272,6 +6530,634 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         MarkPayrollEmpty(empty);
         if (empty) PayrollEmptyNote = note;
+    }
+
+    // ======================================================= W-V2: the re-homed reports (11.9 / 11.10 / 11.11 /
+    //                                                         7.13 / 7.14)
+    //
+    // NOT ONE FIGURE IN THIS REGION IS NEW. Every projection below already shipped and is already unit-tested in
+    // Apex.Ledger — Outstandings, CostReports (all THREE builders), BudgetVarianceReport,
+    // GratuityProvisionRegister and BonusRegister. What was missing was never the arithmetic; it was the
+    // SURFACE. Each of these five reports lived on its own page Screen, and a page Screen leaves the shell's
+    // report context null, which switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once. These
+    // builders exist so the same numbers arrive on the surface where those gestures already work.
+    //
+    // 🔴 AND THE HONEST COUNT OF WHAT ARRIVES IS FOUR AND A HALF, NOT SIX. Six gestures were switched OFF by the
+    // page Screen — that part is a measurement and it stands. What the re-home HANDS BACK is Ctrl+P print,
+    // Ctrl+E export, F2/Alt+F2 period and Alt+K saved views in full, plus the PERIOD half of F12: the three F12
+    // display knobs do not act on these kinds and are now correctly hidden (see SupportsHideZeroBalances and
+    // its two siblings), and Alt+F12 says out loud that it cannot act rather than answering "Applied". Both of
+    // those are the right behaviour and both make the count smaller, not larger. Any comment or census note
+    // reading "six gestures arrive" is an overstatement and should be corrected to this sentence.
+    //
+    // Widths: the label column is deliberately wider than PayrollLabelWidth on the reports whose label is a
+    // party/ledger/centre NAME rather than an employee name, because those are the names that actually run long.
+
+    private const double WideNameWidth = 240;
+    private const double WideRefWidth = 150;
+    private const double WideDateWidth = 104;
+    private const double WideMoneyWidth = 124;
+    private const double WideDaysWidth = 92;
+
+    /// <summary>
+    /// The F11 → Accounting → <b>Enable Cost Centres</b> gate (census row 1.7), asked by all three cost
+    /// reports. Marks the report degraded-and-empty and returns true when the company has the feature off.
+    ///
+    /// <para>🔴 <b>CALL IT AFTER THE COLUMNS ARE DECLARED, NEVER BEFORE.</b> The column band is what both egress
+    /// projectors read their captions from, so returning early with no columns would export a header row of
+    /// bare commas and print an empty header band — the exact blank-caption defect the re-home exists to avoid.
+    /// A degraded report keeps its shape and loses its rows.</para>
+    ///
+    /// <para>Why the projection refuses on its own account when the menu row and the quick-button are already
+    /// gated: because a saved view was a THIRD door and asked neither of them, which is how a company with cost
+    /// centres switched off still rendered its cost allocations. The shell now gates that door too
+    /// (<c>MainWindowViewModel.ReportKindIsPermitted</c>); this is the lock on the projection itself, so the
+    /// fourth door — whatever it turns out to be — does not reopen the hole.</para>
+    /// </summary>
+    private bool CostCentresOff()
+    {
+        if (_company.EnableCostCentres) return false;
+        MarkStatutoryFormEmpty(true,
+            "Cost Centres are not enabled for this company (F11 → Accounting → Enable Cost Centres).");
+        return true;
+    }
+
+    /// <summary>
+    /// Adds a column to the matrix's first band, sized through <see cref="PayColWidthFor"/> so the column can
+    /// never be narrower than its OWN caption.
+    ///
+    /// <para>🔴 <b>THE MINIMUMS ABOVE ARE NOT WIDTHS, THEY ARE FLOORS, AND FOUR OF THESE CAPTIONS OVERFLOW
+    /// THEIRS.</b> At the shipped header metrics (<see cref="ColumnHeaderAdvance"/> 6.5977px at the colHdr's
+    /// 12pt, plus 16px padding) <c>"Overdue Days"</c> needs 95px against a 92px floor, <c>"Completed Years"</c>
+    /// 115 against 92, <c>"Date of Joining"</c> 115 against 104 and <c>"Actual Basic + DA"</c> 128 against 124.
+    /// The matrix header band renders with <c>TextTrimming="CharacterEllipsis"</c>, so each of those would have
+    /// shipped CLIPPED — and a clipped heading is worse than a missing one, because <c>"Completed Year…"</c> and
+    /// <c>"Date of Joinin…"</c> still look deliberate. Hand-picked constants cannot be known to be wide enough;
+    /// this helper measures instead.</para>
+    /// </summary>
+    private void WideCol(string header, double minimum, bool numeric)
+        => PayrollColumns.Add(PayCol(header, PayColWidthFor(header, minimum), numeric));
+
+    /// <summary>
+    /// A cell for column <paramref name="index"/> of the first band, taking its width and its numeric alignment
+    /// FROM that column rather than from a constant repeated at the call site.
+    ///
+    /// <para>🔴 This is an alignment INVARIANT, not a convenience. The matrix lays the header band and every
+    /// body row out as horizontal <c>StackPanel</c>s of fixed-width cells, so a cell whose width differs from
+    /// its column's by even a pixel shifts every column to its right — and because <see cref="WideCol"/> now
+    /// measures each caption, the widths are no longer values a call site could correctly guess.</para>
+    /// </summary>
+    private PayrollMatrixCellVm WideCell(int index, string text)
+        => PayCell(text, PayrollColumns[index].Width, PayrollColumns[index].IsNumeric);
+
+    /// <summary>The second band's twin of <see cref="WideCol"/>.</summary>
+    private void WideCol2(string header, double minimum, bool numeric)
+        => PayrollColumns2.Add(PayCol(header, PayColWidthFor(header, minimum), numeric));
+
+    /// <summary>The second band's twin of <see cref="WideCell"/>.</summary>
+    private PayrollMatrixCellVm WideCell2(int index, string text)
+        => PayCell(text, PayrollColumns2[index].Width, PayrollColumns2[index].IsNumeric);
+
+    /// <summary>A whole matrix row from positional cell texts, each sized from its own column.</summary>
+    private PayrollMatrixRowVm WideRow(bool isTotal, params string[] texts)
+    {
+        var cells = new List<PayrollMatrixCellVm>(texts.Length);
+        for (int i = 0; i < texts.Length; i++) cells.Add(WideCell(i, texts[i]));
+        return new PayrollMatrixRowVm { IsTotal = isTotal, Cells = cells };
+    }
+
+    /// <summary>The window the three cost reports and the outstandings ageing project over — books-begin (or the
+    /// F2 period start) to the report's as-of date. Identical expression to the one the VAT reports use, so the
+    /// re-homed reports honour Alt+F2 exactly as every other report on this surface does.</summary>
+    private (DateOnly From, DateOnly To) WideMatrixPeriod() => (VatPeriodFrom, _asOf);
+
+    // --------------------------------------------------------------- 11.9 Outstandings (Receivables / Payables)
+
+    /// <summary>
+    /// Census 11.9 — <b>Bills Outstanding</b>, one side of it. Per open bill: the party, the reference, the bill
+    /// date, the due date, the original and still-pending amounts, the overdue days and the ageing bucket the
+    /// bill falls in. The ageing SUMMARY (pending per bucket) follows in the matrix's second band rather than
+    /// being folded into the same grid, because the two have different columns and stacking a bucket total under
+    /// a bill's column headings is the "wrong figure under a right heading" defect this codebase already
+    /// records having shipped once (see the PayrollColumns2 comment).
+    ///
+    /// <para>🔴 <b>THE AGEING BASIS IS STILL FIXED TO BY-DUE-DATE AND THIS RE-HOME DOES NOT CHANGE THAT.</b>
+    /// Verified by content at help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/,
+    /// which says in as many words <i>"Press F6 (Ageing Method): to display the ageing report for the
+    /// Receivables from each party"</i> and <i>"Select the appropriate Ageing Methods from Ageing by Bill Date
+    /// or Ageing by Due Date and press Enter"</i>. We have neither the chord nor the second basis, and
+    /// <c>Outstandings.DefaultBuckets</c> remains a <c>static readonly</c> field with no parameter behind it, so
+    /// the bucket edges are not configurable either. Row 11.9 stays PARTIAL for those reasons among others;
+    /// nothing here should be read as closing it.</para>
+    ///
+    /// <para>🔴 <b>A THIRD SENTENCE WAS DELETED FROM THIS COMMENT RATHER THAN SOFTENED.</b> It read
+    /// <i>"in the absence of a due date, the bill date becomes the due date"</i>, in quotation marks, attributed
+    /// to the page above — and the page does not contain it, in that or any equivalent wording. The URL resolves;
+    /// the QUOTE was invented, which is the harder failure to catch and exactly as serious as a dead link. The
+    /// two quotes that remain were read off the live page.</para>
+    /// </summary>
+    private void BuildOutstandingsReport(OutstandingsKind side)
+    {
+        var asOf = _asOf;
+        var report = Outstandings.Build(_company, asOf);
+        var receivable = side == OutstandingsKind.Receivables;
+        var bills = receivable ? report.Receivables : report.Payables;
+        var ageing = receivable ? report.ReceivableAgeing : report.PayableAgeing;
+        var total = receivable ? report.TotalReceivable : report.TotalPayable;
+
+        Title = receivable ? "Bills Receivable" : "Bills Payable";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}";
+        IsTwoColumn = false;
+
+        WideCol("Party", WideNameWidth, false);
+        WideCol("Ref. No.", WideRefWidth, false);
+        WideCol("Date", WideDateWidth, false);
+        WideCol("Due Date", WideDateWidth, false);
+        WideCol("Original", WideMoneyWidth, true);
+        WideCol("Pending", WideMoneyWidth, true);
+        WideCol("Overdue Days", WideDaysWidth, true);
+        WideCol("Ageing", WideRefWidth, false);
+
+        foreach (var b in bills)
+        {
+            var overdue = b.OverdueDays(asOf);
+            PayrollRows.Add(WideRow(false,
+                b.LedgerName,
+                Or(b.Reference),
+                FormatDate(b.Date),
+                FormatDate(b.DueDate),
+                IndianFormat.Amount(b.Original),
+                IndianFormat.Amount(b.Pending),
+                // Blank rather than "0" on a bill that is not yet due: a literal zero in an "Overdue Days"
+                // column reads as "due today and unpaid", which is a different fact from "not due yet".
+                overdue > 0 ? overdue.ToString(CultureInfo.InvariantCulture) : string.Empty,
+                Outstandings.DefaultBuckets[Outstandings.BucketIndex(overdue)].Label));
+        }
+
+        PayrollRows.Add(WideRow(true,
+            receivable ? "Total Receivable" : "Total Payable",
+            string.Empty, string.Empty, string.Empty, string.Empty,
+            IndianFormat.AmountAlways(total),
+            string.Empty, string.Empty));
+
+        // Second band — the ageing summary, with its OWN two columns.
+        PayrollSection2Title = "Ageing Analysis (by due date)";
+        WideCol2("Ageing Bucket", WideNameWidth, false);
+        WideCol2("Pending", WideMoneyWidth, true);
+        foreach (var bucket in ageing)
+            PayrollRows2.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    WideCell2(0, bucket.Label),
+                    WideCell2(1, IndianFormat.AmountAlways(bucket.Pending)),
+                },
+            });
+        HasPayrollSection2 = PayrollRows2.Count > 0;
+
+        MarkStatutoryFormEmpty(bills.Count == 0, receivable
+            ? "No pending receivables as at this date."
+            : "No pending payables as at this date.");
+
+        // The footnote says which basis the figures are on. It is not decoration: the reference product lets an
+        // operator switch the basis on F6, so a reader arriving from it will reasonably assume a basis was
+        // chosen. Saying which one is what stops a by-due-date bucket being read as a by-bill-date one.
+        Footnote("Ageing is measured from each bill's DUE date. A bill's due date is its own credit period when "
+               + "one was entered on the reference, else the party ledger's default credit period. Ageing from "
+               + "the BILL date is not offered on this report.");
+    }
+
+    // --------------------------------------------------------------- 11.10 Cost Centre reports (three)
+
+    /// <summary>Census 11.10 — <b>Category Summary</b>: the total allocated per cost category.</summary>
+    private void BuildCostCategorySummary()
+    {
+        var (from, to) = WideMatrixPeriod();
+        var report = CostReports.BuildCategorySummary(_company, from, to);
+
+        Title = "Category Summary";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(to)}";
+        IsTwoColumn = false;
+
+        WideCol("Cost Category", WideNameWidth, false);
+        WideCol("Total", WideMoneyWidth, true);
+
+        if (CostCentresOff()) return;
+
+        foreach (var cat in report.Categories)
+            PayrollRows.Add(WideRow(false, cat.CategoryName, IndianFormat.Amount(cat.Total)));
+
+        AddAllocatedTotalRow(report.GrandTotal, report.CategoryTotalsOverlap, totalColumn: 1,
+            "Cost categories are parallel axes — an amount classified under more than one category appears in "
+          + "full under each of them, so the category totals above overlap. This figure is the cost counted "
+          + "once per entry line, not the sum of the rows above.");
+
+        MarkStatutoryFormEmpty(report.Categories.Count == 0, "No cost allocations in this period.");
+    }
+
+    /// <summary>Census 11.10 — <b>Cost Centre Break-up</b>: each centre's own or rolled-up total, grouped by
+    /// category and indented by depth. A parent shows its roll-up (own + descendants); a leaf shows its own.</summary>
+    private void BuildCostCentreBreakupReport()
+    {
+        var (from, to) = WideMatrixPeriod();
+        var report = CostReports.BuildCostCentreBreakup(_company, from, to);
+
+        Title = "Cost Centre Break-up";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(to)}";
+        IsTwoColumn = false;
+
+        WideCol("Cost Centre", WideNameWidth, false);
+        WideCol("Cost Category", WideRefWidth, false);
+        WideCol("Own", WideMoneyWidth, true);
+        WideCol("Rolled Up", WideMoneyWidth, true);
+
+        if (CostCentresOff()) return;
+
+        foreach (var line in report.Centres)
+        {
+            // 🔴 The depth is carried by INDENTING THE TEXT, not by a ReportRow.Indent the matrix cannot render.
+            // The matrix draws a plain TextBlock per cell, so a nesting level expressed as a pixel margin would
+            // simply vanish here and every child centre would read as a primary one.
+            var label = line.Depth == 0 ? line.CentreName : new string(' ', line.Depth * 4) + line.CentreName;
+            var category = _company.FindCostCategory(line.CategoryId)?.Name ?? "—";
+            PayrollRows.Add(WideRow(false, label, category,
+                IndianFormat.Amount(line.OwnTotal),
+                IndianFormat.Amount(line.RolledUpTotal)));
+        }
+
+        // totalColumn 2 = "Own", NOT 3 = "Rolled Up". GrandTotal is the cost counted once per entry line, which
+        // is what the Own column sums to; printing it under Rolled Up would assert a roll-up it is not.
+        AddAllocatedTotalRow(report.GrandTotal, report.CategoryTotalsOverlap, totalColumn: 2,
+            "Cost categories are parallel axes — an amount classified under more than one category is carried "
+          + "in full by one centre in each of them, so the centre totals above overlap. This figure is the cost "
+          + "counted once per entry line, not the sum of the rows above.");
+
+        MarkStatutoryFormEmpty(report.Centres.Count == 0, "No cost centres defined.");
+    }
+
+    /// <summary>
+    /// Census 11.10 — <b>Ledger Break-up</b>: per cost centre, the allocation split by the ledger the line posts to.
+    ///
+    /// <para>🔴 <b>THIS METHOD IS THE FIRST PRODUCTION CALLER <c>CostReports.BuildLedgerBreakup</c> HAS EVER
+    /// HAD.</b> The engine was written, documented and unit-tested, and then cited by name in seven source
+    /// comments across this repository as the canonical example of careful, correct-looking, UNREACHABLE code
+    /// counted as delivered. It was never broken. It had no door. This is the door.</para>
+    /// </summary>
+    private void BuildCostCentreLedgerBreakup()
+    {
+        var (from, to) = WideMatrixPeriod();
+        var report = CostReports.BuildLedgerBreakup(_company, from, to);
+
+        Title = "Ledger Break-up";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(to)}";
+        IsTwoColumn = false;
+
+        WideCol("Cost Centre", WideNameWidth, false);
+        WideCol("Ledger", WideNameWidth, false);
+        WideCol("Amount", WideMoneyWidth, true);
+
+        if (CostCentresOff()) return;
+
+        // The engine returns rows already ordered by centre (company order) then ledger, so the centre name is
+        // printed once per run and blanked on its continuation rows — the same reading the vendor's own
+        // break-up gives, and it is what makes a 200-row report scannable.
+        Guid lastCentre = Guid.Empty;
+        foreach (var r in report.Rows)
+        {
+            var showCentre = r.CentreId != lastCentre;
+            lastCentre = r.CentreId;
+            PayrollRows.Add(WideRow(false,
+                showCentre ? r.CentreName : string.Empty,
+                r.LedgerName,
+                IndianFormat.Amount(r.Total)));
+        }
+
+        AddAllocatedTotalRow(report.GrandTotal, report.CategoryTotalsOverlap, totalColumn: 2,
+            "Cost categories are parallel axes — a line classified under more than one category produces one "
+          + "(centre, ledger) row per axis, each carrying the whole amount, so the rows above overlap. This "
+          + "figure is the cost counted once per entry line, not the sum of the rows above.");
+
+        MarkStatutoryFormEmpty(report.Rows.Count == 0, "No cost allocations in this period.");
+    }
+
+    /// <summary>
+    /// The footing row the three cost reports share (spec §4.2 rule C-27). The relabel and the note are driven
+    /// by whether the rows above ACTUALLY overlap, never by whether a line happens to name two categories —
+    /// a legacy partition book carries ₹3,000.19 Branch + ₹2,000.18 Department on a ₹5,000.37 line, its rows
+    /// add to the total exactly, and relabelling it would be an unexplained change to a figure that is simply
+    /// a column sum. Carried over verbatim in intent from <c>CostReportsViewModel.AddAllocatedTotal</c>.
+    ///
+    /// <para>🔴 <paramml name="totalColumn"/> IS NOT A CONVENIENCE — IT IS WHICH HEADING THE FIGURE PRINTS
+    /// UNDER, AND THE OBVIOUS DEFAULT IS WRONG ON ONE OF THE THREE REPORTS. The old page had a single Amount
+    /// column so the question could not arise; the matrix reports have several. Footing "last column" would put
+    /// the Cost Centre Break-up's grand total under <b>Rolled Up</b>, and the grand total is expressly NOT a
+    /// roll-up — it is the cost counted once per entry line, which is what the <b>Own</b> column sums to
+    /// (<c>CostCentreBreakupReport.GrandTotal</c> says so in as many words). A reader would have taken a
+    /// correct number to mean something it does not. Each caller names its own column.</para>
+    /// </summary>
+    private void AddAllocatedTotalRow(Money total, bool rowsOverlap, int totalColumn, string note)
+    {
+        var columns = PayrollColumns.ToList();
+        var cells = new List<PayrollMatrixCellVm>(columns.Count);
+        for (int i = 0; i < columns.Count; i++)
+        {
+            var text = i == 0
+                ? (rowsOverlap ? "Total Cost Allocated" : "Grand Total")
+                : i == totalColumn ? IndianFormat.AmountAlways(total) : string.Empty;
+            cells.Add(PayCell(text, columns[i].Width, columns[i].IsNumeric));
+        }
+        PayrollRows.Add(new PayrollMatrixRowVm { IsTotal = true, Cells = cells });
+        if (rowsOverlap) Footnote(note);
+    }
+
+    // --------------------------------------------------------------- 11.11 Budget Variance
+
+    /// <summary>
+    /// Census 11.11 — <b>Budget Variance</b>: per budget line, Budget / Actual / Variance and the variance
+    /// percentage, over each budget's own period.
+    ///
+    /// <para>🔴 <b>THIS IS A LABELLED DIVERGENCE, NOT A CLONE.</b> The vendor has no dedicated Budget Variance
+    /// screen at all: budget comparison there is <b>F10 (Budget Variance)</b> taken ON Trial Balance, Group
+    /// Summary or a Monthly Summary, which adds a budget column beside the actuals. Verified by content at
+    /// help.tallysolutions.com/budgets-tally/ ("Create, Alter, and Delete Budgets in TallyPrime"), which states
+    /// it in as many words: <i>"Press F10 (Budget Variance) &gt; select the budget from the List of Budgets"</i>.
+    /// Moving our page onto ReportKind gives it the six report gestures it never had; it does NOT make the
+    /// surface vendor-shaped, and row 11.11 must not be graded as though it did.</para>
+    ///
+    /// <para>🔴 <b>THIS COMMENT PREVIOUSLY SHIPPED A FABRICATED CITATION AND THE WRONG CHORD, AND THE WAVE WAS
+    /// WITHHELD FOR IT.</b> It cited <c>.../accounting-masters/budgets-controls-tally/</c>, which returns
+    /// <b>HTTP 404</b> — it does not exist and never attested anything — and it named the chord <i>Alt+B</i>,
+    /// which is the Tally.ERP 9-era button superseded by F10 in TallyPrime (the same correction is recorded at
+    /// the <see cref="ReportKind.BudgetVariance"/> declaration). Both are fixed above against a page that was
+    /// opened and read. This is the identical R7 failure already stripped once from <c>SeedTdsTcsRates.cs</c>,
+    /// and it is the most serious defect class on this project because it makes the product LOOK verified when
+    /// it is not. A claim that cannot be grounded is DELETED, never softened and never re-pointed at a
+    /// plausible-looking URL.</para>
+    ///
+    /// <para>Every budget is printed as its own section rather than one being chosen from a picker. The old page
+    /// had a single-budget dropdown; a dropdown is a control the matrix surface has no slot for, and the choice
+    /// here was between inventing one and printing the superset. The superset is what an operator can actually
+    /// print and export in one gesture, and no information is lost by it.</para>
+    /// </summary>
+    private void BuildBudgetVarianceReport()
+    {
+        Title = "Budget Variance";
+        Subtitle = $"{CompanyName}  —  {_company.Budgets.Count} budget(s)";
+        IsTwoColumn = false;
+
+        WideCol("Target", WideNameWidth, false);
+        WideCol("Type", WideRefWidth, false);
+        WideCol("Budget", WideMoneyWidth, true);
+        WideCol("Actual", WideMoneyWidth, true);
+        WideCol("Variance", WideMoneyWidth, true);
+        WideCol("Variance %", WideDaysWidth, true);
+
+        var any = false;
+        foreach (var budget in _company.Budgets.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var report = BudgetVarianceReport.Build(_company, budget);
+            any = true;
+
+            // The budget's name and window as a spanning heading row. IsTotal bolds it, which is the only
+            // emphasis the matrix template offers — it has no separate header-row treatment.
+            PayrollRows.Add(WideRow(true,
+                $"{report.BudgetName}  ({FormatDate(report.PeriodFrom)} to {FormatDate(report.PeriodTo)})",
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty));
+
+            decimal totalBudget = 0m, totalActual = 0m;
+            foreach (var line in report.Lines)
+            {
+                totalBudget += line.Budget.Amount;
+                totalActual += line.Actual.Amount;
+                PayrollRows.Add(WideRow(false,
+                    $"    {line.TargetName} ({(line.IsGroup ? "Group" : "Ledger")})",
+                    BudgetMasterViewModel.TypeLabel(line.Type),
+                    IndianFormat.AmountAlways(line.Budget),
+                    IndianFormat.AmountAlways(line.Actual),
+                    SignedVariance(line.Variance.Amount),
+                    SignedVariancePercent(line.VariancePercent)));
+            }
+
+            if (report.Lines.Count == 0)
+            {
+                PayrollRows.Add(WideRow(false, "    This budget has no lines.",
+                    string.Empty, string.Empty, string.Empty, string.Empty, string.Empty));
+                continue;
+            }
+
+            var totalVar = totalActual - totalBudget;
+            decimal? totalPct = totalBudget == 0m ? null : totalVar / totalBudget * 100m;
+            PayrollRows.Add(WideRow(true, "    Total", string.Empty,
+                IndianFormat.AmountAlways(totalBudget),
+                IndianFormat.AmountAlways(totalActual),
+                SignedVariance(totalVar),
+                SignedVariancePercent(totalPct)));
+        }
+
+        MarkStatutoryFormEmpty(!any,
+            "No budgets defined. Create one under Masters → Create → Budget, then return to this report.");
+    }
+
+    /// <summary>A signed variance figure ("+6,000.00" / "−1,000.00") so over/under reads at a glance. Carried
+    /// over from <c>BudgetVarianceViewModel.SignedAmount</c> — a bare negative on a variance column does not
+    /// say which side of the budget the target landed on.</summary>
+    private static string SignedVariance(decimal value)
+    {
+        var magnitude = IndianFormat.AmountAlways(Math.Abs(value));
+        return value > 0m ? $"+{magnitude}" : value < 0m ? $"−{magnitude}" : magnitude;
+    }
+
+    /// <summary>The signed variance percentage, or an em dash when the budget is zero (percentage undefined —
+    /// printing "0.0%" there would assert the target hit its budget exactly).</summary>
+    private static string SignedVariancePercent(decimal? pct)
+    {
+        if (pct is not { } p) return "—";
+        var magnitude = Math.Abs(p).ToString("0.0", CultureInfo.InvariantCulture);
+        return p > 0m ? $"+{magnitude}%" : p < 0m ? $"−{magnitude}%" : $"{magnitude}%";
+    }
+
+    // --------------------------------------------------------------- 7.13 Gratuity Provision register
+
+    /// <summary>
+    /// Census 7.13 — the <b>Gratuity Provision</b> register as at the report date (Payment of Gratuity Act 1972).
+    /// Per employee: join date, completed years (with the ≥6-month round-up), vested flag, the Basic + DA wage
+    /// base and the accrued provision; then the total liability, the prior POSTED provision balance and the
+    /// delta still to post.
+    ///
+    /// <para>The as-on date is the report's own as-of (F2 / Alt+F2), replacing the page's bespoke financial-year
+    /// + month-end dropdowns. That is not a reduction: the old pair could only express the twelve month-ends of
+    /// three financial years, and F2 expresses any date including all of those.</para>
+    ///
+    /// <para>The prior balance and the delta ride in the second band, not as extra columns, because they are
+    /// facts about the COMPANY as at the date, not about any employee — putting them in the employee grid would
+    /// print a company-level figure under a per-member heading.</para>
+    /// </summary>
+    private void BuildGratuityProvisionRegister()
+    {
+        var asOn = _asOf;
+        Title = "Gratuity Provision Register";
+        IsTwoColumn = false;
+
+        var cap = _company.GratuityConfig is { } cfg ? cfg.CapAmount.Amount : GratuityConfig.DefaultCapAmount;
+        Subtitle = $"{CompanyName}  —  Provision as-on {FormatDate(asOn)}  ·  Cap ₹{IndianFormat.RupeesAlways(cap)}";
+
+        WideCol("Employee", WideNameWidth, false);
+        WideCol("Emp. No.", WideRefWidth, false);
+        WideCol("Date of Joining", WideDateWidth, false);
+        WideCol("Completed Years", WideDaysWidth, true);
+        WideCol("Vested", WideDaysWidth, false);
+        WideCol("Basic + DA", WideMoneyWidth, true);
+        WideCol("Accrued Gratuity", WideMoneyWidth, true);
+
+        // 🔴 BOTH HALVES OF THE ER-13 GATE, NOT ONE. This builder checked the enrolment only, so on a company
+        // whose Payroll Statutory master switch had been turned off it still rendered every employee's wage
+        // base and accrued liability — OnPayrollStatutoryEnabledChanged clears the flag and LEAVES
+        // GratuityConfig in place, so that state is one F11 tick away on any company that ever enrolled. The
+        // shell gates the doors (ReportKindIsPermitted); this is the projection refusing on its own account,
+        // because a report builder that only degrades when its OPENER remembers to ask is a gate with a
+        // sell-by date.
+        if (_company is not { PayrollStatutoryEnabled: true })
+        {
+            MarkStatutoryFormEmpty(true,
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory).");
+            return;
+        }
+        if (_company.GratuityConfig is null)
+        {
+            MarkStatutoryFormEmpty(true,
+                "Gratuity is not enabled for this company (F11 → Payroll Statutory → Gratuity).");
+            return;
+        }
+
+        var employeeIds = _company.Employees.Select(e => e.Id).ToList();
+        var register = GratuityProvisionRegister.Build(_company, employeeIds, asOn);
+
+        foreach (var r in register.Rows)
+            PayrollRows.Add(WideRow(false,
+                r.EmployeeName,
+                Or(r.EmployeeNumber),
+                r.DateOfJoining is { } d ? FormatDate(d) : "—",
+                r.CompletedYears.ToString(CultureInfo.InvariantCulture),
+                r.Vested ? "Yes" : "No",
+                IndianFormat.RupeesAlways(r.BasicPlusDa),
+                IndianFormat.RupeesAlways(r.AccruedGratuity)));
+
+        PayrollRows.Add(WideRow(true, "Total Liability",
+            string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+            IndianFormat.RupeesAlways(register.TotalLiability)));
+
+        // Prior provision INCLUSIVE of a voucher already dated on-or-before the as-on date
+        // (PriorGratuityProvisionBalance is strictly-before, so pass as-on + 1 day). This is what makes the
+        // displayed delta fall to ₹0 once this period-end's provision has been posted, so the register never
+        // invites a duplicate post — the same argument the page it replaces made, and dropping the +1 day here
+        // would silently re-open that hole.
+        var prior = (long)Math.Round(
+            new PayrollVoucherService(_company).PriorGratuityProvisionBalance(asOn.AddDays(1)).Amount,
+            0, MidpointRounding.AwayFromZero);
+        var delta = register.TotalLiability - prior;
+
+        PayrollSection2Title = "Provision Movement";
+        WideCol2("Particulars", WideNameWidth, false);
+        WideCol2("Amount", WideMoneyWidth, true);
+        AddGratuityMovementRow("Accrued liability as-on this date", register.TotalLiability);
+        AddGratuityMovementRow("Less: provision already posted", prior);
+        AddGratuityMovementRow("Delta still to post", delta);
+        HasPayrollSection2 = true;
+
+        MarkStatutoryFormEmpty(register.Rows.Count == 0,
+            "No active employees to provision as-on this date.");
+    }
+
+    private void AddGratuityMovementRow(string label, long amount)
+    {
+        var magnitude = IndianFormat.RupeesAlways(Math.Abs(amount));
+        PayrollRows2.Add(new PayrollMatrixRowVm
+        {
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                WideCell2(0, label),
+                WideCell2(1, amount < 0 ? "−" + magnitude : magnitude),
+            },
+        });
+    }
+
+    // --------------------------------------------------------------- 7.14 Statutory Bonus register
+
+    /// <summary>
+    /// Census 7.14 — the <b>Statutory Bonus</b> register for the accounting year containing the report date
+    /// (Payment of Bonus Act 1965). Per employee: eligibility (≥ 30 days worked), the actual monthly Basic + DA,
+    /// the §12-capped base, the applied 8.33%–20% rate and the annual bonus. A member drawing Basic + DA above
+    /// ₹21,000 is excluded from the register entirely, per the Act — that is the engine's rule, not a filter
+    /// applied here.
+    ///
+    /// <para>🔴 <b>A14 STILL OWES THIS ROW ONE COMPARISON AND THIS RE-HOME DOES NOT DISCHARGE IT.</b> The
+    /// vendor's own payroll FAQ (help.tallysolutions.com/tally-prime/payroll/payroll-faq/) describes bonus as an
+    /// accumulate-monthly-pay-at-year-end construction rather than as a first-class register, so WHAT OUR
+    /// REGISTER IS may itself be partly ours. Row 7.14 must not be graded COMPLETE on the strength of this
+    /// surface change.</para>
+    /// </summary>
+    private void BuildBonusRegister()
+    {
+        Title = "Statutory Bonus Register";
+        IsTwoColumn = false;
+
+        // The accounting year CONTAINING the report date, snapped to the company's own financial-year start
+        // month — not simply _asOf.Year, which would put a 15-Feb-2027 as-of into the wrong year for an
+        // April-start book (Feb 2027 belongs to the 2026-27 year, not 2027-28).
+        var asOf = _asOf;
+        var fyMonth = _company.FinancialYearStart.Month;
+        var startYear = asOf.Month >= fyMonth ? asOf.Year : asOf.Year - 1;
+        var fyStart = new DateOnly(startYear, fyMonth, 1);
+        var fyEnd = fyStart.AddYears(1).AddDays(-1);
+
+        var rate = _company.BonusConfig is { } cfg
+            ? (cfg.RateBasisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%"
+            : "—";
+        Subtitle = $"{CompanyName}  —  Accounting year {FormatDate(fyStart)} to {FormatDate(fyEnd)}  ·  Rate {rate}";
+
+        WideCol("Employee", WideNameWidth, false);
+        WideCol("Emp. No.", WideRefWidth, false);
+        WideCol("Eligible", WideDaysWidth, false);
+        WideCol("Actual Basic + DA", WideMoneyWidth, true);
+        WideCol("Capped Base", WideMoneyWidth, true);
+        WideCol("Rate", WideDaysWidth, true);
+        WideCol("Annual Bonus", WideMoneyWidth, true);
+
+        // Both halves of the ER-13 gate — see the identical block in BuildGratuityProvisionRegister for why the
+        // master switch is checked separately from the enrolment. Read-only here, so the saved-view door
+        // exposed data rather than writing; that is a smaller defect, not a different one.
+        if (_company is not { PayrollStatutoryEnabled: true })
+        {
+            MarkStatutoryFormEmpty(true,
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory).");
+            return;
+        }
+        if (_company.BonusConfig is null)
+        {
+            MarkStatutoryFormEmpty(true,
+                "Statutory Bonus is not enabled for this company (F11 → Payroll Statutory → Bonus).");
+            return;
+        }
+
+        var employeeIds = _company.Employees.Select(e => e.Id).ToList();
+        var register = BonusRegister.Build(_company, employeeIds, fyStart);
+
+        foreach (var r in register.Rows)
+            PayrollRows.Add(WideRow(false,
+                r.EmployeeName,
+                Or(r.EmployeeNumber),
+                r.Eligible ? "Yes" : "No",
+                IndianFormat.RupeesAlways(r.ActualBasicDa),
+                IndianFormat.RupeesAlways(r.CappedBase),
+                r.RatePercent.ToString("0.##", CultureInfo.InvariantCulture) + "%",
+                IndianFormat.RupeesAlways(r.AnnualBonus)));
+
+        PayrollRows.Add(WideRow(true, "Total Bonus",
+            string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+            IndianFormat.RupeesAlways(register.TotalBonus)));
+
+        MarkStatutoryFormEmpty(register.Rows.Count == 0,
+            "No bonus-eligible employees this year (within the ₹21,000 wage ceiling).");
     }
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
