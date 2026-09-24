@@ -3623,7 +3623,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>It is deliberately NOT folded into <see cref="IsDayBookReport"/> itself: that property must stay
     /// true under a column, because the column is appended BESIDE the live book and Esc pops back to it.</para>
     ///
-    /// <para><b>The name changed with the meaning.</b> It was <c>IsDayBookRowHidden</c> while it named two
+    /// <para><b>The name changed with the meaning.</b> It was <c>IsDayBookPickerOpen</c> while it named two
     /// pickers; a reader checking whether a new MENU column needed adding could reasonably read that name and
     /// conclude it did not apply, which is one of the two reasons this recurred.</para>
     /// </summary>
