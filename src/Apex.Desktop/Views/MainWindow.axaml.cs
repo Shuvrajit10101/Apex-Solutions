@@ -1804,8 +1804,16 @@ public partial class MainWindow : Window
             // The SAME guard is load-bearing here, and not decoration: without it the arm above merely hands the
             // stolen Enter to this one — the prompt stops appearing but the key is still consumed and the
             // dropdown still never sees it. Both arms must yield for Enter to actually reach the picker.
+            // 🔴 `viaAcceptChord: false` — THE ONE CALL SITE IN THE APP THAT OPTS OUT, AND IT IS LOAD-BEARING.
+            // This arm is reached by a BARE Enter, after the `DrillSelectedRow` arm at :415 has already declined
+            // the key. On a matrix report DrillSelectedRow ALWAYS declines (Rows is empty), so without this flag
+            // an Enter aimed at a drill reaches ActivateSelected's `case Screen.Report when …` arms — one of
+            // which POSTS A JOURNAL VOUCHER. Measured before the flag existed: one Enter on the re-homed
+            // Gratuity Provision register took the voucher count 0 -> 1, with no confirmation, on the key that
+            // means "drill" on every other report in the product. Ctrl+A (:537) and the WI-11 "Y" confirmation
+            // both keep the default `true`, so the ~40 accept screens are untouched.
             case Key.Enter when !IsPickerOpen(e):
-                vm.ActivateSelected();
+                vm.ActivateSelected(viaAcceptChord: false);
                 e.Handled = true;
                 break;
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a

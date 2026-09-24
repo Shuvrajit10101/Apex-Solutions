@@ -4299,9 +4299,67 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (view is null || Company is null) return;
         if (ReportsViewModel.KindFor(view.ReportKind) is not { } kind) return; // token this build cannot map
 
+        // 🔴🔴 A SAVED VIEW IS A SECOND DOOR TO EVERY REPORT KIND, AND UNTIL THIS GUARD IT WALKED PAST EVERY
+        // COMPANY-FEATURE GATE IN THE PRODUCT. A saved view stores a kind TOKEN, and this method opened that
+        // kind directly — so Alt+K on a company whose Payroll Statutory had been switched off still rendered
+        // every employee's wage base and accrued gratuity liability, and the register's own Ctrl+A still posted
+        // a real Journal voucher into the books. MEASURED on the realised window, twice: "opened=True, rows=2,
+        // vouchers 0 -> 1" through this door, while OpenGratuityProvisionReport refused correctly in the same
+        // fixture seconds earlier. A gate a second door walks around is not a gate — the button bar's own
+        // comment for the Cost Centres quick-button says exactly that, and this is the same defect one surface
+        // over.
+        //
+        // The hole is NOT this wave's invention and the fix is deliberately NOT scoped to this wave's eight
+        // kinds: OpenPayrollStatutoryForm has been gated on PayrollStatutoryEnabled since W7-D2 while this
+        // method has been ungated beside it, so the PF and ESI forms were reachable the same way on main. One
+        // predicate closes both. See ReportKindIsPermitted for what each kind requires.
+        if (!ReportKindIsPermitted(kind))
+        {
+            Message = "That saved view is for a report this company has switched off. "
+                    + "Enable it under F11 (Features) to open it again.";
+            return;
+        }
+
         OpenReport(kind);
         Reports?.ApplySavedView(view);
     }
+
+    /// <summary>
+    /// The ER-13 company-feature gate for a report KIND, factored out of the openers so every door into a
+    /// report asks the same question. Returns true when the company may see this kind at all.
+    ///
+    /// <para>🔴 <b>THIS EXISTS BECAUSE THE GATES WERE ON THE OPENERS AND NOT ON THE KINDS.</b> Each opener below
+    /// carries its own inline guard and always has; what had no guard was <see cref="ApplySavedView"/>, which
+    /// takes a persisted kind token and opens it. A gate that only one of two doors asks about is cosmetic, and
+    /// on the Gratuity register the ungated door could also WRITE. Kept as one predicate rather than duplicated
+    /// into the second door so the two can never drift: if an opener's gate changes, change it here.</para>
+    ///
+    /// <para>Everything not named here returns true. That is deliberate and it is the honest default — this
+    /// predicate must never become a second, quietly diverging copy of the product's feature map. A kind belongs
+    /// on this list only when an opener already refuses it.</para>
+    /// </summary>
+    private bool ReportKindIsPermitted(ReportKind kind) => kind switch
+    {
+        // Census 7.13 / 7.14 — the two-part ER-13 gate: the statute master switch AND the establishment's own
+        // enrolment. Matches OpenGratuityProvisionReport / OpenBonusRegisterReport exactly.
+        ReportKind.GratuityProvisionRegister => Company is { PayrollStatutoryEnabled: true, GratuityConfig: not null },
+        ReportKind.BonusRegister => Company is { PayrollStatutoryEnabled: true, BonusConfig: not null },
+
+        // Census 7.20 / 7.21 and the payroll statutory summary / income-tax computation — matches
+        // OpenPayrollStatutoryForm. PRE-EXISTING on main; closed here because it is the identical hole.
+        ReportKind.PfForm3A or ReportKind.PfForm5 or ReportKind.PfForm6A or ReportKind.PfForm10
+            or ReportKind.PfForm12A or ReportKind.EsiForm3 or ReportKind.EsiForm5 or ReportKind.EsiForm6
+            or ReportKind.PayrollStatutorySummary or ReportKind.IncomeTaxComputation
+            => Company is { PayrollStatutoryEnabled: true },
+
+        // Census 11.10 — F11 → Accounting → Enable Cost Centres (census row 1.7). The menu column and the "C"
+        // quick-button both close with the flag; the saved view was the third door and did not.
+        // `!= false` rather than `== true`: the flag's own shipped convention is that an unset company is on.
+        ReportKind.CostCategorySummary or ReportKind.CostCentreBreakup or ReportKind.CostCentreLedgerBreakup
+            => Company?.EnableCostCentres != false,
+
+        _ => true,
+    };
 
     // =============================================================== screen: Print Preview (RQ-9 / DP-8)
 
@@ -7169,6 +7227,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void PostGratuityProvisionFromReport()
     {
         if (Company is null || Reports is not { Kind: ReportKind.GratuityProvisionRegister } reports) return;
+
+        // 🔴 THE WRITE GUARD MUST MATCH ITS OWN OPENER'S GUARD, AND FOR ONE WAVE IT DID NOT.
+        // OpenGratuityProvisionReport refuses unless BOTH halves of the ER-13 gate hold
+        // (PayrollStatutoryEnabled AND GratuityConfig); this method checked only the second half. That is not a
+        // theoretical mismatch: ApplySavedView opens a report kind directly, so a saved view restored the
+        // register on a company whose Payroll Statutory had since been switched OFF, and this method then posted
+        // a real Journal voucher into its books — measured, vouchers 0 -> 1. OnPayrollStatutoryEnabledChanged
+        // clears the flag and LEAVES GratuityConfig in place, so that state is one F11 tick away on any company
+        // that ever enrolled. The saved-view door is now gated as well (see ReportKindIsPermitted), and this
+        // guard is the second lock: a write path is the wrong place to rely on the reachability of its opener.
+        if (Company is not { PayrollStatutoryEnabled: true })
+        {
+            reports.ReportActionStatus =
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory) — nothing was posted.";
+            return;
+        }
         if (Company.GratuityConfig is null)
         {
             reports.ReportActionStatus = "Gratuity is not enabled for this company.";
@@ -7213,13 +7287,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <b>Alt+A on the re-homed Outstandings report</b> (census 11.9) — opens the bill-settlement helper for the
     /// side being viewed.
     ///
-    /// <para>🔴 <b>THIS IS WHAT KEEPS THE SETTLE WORKFLOW REACHABLE AFTER THE RE-HOME, AND IT IS ALSO THE
-    /// HONEST SHAPE.</b> Re-homing moved Bills Receivable / Bills Payable onto the report surface so they gain
-    /// print, export and the report parameters. The spacebar multi-select and the Alt+A settlement preload are
-    /// NOT part of that report in the reference product — the vendor's Bills Outstanding carries no settlement
-    /// action at all — so they are ours, and they stay on their own page rather than being smuggled onto a
-    /// report surface that has no row-selection model. Alt+A is the door to that page, on the same keystroke it
-    /// already had, which is why routing the menu rows to the reports does not strand it.</para>
+    /// <para>🔴 <b>THIS IS WHAT KEEPS THE SETTLE WORKFLOW REACHABLE AFTER THE RE-HOME.</b> Re-homing moved
+    /// Bills Receivable / Bills Payable onto the report surface so they gain print, export and the report
+    /// parameters. Alt+A is the door to the settlement page, on the same keystroke it already had, which is why
+    /// routing the menu rows to the reports does not strand it.</para>
+    ///
+    /// <para>🔴🔴 <b>SETTLEMENT SHIPS IN THE REFERENCE PRODUCT. WHAT DIVERGES IS THE CHORD AND THE SURFACE, NOT
+    /// THE CAPABILITY — AND AN EARLIER DRAFT OF THIS VERY COMMENT SAID OTHERWISE, WHICH IS WHY THE CORRECTION IS
+    /// WRITTEN OUT IN FULL RATHER THAN QUIETLY APPLIED.</b> ~~"the vendor's Bills Outstanding carries no
+    /// settlement action at all"~~ is FALSE. Verified by content on the page this feature already cites,
+    /// help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/, which lists among that
+    /// report's own buttons, verbatim: <i>"Alt+B (Settle Bills): to settle the bills in your account once your
+    /// party has made the due payment."</i> <c>docs/full-clone-census.md</c> row 11.9 had already caught and
+    /// corrected this exact sentence once ("It is a chord divergence, not a missing capability"), so the claim
+    /// was a REGRESSION of a recorded correction, not a fresh mistake.</para>
+    ///
+    /// <para>The two divergences that are real, stated as divergences: (1) <b>the chord</b> — the vendor settles
+    /// on <c>Alt+B</c> and we settle on <c>Alt+A</c>, because Alt+B is not free on our report surface; that
+    /// belongs to the single chord-map ruling <b>U-6</b> and must not be resolved one report at a time.
+    /// (2) <b>the surface</b> — the vendor settles ON the outstandings report, and ours opens a separate
+    /// settlement page, because the matrix surface these eight kinds render through has no row-selection model
+    /// to hang a spacebar multi-select on. Both are ours to close; neither is a missing vendor feature.</para>
     /// </summary>
     public void OpenSettlementPageFromOutstandingsReport()
     {
@@ -11009,8 +11097,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Enter / Right / Ctrl+A: on a form page runs its accept action; on a menu column drills into the
     /// highlighted item — a Group opens its submenu column, a Page opens its page column, an Action runs.
+    ///
+    /// <para>🔴 <b><paramref name="viaAcceptChord"/> EXISTS BECAUSE ENTER AND CTRL+A ARRIVE HERE AS THE SAME
+    /// CALL, AND ON THE REPORT SURFACE THEY DO NOT MEAN THE SAME THING.</b> Enter on a report means DRILL — on
+    /// ~90 report kinds that is all it means. The window's Enter arm tries <c>DrillSelectedRow</c> first and
+    /// falls through to this method when it returns false, which it always does on a matrix report because
+    /// <c>Rows</c> is empty. So any <c>case Screen.Report when …</c> arm below that WRITES is reachable by a
+    /// bare Enter aimed at a drill. Measured on the realised window before this parameter existed: one Enter on
+    /// the re-homed Gratuity Provision register took the voucher count 0 -> 1 with no confirmation. The
+    /// re-home created that by moving a destructive-on-Enter action onto the drill surface; the fix is that a
+    /// report action which POSTS belongs to the accept chord alone. Enter says so and does nothing.</para>
     /// </summary>
-    public void ActivateSelected()
+    /// <param name="viaAcceptChord">
+    /// True for the accept chord and everything that is deliberately identical to it — Ctrl+A,
+    /// <see cref="AcceptCurrent"/>, and the "Y" answer to the WI-11 <i>Accept? (Y/N)</i> confirmation. FALSE
+    /// only for a bare Enter, which is a navigation key here. Defaulted to true so every existing caller keeps
+    /// its meaning and only the one Enter call site has to opt out.
+    /// </param>
+    public void ActivateSelected(bool viaAcceptChord = true)
     {
         // 🔴 Phase 10.11 S4 — CTRL+A IS INERT OVER AN ARMED LIFECYCLE QUESTION, AND SAYS SO.
         // The Ctrl+A arm sits ABOVE the WI-11 confirmation arm in the window's tunnel chain, deliberately, so the
@@ -11318,8 +11422,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // provision voucher, the action that came across with it from Screen.GratuityProvisionRegister.
             // `when`-guarded for the same reason the arm above is: a bare `case Screen.Report:` would swallow
             // Ctrl+A on all ninety report kinds and silence the fall-through every other one relies on.
+            //
+            // 🔴 AND IT IS GUARDED ON THE GESTURE, WHICH IS THE WHOLE POINT OF `viaAcceptChord`. Enter reaches
+            // this method too (MainWindow.axaml.cs's `case Key.Enter when !IsPickerOpen(e)` arm, after
+            // DrillSelectedRow returns false — as it always does on a matrix report, whose Rows are empty). On
+            // the other ~90 report kinds Enter means DRILL and nothing else, so a bare Enter posting a
+            // period-end provision is an operator pressing the drill key and silently booking a voucher.
+            // Measured on the realised window before this guard: vouchers 0 -> 1, "Posted gratuity provision
+            // as-on 30-Apr-2026: Dr 1,50,000.00 = Cr 1,50,000.00". Enter now says which key posts and posts
+            // nothing. Ctrl+A is unchanged and still posts outright, exactly as it did on the page Screen this
+            // register was re-homed from — no gesture LOST a capability here, one gesture stopped having a
+            // capability it was never meant to have.
             case Screen.Report when Reports?.Kind == ReportKind.GratuityProvisionRegister:
-                PostGratuityProvisionFromReport();
+                if (viaAcceptChord) PostGratuityProvisionFromReport();
+                else Reports.ReportActionStatus =
+                    "Press Ctrl+A to post the gratuity provision. Enter does not post it.";
                 return;
         }
 

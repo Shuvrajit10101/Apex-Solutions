@@ -281,12 +281,26 @@ public enum ReportKind
     // wrong with their arithmetic.
     //
     // 🔴 THEY RENDER THROUGH THE SHARED DYNAMIC MATRIX (IsWideMatrixReport → IsPayrollMatrix), NOT THROUGH A NEW
-    // BESPOKE GRID, AND THE REASON IS THE EXPORT AND THE PRINT. The per-kind caption maps this codebase used to
-    // re-home into cover 16 of 90 kinds for export and ZERO non-accounting kinds for print, so a report re-homed
-    // into a bespoke grid GAINS a blank export header and a blank printed header band — worse than the dedicated
-    // Screen it replaced. The matrix's column band is a live list both ReportTabularProjector.ProjectPayrollMatrix
+    // BESPOKE GRID, AND THE REASON IS THE EXPORT AND THE PRINT. A report re-homed onto a bespoke grid GAINS a
+    // blank export header row and a blank printed header band — worse than the dedicated Screen it replaced.
+    //
+    // THE TWO CAPTION HELPERS, NAMED SO A READER CAN CHECK THIS, AND THE FIGURES RE-COUNTED AT HEAD:
+    //   • EXPORT — ReportTabularProjector.HeadersFor(ReportKind) (src/Apex.Desktop/Services/, the switch under
+    //     BuildColumns). It maps 16 kinds; ReportKind has 93 members; every unmapped kind falls to
+    //     `Array.Empty<string>()`, i.e. blank captions. 16 of 93.
+    //   • PRINT — ReportPrintProjector.BuildColumns(ReportsViewModel). It has NO per-kind caption table at all:
+    //     an accounting report gets Particulars/Debit/Credit or Particulars/Amount, and every OTHER kind gets a
+    //     hardcoded "Particulars" followed by `new PrintColumn(string.Empty, …)` for each remaining cell. Zero
+    //     non-accounting kinds carry real printed captions.
+    //
+    // ⚠️ AN EARLIER DRAFT OF THIS BLOCK POINTED AT A SYMBOL CALLED `ReportColumnCaptions` "for the same argument
+    // stated once". THAT SYMBOL DOES NOT EXIST ANYWHERE IN src/ — the reference was unresolvable, which on a
+    // branch whose measured failure mode is unverifiable claims is the same defect one layer in. It is replaced
+    // above by the two helpers that are really there.
+    //
+    // The matrix's column band, by contrast, is a live list that both ReportTabularProjector.ProjectPayrollMatrix
     // and ReportPrintProjector.ProjectPayrollMatrix read directly, so screen, export and print take their captions
-    // from ONE source and cannot drift apart. See ReportColumnCaptions for the same argument stated once.
+    // from ONE source and cannot drift apart.
 
     /// <summary>Census 11.9 — <b>Bills Receivable</b>: the open bills of every bill-by-bill debtor, with each
     /// bill's due date, pending amount, overdue days and ageing bucket.
@@ -316,10 +330,14 @@ public enum ReportKind
     /// <summary>Census 11.11 — <b>Budget Variance</b>: per budget line, Budget / Actual / Variance and the
     /// variance percentage, over the posted vouchers in the budget's own period.
     /// 🔴 <b>A KNOWN DIVERGENCE, LABELLED RATHER THAN HIDDEN.</b> The vendor has no dedicated Budget Variance
-    /// screen at all: its budget comparison is <b>F10 (Budget Variance)</b> taken ON Trial Balance, Group
-    /// Summary or a Monthly Summary, which adds a budget column beside the actuals — verified by content at
-    /// help.tallysolutions.com/budgets-tally/, which states in as many words that you "Press F10 (Budget
-    /// Variance) &gt; select the budget from the List of Budgets". Re-homing our page onto ReportKind gives it
+    /// screen at all: its budget comparison is <b>F10 (Budget Variance)</b> taken ON an existing report, which
+    /// adds a budget column beside the actuals. Verified by content at help.tallysolutions.com/budgets-tally/,
+    /// quoted rather than paraphrased because the paraphrase is where this comment previously drifted — the page
+    /// says <i>"You can view the Budget Variance report from Trial Balance, Group Summary, and Monthly
+    /// Summary"</i> and, for the chord itself, <i>"Press F10 (Budget Variance) &gt; select the budget from the
+    /// List of Budgets"</i>. (The chord is stated on the Trial Balance and Group Summary routes; the page names
+    /// Monthly Summary as a third surface without repeating the keystroke there, so do not assert F10-on-Monthly
+    /// Summary as sourced.) Re-homing our page onto ReportKind gives it
     /// print, export and the report parameters it never had, but it does NOT make the surface itself
     /// vendor-shaped, and this row must not be graded as though it did.
     /// <para>🔴 The wave-28 gap analysis named this chord <b>Alt+B</b>. That is the Tally.ERP 9 button; the
@@ -1160,6 +1178,26 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Summary reports). On any other report kind the Alt+F12 view is inert (rows pass through unchanged).</summary>
     public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
+
+    /// <summary>
+    /// True when the F12 panel's three RQ-6 <b>display</b> knobs — hide-zero-balances, show-percentages and the
+    /// closing-stock basis — can actually change this report.
+    ///
+    /// <para>🔴 <b>A DEAD KNOB IS NOT A COSMETIC PROBLEM: IT IS THE PANEL LYING ABOUT WHAT IT DID.</b> All three
+    /// options are consumed in exactly one place — the row-bearing builders, through
+    /// <c>ReportConfig.HideZeroBalances</c> / <c>ReportConfig.Percentages</c> and the closing-stock basis passed
+    /// into the Balance-Sheet and P&amp;L builds. The matrix surface has no <c>Rows</c> at all; it renders
+    /// <see cref="PayrollRows"/>, which no builder filters or percentages. So on every matrix kind an operator
+    /// could tick "Hide zero balances", press Apply, be told the view updated, and watch nothing change. This
+    /// wave extended that surface by eight reports, which is why it is closed here rather than deferred.</para>
+    ///
+    /// <para>The predicate is the matrix flag and NOT a hand-written kind list, deliberately: a list would have
+    /// to be re-derived every time a kind joins the matrix, and it would be wrong the first time someone forgot.
+    /// The inertness is PROVEN behaviourally rather than asserted — see
+    /// <c>The_three_F12_display_knobs_cannot_change_a_rehomed_report</c>, which applies all three to a populated
+    /// report and asserts the projection is unchanged cell for cell.</para>
+    /// </summary>
+    public bool SupportsDisplayOptions => !IsPayrollMatrix && !IsPayrollReport;
 
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
@@ -6459,6 +6497,29 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private const double WideDaysWidth = 92;
 
     /// <summary>
+    /// The F11 → Accounting → <b>Enable Cost Centres</b> gate (census row 1.7), asked by all three cost
+    /// reports. Marks the report degraded-and-empty and returns true when the company has the feature off.
+    ///
+    /// <para>🔴 <b>CALL IT AFTER THE COLUMNS ARE DECLARED, NEVER BEFORE.</b> The column band is what both egress
+    /// projectors read their captions from, so returning early with no columns would export a header row of
+    /// bare commas and print an empty header band — the exact blank-caption defect the re-home exists to avoid.
+    /// A degraded report keeps its shape and loses its rows.</para>
+    ///
+    /// <para>Why the projection refuses on its own account when the menu row and the quick-button are already
+    /// gated: because a saved view was a THIRD door and asked neither of them, which is how a company with cost
+    /// centres switched off still rendered its cost allocations. The shell now gates that door too
+    /// (<c>MainWindowViewModel.ReportKindIsPermitted</c>); this is the lock on the projection itself, so the
+    /// fourth door — whatever it turns out to be — does not reopen the hole.</para>
+    /// </summary>
+    private bool CostCentresOff()
+    {
+        if (_company.EnableCostCentres) return false;
+        MarkStatutoryFormEmpty(true,
+            "Cost Centres are not enabled for this company (F11 → Accounting → Enable Cost Centres).");
+        return true;
+    }
+
+    /// <summary>
     /// Adds a column to the matrix's first band, sized through <see cref="PayColWidthFor"/> so the column can
     /// never be narrower than its OWN caption.
     ///
@@ -6618,6 +6679,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Cost Category", WideNameWidth, false);
         WideCol("Total", WideMoneyWidth, true);
 
+        if (CostCentresOff()) return;
+
         foreach (var cat in report.Categories)
             PayrollRows.Add(WideRow(false, cat.CategoryName, IndianFormat.Amount(cat.Total)));
 
@@ -6644,6 +6707,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Cost Category", WideRefWidth, false);
         WideCol("Own", WideMoneyWidth, true);
         WideCol("Rolled Up", WideMoneyWidth, true);
+
+        if (CostCentresOff()) return;
 
         foreach (var line in report.Centres)
         {
@@ -6687,6 +6752,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Cost Centre", WideNameWidth, false);
         WideCol("Ledger", WideNameWidth, false);
         WideCol("Amount", WideMoneyWidth, true);
+
+        if (CostCentresOff()) return;
 
         // The engine returns rows already ordered by centre (company order) then ledger, so the centre name is
         // printed once per run and blanked on its continuation rows — the same reading the vendor's own
@@ -6879,6 +6946,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Basic + DA", WideMoneyWidth, true);
         WideCol("Accrued Gratuity", WideMoneyWidth, true);
 
+        // 🔴 BOTH HALVES OF THE ER-13 GATE, NOT ONE. This builder checked the enrolment only, so on a company
+        // whose Payroll Statutory master switch had been turned off it still rendered every employee's wage
+        // base and accrued liability — OnPayrollStatutoryEnabledChanged clears the flag and LEAVES
+        // GratuityConfig in place, so that state is one F11 tick away on any company that ever enrolled. The
+        // shell gates the doors (ReportKindIsPermitted); this is the projection refusing on its own account,
+        // because a report builder that only degrades when its OPENER remembers to ask is a gate with a
+        // sell-by date.
+        if (_company is not { PayrollStatutoryEnabled: true })
+        {
+            MarkStatutoryFormEmpty(true,
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory).");
+            return;
+        }
         if (_company.GratuityConfig is null)
         {
             MarkStatutoryFormEmpty(true,
@@ -6980,6 +7060,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Rate", WideDaysWidth, true);
         WideCol("Annual Bonus", WideMoneyWidth, true);
 
+        // Both halves of the ER-13 gate — see the identical block in BuildGratuityProvisionRegister for why the
+        // master switch is checked separately from the enrolment. Read-only here, so the saved-view door
+        // exposed data rather than writing; that is a smaller defect, not a different one.
+        if (_company is not { PayrollStatutoryEnabled: true })
+        {
+            MarkStatutoryFormEmpty(true,
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory).");
+            return;
+        }
         if (_company.BonusConfig is null)
         {
             MarkStatutoryFormEmpty(true,

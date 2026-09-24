@@ -55,6 +55,11 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
     /// <summary>True when the configured report supports the detailed↔summary toggle (TB / BS / P&amp;L / Stock Summary).</summary>
     public bool SupportsDetailToggle => _report.SupportsDetailToggle;
 
+    /// <summary>True when this report can actually be changed by the three RQ-6 display knobs below. The
+    /// panel hides them otherwise: see <see cref="ReportsViewModel.SupportsDisplayOptions"/> for why an inert
+    /// knob that answers "Applied — view updated" is a defect and not a tidiness point.</summary>
+    public bool SupportsDisplayOptions => _report.SupportsDisplayOptions;
+
     // ---- RQ-6: F12 display config ----
 
     /// <summary>Hide rows whose balance is exactly zero.</summary>

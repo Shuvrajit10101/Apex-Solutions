@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Avalonia;
@@ -622,49 +623,365 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     // ================================================================= the realised visual tree
 
     /// <summary>
-    /// 🔴 <b>THE CAPTIONS REACH THE SCREEN, MEASURED ON THE REALISED VISUAL TREE.</b> Everything above this
-    /// point asserts view-model state, and view-model state is exactly what a report can have in full while
-    /// rendering nothing — the matrix pane is gated on <c>IsPayrollMatrix</c>, the accounting pane on
-    /// <c>IsAccountingReport</c>, and getting either wrong yields a correct view model behind a blank or
+    /// 🔴 <b>THE CAPTIONS REACH THE SCREEN, MEASURED ON THE REALISED VISUAL TREE, FOR ALL EIGHT KINDS.</b>
+    /// Everything above this point asserts view-model state, and view-model state is exactly what a report can
+    /// have in full while rendering nothing — the matrix pane is gated on <c>IsPayrollMatrix</c>, the accounting
+    /// pane on <c>IsAccountingReport</c>, and getting either wrong yields a correct view model behind a blank or
     /// double-drawn pane. This test opens the real window, drives the real route, and reads the header band that
-    /// actually laid out, with non-degenerate bounds.
+    /// actually laid out.
+    ///
+    /// <para>🔴 <b>IT WAS A ONE-KIND [Fact] AND A REVIEW FINDING SAID SO.</b> It rendered
+    /// <c>CostCentreLedgerBreakup</c> only and left the other seven proven at view-model and projector level.
+    /// The gating flag is uniform, so the risk was low — but "the actual rendered columns for every re-homed
+    /// kind" was the requirement, the harness was already parameterised, and a [Theory] costs nothing.</para>
+    ///
+    /// <para>🔴 <b>AND THE WIDTH IS CROSS-CHECKED AGAINST THE LAYOUT, WHICH THE VIEW-MODEL WIDTH TEST CANNOT
+    /// DO.</b> <c>No_rehomed_column_is_narrower_than_its_caption…</c> asserts
+    /// <c>Width &gt;= Header.Length * 6.5977 + 16</c>, which is the expression <c>PayColWidthFor</c> itself
+    /// computes — for every column <c>WideCol</c> built it cannot fail, and a review finding correctly called
+    /// that semi-vacuous (it is a real lock against a future call site that bypasses <c>WideCol</c>, and no
+    /// more). Here the assertion is against a DIFFERENT authority: the laid-out header TextBlock's own
+    /// <c>Bounds.Width</c>, which the template takes from <c>Width="{Binding Width}"</c>. A template that
+    /// dropped that binding — the change that would silently auto-size the band out of step with the body rows
+    /// and shift every column — reddens this and nothing else. The first body row is measured against the same
+    /// band, because header-and-body alignment is the defect an operator actually sees.</para>
     /// </summary>
-    [AvaloniaFact]
-    public void The_rehomed_report_header_band_lays_out_on_screen_with_its_captions()
+    [AvaloniaTheory]
+    [MemberData(nameof(RehomedKinds))]
+    public void The_rehomed_report_header_band_lays_out_on_screen_with_its_captions(ReportKind kind)
     {
-        var vm = FullFixture("Visual Tree");
+        var vm = FullFixture($"Visual Tree {kind}");
         var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
         window.Show();
         Pump(window);
 
-        vm.OpenReport(ReportKind.CostCentreLedgerBreakup);
+        vm.OpenReport(kind);
         Pump(window);
 
         var reports = vm.Reports!;
-        Assert.True(reports.IsPayrollMatrix);
+        Assert.True(reports.IsPayrollMatrix, $"{kind} does not render through the matrix pane.");
 
-        foreach (var caption in reports.PayrollColumns.Select(c => c.Header))
+        foreach (var column in reports.PayrollColumns)
         {
             var block = Descendants(window)
                 .OfType<TextBlock>()
-                .FirstOrDefault(t => t.IsEffectivelyVisible && t.Text == caption);
+                .FirstOrDefault(t => t.IsEffectivelyVisible && t.Text == column.Header);
 
             Assert.True(block is not null,
-                $"The column caption '{caption}' never reached the visual tree — the report's figures are on "
-                + "screen under headings nobody can read.");
+                $"{kind}: the column caption '{column.Header}' never reached the visual tree — the report's "
+                + "figures are on screen under headings nobody can read.");
             Assert.True(block!.Bounds.Width > 0 && block.Bounds.Height > 0,
-                $"The column caption '{caption}' laid out at a degenerate size.");
+                $"{kind}: the column caption '{column.Header}' laid out at a degenerate size.");
+
+            // The band laid out at the width the view model computed — not at whatever the text happened to
+            // need. This is the half the arithmetic test cannot prove, because it re-derives the arithmetic.
+            //
+            // The upper bound is Width + 1 because Avalonia rounds a laid-out size UP to a whole device pixel:
+            // MEASURED here, not assumed — "Overdue Days" computes 95.1724 and lays out at 96, "Actual Basic +
+            // DA" computes 128.1609 and lays out at 129. A one-pixel window is still far tighter than the
+            // failure it guards: a template that dropped Width="{Binding Width}" auto-sizes each caption to its
+            // own text (~70px for a 240px column), which lands nowhere near this range.
+            Assert.InRange(block.Bounds.Width, column.Width, column.Width + 1);
         }
 
         // The accounting Particulars/Dr/Cr band must NOT be drawn at the same time. "Particulars" is that grid's
-        // own first caption and none of the three cost reports uses it, so a visible one here means two tables
-        // are stacked — which is how this defect presented the last time it shipped.
+        // own first caption and no re-homed report uses it, so a visible one here means two tables are stacked —
+        // which is how this defect presented the last time it shipped.
         Assert.DoesNotContain(
             Descendants(window).OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
             t => t.Text == "Particulars");
+
+        window.Close();
+    }
+
+    // ================================================== the write paths (review findings 2 and 3, both HIGH)
+
+    /// <summary>
+    /// 🔴🔴 <b>A BARE ENTER ON THE RE-HOMED GRATUITY REGISTER MUST NOT POST A VOUCHER.</b>
+    ///
+    /// <para>An adversarial review MEASURED this on the realised window against a fully green gate: one Enter
+    /// took the voucher count 0 → 1 with no confirmation, status <i>"Posted gratuity provision as-on
+    /// 30-Apr-2026: Dr 1,50,000.00 = Cr 1,50,000.00"</i>. The re-home created it. Enter means DRILL on ~90
+    /// report kinds; the window tries <c>DrillSelectedRow</c> first and falls through to
+    /// <c>ActivateSelected</c> when it declines, which on a matrix report it ALWAYS does because <c>Rows</c> is
+    /// empty — so the <c>case Screen.Report when Kind == GratuityProvisionRegister</c> arm, which posts, was
+    /// sitting directly under the drill key.</para>
+    ///
+    /// <para>🔴 <b>THIS TEST PRESSES THE REAL KEY, AND THAT IS THE POINT.</b> The branch's existing
+    /// <c>Ctrl_A_…_posts_the_provision_once</c> calls <c>PostGratuityProvisionFromReport()</c> directly, so it
+    /// is green whatever the key arms do — it could not have caught this and did not. Both gestures are driven
+    /// here through <c>KeyPressQwerty</c> on a shown <see cref="MainWindow"/>: Enter must leave the books
+    /// untouched and say which key posts, and Ctrl+A on the very same window must still post, or the "fix"
+    /// would simply be the feature removed.</para>
+    ///
+    /// <para><b>Mutation-verified.</b> Restoring <c>vm.ActivateSelected()</c> (no argument) at the window's
+    /// <c>case Key.Enter when !IsPickerOpen(e)</c> arm reddens exactly this test with
+    /// <c>Assert.Empty() Failure: Collection was not empty</c> on the voucher list. Restored byte-identically.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Bare_Enter_on_the_rehomed_gratuity_register_does_not_post_but_Ctrl_A_still_does()
+    {
+        var vm = GratuityFixtureWithOneEmployee("Enter Guard", out var c, out var asOn);
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        vm.OpenGratuityProvisionReport();
+        Pump(window);
+        var reports = vm.Reports!;
+        reports.SetAsOf(asOn);
+        Pump(window);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);          // else the presses below prove nothing
+        Assert.Empty(c.Vouchers);
+
+        // ---- Enter: the drill key. It must not write.
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Pump(window);
+
+        Assert.Empty(c.Vouchers);
+        Assert.Equal(0m, new PayrollVoucherService(c).PriorGratuityProvisionBalance(asOn.AddDays(1)).Amount);
+        Assert.Contains("Ctrl+A", reports.ReportActionStatus);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);          // and it did not navigate away either
+
+        // ---- Ctrl+A on the SAME window: the accept chord still posts, through the real key.
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+        Pump(window);
+
+        Assert.Single(c.Vouchers);
+        Assert.Equal(150_000m, new PayrollVoucherService(c).PriorGratuityProvisionBalance(asOn.AddDays(1)).Amount);
+        Assert.Contains("Posted gratuity provision", vm.Reports!.ReportActionStatus);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// 🔴🔴 <b>A SAVED VIEW MUST NOT WALK AROUND THE ER-13 STATUTORY GATE.</b>
+    ///
+    /// <para>MEASURED by the review: with Payroll Statutory switched off, the gated opener refused correctly and
+    /// Alt+K → saved view opened the same register anyway — <i>"opened=True, rows=2, vouchers 0 → 1"</i>. This
+    /// wave opened that door by registering saved-view tokens for all eight re-homed kinds;
+    /// <c>ApplySavedView</c> resolves a token to a kind and calls <c>OpenReport</c> with no gate at all.
+    /// A gate one of two doors asks about is cosmetic — the branch's own quick-button comment says exactly
+    /// that.</para>
+    ///
+    /// <para>The refusal is asserted BOTH ways. A guard that simply never opens a saved view would satisfy the
+    /// negative half and destroy the feature, so the same saved view is applied again with the switch back on
+    /// and must open.</para>
+    ///
+    /// <para><b>Mutation-verified.</b> Removing the <c>ReportKindIsPermitted</c> block from
+    /// <c>MainWindowViewModel.ApplySavedView</c> reddens exactly this test —
+    /// <c>Assert.NotEqual() Failure: Values are equal (Report)</c>. Restored byte-identically.</para>
+    /// </summary>
+    [Fact]
+    public void A_saved_view_cannot_reopen_a_report_the_company_has_switched_off()
+    {
+        var vm = GratuityFixtureWithOneEmployee("Saved View Gate", out var c, out var asOn);
+
+        vm.OpenGratuityProvisionReport();
+        vm.Reports!.SetAsOf(asOn);
+        var savedView = vm.Reports!.ToSavedView();
+        Assert.NotEmpty(vm.Reports!.PayrollRows);               // the view was captured off a POPULATED report
+        vm.Back();
+
+        // F11 → Payroll Statutory off. GratuityConfig is deliberately left in place — that is what the product
+        // does (OnPayrollStatutoryEnabledChanged clears the flag only), and it is the state the bypass lived in.
+        SetPayrollStatutory(vm, false);
+        Assert.NotNull(c.GratuityConfig);
+
+        vm.OpenGratuityProvisionReport();                       // the gated door: refuses, as it always did
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+
+        vm.ApplySavedView(savedView);                           // the ungated door: must now refuse too
+
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Contains("switched off", vm.Message);
+        Assert.Empty(c.Vouchers);
+
+        // ---- And the gate is not a wall: switch the statute back on and the same saved view opens.
+        SetPayrollStatutory(vm, true);
+        vm.ApplySavedView(savedView);
+
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.GratuityProvisionRegister, vm.Reports!.Kind);
+    }
+
+    /// <summary>
+    /// 🔴 <b>AND THE WRITE ITSELF REFUSES, INDEPENDENTLY OF WHICH DOOR OPENED THE REPORT.</b> The saved-view
+    /// gate above closes the door this wave opened; this closes the write. They are separate locks on purpose —
+    /// <c>PostGratuityProvisionFromReport</c> guarded on <c>GratuityConfig</c> only while its own opener guarded
+    /// on <c>PayrollStatutoryEnabled</c> AND <c>GratuityConfig</c>, and a write path that relies on the
+    /// reachability of its opener is a guard with a sell-by date. The report is opened here through the ungated
+    /// <c>OpenReport</c> precisely so the door gate cannot be what makes this test pass.
+    ///
+    /// <para><b>Mutation-verified.</b> Deleting the <c>PayrollStatutoryEnabled</c> block from
+    /// <c>PostGratuityProvisionFromReport</c> reddens exactly this test (<c>Collection was not empty</c>).
+    /// Restored byte-identically.</para>
+    /// </summary>
+    [Fact]
+    public void The_gratuity_post_refuses_when_payroll_statutory_is_off_however_the_report_was_opened()
+    {
+        var vm = GratuityFixtureWithOneEmployee("Post Guard", out var c, out var asOn);
+
+        vm.OpenReport(ReportKind.GratuityProvisionRegister);    // the UNGATED opener, deliberately
+        vm.Reports!.SetAsOf(asOn);
+        c.PayrollStatutoryEnabled = false;                      // the F11 tick, applied to the aggregate
+
+        vm.PostGratuityProvisionFromReport();
+
+        Assert.Empty(c.Vouchers);
+        Assert.Equal(0m, new PayrollVoucherService(c).PriorGratuityProvisionBalance(asOn.AddDays(1)).Amount);
+        Assert.Contains("Payroll Statutory is not enabled", vm.Reports!.ReportActionStatus);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE PROJECTIONS DEGRADE ON THEIR OWN ACCOUNT, AND KEEP THEIR COLUMNS WHILE THEY DO IT.</b> The two
+    /// locks above are on the shell. This is the third, on the builder, so the fourth door — whatever it turns
+    /// out to be — cannot render a switched-off company's wage base or cost allocations.
+    ///
+    /// <para>The column band is asserted INTACT in the degraded state, and that is not decoration: both egress
+    /// projectors read their captions from that live band, so a builder that returned before declaring its
+    /// columns would export a header row of bare commas and print an empty header band — the exact defect this
+    /// whole re-home exists to avoid.</para>
+    /// </summary>
+    [Fact]
+    public void A_rehomed_report_degrades_to_a_named_message_when_its_company_feature_is_off()
+    {
+        // ---- 7.13 / 7.14: the payroll statutory master switch, with the enrolments left in place.
+        var payroll = PayrollFixture("Degrade Payroll", gratuity: true, bonus: true);
+        var pc = payroll.Company!;
+        pc.PayrollStatutoryEnabled = false;
+
+        var gratuity = new ReportsViewModel(pc, ReportKind.GratuityProvisionRegister);
+        Assert.Empty(gratuity.PayrollRows);
+        Assert.True(gratuity.IsPayrollEmpty);
+        Assert.Contains("Payroll Statutory", gratuity.PayrollEmptyNote);
+        Assert.Equal(7, gratuity.PayrollColumns.Count);         // captions intact ⇒ egress still has a header
+
+        var bonus = new ReportsViewModel(pc, ReportKind.BonusRegister);
+        Assert.Empty(bonus.PayrollRows);
+        Assert.Contains("Payroll Statutory", bonus.PayrollEmptyNote);
+        Assert.Equal(7, bonus.PayrollColumns.Count);
+
+        // ---- 11.10: F11 → Accounting → Enable Cost Centres, over a book that HAS allocations.
+        var cost = FullFixture("Degrade Cost");
+        var cc = cost.Company!;
+        var populated = new ReportsViewModel(cc, ReportKind.CostCentreBreakup);
+        WidenToAllTime(populated, cc);
+        Assert.NotEmpty(populated.PayrollRows);                 // the rows exist while the feature is on
+
+        cc.EnableCostCentres = false;
+        foreach (var kind in new[] { ReportKind.CostCategorySummary, ReportKind.CostCentreBreakup,
+                                     ReportKind.CostCentreLedgerBreakup })
+        {
+            var off = new ReportsViewModel(cc, kind);
+            WidenToAllTime(off, cc);
+            Assert.Empty(off.PayrollRows);
+            Assert.Contains("Cost Centres are not enabled", off.PayrollEmptyNote);
+            Assert.True(off.PayrollColumns.Count >= 2, $"{kind} lost its column band while degraded.");
+        }
+    }
+
+    // ============================================== the panels that claimed to act (review finding 5, MEDIUM)
+
+    /// <summary>
+    /// 🔴 <b>THE THREE F12 DISPLAY KNOBS CANNOT CHANGE A RE-HOMED REPORT, PROVEN BY APPLYING THEM.</b>
+    /// Hide-zero-balances, show-percentages and the closing-stock basis are read only by the row-bearing
+    /// builders; the matrix surface renders <c>PayrollRows</c>, which nothing filters or percentages. Until this
+    /// wave's fix the F12 panel rendered all three unconditionally on every kind, so an operator could tick
+    /// "Hide zero balances" on Bills Receivable, press Apply, be told the view updated, and see nothing change.
+    ///
+    /// <para>The proof is behavioural, not a flag assertion: all three options are applied to a populated report
+    /// and the projection must come back identical cell for cell. That is what justifies hiding the controls —
+    /// and if a future builder ever DOES honour one of them on a matrix kind, this test reddens and the
+    /// <see cref="ReportsViewModel.SupportsDisplayOptions"/> predicate has to be revisited, which is exactly the
+    /// notice that should fire.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RehomedKinds))]
+    public void The_three_F12_display_knobs_cannot_change_a_rehomed_report(ReportKind kind)
+    {
+        var vm = FullFixture($"Dead Knobs {kind}");
+        var reports = new ReportsViewModel(vm.Company!, kind);
+        WidenToAllTime(reports, vm.Company!);
+
+        Assert.False(reports.SupportsDisplayOptions,
+            $"{kind} claims the F12 display knobs act on it; if that became true the panel must show them again.");
+
+        string Snapshot(ReportsViewModel r) => string.Join("|",
+            r.PayrollColumns.Select(c => c.Header + ":" + c.Width.ToString(CultureInfo.InvariantCulture))
+             .Concat(r.PayrollRows.Select(row => string.Join(",", row.Cells.Select(x => x.Text))))
+             .Concat(r.PayrollRows2.Select(row => string.Join(",", row.Cells.Select(x => x.Text)))));
+
+        var before = Snapshot(reports);
+        Assert.NotEqual(string.Empty, before);                  // an empty report would pass for the wrong reason
+
+        reports.ApplyConfiguration(hideZero: true, showPercentages: true,
+            Apex.Ledger.Reports.ClosingStockMode.InventoryDerived);
+
+        Assert.Equal(before, Snapshot(reports));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE ALT+F12 PANEL SAYS IT CANNOT ACT INSTEAD OF ANSWERING "APPLIED — VIEW UPDATED".</b>
+    /// <c>SupportsSortFilter</c> has existed on <c>ReportSortFilterViewModel</c> since RQ-3 and was bound
+    /// NOWHERE in <c>MainWindow.axaml</c>, while <c>Apply()</c> reported success unconditionally. An operator on
+    /// Bills Receivable could type a name filter, apply it, be told it worked, and read a report that was never
+    /// filtered — worse than the feature being absent, because they now believe the list is filtered.
+    ///
+    /// <para>Both directions are asserted: the refusal on a re-homed kind, and a real Trial Balance still
+    /// applying and still saying so, because "always refuse" would satisfy half of this and kill the feature.</para>
+    /// </summary>
+    [Fact]
+    public void The_sort_filter_panel_refuses_on_a_rehomed_report_instead_of_claiming_it_applied()
+    {
+        var vm = FullFixture("Sort Filter Honesty");
+        var c = vm.Company!;
+
+        var rehomed = new ReportSortFilterViewModel(new ReportsViewModel(c, ReportKind.ReceivablesOutstanding));
+        Assert.True(rehomed.CannotSortOrFilter);
+        rehomed.NameContains = "Acme";
+        rehomed.Apply();
+
+        Assert.DoesNotContain("Applied", rehomed.Status);
+        Assert.Contains("does not act on this report", rehomed.Status);
+
+        // ---- and the panel still works where it is meant to.
+        var trialBalance = new ReportSortFilterViewModel(new ReportsViewModel(c, ReportKind.TrialBalance));
+        Assert.False(trialBalance.CannotSortOrFilter);
+        trialBalance.NameContains = "Rent";
+        trialBalance.Apply();
+
+        Assert.Contains("Applied", trialBalance.Status);
     }
 
     // ================================================================= harness
+
+    /// <summary>A gratuity-enrolled company with ONE employee whose accrued provision is the golden ₹1,50,000
+    /// at the returned as-on date — the same figure the branch's own Ctrl+A test uses, so a voucher appearing
+    /// where none should is unmistakable.</summary>
+    private MainWindowViewModel GratuityFixtureWithOneEmployee(string name, out Company company, out DateOnly asOn)
+    {
+        var vm = PayrollFixture(name, gratuity: true, bonus: false);
+        var c = vm.Company!;
+        var basic = CreateBasicHead(c);
+        var groupId = new PayrollService(c).CreateEmployeeGroup("Staff").Id;
+        AddEmployee(c, basic, groupId, "Anil Rao", "E001", c.FinancialYearStart.AddYears(-10).AddDays(29), 26_000m);
+        _storage.Save(c);
+
+        company = c;
+        asOn = c.FinancialYearStart.AddMonths(1).AddDays(-1);
+        return vm;
+    }
+
+    /// <summary>Flips F11 → Payroll Statutory through the real configuration page, which is what leaves the
+    /// enrolment configs standing — the state the saved-view bypass lived in.</summary>
+    private static void SetPayrollStatutory(MainWindowViewModel vm, bool on)
+    {
+        vm.ShowGstConfig();
+        vm.GstConfig!.PayrollStatutoryEnabled = on;
+        vm.Back();
+        Assert.Equal(on, vm.Company!.PayrollStatutoryEnabled);
+    }
 
     /// <summary>Walks the cascade with the arrow keys down <paramref name="path"/> and asserts the leaf opened
     /// the expected <see cref="ReportKind"/> on <see cref="Screen.Report"/> — not a page Screen.</summary>

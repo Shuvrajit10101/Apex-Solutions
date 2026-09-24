@@ -18904,16 +18904,23 @@
                                           IsVisible="{Binding SupportsDetailToggle}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-6: display config -->
+                                <!-- RQ-6: display config. IsVisible="{Binding SupportsDisplayOptions}" on all
+                                     four — these three knobs are read ONLY by the row-bearing builders, so on a
+                                     matrix report they were live controls that changed nothing and then said
+                                     "Applied — view updated". Gated the same way SupportsDetailToggle above
+                                     already is. -->
                                 <TextBlock Text="Display" FontWeight="Bold"
+                                           IsVisible="{Binding SupportsDisplayOptions}"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                 <CheckBox Content="Hide zero balances"
                                           IsChecked="{Binding HideZeroBalances, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsDisplayOptions}"
                                           Foreground="{StaticResource BrandNavy}"/>
                                 <CheckBox Content="Show percentages (of section/column total)"
                                           IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsDisplayOptions}"
                                           Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="130,*">
+                                <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsDisplayOptions}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -20826,6 +20833,15 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
+
+                                <!-- The panel says so when it cannot act on this report, instead of accepting a
+                                     filter and answering "Applied — view updated" over unchanged rows.
+                                     SupportsSortFilter has existed on this view model since RQ-3 and was bound
+                                     NOWHERE until now. -->
+                                <TextBlock Text="{Binding CannotSortOrFilterNote}"
+                                           IsVisible="{Binding CannotSortOrFilter}"
+                                           FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- Sort -->
                                 <TextBlock Text="Sort" FontWeight="Bold"
