@@ -286,13 +286,13 @@ public static class ShellChordTable
         // answer that; it removes the contested overlap, so the answer is no longer blocking a build. The row
         // ships scoped, and the census cell says so.
         //
-        // 🔴 `!IsDayBookPickerOpen` IS PART OF THE PREDICATE, NOT A TIDY-UP. A Day-Book picker column (Alt+A /
+        // 🔴 `!IsDayBookRowHidden` IS PART OF THE PREDICATE, NOT A TIDY-UP. A Day-Book picker column (Alt+A /
         // Alt+I voucher types, or the Ctrl+J Exception Reports menu) leaves Reports BOUND beneath it, so
         // IsDayBookReport stays true while the highlighted row is hidden behind the column. Claiming the chord
         // there would swallow Alt+I to fire nothing (the door itself now refuses) — the swallowed-key defect
         // IV-31, and the reason every other entry in this table is scoped to what its door actually accepts.
         new("Alt+I", Key.I, KeyModifiers.Alt,
-            vm => vm.Company is not null && vm.IsDayBookReport && !vm.IsDayBookPickerOpen,
+            vm => vm.Company is not null && vm.IsDayBookReport && !vm.IsDayBookRowHidden,
             vm => vm.RequestInsertVoucherAtHighlight()),
     };
 

@@ -63,6 +63,52 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>True for a menu column (a list of rows); false for a page column.</summary>
     public bool IsMenu => Page is null;
 
+    /// <summary>
+    /// 🔴 <b>The screen id this column represents, recorded automatically while it is the ACTIVE column, so the
+    /// shell can restore it after a rehydrate instead of guessing.</b> Null until the column has been active
+    /// once (a column that is never activated cannot be the one whose id is restored).
+    ///
+    /// <para><b>The defect it closes.</b> <c>MainWindowViewModel.RehydratePageFromRightmostColumn</c> re-derives
+    /// <c>CurrentScreen</c> from the ACTIVE column by switching on its <see cref="Page"/> type in
+    /// <c>BindPageColumn</c>. That switch has an arm per page type and a <c>default:</c> arm returning
+    /// <see cref="Screen.Gateway"/> — so ANY column whose type has no arm silently reports the Gateway while
+    /// still being the rightmost pane drawn.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS PROVEN, AND WHAT IS ONLY DEFENCE IN DEPTH — stated apart, because they are not the
+    /// same grade of claim.</b>
+    /// <list type="bullet">
+    /// <item><b>MENU columns: measured, reproduced and tested.</b> They have no <see cref="Page"/> at all, so
+    /// they always fell through. The four action menus (Ctrl+H, Alt+P, Alt+E, Alt+M) are pushed over a page
+    /// WITHOUT clearing it, and a page column opened on top of one is appended rather than trimmed (the trim in
+    /// <c>OpenPageColumn</c> cuts after the LAST MENU column, and the menu column IS that column). Popping it
+    /// then landed the shell on the Gateway with the menu and the report still drawn.
+    /// <c>ReportChordFidelityTests.A_column_popped_over_an_action_menu_restores_the_menu_not_the_gateway</c>
+    /// reproduces it on the realised window with real keystrokes.</item>
+    /// <item><b>PAGE columns whose type has no arm: NOT proven reachable, and kept only because this mechanism
+    /// covers them for free.</b> 34 page columns are pushed by hand rather than through <c>OpenPageColumn</c>
+    /// and most of their types have no arm. The obvious candidate — the Dashboard's Alt+C tile-configuration
+    /// column — was tested and turned out NOT to be reachable: <c>OpenPageColumn</c> TRIMS every page column
+    /// after the last menu column, so opening any page from a dashboard REPLACES the tile-config column instead
+    /// of stacking over it, and the Gateway the shell then reports is correct. No reachable page-column
+    /// instance was found. Do not cite one as measured without building the route first.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Why a wrong id is not cosmetic.</b> The shell's guards are written on <c>CurrentScreen</c>.
+    /// <c>IsActionMenuColumn</c> — the clause that makes the bare-letter arms inert under an action menu, and
+    /// that closed a confidentiality defect — is one of them, so losing the id re-armed every predicate it
+    /// protects. And the Gateway's own bare letters are gated on <c>CurrentScreen == Screen.Gateway</c> alone,
+    /// so <b>Y</b> (Export Data over the whole company) and <b>O</b> (Import) went live over a live report
+    /// cascade. That is the blank-shell-that-owns-the-keyboard state <c>HasLiveCompanyShell</c> exists to
+    /// prevent.</para>
+    ///
+    /// <para>🔴 <b>It is written in ONE place — <c>SyncActiveColumn</c> — and that is deliberate.</b> Every one
+    /// of the ~55 paths that pushes, pops or re-focuses a column already calls that method after setting
+    /// <c>CurrentScreen</c>, so recording it there costs no per-site edit and, more importantly, cannot be
+    /// forgotten by the next column someone adds. Adding a missing <c>BindPageColumn</c> arm would have fixed
+    /// the one column the test caught and left the other thirty-three exactly as they were.</para>
+    /// </summary>
+    public Screen? ColumnScreen { get; set; }
+
     /// <summary>True for a page column (hosts a single page sub-view-model).</summary>
     public bool IsPage => Page is not null;
 

@@ -3395,9 +3395,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (<see cref="ReportsViewModel.SupportsScaleFactor"/>). A panel that opens on a report it cannot change is
     /// the dead-control defect this project has caught before; the button-bar row dims in the same condition so
     /// the key and the badge agree.</para>
+    ///
+    /// <para>🔴 <b>AND REFUSED WHILE A COLUMN IS DRAWN OVER THE REPORT — the half that was missing, and the
+    /// door is where it belongs.</b> The key arm in <c>MainWindow.OnKeyDown</c> has always required
+    /// <see cref="IsReportContext"/> (so it is inert under an action menu, which is what
+    /// <see cref="IsActionMenuColumn"/> makes false); the BADGE was gated on <c>SupportsScaleFactor</c> alone
+    /// and this door on nothing else at all. So with an Alt+P / Alt+E / Alt+M / Ctrl+H menu up, the key
+    /// correctly refused while the badge stayed LIT, and clicking it stacked a Basis-of-Values column on top of
+    /// the modal menu. Three gates, two of them wrong, and the button-bar row's own comment claimed "the key arm
+    /// carries the identical guard" while it did not — the same species as the two share badges fixed last pass.
+    /// Putting the clause HERE means the key, the badge and any future caller cannot disagree again: the badge
+    /// now mirrors this door, rather than the two being written out twice and drifting.</para>
     /// </summary>
     public void OpenBasisOfValues()
     {
+        if (!IsReportContext) return;                 // a column is drawn over the report — see IsActionMenuColumn
         if (Reports is not { SupportsScaleFactor: true }) return;
         if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
 
@@ -3578,10 +3590,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
-    /// 🔴 <b>True while a MENU COLUMN is stacked on top of the live Day Book</b> — the Alt+A / Alt+I voucher-type
-    /// picker, or the Ctrl+J Exception Reports picker. Every Day-Book verb that acts on
-    /// <c>Reports.SelectedRow</c> must refuse while this is true, because the highlighted row is BEHIND the
-    /// column the operator is standing in and they cannot see which row the verb would take.
+    /// 🔴 <b>True while ANY column is drawn on top of the live Day Book</b>, so the highlighted row is BEHIND
+    /// the pane the operator is standing in. Every Day-Book verb that acts on <c>Reports.SelectedRow</c> must
+    /// refuse while this is true, because the operator cannot see which row the verb would take.
     ///
     /// <para><b>ONE PREDICATE RATHER THAN A SCREEN-NAME EXCLUSION LIST PER VERB, AND THAT IS THE WHOLE POINT.</b>
     /// <see cref="RequestInsertVoucherAtHighlight"/> and <see cref="OpenAddVoucherFromReport"/> each carried their
@@ -3589,15 +3600,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Screen.ExceptionReportsPicker"/> — which also leaves <see cref="Reports"/> bound, so
     /// <see cref="IsDayBookReport"/> stays TRUE beneath it — neither list was extended, and Alt+I fired on a
     /// hidden Day Book row: an INSERT renumbers everything after the anchor, so the operator could renumber the
-    /// series off a row they never saw. A per-verb list has now been missed once; the next picker added would
-    /// have to remember three call sites instead of one. It is a single member so it cannot be missed again,
-    /// and <c>ExceptionReportsRegisterTests</c> asserts every verb against it.</para>
+    /// series off a row they never saw. That was hoisted into this single member so it could not be missed
+    /// again, and <c>ExceptionReportsRegisterTests</c> asserts every verb against it.</para>
+    ///
+    /// <para>🔴 <b>IT WAS MISSED AGAIN ANYWAY, AND THAT IS WHY IT IS NO LONGER A LIST.</b> Hoisting the
+    /// exclusion into one member fixed the "three call sites" half of the problem and left the other half
+    /// untouched: the member still named SCREENS, so every new column screen had to remember to join the list.
+    /// The report-chord slice then added four more — <see cref="Screen.ChangeViewMenu"/>,
+    /// <see cref="Screen.PrintMenu"/>, <see cref="Screen.ExportMenu"/>, <see cref="Screen.ShareMenu"/> — each of
+    /// which deliberately leaves <see cref="Reports"/> bound beneath it (see <see cref="PushMenuColumn"/>), and
+    /// the list was not extended. Alt+I, Alt+A and Ctrl+J all fired through a modal menu onto the hidden row
+    /// again, badges lit, exactly as before. A NAMED LIST CANNOT CLOSE THIS CLASS; it can only ever record the
+    /// columns someone remembered.
+    ///
+    /// <para>So the test is now STRUCTURAL and mentions no screen at all. The live Day Book is its own column,
+    /// and a column that is active reports <see cref="Screen.Report"/> through <see cref="BindPageColumn"/>.
+    /// Therefore "something is drawn over it" is exactly "the active screen is not the report" — true for every
+    /// column that exists today, every column added tomorrow, and (deliberately) for the F12 config and
+    /// Alt+F12 sort/filter panels, which hide the row just as completely and used to be missed by the list.
+    /// The only way back to false is to pop the column, which is the behaviour the operator expects.</para></para>
     ///
     /// <para>It is deliberately NOT folded into <see cref="IsDayBookReport"/> itself: that property must stay
-    /// true under a picker, because the picker is appended BESIDE the live book and Esc pops back to it.</para>
+    /// true under a column, because the column is appended BESIDE the live book and Esc pops back to it.</para>
+    ///
+    /// <para><b>The name changed with the meaning.</b> It was <c>IsDayBookRowHidden</c> while it named two
+    /// pickers; a reader checking whether a new MENU column needed adding could reasonably read that name and
+    /// conclude it did not apply, which is one of the two reasons this recurred.</para>
     /// </summary>
-    public bool IsDayBookPickerOpen =>
-        CurrentScreen is Screen.AddVoucherPicker or Screen.ExceptionReportsPicker;
+    public bool IsDayBookRowHidden => CurrentScreen != Screen.Report;
 
     /// <summary>
     /// True while the LIVE report is the <b>Memorandum Register</b> (census 4.17) — the single context the
@@ -4031,10 +4061,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // And it answers the row instead of swallowing it: the vendor reaches ONE list by two rows, so arriving by
         // "Delete Saved Views" over an already-open panel arms the delete verb on the panel that is up and focuses
         // it, rather than leaving a documented menu row inert whenever the list happens to be open already.
+        //
+        // 🔴 ARM ONLY WHAT IT CAN ALSO SHOW, AND THAT ORDER IS THE FIX FOR A SILENT MIS-ARM.
+        // `FocusRightmostPageColumn` reports FALSE when the panel is BURIED — the operator opened the panel,
+        // then opened something over it (report → Ctrl+H → Saved Views → Alt+P → Current → Ctrl+H → Delete
+        // Saved Views reaches exactly that). `EnterDeleteMode()` used to run FIRST and unconditionally, so on
+        // that route the documented menu row did nothing the operator could SEE while quietly switching the
+        // off-screen panel into delete mode — and their next Enter on it, which they would press expecting to
+        // open the highlighted view, armed a DELETE of it instead. Arming a pane that is not on screen is the
+        // hidden-row defect this file guards everywhere else; it has no business being reachable from a menu.
         if (SavedViews is { } open)
         {
-            if (forDeletion) open.EnterDeleteMode();
-            FocusRightmostPageColumn(open);
+            if (FocusRightmostPageColumn(open) && forDeletion) open.EnterDeleteMode();
             return;
         }
 
@@ -5771,9 +5809,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenAddVoucherFromReport()
     {
         if (Company is null || !IsDayBookReport) return;
-        // Refuses under ANY Day-Book picker column, not just its own (see IsDayBookPickerOpen): with the Ctrl+J
-        // Exception Reports column on top, the seed date would be read off a row the operator cannot see.
-        if (IsDayBookPickerOpen) return;
+        // Refuses under ANY column drawn over the Day Book, not just its own (see IsDayBookRowHidden): with the
+        // Ctrl+J Exception Reports column — or an Alt+P / Alt+E / Alt+M / Ctrl+H action menu, or the F12 config
+        // panel — on top, the seed date would be read off a row the operator cannot see.
+        if (IsDayBookRowHidden) return;
 
         // Seed the new voucher's date from the highlighted Day-Book row (its own voucher's date); resolve it NOW
         // while the report is still bound, before the picker column takes focus.
@@ -5832,9 +5871,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenExceptionReportsPicker()
     {
         if (Company is null || !IsDayBookReport) return;
-        // Refuses under ANY Day-Book picker column (see IsDayBookPickerOpen) — its own, so a second one is never
-        // stacked, and the Alt+A/Alt+I one, so Ctrl+J cannot bury a half-made voucher choice under a report menu.
-        if (IsDayBookPickerOpen) return;
+        // Refuses under ANY column drawn over the Day Book (see IsDayBookRowHidden) — its own, so a second one is
+        // never stacked; the Alt+A/Alt+I one; and the four action menus, over which this used to fire on a row
+        // hidden behind a modal column.
+        if (IsDayBookRowHidden) return;
 
         // The report's OWN period, resolved while the Day Book is still bound, so each register covers exactly
         // the window the operator was looking at. Re-deriving it after the picker takes focus would read the
@@ -5997,11 +6037,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public VoucherAlterationRequest RequestInsertVoucherAtHighlight()
     {
         if (Company is null || !IsDayBookReport) return VoucherAlterationRequest.NoVoucherHere;
-        // 🔴 ANY Day-Book picker column, not just this verb's own (see IsDayBookPickerOpen). This exclusion used to
-        // name Screen.AddVoucherPicker alone; the Ctrl+J Exception Reports column also leaves Reports bound, so
-        // Alt+I under it opened an Insert picker anchored on a row hidden BEHIND the column — and an insert
-        // renumbers every voucher after its anchor.
-        if (IsDayBookPickerOpen) return VoucherAlterationRequest.NoVoucherHere;
+        // 🔴 ANY column drawn over the Day Book, not just this verb's own (see IsDayBookRowHidden). This
+        // exclusion used to name Screen.AddVoucherPicker alone; the Ctrl+J Exception Reports column also leaves
+        // Reports bound, so Alt+I under it opened an Insert picker anchored on a row hidden BEHIND the column —
+        // and an insert renumbers every voucher after its anchor. It then named two screens and was missed a
+        // SECOND time by the four action menus, which is why it now names none: see IsDayBookRowHidden.
+        if (IsDayBookRowHidden) return VoucherAlterationRequest.NoVoucherHere;
 
         // The armed-confirmation gate, copied in effect from the Alt+2 door: an armed Alt+X / Alt+D question
         // names a voucher and is answered by a bare Y, and opening a picker over it would carry the arming into
@@ -12269,7 +12310,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         for (var i = 0; i < ActiveColumnIndex; i++)
             if (Columns[i].IsPage) BindPageColumn(Columns[i], isActiveColumn: false);
 
-        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex], isActiveColumn: true);
+        // 🔴 THE ACTIVE COLUMN MAY BE A MENU COLUMN, AND BindPageColumn CANNOT SPEAK FOR ONE. It switches on
+        // `col.Page`, which a menu column does not have, so every menu column fell to its `default:` arm and
+        // reported Screen.Gateway. The loop above is guarded `if (Columns[i].IsPage)` precisely because of that;
+        // this line was not, and the asymmetry was the defect. A menu column that knows its own id restores it
+        // (GatewayColumn.MenuScreen); a Gateway/navigation menu has none and keeps the Gateway default it wants.
+        //
+        // WHAT IT COST: the four action menus are pushed OVER a live page without clearing it, so any column
+        // opened on top of one and then popped — and the window's tunnel has several arms with no screen guard
+        // at all (Alt+G, Alt+R, Ctrl+F, Ctrl+R, Ctrl+T) that push a page column from anywhere — landed the shell
+        // on Screen.Gateway with the menu and the report still drawn beneath it. IsActionMenuColumn is written
+        // on the screen id, so it went false, every predicate its clause protects was re-armed, and the
+        // Gateway's bare Y (whole-company Export Data) and O (Import) went live over the cascade. That is the
+        // blank-shell-that-owns-the-keyboard state HasLiveCompanyShell exists to prevent.
+        // 🔴 THE ACTIVE COLUMN MAY BE ONE BindPageColumn CANNOT SPEAK FOR, AND ITS `default:` ARM SAYS
+        // "Screen.Gateway" RATHER THAN "I DO NOT KNOW". The loop above is guarded `if (Columns[i].IsPage)`
+        // precisely because a menu column has no Page to switch on; this line was not, and that asymmetry was
+        // the defect. 34 page columns are ALSO pushed by hand rather than through OpenPageColumn and most of
+        // their types have no arm, so they fall through the same hole — but no REACHABLE page-column instance
+        // was found (OpenPageColumn trims page columns after the last menu column rather than stacking, which
+        // is what keeps the Dashboard's Alt+C tile-config column out of this state). The menu half below is the
+        // measured one; the page half is covered for free and is not claimed as proven. See ColumnScreen.
+        //
+        // WHAT IT COST: a column opened over such a column and then popped left the shell on Screen.Gateway
+        // with the whole cascade still drawn — and the window's tunnel has several arms with NO screen guard at
+        // all (Alt+G, Alt+R, Ctrl+F, Ctrl+R, Ctrl+T) that push a page column from anywhere, so the state is
+        // reachable by ordinary keys. IsActionMenuColumn is written on the screen id, so it went false and
+        // re-armed every predicate its clause protects; the Gateway's bare Y (whole-company Export Data) and O
+        // (Import) answered over a live report.
+        //
+        // Screen.Gateway coming out of BindPageColumn therefore means "no arm" and never a real answer — every
+        // arm returns a specific screen — so it is safe to prefer the id the column recorded while it was last
+        // active (GatewayColumn.ColumnScreen). A genuine Gateway menu column recorded Gateway and is unchanged.
+        var active = Columns[ActiveColumnIndex];
+        var derived = active.IsPage ? BindPageColumn(active, isActiveColumn: true) : Screen.Gateway;
+        CurrentScreen = derived == Screen.Gateway && active.ColumnScreen is { } recorded ? recorded : derived;
     }
 
     /// <summary>
@@ -12557,6 +12632,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             foreach (var item in col.Items)
                 Menu.Add(item);
         _menuSelectedIndex = col?.SelectedIndex ?? -1;
+
+        // 🔴 THE ACTIVE COLUMN RECORDS THE SCREEN ID IT IS BEING SHOWN AS, AND THIS ONE LINE CLOSES A WHOLE
+        // DEFECT CLASS. `RehydratePageFromRightmostColumn` re-derives CurrentScreen from the active column
+        // through BindPageColumn, whose `default:` arm answers Screen.Gateway for any column type it has no arm
+        // for — menu columns (no Page at all) and the 34 page columns pushed by hand, most of which were never
+        // given one. The shell then claimed to be the Gateway with that column still the rightmost pane drawn,
+        // which re-arms every guard written on CurrentScreen (IsActionMenuColumn) and makes the Gateway's bare
+        // Y / O live over a live cascade. See GatewayColumn.ColumnScreen.
+        //
+        // IT IS HERE, AND NOT AT THE ~55 PUSH SITES, BECAUSE EVERY ONE OF THEM ALREADY CALLS THIS METHOD after
+        // setting CurrentScreen. Recording it per-site would have to be remembered by the next column added;
+        // recording it here cannot be forgotten. Writing only the ACTIVE column's id is what keeps a column's
+        // own id intact while something else is stacked above it.
+        if (ActiveColumnIndex >= 0 && ActiveColumnIndex < Columns.Count)
+            Columns[ActiveColumnIndex].ColumnScreen = CurrentScreen;
     }
 
     private void SetMenuSelected(int index)
@@ -12802,7 +12892,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // badge is dimmed there too rather than advertising a verb that now returns NoVoucherHere.
         if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Insert Vch",
-                () => RequestInsertVoucherAtHighlight(), !IsDayBookPickerOpen));
+                () => RequestInsertVoucherAtHighlight(), !IsDayBookRowHidden));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
         // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
@@ -12814,7 +12904,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Settle Bills", OpenSettlementVoucherFromOutstandings, true));
         else if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport,
-                !IsDayBookPickerOpen));   // same IV-31 rule as Alt+I above — the door refuses under a picker
+                !IsDayBookRowHidden));   // same IV-31 rule as Alt+I above — the door refuses under a picker
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
@@ -12879,9 +12969,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // and the chord was left free precisely because in the reference product it is Basis of Values
         // (OutstandingsViewModel records that in its own remarks). It is now that, and nothing else.
         // ENABLED only where the open report can actually be re-scaled, and DIMMED everywhere else, because an
-        // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
+        // enabled badge that fires nothing is register defect IV-31.
+        //
+        // 🔴 `IsReportContext &&` IS THE HALF THIS ROW WAS MISSING, AND THE COMMENT HERE USED TO ASSERT IT WAS
+        // NOT. It read "the key arm carries the identical guard" while the key arm required IsReportContext and
+        // this row did not, so with an action menu up the key refused and the badge stayed LIT — clicking it
+        // stacked a Basis-of-Values column over the modal menu. The predicate is now literally the one
+        // OpenBasisOfValues enforces on its first two lines, which is the rule the Alt+I / Alt+A / Ctrl+J rows
+        // below already follow: a badge is enabled on exactly what its own door accepts, never on more.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
-            Reports is { SupportsScaleFactor: true }));
+            IsReportContext && Reports is { SupportsScaleFactor: true }));
 
         // Ctrl+J EXCEPTION REPORTS — CONTEXT-SENSITIVE, and exactly ONE row is emitted.
         //
@@ -12903,7 +13000,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // for the IV-31 reason the Ctrl+B row above spells out: an enabled badge that fires nothing is a defect.
         if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReportsPicker,
-                !IsDayBookPickerOpen));   // same IV-31 rule — the door refuses while a picker column is on top
+                !IsDayBookRowHidden));   // same IV-31 rule — the door refuses while a picker column is on top
         else
             ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReports,
                 IsChartOfAccountsScreen));

@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
 using Apex.Desktop.Views;
@@ -1215,6 +1216,11 @@ public sealed class ReportChordFidelityTests : IDisposable
                 Assert.False(vm.IsReportContext);
                 Assert.False(vm.IsPrintablePage);
                 Assert.False(vm.IsExportablePage);
+                // 🔴 IsShareablePage was missing here while the test's NAME claimed "the page predicates", and a
+                // reviewer caught the gap by reading the assertions rather than the name. It is the predicate
+                // the bare-W arm reads, i.e. the one the original confidentiality defect travelled on, so of the
+                // four it is the LAST that should have been left unasserted.
+                Assert.False(vm.IsShareablePage);
                 Assert.NotNull(vm.Reports);      // …and the report is STILL BOUND, which is the point of them
 
                 window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
@@ -1231,6 +1237,7 @@ public sealed class ReportChordFidelityTests : IDisposable
             Assert.False(vm.IsReportContext);
             Assert.False(vm.IsPrintablePage);
             Assert.False(vm.IsExportablePage);
+            Assert.False(vm.IsShareablePage);
 
             Assert.NotEqual(Guid.Empty, voucherId);
         }
@@ -1602,6 +1609,16 @@ public sealed class ReportChordFidelityTests : IDisposable
         Pump(window);
         Assert.Equal(Screen.ChangeViewMenu, vm.CurrentScreen);
 
+        var row = vm.Columns[^1].Items.Single(i => i.IsSelectable && i.Label == label);
+        Assert.True(row.HasHotKey, $"'{label}' has no painted letter — it is unreachable by letter.");
+        return char.ToUpperInvariant(row.HotKey!.Value);
+    }
+
+    /// <summary>The letter the product paints on a row of whichever menu column is ALREADY up — unlike
+    /// <see cref="PaintedLetterOf"/>, this opens nothing, so it works on the Print / Export / Share menus
+    /// too.</summary>
+    private static char PaintedLetterOnOpenMenu(MainWindowViewModel vm, string label)
+    {
         var row = vm.Columns[^1].Items.Single(i => i.IsSelectable && i.Label == label);
         Assert.True(row.HasHotKey, $"'{label}' has no painted letter — it is unreachable by letter.");
         return char.ToUpperInvariant(row.HotKey!.Value);
@@ -2010,6 +2027,311 @@ public sealed class ReportChordFidelityTests : IDisposable
             window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
             Pump(window);
             Assert.Equal(Screen.CompanyMenu, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
+    // ============================================== I — THE THREE DEFECTS THE THIRD REVIEW PASS REPRODUCED
+    //
+    // 🔴 ALL THREE ARE THE SAME SPECIES AND THE SECTION IS WRITTEN AS ONE: a column that is DRAWN OVER the
+    // page must make every verb that acts on the page beneath refuse, and must not lose its own identity when
+    // the shell re-binds. Section H above proved that for IsReportContext / IsPrintablePage / IsExportablePage
+    // / IsShareablePage and stopped there. The three predicates it did NOT reach are the three tests below.
+    //
+    // Each test fails on the tree as the reviewer found it, and each names its own red message.
+
+    /// <summary>
+    /// 🔴 <b>F-A11-1 — A VERBATIM REGRESSION OF A SEV1 THIS CODEBASE ALREADY CLOSED ONCE, AND THE REASON THE
+    /// FIX BELONGS IN ONE STRUCTURAL PREDICATE RATHER THAN IN THREE MORE PLACES.</b>
+    ///
+    /// <para>The Day Book's three write doors — Alt+I (Insert Vch), Alt+A (Add Voucher) and Ctrl+J (Exception
+    /// Reports) — each act on <c>Reports.SelectedRow</c>. They used to carry their own
+    /// <c>CurrentScreen == Screen.AddVoucherPicker</c> exclusion lists; when <c>Screen.ExceptionReportsPicker</c>
+    /// arrived, the lists were not extended, Alt+I fired on a row the operator could not see, and an INSERT
+    /// renumbers every voucher after its anchor. That was filed as a SEV1 at
+    /// <c>ExceptionReportsRegisterTests.cs:395</c> and closed by hoisting the exclusion into the SINGLE member
+    /// <see cref="MainWindowViewModel.IsDayBookRowHidden"/> (then called <c>IsDayBookPickerOpen</c>), whose own
+    /// remarks say it is one member "so it cannot be missed again".</para>
+    ///
+    /// <para><b>This slice missed it again anyway</b>, because it added FOUR new column screens — the Ctrl+H /
+    /// Alt+P / Alt+E / Alt+M action menus — that meet that member's stated condition exactly (a column drawn
+    /// over the live Day Book, with <see cref="MainWindowViewModel.Reports"/> deliberately left bound beneath
+    /// it) and are not among the two screen ids it lists. So on the Day Book with any of the four menus up, all
+    /// three doors fire against the hidden row and stack their own picker ON TOP of the modal menu, and all
+    /// three badges render ENABLED there while Alt+2, M and W correctly go dark.</para>
+    ///
+    /// <para><b>What fails without the fix:</b> the first menu/chord pair asserted below — a column is pushed
+    /// and <c>CurrentScreen</c> leaves the menu. Twelve pairs are covered (four menus x three doors) and each
+    /// is asserted independently, because a loop that drives all three chords and asserts once lets whichever
+    /// fires first mask the other two — a weakness a mutation caught on this very branch last pass.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_day_book_write_doors_are_inert_under_every_action_menu()
+    {
+        var (window, vm) = OpenWindow("Day Book Menu Guard Co");
+        try
+        {
+            PostAJournal(vm, "Freight", 250m);
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+            Assert.True(vm.IsDayBookReport, "the Day Book did not open; every assertion below would be vacuous");
+
+            var menus = new (PhysicalKey Chord, RawInputModifiers Mods, Screen Screen, string Name)[]
+            {
+                (PhysicalKey.P, RawInputModifiers.Alt,     Screen.PrintMenu,      "Alt+P Print"),
+                (PhysicalKey.E, RawInputModifiers.Alt,     Screen.ExportMenu,     "Alt+E Export"),
+                (PhysicalKey.M, RawInputModifiers.Alt,     Screen.ShareMenu,      "Alt+M Share"),
+                (PhysicalKey.H, RawInputModifiers.Control, Screen.ChangeViewMenu, "Ctrl+H Change View"),
+            };
+
+            // The three write doors, each with the badge that advertises it.
+            var doors = new (PhysicalKey Key, RawInputModifiers Mods, string Badge, string Name)[]
+            {
+                (PhysicalKey.I, RawInputModifiers.Alt,     "Alt+I",  "Alt+I Insert Vch"),
+                (PhysicalKey.A, RawInputModifiers.Alt,     "Alt+A",  "Alt+A Add Voucher"),
+                (PhysicalKey.J, RawInputModifiers.Control, "Ctrl+J", "Ctrl+J Exception Reports"),
+            };
+
+            foreach (var menu in menus)
+                foreach (var door in doors)
+                {
+                    // Open the menu fresh for each door, so one door's damage can never mask the next one's.
+                    window.KeyPressQwerty(menu.Chord, menu.Mods);
+                    Pump(window);
+                    Assert.Equal(menu.Screen, vm.CurrentScreen);
+                    Assert.True(vm.IsActionMenuColumn, $"{menu.Name}: the menu column did not become active");
+
+                    var depth = vm.Columns.Count;
+
+                    // THE BADGE. An enabled badge that fires against a hidden row is register defect IV-31, and
+                    // it is the visible half of this defect — the operator is invited to press it.
+                    var badge = vm.ButtonBar.FirstOrDefault(b => b.Key == door.Badge);
+                    if (badge is not null)
+                        Assert.False(badge.Enabled,
+                            $"{menu.Name} + {door.Name}: the badge renders ENABLED over a modal menu column, " +
+                            "inviting a write against the Day-Book row hidden behind it");
+
+                    // THE KEY. This is the mis-targeted WRITE path itself.
+                    window.KeyPressQwerty(door.Key, door.Mods);
+                    Pump(window);
+
+                    Assert.Equal(depth, vm.Columns.Count);
+                    Assert.Equal(menu.Screen, vm.CurrentScreen);
+
+                    // Escape back to the report so the next pair starts from the same place.
+                    window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+                    Pump(window);
+                    Assert.Equal(Screen.Report, vm.CurrentScreen);
+                }
+
+            // 🔴 THE REGRESSION HALF, and it is the reason the fix narrows IsDayBookRowHidden rather than
+            // IsDayBookReport: with NO column over it, all three doors must still work. A guard written one
+            // clause too wide disables the Day Book's write verbs outright, which is the shape of "fix" this
+            // project has shipped before.
+            var flat = vm.Columns.Count;
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.AddVoucherPicker, vm.CurrentScreen);
+            Assert.Equal(flat + 1, vm.Columns.Count);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>F-A11-2 — THE SHELL LANDS ON <see cref="Screen.Gateway"/> WITH A LIVE REPORT CASCADE DRAWN, AND
+    /// THE GATEWAY'S OWN BARE LETTERS GO LIVE OVER IT.</b> This is the blank-shell-that-owns-the-keyboard
+    /// state <c>HasLiveCompanyShell</c> exists to prevent, and this slice's own F1 remarks claim to have
+    /// closed — it was relocated, not closed.
+    ///
+    /// <para><b>The root cause is one line, and it is a CLASS.</b>
+    /// <c>RehydratePageFromRightmostColumn</c> guards its loop over the columns BENEATH the active one with
+    /// <c>if (Columns[i].IsPage)</c>, and then calls <c>BindPageColumn</c> on the ACTIVE column with no such
+    /// guard. A menu column has no page view model at all (<c>GatewayColumn.IsMenu =&gt; Page is null</c>), so
+    /// when the active column is one of the four action menus the switch falls to <c>default:</c> and reports
+    /// <see cref="Screen.Gateway"/>. The menu's own screen id is lost, so
+    /// <see cref="MainWindowViewModel.IsActionMenuColumn"/> goes FALSE — which un-gates every predicate that
+    /// clause was added to protect — and the bare Gateway letters Y (Export Data) and O (Import) start
+    /// answering over a report cascade.</para>
+    ///
+    /// <para>🔴 <b>THE ROUTE HERE IS DELIBERATELY NOT THE REVIEWER'S.</b> The reviewer reached it through
+    /// Day Book / Alt+P / Alt+I, which F-A11-1's fix closes — so a test written on that route would go green
+    /// for the wrong reason and prove nothing about this defect. Alt+R (Challan Reconciliation) is one of
+    /// several key arms in the window's tunnel carrying NO screen guard at all (Alt+G, Alt+R, Ctrl+F, Ctrl+R,
+    /// Ctrl+T), so it pushes a page column over anything, including a menu. That is what makes this a latent
+    /// class rather than one route: closing F-A11-1 does not reach it.</para>
+    ///
+    /// <para><b>What fails without the fix:</b> <c>Expected Screen.PrintMenu / Actual Screen.Gateway</c>.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_column_popped_over_an_action_menu_restores_the_menu_not_the_gateway()
+    {
+        var (window, vm) = OpenWindow("Menu Rehydrate Co");
+        try
+        {
+            // Alt+R needs TDS on; it is the shortest UNGUARDED column-pusher in the tunnel.
+            new TdsTcsService(vm.Company!).EnableTds(new TdsConfig { Tan = "MUMA12345B" });
+
+            PostAJournal(vm, "Freight", 250m);
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            var menuDepth = vm.Columns.Count;
+
+            // A page column lands ON TOP of the modal menu — the pre-existing unguarded arm.
+            window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.ChallanReconciliation, vm.CurrentScreen);
+            Assert.Equal(menuDepth + 1, vm.Columns.Count);
+
+            // …and popping it rehydrates onto the menu column beneath.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(menuDepth, vm.Columns.Count);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            Assert.True(vm.IsActionMenuColumn,
+                "the menu column is still the rightmost pane drawn, but the shell has forgotten it is a menu");
+
+            // The whole point of the screen id: the predicates it gates are back to false.
+            Assert.False(vm.IsReportContext);
+            Assert.False(vm.IsPrintablePage);
+            Assert.False(vm.IsExportablePage);
+            Assert.False(vm.IsShareablePage);
+
+            // 🔴 THE CONSEQUENCE THE OPERATOR ACTUALLY MEETS. Bare Y is the Gateway's Export Data — a
+            // whole-company JSON/XML backup panel — and its arm is gated on CurrentScreen == Screen.Gateway
+            // alone. With the shell wrongly at Gateway it opens over the live report cascade.
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);
+            Pump(window);
+            Assert.NotEqual(Screen.ExportData, vm.CurrentScreen);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>F-A11-4 — THE "DELETE SAVED VIEWS" ROW ARMED A PANEL THE OPERATOR COULD NOT SEE.</b>
+    ///
+    /// <para><c>OpenSavedViews</c>'s already-open arm called <c>open.EnterDeleteMode()</c> BEFORE
+    /// <c>FocusRightmostPageColumn(open)</c> and returned regardless of what that reported. When the panel is
+    /// BURIED — the operator opened it, then opened a Print Preview over it — focusing reports false and
+    /// deliberately leaves the cascade alone, but the arming had already happened. So the documented menu row
+    /// did nothing the operator could see, AND the off-screen panel was switched into delete mode. Their next
+    /// Enter on that panel, pressed to OPEN the highlighted view, would instead arm deleting it.</para>
+    ///
+    /// <para>Same species as F-A11-1: a verb acting on a pane that is not the one the operator is standing in.
+    /// The fix arms only what it can also show.</para>
+    ///
+    /// <para><b>What fails without the fix:</b> <c>IsDeleteMode</c> is true on the buried panel.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_buried_saved_views_panel_is_never_armed_for_deletion_behind_the_operators_back()
+    {
+        var (window, vm) = OpenWindow("Buried Panel Arm Co");
+        try
+        {
+            SaveOneView(window, vm, "Quarterly");
+
+            // Report → Ctrl+H → Saved Views: the panel is up and is the rightmost column.
+            // (OpenSavedViewsPanelByKeyboard presses Ctrl+H itself.)
+            OpenSavedViewsPanelByKeyboard(window, vm, "Saved Views");
+            var panel = vm.SavedViews!;
+            Assert.False(panel.IsDeleteMode);
+
+            // …then BURY it: Alt+P → Current prints the report beneath, pushing a preview column over the panel.
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            window.KeyPressQwerty(
+                PhysicalKeyFor(PaintedLetterOnOpenMenu(vm, "Current")), RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotSame(vm.Columns[^1].Page, panel);   // the panel really is buried now
+
+            // Now the documented row, with the panel off-screen beneath the preview.
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(window);
+            if (vm.CurrentScreen == Screen.ChangeViewMenu)
+            {
+                window.KeyPressQwerty(
+                    PhysicalKeyFor(PaintedLetterOnOpenMenu(vm, "Delete Saved Views")), RawInputModifiers.None);
+                Pump(window);
+            }
+
+            Assert.False(panel.IsDeleteMode,
+                "the buried Saved Views panel was armed for deletion while off screen — the operator's next " +
+                "Enter on it would arm a delete of the view they meant to open");
+            Assert.Same(panel, vm.SavedViews);   // and nothing stacked a second panel either
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>F-A11-3 — THE ONE BADGE THAT IS STILL WIDER THAN ITS OWN KEY ARM.</b> Ctrl+B (Basis of Values)
+    /// is gated in the window's tunnel on <c>vm.IsReportContext &amp;&amp; vm.Reports is { SupportsScaleFactor:
+    /// true }</c> (MainWindow.axaml.cs), and its button-bar row on <c>Reports is { SupportsScaleFactor: true }</c>
+    /// alone. <see cref="MainWindowViewModel.IsReportContext"/> carries <c>!IsActionMenuColumn</c>; the badge
+    /// does not. So with a Print menu up the key correctly refuses while the badge stays lit, and CLICKING it
+    /// stacks a Basis-of-Values column over the modal menu.
+    ///
+    /// <para>That row's own comment says "the key arm carries the identical guard". It did not. This is the
+    /// same species as F4 last pass, and it falsifies that pass's sweep claim that no other badge was wider
+    /// than its verb — which is why the fix report for THIS pass shows the grep output.</para>
+    ///
+    /// <para><b>What fails without the fix:</b> the badge is Enabled under the menu, and invoking its command
+    /// pushes a column.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_ctrl_b_badge_is_dark_under_an_action_menu_exactly_like_its_key_arm()
+    {
+        var (window, vm) = OpenWindow("Basis Of Values Badge Co");
+        try
+        {
+            PostAJournal(vm, "Freight", 250m);
+            vm.OpenReport(ReportKind.TrialBalance);   // a kind that SupportsScaleFactor
+            Pump(window);
+            Assert.True(vm.Reports is { SupportsScaleFactor: true });
+
+            // THE CONTROL: on the live report the badge is lit, because the chord really does work there.
+            var live = vm.ButtonBar.FirstOrDefault(b => b.Key == "Ctrl+B");
+            Assert.NotNull(live);
+            Assert.True(live!.Enabled, "Ctrl+B must stay live on a scalable report — this is the control half");
+
+            window.KeyPressQwerty(PhysicalKey.P, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+            var depth = vm.Columns.Count;
+
+            var badge = vm.ButtonBar.FirstOrDefault(b => b.Key == "Ctrl+B");
+            Assert.NotNull(badge);
+            Assert.False(badge!.Enabled,
+                "the Ctrl+B badge renders ENABLED over a modal menu column while its key arm refuses there");
+
+            // The key arm is the half that was already right — pin it so the fix cannot be made by widening it.
+            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+
+            // 🔴 AND THE DOOR ITSELF, CALLED DIRECTLY. Dimming the badge stops the CLICK; it does not stop any
+            // other caller, and a guard nothing exercises is how the previous pass shipped a dead one that a
+            // mutation survived. OpenBasisOfValues now refuses on !IsReportContext, so this reddens if the fix
+            // is made only in the button bar.
+            vm.OpenBasisOfValues();
+            Pump(window);
+            Assert.Null(vm.BasisOfValues);
+            Assert.Equal(depth, vm.Columns.Count);
+            Assert.Equal(Screen.PrintMenu, vm.CurrentScreen);
+
+            // CONTROL for that door: pop the menu and it opens, so the guard is narrow, not a disablement.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            vm.OpenBasisOfValues();
+            Pump(window);
+            Assert.NotNull(vm.BasisOfValues);
+            Assert.Equal(Screen.BasisOfValues, vm.CurrentScreen);
         }
         finally { window.Close(); }
     }

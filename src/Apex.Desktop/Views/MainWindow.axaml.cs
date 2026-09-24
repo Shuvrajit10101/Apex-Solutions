@@ -1387,11 +1387,11 @@ public partial class MainWindow : Window
         // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
         // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
         // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
-        // 🔴 `!IsDayBookPickerOpen` matches the door: OpenAddVoucherFromReport refuses while a picker column is on
+        // 🔴 `!IsDayBookRowHidden` matches the door: OpenAddVoucherFromReport refuses while a picker column is on
         // top, so claiming the chord there would swallow Alt+A to fire nothing. Nothing below this arm claims
         // Alt+A (the bare-letter menu arm requires KeyModifiers.None), so the fall-through is a clean no-op.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
+            && vm.IsDayBookReport && !vm.IsDayBookRowHidden)
         {
             vm.OpenAddVoucherFromReport();
             e.Handled = true;
@@ -1457,7 +1457,7 @@ public partial class MainWindow : Window
         // Ctrl+J was consumed and did nothing, which is exactly what the sentence above claimed could not happen.
         if (e.Key == Key.J && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
-            && vm.IsDayBookReport && !vm.IsDayBookPickerOpen)
+            && vm.IsDayBookReport && !vm.IsDayBookRowHidden)
         {
             vm.OpenExceptionReportsPicker();
             e.Handled = true;
