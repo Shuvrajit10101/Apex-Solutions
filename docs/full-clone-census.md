@@ -117,10 +117,12 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 
 > **▶ ⚪ WAVE 33 LANDED THREE BRANCHES AND MOVED **NOT ONE ROW**. THAT IS THE HONEST RESULT, NOT AN
 > OVERSIGHT, AND IT IS THE FIRST THING A READER SHOULD TAKE FROM THIS BLOCK.** Literal `awk` output now:
-> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`**; immediately before (`origin/main` at `d31f275`),
-> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`**. The delta is exactly **`+0 rows, +0 complete, +0 partial,
-> +0 absent`**, and **no area heading moved**. Both runs are the literal output of §1.2a's own `awk`,
-> transcribed; nothing was edited to fit. **The grading below is A12's own, not a reviewer's** — neither
+> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`**; and before, at **both** of the shas this wave's landings
+> moved `origin/main` through — `d31f275` (after PR #114) and `306779b` (after PR #116) —
+> **`TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219`** each time. The delta is exactly **`+0 rows, +0 complete,
+> +0 partial, +0 absent`**, and **no area heading moved**. All three runs are the literal output of §1.2a's own
+> `awk`, transcribed; nothing was edited to fit. The before-run was taken **twice on purpose**: a single
+> before-figure cannot distinguish "nothing moved" from "I measured the wrong commit". **The grading below is A12's own, not a reviewer's** — neither
 > review graded a row, so the call and the responsibility for it are mine.
 >
 > **WHY NOTHING MOVED, BRANCH BY BRANCH.**
