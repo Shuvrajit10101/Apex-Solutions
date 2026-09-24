@@ -34,8 +34,22 @@ public enum ReportFeatureGate
     Payroll,
 
     /// <summary>F11 → Enable Payroll Statutory. Gates the "Statutory Reports → Payroll" group (the PF and ESI
-    /// forms, the statutory summary and the income-tax computation).</summary>
+    /// forms and the statutory summary). <b>Not</b> the Income Tax Computation — that row carries a second
+    /// condition of its own; see <see cref="SalaryTds"/>.</summary>
     PayrollStatutory,
+
+    /// <summary>
+    /// Payroll Statutory <b>and</b> F11 → Enable Salary TDS — the two-part gate the §192 rows ship behind.
+    ///
+    /// <para>🔴 <b>THIS MEMBER EXISTS BECAUSE THE TABLE ONCE MAPPED THE INCOME TAX COMPUTATION TO
+    /// <see cref="PayrollStatutory"/> ALONE, WHICH IS ONE CONDITION SHORT OF ITS MENU ROW.</b> The row lives
+    /// inside the Payroll-Statutory column but is added under a further <c>Enable Salary TDS</c> test, so on a
+    /// company with the statute on and §192 off the menu row and the Go To row were both gone while a saved view
+    /// (Alt+K) still rendered one employee's annual income-tax computation. That is exactly the drift this file
+    /// was written to make impossible, surviving in the one place nobody re-read: a gate that models the GROUP
+    /// and not the ROW. A two-part row needs a two-part gate.</para>
+    /// </summary>
+    SalaryTds,
 
     /// <summary>Payroll Statutory <b>and</b> the establishment's own gratuity enrolment — the two-part gate
     /// census 7.13 ships. A statute switched on with no enrolment has no provision to show.</summary>
@@ -104,6 +118,13 @@ public sealed partial class MainWindowViewModel
 
     /// <summary>F11 → Enable Payroll Statutory: the "Statutory Reports → Payroll" group.</summary>
     internal bool PayrollStatutoryFeatureOn => Company is { PayrollStatutoryEnabled: true };
+
+    /// <summary>The §192 rows' own two-part gate: the Payroll-Statutory group switch AND F11 → Enable Salary TDS.
+    /// <c>BuildPayrollStatutoryReportsColumn</c> branches on THIS property for the 24Q / Form 16 / Income Tax
+    /// Computation / Form 12BA rows, so the row and <see cref="ReportFeatureGate.SalaryTds"/> are the same
+    /// expression and cannot answer differently about the same company.</summary>
+    internal bool SalaryTdsFeatureOn =>
+        Company is { PayrollStatutoryEnabled: true, SalaryTdsEnabled: true };
 
     /// <summary>Census 7.13's two-part gate: the statute master switch AND this establishment's gratuity
     /// enrolment. The write guard in <see cref="PostGratuityProvisionFromReport"/> asks the same question.</summary>
@@ -275,7 +296,10 @@ public sealed partial class MainWindowViewModel
             [ReportKind.EsiForm5] = ReportFeatureGate.PayrollStatutory,
             [ReportKind.EsiForm6] = ReportFeatureGate.PayrollStatutory,
             [ReportKind.PayrollStatutorySummary] = ReportFeatureGate.PayrollStatutory,
-            [ReportKind.IncomeTaxComputation] = ReportFeatureGate.PayrollStatutory,
+            // Census 7.26 sits in the SAME column but under a further "Enable Salary TDS" test, so it takes the
+            // two-part gate rather than the group's. Mapping it to PayrollStatutory was a measured hole: the row
+            // left the menu and Go To while a saved view still rendered it.
+            [ReportKind.IncomeTaxComputation] = ReportFeatureGate.SalaryTds,
 
             // ---- BuildVatReportsColumn — the group is gated on F11 Enable VAT (census 15.5 / 15.6).
             [ReportKind.VatComputation] = ReportFeatureGate.Vat,
@@ -310,6 +334,7 @@ public sealed partial class MainWindowViewModel
         ReportFeatureGate.None => true,
         ReportFeatureGate.Payroll => PayrollFeatureOn,
         ReportFeatureGate.PayrollStatutory => PayrollStatutoryFeatureOn,
+        ReportFeatureGate.SalaryTds => SalaryTdsFeatureOn,
         ReportFeatureGate.GratuityEnrolment => GratuityRegisterFeatureOn,
         ReportFeatureGate.BonusEnrolment => BonusRegisterFeatureOn,
         ReportFeatureGate.CostCentres => CostCentresFeatureOn,

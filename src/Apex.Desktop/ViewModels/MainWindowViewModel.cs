@@ -2759,14 +2759,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
         // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
-        // byte-identical to the pre-slice Payroll submenu (ER-13).
-        if (Company is { GratuityConfig: not null })
+        // byte-identical to the pre-slice Payroll submenu (ER-13). NAMED PROPERTIES, for the same reason as the
+        // §192 rows below: these two were the last report rows in this file still testing the company inline, and
+        // the inline test is one condition SHORT of the gate the table evaluates (which also asks for the statute
+        // switch). No live drift — EnableGratuity/EnableStatutoryBonus turn the statute on — but a row and its
+        // gate written as two different expressions is exactly how the Income Tax Computation hole opened.
+        if (GratuityRegisterFeatureOn)
             col.Add(new MenuItemViewModel("Gratuity Provision", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        if (Company is { BonusConfig: not null })
+        if (BonusRegisterFeatureOn)
             col.Add(new MenuItemViewModel("Bonus Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // §192 salary-TDS return + certificate (Phase 8 slice 7; RQ-13) — surfaced only when the F11 feature
         // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
-        if (Company is { SalaryTdsEnabled: true })
+        // 🔴 NAMED PROPERTY, NOT AN INLINE PATTERN. This row is the one the gate table got wrong: it was mapped
+        // to the Payroll-Statutory GROUP gate while the row carries a second condition, so Alt+K opened the
+        // Income Tax Computation on a company whose menu row had gone. Both sides now read SalaryTdsFeatureOn.
+        if (SalaryTdsFeatureOn)
         {
             col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -3107,13 +3114,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens one of the eight W7-D2 <b>payroll statutory forms</b> (PF Forms 3A / 5 / 6A / 10 / 12A — census 7.20;
-    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page. Gated on <see cref="Company.PayrollStatutoryEnabled"/>
-    /// exactly as the PF ECR and ESI monthly-contribution pages are, so a company that is not enrolled for payroll
-    /// statutory never reaches one (ER-13) and its menu is byte-identical to the pre-slice column.
+    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page, plus the payroll kinds the same dispatch routes
+    /// (the statutory summary, the attendance sheet, the two pay-head breakups and the income-tax computation).
+    ///
+    /// <para>🔴 <b>IT ASKS THE KIND'S OWN GATE, NOT ONE FIXED FLAG.</b> It used to test
+    /// <c>PayrollStatutoryFeatureOn</c> for every kind it is handed, which is the right question for the eight
+    /// forms and the wrong one for the rest: the Income Tax Computation's menu row carries a further
+    /// <c>Enable Salary TDS</c> test, so a company with the statute on and §192 off lost the row from the menu
+    /// and from Go To while this opener still let the dispatch through. <see cref="ReportKindIsPermitted"/> is the
+    /// one question every other report door asks, and it resolves through the SAME named properties the menu
+    /// builders branch on — so the menu row, Go To, the saved view and this opener cannot drift apart.</para>
     /// </summary>
     public void OpenPayrollStatutoryForm(ReportKind kind)
     {
-        if (!PayrollStatutoryFeatureOn) return;
+        if (!ReportKindIsPermitted(kind)) return;
         OpenReport(kind);
     }
 

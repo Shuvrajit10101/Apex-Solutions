@@ -1200,7 +1200,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     //   • hide-zero  — BuildTrialBalance, AddBalanceSheetSide, AddProfitAndLossSide, BuildStockSummary AND
     //                  BuildAttendanceSheet (which passes it straight into Report.BuildAttendanceSheet).
     //   • percentages — the same four, WITHOUT the Attendance Sheet.
-    //   • closing stock — read only through ReportOptions by BalanceSheet.Build and ProfitAndLoss.Build.
+    //   • closing stock — read through ReportOptions by BalanceSheet.Build and ProfitAndLoss.Build, and so ALSO
+    //                  by every report BUILT OUT OF those two. Ratio Analysis is one: BuildRatioAnalysis passes
+    //                  `_options` into RatioAnalysis.Build, which calls BalanceSheet.Build and ProfitAndLoss.Build
+    //                  with the same options (RatioAnalysis.cs:86-87). A TRANSITIVE read is still a read.
     // Day Book is row-bearing and honours NONE of them — measured, a posted voucher's row is byte-identical
     // after hideZero + percentages + a closing-stock basis — and so is every register, GSTR-1, GSTR-3B and
     // Statistics. The old predicate therefore SHOWED all three on ~80 kinds that ignore them, and HID hide-zero
@@ -1222,10 +1225,26 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool SupportsPercentages => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
 
-    /// <summary>True when F12's <b>closing-stock basis</b> actually changes this report. Only the Balance Sheet
-    /// and the P&amp;L read it (through <c>ReportOptions</c>, in <c>BalanceSheet.Build</c> /
-    /// <c>ProfitAndLoss.Build</c>); the Stock Summary values stock directly and ignores the switch.</summary>
-    public bool SupportsClosingStockBasis => Kind is ReportKind.BalanceSheet or ReportKind.ProfitAndLoss;
+    /// <summary>
+    /// True when F12's <b>closing-stock basis</b> actually changes this report — the Balance Sheet and the P&amp;L,
+    /// which read it directly through <c>ReportOptions</c> (<c>BalanceSheet.Build</c> / <c>ProfitAndLoss.Build</c>),
+    /// and the Ratio Analysis, which is BUILT OUT OF BOTH OF THEM under the caller's own options. The Stock
+    /// Summary values stock directly and ignores the switch.
+    ///
+    /// <para>🔴 <b>RATIO ANALYSIS IS ON THIS LIST BECAUSE LEAVING IT OFF WAS A MEASURED REGRESSION AGAINST MAIN,
+    /// NOT BECAUSE OF A JUDGEMENT CALL.</b> On <c>main</c> the closing-stock row carried no visibility binding at
+    /// all, so the control was on screen and working on every report. The first draft of this predicate listed
+    /// only the two kinds whose own <c>Build</c> names <c>options.ClosingStock</c> and defended that scope in a
+    /// comment reading "only the Balance Sheet and the P&amp;L read it" — which is false:
+    /// <c>BuildRatioAnalysis</c> passes <c>_options</c> into <c>RatioAnalysis.Build</c>, which rebuilds both of
+    /// those reports from it. The effect was that an operator could set the inventory-derived basis on the Balance
+    /// Sheet and the P&amp;L but not on the Ratio Analysis computed from them, so Working Capital, Current Assets,
+    /// Nett Profit, the Current Ratio and Return on Investment all sat on the other basis with no control on the
+    /// panel and no message. The rule is therefore the TRANSITIVE one: a kind belongs here when the basis moves
+    /// its figures, whoever does the reading.</para>
+    /// </summary>
+    public bool SupportsClosingStockBasis => Kind is ReportKind.BalanceSheet or ReportKind.ProfitAndLoss
+        or ReportKind.RatioAnalysis;
 
     /// <summary>
     /// True when AT LEAST ONE of the three F12 display knobs acts on this report — the gate on the panel's

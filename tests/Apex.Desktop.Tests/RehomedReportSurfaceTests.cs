@@ -1099,7 +1099,7 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     [InlineData(ReportKind.PaySheet, ReportFeatureGate.Payroll)]
     [InlineData(ReportKind.AttendanceSheet, ReportFeatureGate.Payroll)]
     [InlineData(ReportKind.PfForm3A, ReportFeatureGate.PayrollStatutory)]
-    [InlineData(ReportKind.IncomeTaxComputation, ReportFeatureGate.PayrollStatutory)]
+    [InlineData(ReportKind.IncomeTaxComputation, ReportFeatureGate.SalaryTds)]
     [InlineData(ReportKind.TdsOutstanding, ReportFeatureGate.Tds)]
     [InlineData(ReportKind.TcsOutstanding, ReportFeatureGate.Tcs)]
     [InlineData(ReportKind.LedgersWithoutPan, ReportFeatureGate.TdsOrTcs)]
@@ -1291,6 +1291,78 @@ public sealed class RehomedReportSurfaceTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>THE INCOME TAX COMPUTATION'S SECOND CONDITION — THE ONE GATE THAT MODELLED THE MENU GROUP AND NOT
+    /// THE MENU ROW.</b>
+    ///
+    /// <para>Census 7.26 sits inside the Payroll-Statutory column but is added under a further
+    /// <c>Enable Salary TDS</c> test, so a company with the statute ON and §192 OFF loses the row from the cascade
+    /// and from Go To. The decision table mapped the kind to <c>PayrollStatutory</c> alone, which is TRUE for such
+    /// a company — so Alt+K opened one employee's annual income-tax computation on a company whose menu row had
+    /// gone, and <c>OpenPayrollStatutoryForm</c> let the cascade dispatch through as well. The file that table
+    /// lives in promises the two doors "cannot answer differently"; this is the case that made that false, and it
+    /// is the case the family theory above cannot reach, because there both switches are off together and every
+    /// door agrees for the wrong reason.</para>
+    ///
+    /// <para>All THREE doors are driven, in both directions, on ONE company whose only change between the halves
+    /// is the §192 switch.</para>
+    /// </summary>
+    [Fact]
+    public void The_income_tax_computation_leaves_every_door_when_salary_tds_alone_is_switched_off()
+    {
+        var vm = PayrollFixture("Salary TDS Gate", gratuity: false, bonus: false);
+        var c = vm.Company!;
+        new PayrollService(c).EnableSalaryTds();
+        Assert.True(c.PayrollStatutoryEnabled);
+
+        var view = new Apex.Ledger.Reports.SavedReportView
+        {
+            ReportKind = ReportsViewModel.TokenFor(ReportKind.IncomeTaxComputation),
+            AsOfDate = c.FinancialYearStart.AddMonths(1),
+        };
+
+        // ---- §192 ON: the row is in the Go To index, the opener opens and the saved view opens. Without this
+        // half the negative half below would pass on a company that never had the report in the first place.
+        vm.OpenGoTo();
+        Assert.Contains(vm.GoTo!.AllDestinations, d => d.Label == "Income Tax Computation");
+        vm.CloseGoTo();
+
+        vm.OpenPayrollStatutoryForm(ReportKind.IncomeTaxComputation);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.IncomeTaxComputation, vm.Reports!.Kind);
+        vm.Back();
+
+        vm.ApplySavedView(view);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.IncomeTaxComputation, vm.Reports!.Kind);
+        vm.Back();
+
+        // ---- §192 OFF, Payroll Statutory still ON. The group survives; the row must not.
+        new PayrollService(c).DisableSalaryTds();
+        Assert.True(c.PayrollStatutoryEnabled, "the GROUP switch must stay on, or this proves nothing new.");
+        Assert.False(c.SalaryTdsEnabled);
+
+        vm.OpenGoTo();
+        Assert.DoesNotContain(vm.GoTo!.AllDestinations, d => d.Label == "Income Tax Computation");
+        // The group itself is still reachable, so the row left for its own reason and not with the column.
+        Assert.Contains(vm.GoTo!.AllDestinations, d => d.Label == "Payroll Statutory Summary");
+        vm.CloseGoTo();
+
+        vm.OpenPayrollStatutoryForm(ReportKind.IncomeTaxComputation);
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+
+        vm.ApplySavedView(view);
+        Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        Assert.Null(vm.Reports);
+        Assert.Contains("switched off", vm.Message);
+
+        // ---- and the statutory forms in the same column are untouched by the §192 switch, so the tightening did
+        // not close the door on the eight kinds this opener was written for.
+        vm.OpenPayrollStatutoryForm(ReportKind.PfForm3A);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.PfForm3A, vm.Reports!.Kind);
+    }
+
+    /// <summary>
     /// 🔴🔴 <b>BARE ENTER ON THE E-PAYMENTS REPORT MUST NOT WRITE A BANK PAYMENT-INSTRUCTION FILE (review
     /// finding N2).</b> This is the OTHER half of the class the <c>viaAcceptChord</c> parameter was introduced to
     /// close. The previous pass guarded the gratuity arm three lines below this one, wrote a comment naming
@@ -1394,8 +1466,8 @@ public sealed class RehomedReportSurfaceTests : IDisposable
             Apex.Ledger.Reports.ClosingStockMode.InventoryDerived);
         Assert.Equal(before, RowText(dayBook));
 
-        // ---- Trial Balance: hide-zero and percentages act; the closing-stock basis does NOT (only BS and P&L
-        // read it, through ReportOptions).
+        // ---- Trial Balance: hide-zero and percentages act; the closing-stock basis does NOT (it reaches a
+        // report only through BalanceSheet.Build / ProfitAndLoss.Build, and the Trial Balance is neither).
         var trialBalance = new ReportsViewModel(c, ReportKind.TrialBalance);
         Assert.True(trialBalance.SupportsHideZeroBalances);
         Assert.True(trialBalance.SupportsPercentages);
@@ -1409,6 +1481,20 @@ public sealed class RehomedReportSurfaceTests : IDisposable
             Assert.True(r.SupportsPercentages, $"{kind} lost percentages.");
             Assert.True(r.SupportsClosingStockBasis, $"{kind} lost the closing-stock basis.");
         }
+
+        // ---- Ratio Analysis: the closing-stock basis ONLY, and it is the kind the first draft of this predicate
+        // dropped. It reads the basis TRANSITIVELY — RatioAnalysis.Build calls BalanceSheet.Build and
+        // ProfitAndLoss.Build with the caller's own options — so a predicate written from "whose Build names
+        // options.ClosingStock" misses it and removes a control that WORKS ON MAIN. Hide-zero and percentages are
+        // correctly absent: the dashboard's rows are computed figures, not a filterable ledger list.
+        var ratio = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        Assert.False(ratio.SupportsHideZeroBalances);
+        Assert.False(ratio.SupportsPercentages);
+        Assert.True(ratio.SupportsClosingStockBasis,
+            "The Ratio Analysis is built out of the Balance Sheet and the P&L under the caller's own options, so "
+            + "the closing-stock basis moves its figures. Hiding the control there is the dead-knob defect one "
+            + "direction over: a live setting the operator can no longer reach.");
+        Assert.True(ratio.SupportsDisplayOptions);       // the section heading must still appear
 
         // ---- Stock Summary: hide-zero and percentages, but it values stock directly and ignores the basis.
         var stock = new ReportsViewModel(c, ReportKind.StockSummary);
@@ -1426,6 +1512,84 @@ public sealed class RehomedReportSurfaceTests : IDisposable
         Assert.False(attendance.SupportsPercentages);
         Assert.False(attendance.SupportsClosingStockBasis);
         Assert.True(attendance.SupportsDisplayOptions);          // the section heading must still appear
+
+        // 🔴 THE ATTENDANCE SHEET'S POSITIVE DIRECTION IS PROVEN BEHAVIOURALLY, JUST NOT HERE, AND THE CROSS-
+        // REFERENCE IS WRITTEN DOWN SO IT IS NOT RE-FILED AS MISSING. PayrollFixture hires nobody, so on THIS
+        // company the sheet has no rows and a hide-zero comparison would pass vacuously. The rows-actually-leave
+        // proof lives on a populated payroll book, on the realised window, in
+        // PayrollJ1ReachabilityTests.The_attendance_sheets_f12_remove_zero_valued_option_actually_hides_the_empty_row:
+        // the employee with no attendance disappears from the rendered grid and the one with attendance stays.
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE CLOSING-STOCK BASIS IS OFFERED ON EXACTLY THE REPORTS IT MOVES — SWEPT OVER EVERY
+    /// <see cref="ReportKind"/>, NOT CHECKED AGAINST A LIST.</b>
+    ///
+    /// <para><b>The defect this exists to stop, stated as it happened.</b> On <c>main</c> the closing-stock
+    /// combo carried no visibility binding at all, so it was on screen and working on every report. A pass that
+    /// set out to hide DEAD knobs wrote the predicate from "which <c>Build</c> method names
+    /// <c>options.ClosingStock</c>", got the Balance Sheet and the P&amp;L, and hid the control everywhere else —
+    /// including on the Ratio Analysis, which is BUILT OUT OF BOTH OF THEM under the caller's own options and
+    /// whose Working Capital, Current Assets, Nett Profit, Current Ratio and Return on Investment all move when
+    /// the basis changes. A fix that removes a working control is a regression however green the suite is, and
+    /// this repository has shipped that exact shape once before with F12.</para>
+    ///
+    /// <para><b>Why a sweep and not three more assertions.</b> A list-shaped test only ever re-states the list
+    /// the predicate already contains, so it cannot catch the NEXT kind that starts reading the basis
+    /// transitively. This drives every kind the enum has on one populated book and compares two sets: the kinds
+    /// whose rendered rows CHANGE under the basis, and the kinds the panel OFFERS the control on. They must be
+    /// the same set — a kind in the first and not the second is a working control removed (the A1 regression), a
+    /// kind in the second and not the first is the dead knob the original finding was about.</para>
+    /// </summary>
+    [Fact]
+    public void The_closing_stock_basis_is_offered_on_exactly_the_reports_whose_figures_it_moves()
+    {
+        var vm = ClosingStockFixture("Closing Stock Sweep");
+        var c = vm.Company!;
+
+        // The fixture only earns its keep if the two bases genuinely differ on this book: inventory values at
+        // ₹10,000 while no Stock-in-Hand ledger was ever posted, so AsPostedLedger sees 0 and InventoryDerived
+        // sees ₹10,000. Without this the sweep below would find nothing moving and pass for the wrong reason.
+        Assert.Equal(10_000m,
+            new Apex.Ledger.Services.StockValuationService(c).TotalClosingStockValue(c.FinancialYearStart.AddYears(1)).Amount);
+
+        var moved = new List<ReportKind>();
+        var offered = new List<ReportKind>();
+        var threw = new List<string>();
+
+        foreach (var kind in Enum.GetValues<ReportKind>())
+        {
+            try
+            {
+                var r = new ReportsViewModel(c, kind);
+                WidenToAllTime(r, c);
+                if (r.SupportsClosingStockBasis) offered.Add(kind);
+
+                var before = RowText(r);
+                // Only the basis moves. Carrying the report's own current hide-zero / percentages through means a
+                // difference below can be attributed to the basis and to nothing else.
+                r.ApplyConfiguration(r.HideZeroBalances, r.ShowPercentages,
+                    Apex.Ledger.Reports.ClosingStockMode.InventoryDerived);
+                if (RowText(r) != before) moved.Add(kind);
+            }
+            catch (Exception ex)
+            {
+                threw.Add($"{kind}: {ex.GetType().Name} {ex.Message}");
+            }
+        }
+
+        Assert.True(threw.Count == 0,
+            "A report kind could not be projected at all on this book, so the sweep never reached it and its "
+            + "knob is unmeasured: " + string.Join(" | ", threw));
+
+        // Anti-vacuity: the three kinds the basis is KNOWN to move must be in the moved set. If the fixture ever
+        // stops carrying stock, this fires instead of the set comparison silently agreeing at empty-vs-empty.
+        foreach (var known in new[] { ReportKind.BalanceSheet, ReportKind.ProfitAndLoss, ReportKind.RatioAnalysis })
+            Assert.True(moved.Contains(known),
+                $"{known} did not change under the closing-stock basis, so this fixture no longer proves anything "
+                + "about the basis at all. Fix the fixture before touching the predicate.");
+
+        Assert.Equal(moved.OrderBy(k => k.ToString()).ToList(), offered.OrderBy(k => k.ToString()).ToList());
     }
 
     /// <summary>
@@ -1459,6 +1623,23 @@ public sealed class RehomedReportSurfaceTests : IDisposable
         Pump(window);
         Assert.True(VisibleCheckBox(window, "Hide zero balances"));
         Assert.True(VisibleLabel(window, "Closing stock"));
+        vm.Back();
+        vm.Back();
+        Pump(window);
+
+        // ---- A Ratio Analysis: the closing-stock basis IS on screen and the other two are not. This is the A1
+        // regression case on the realised tree — the control is visible and working on main, and a view-model flag
+        // proves nothing about whether the operator can actually see the combo.
+        vm.OpenReport(ReportKind.RatioAnalysis);
+        vm.OpenReportConfig();
+        Pump(window);
+        Assert.True(VisibleLabel(window, "Closing stock"),
+            "The closing-stock control is missing from the Ratio Analysis F12 panel, where it is on screen and "
+            + "working on main and where the basis moves Working Capital, the Current Ratio and Return on "
+            + "Investment.");
+        Assert.True(VisibleLabel(window, "Display"));
+        Assert.False(VisibleCheckBox(window, "Hide zero balances"));
+        Assert.False(VisibleCheckBox(window, "Show percentages (of section/column total)"));
         vm.Back();
         vm.Back();
         Pump(window);
@@ -1658,6 +1839,39 @@ public sealed class RehomedReportSurfaceTests : IDisposable
             c.FinancialYearStart, c.FinancialYearStart.AddYears(1).AddDays(-1));
         budget.AddLine(BudgetLine.ForLedger(rent.Id, BudgetType.OnNettTransactions, Money.FromRupees(60_000m)));
         c.AddBudget(budget);
+
+        _storage.Save(c);
+        return vm;
+    }
+
+    /// <summary>
+    /// <see cref="FullFixture"/> plus REAL INVENTORY: one item received at ₹10,000 with no accounting voucher
+    /// behind it, so the two closing-stock bases disagree by a figure large enough to move every report built on
+    /// them. As-posted sees a Stock-in-Hand ledger of zero; inventory-derived sees ₹10,000.
+    ///
+    /// <para>A ReceiptNote is deliberate: it is a pure inventory voucher, so it moves the derived valuation
+    /// WITHOUT posting to any ledger. A purchase voucher would credit a party and debit stock, the two bases
+    /// would converge, and the sweep that depends on them differing would quietly measure nothing.</para>
+    /// </summary>
+    private MainWindowViewModel ClosingStockFixture(string name)
+    {
+        var vm = FullFixture(name);
+        var c = vm.Company!;
+
+        var masters = new InventoryService(c);
+        var group = masters.CreateStockGroup("Traded Goods");
+        var nos = masters.CreateSimpleUnit("Nos", "Numbers");
+        var item = masters.CreateStockItem("Widget", group.Id, nos.Id,
+            valuationMethod: StockValuationMethod.AverageCost);
+
+        var receiptNote = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.ReceiptNote).Id;
+        new InventoryPostingService(c).Post(new InventoryVoucher(
+            Guid.NewGuid(), receiptNote, c.FinancialYearStart.AddMonths(1),
+            new[]
+            {
+                new InventoryAllocation(item.Id, c.MainLocation!.Id, 100m, StockDirection.Inward,
+                    Money.FromRupees(100m)),
+            }));
 
         _storage.Save(c);
         return vm;
