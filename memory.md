@@ -2305,7 +2305,7 @@ pushed to origin, main untouched. **Next = S6 (Form 27EQ quarterly TCS return + 
 - **`85f82dd` — W0-15 / W0-16, schema-clean.** GSTR-1 was filing **the supplier's own State** on an IGST voucher, and **no test had ever read a `.md` file**. That commit fixed the first and added `DocumentCodeAgreementTests`' content-checking companion, `tests/Apex.Ledger.Tests/LoadBearingCitationContentTests.cs` — a small table of citations that are the *sole evidence* for a design ruling or a user gate, matched **by content**, not merely by reach.
 - **`e49b88e` — TWO SLICES IN ONE COMMIT, DELIBERATELY.** 61 files, +3216/−121. The commit body argues the split at length and the argument holds: the two slices are coupled **through line numbers in both directions** (W0-2a's own new content-anchor asserts a `plan.md` citation of `ImportPlan.cs:1198-1199`, which is 1183 + WF-1's +15 shift), so **each ordering would ship a falsehood in the intermediate commit**. Gate measured on the quiesced tree: build **0W/0E** · Ledger **1660** · Io **405** · Sqlite **223** · Desktop **2133**.
 
-**▶ (1) WF-1 (`plan.md` slice S4) — SCHEMA v50 → 51, AND NOTHING READS IT.** `Schema.MigrateV50ToV51` (`src/Apex.Persistence.Sqlite/Schema.cs:4335` — re-pointed 2026-09-15 from ~~`:4323`~~, schema v64 (defect T1-26 — the dated §192 slab table and the 4% cess ruling) added the `income_tax_cess_rates` table and its index to `CreateV1` above it, the cited code being unchanged; itself re-pointed 2026-09-14 from ~~`:4272`~~, schema v62 (W-Q1 census 2.6 Voucher Class) added the two `voucher_class_*` child tables and their two indexes to `CreateV1` and schema v63 (W-R1 census 7.19 Labour Welfare Fund) added the two `pay_head_computation_slabs` effective-window columns to `CreateV1` above it — both landed in this tree at the same merge, which is why neither branch's own figure survived; itself re-pointed 2026-09-08 from ~~`:4221`~~, schema v61 (W-P1 census 6.23 Multiple GSTIN registrations / 6.25 GST Classification master) added the `gst_registrations` and `gst_classifications` tables plus the `companies.gst_primary_registration_name` and `vouchers.gst_registration_id` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4206`~~, schema v60 (W-O1 census 2.2 Group behavioural flags / 3.6 Alternate units) added the five `groups` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4146`~~, schema v59 (W-N1 State VAT & CST) added lines above it; itself re-pointed the same day from ~~`:4093`~~, schema v58 (W-K1 inventory costing & tracking) added lines above it; itself re-pointed 2026-09-07 from ~~`:3936`~~, schema v56 (Security Control) added lines above it; itself re-pointed the same day from ~~`:3916`~~, schema v55) — anchored on the bump's own migration constant rather than on `Schema.CurrentVersion`, which has since moved past 51 (the voucher edit log took it to 52, and the ladder now runs to 55) and could therefore no longer evidence this sentence. Fourteen columns: six on `companies` (two source-order options + a four-field company default block) and four apiece on `groups` and `stock_groups`. New domain: `src/Apex.Ledger/Domain/MasterGstDetails.cs` (HSN/SAC, taxability, rate bp, supply type) + `GstDetailSource`, hung on `Group`, `StockGroup` and `GstConfig.DefaultGst`. Full canonical XML/JSON parity and `ImportPlan` pre-flight validation. **The `StockItemFirst` back-fill is an explicit `UPDATE`, NOT a column default** — the default must stay `0` on both sides or the migration-equivalence test fails on `PRAGMA table_info`, so a **fresh** company gets `LedgerFirst` and an **upgraded** one gets `StockItemFirst`. That asymmetry is the whole point of the slice's test file. 🔴 **IT IS INERT: `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs` are UNTOUCHED, the two source-order fields have no reader outside persistence and Io, every rate still resolves item-first, IV-1 is NOT fixed and census T0-4 STAYS OPEN.** The resolver plus its four item-first call sites is the unshipped **second half of S4** — **not** WF-2, which is the §194Q carve and ~~owns v52~~ holds NO version: v52 was taken 2026-08-19 by the voucher edit log.
+**▶ (1) WF-1 (`plan.md` slice S4) — SCHEMA v50 → 51, AND NOTHING READS IT.** `Schema.MigrateV50ToV51` (`src/Apex.Persistence.Sqlite/Schema.cs:4358` — re-pointed 2026-09-24 from ~~`:4335`~~, A12, wave 32: TWO stale `"v59"` restatements near the top of the file — the `Schema` type doc's, and `CurrentVersion`'s OWN doc comment claiming `"v59 is the latest bump"` while the constant read 64 — were each replaced by a note that DELETES the restated digit rather than updating it, adding 23 lines; the cited constant is unchanged, only its line number moved; itself re-pointed 2026-09-15 from ~~`:4323`~~, schema v64 (defect T1-26 — the dated §192 slab table and the 4% cess ruling) added the `income_tax_cess_rates` table and its index to `CreateV1` above it, the cited code being unchanged; itself re-pointed 2026-09-14 from ~~`:4272`~~, schema v62 (W-Q1 census 2.6 Voucher Class) added the two `voucher_class_*` child tables and their two indexes to `CreateV1` and schema v63 (W-R1 census 7.19 Labour Welfare Fund) added the two `pay_head_computation_slabs` effective-window columns to `CreateV1` above it — both landed in this tree at the same merge, which is why neither branch's own figure survived; itself re-pointed 2026-09-08 from ~~`:4221`~~, schema v61 (W-P1 census 6.23 Multiple GSTIN registrations / 6.25 GST Classification master) added the `gst_registrations` and `gst_classifications` tables plus the `companies.gst_primary_registration_name` and `vouchers.gst_registration_id` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4206`~~, schema v60 (W-O1 census 2.2 Group behavioural flags / 3.6 Alternate units) added the five `groups` columns to `CreateV1` above it; itself re-pointed the same day from ~~`:4146`~~, schema v59 (W-N1 State VAT & CST) added lines above it; itself re-pointed the same day from ~~`:4093`~~, schema v58 (W-K1 inventory costing & tracking) added lines above it; itself re-pointed 2026-09-07 from ~~`:3936`~~, schema v56 (Security Control) added lines above it; itself re-pointed the same day from ~~`:3916`~~, schema v55) — anchored on the bump's own migration constant rather than on `Schema.CurrentVersion`, which has since moved past 51 (the voucher edit log took it to 52, and the ladder now runs to 55) and could therefore no longer evidence this sentence. Fourteen columns: six on `companies` (two source-order options + a four-field company default block) and four apiece on `groups` and `stock_groups`. New domain: `src/Apex.Ledger/Domain/MasterGstDetails.cs` (HSN/SAC, taxability, rate bp, supply type) + `GstDetailSource`, hung on `Group`, `StockGroup` and `GstConfig.DefaultGst`. Full canonical XML/JSON parity and `ImportPlan` pre-flight validation. **The `StockItemFirst` back-fill is an explicit `UPDATE`, NOT a column default** — the default must stay `0` on both sides or the migration-equivalence test fails on `PRAGMA table_info`, so a **fresh** company gets `LedgerFirst` and an **upgraded** one gets `StockItemFirst`. That asymmetry is the whole point of the slice's test file. 🔴 **IT IS INERT: `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs` are UNTOUCHED, the two source-order fields have no reader outside persistence and Io, every rate still resolves item-first, IV-1 is NOT fixed and census T0-4 STAYS OPEN.** The resolver plus its four item-first call sites is the unshipped **second half of S4** — **not** WF-2, which is the §194Q carve and ~~owns v52~~ holds NO version: v52 was taken 2026-08-19 by the voucher edit log.
 
 **▶ (2) THE R6 DEVIATION, AND ITS CAUSE.** This slice ran with **no design of record**. The workflow was scoped "W0-2 (Company Create/Alter)"; **its design agent died mid-response and returned nothing**, and the empty result was interpolated into the build prompt as an empty design block. The build agent **refused to invent a design**, said so explicitly, reconstructed scope from `plan.md` + `docs/invented-vs-cloned.md` IV-1 + the corpus, and built **WF-1** instead of the row it had been handed. So the work was planned — a `plan.md` row existed, unlike W0-11, which had none; what is missing is the **design gate**, and the phase's A10 three-lens review covered **W0-2a**, not this. It was recorded rather than reverted because what landed is additive, schema-equivalent and defaults to "no GST block" on every existing master. **A dead agent's empty output must FAIL the step, not be interpolated as an empty block** — this is the second time an agent death has silently changed what got built.
 
@@ -3002,3 +3002,126 @@ spent-leaf refusal → a paid cheque is marked Blank.
 `File.ReadAllText`/`WriteAllText`, which do not translate newlines; **one insertion introduced 9 LF-only lines
 into two CRLF files and was caught by counting CR before and after, then normalised.** Repo-wide survey after
 the pass: **1117 CRLF, 0 LF-only, 0 mixed** across `src/` and `tests/` `.cs`/`.axaml`.
+
+---
+
+## 2026-09-24 — WAVE 32 (A12): THE CENSUS-CORRECTION PASS. 20 ROWS PROMOTED, 0 LINES OF PRODUCT CODE WRITTEN
+
+**Branch `claude/apex-solutions-continue-f8ac7a`, cut from `origin/main` `782ec08`, `Schema.CurrentVersion` 64,
+no migration taken.** The whole pass is documentation plus one stale comment: the only `src/` change is a doc
+comment in `Schema.cs`.
+
+**▶ WHY IT EXISTED.** A read-only audit (`…/Apex-Review-Artifacts/remaining-work-answer.md` + four slice files)
+reported that the census **understates what `main` ships**, and named twelve candidate rows. **It built nothing
+and proved only six of the twelve itself.** This pass verified every claim first-hand before moving any token,
+and deliberately looked for corrections in **both** directions.
+
+**▶ THE ARITHMETIC, RE-DERIVED BY RE-RUNNING §1.2a's OWN `awk`, NEVER TYPED.**
+- **BEFORE** (`origin/main` `782ec08`): `TOTAL rows=219 C=53 P=161 A=5 U=0 sum=219`
+- **AFTER**: `TOTAL rows=219 C=73 P=141 A=5 U=0 sum=219` → delta `+0 rows, +20 complete, −20 partial, +0 absent`
+- Eight area headings moved (1, 2, 3, 4, 6, 7, 8, 12); the awk was re-run again after the headings changed.
+- `CensusDerivationDriftLockTests`: **8 passed, 0 failed**, `sum == rows`. `ScopedCapabilityRows` stays **219** —
+  the denominator is a user ruling and nothing here touched it.
+
+**▶ THE 20 PROMOTIONS.** Six were already in the tree uncommitted from a predecessor A12 pass on 2026-09-23
+(**2.1, 3.1, 3.2, 3.5, 6.29, 12.2**) and all six were re-checked rather than inherited. 🔴 **3.5 had been moved
+to `COMPLETE` with NO evidence sentence written under it at all** — that is recorded inside the cell itself,
+because it is exactly the cherry-pick the census header forbids. Fourteen are this pass's: **1.3** · **4.6** ·
+**6.11, 6.12, 6.31, 6.38, 6.42** (the "no output of any kind" family) · **6.39** · **7.2, 7.3, 7.4, 7.6** ·
+**7.21** · **8.9**. Four §3 register rows struck on the same measurements: **T0-1, T0-9, T0-13, T1-17**.
+
+**▶ 🔴 READ THIS AS BOOKKEEPING, NOT PROGRESS.** Every one of the 20 is a census cell that had gone on
+disagreeing with shipped code. The most instructive case: **T0-9's "structurally impossible while the PDF writer
+has no image primitive" was cited as the blocker by THREE separate cells (6.14, 12.2, T0-9) and had been false
+since `7328a42`** — `PdfWriter.Image` is at `PdfWriter.cs:93` and `PdfBitmap.cs` sits beside it. **One stale
+blocker held three rows down.** Census 6.14's own capability is still genuinely open; only its stated blocker
+was false, and the cell now says so.
+
+**▶ 🔴🔴 FIVE CORRECTIONS THAT GO AGAINST US — THE PART A LATER SESSION MUST NOT SKIM.**
+1. **`ReportKind` has 85 members, not 45.** Counted member-by-member at `ReportsViewModel.cs:30-274`. Five cells
+   carried the stale 45 (11.15, 11.16, 11.17, 12.1, §1.3 item 18). So drill coverage is **6 of 85**, comparative
+   coverage **4 of 85**, and the uncaptioned export set is **69 kinds, not 17**. ⚠️ One earlier agent counted
+   **93** at a branch head — also wrong. **COUNT IT, never copy a figure.**
+2. **Print column captions are ZERO for every non-accounting report kind** — `ReportPrintProjector.cs:174-175`
+   emits `string.Empty` for columns 2..n unconditionally. Measured by RUNNING the projector, not reading it.
+3. 🔴 **NEW DEFECT NOBODY HAD FILED: `VatComputation`, `CstFormsReceivable` and `CstFormsIssuable` PRINT AND
+   EXPORT AS PAGES OF ENTIRELY BLANK CELLS.** `ReportsViewModel.IsAccountingReport` (`:439`) is a **negation** of
+   the four family predicates, so these three fall into it, both projectors read `Particulars`/`Amount`, and
+   their builders write `Col1`/`Col3`. **A statutory working paper prints blank, and NO test guards it** — the
+   only two test files naming `VatComputation` touch neither projector.
+4. 🔴 **T0-27 IS WIDER THAN RECORDED AND IT IS WRONG MONEY LIVE AT MAIN — it outranks every capability gap in
+   this pass.** `RatioAnalysis.cs` uses Balance-Sheet CLOSING balances where the vendor specifies **due till
+   today**, and it is **three** published figures, not one: Sundry Debtors (`:94`/`:108`, published `:176`),
+   **Sundry Creditors** (`:113`/`:123`, published `:177` — the creditors side had NEVER been named) and Recv.
+   Turnover in days (`:160`, published `:192`). **NOT FIXED — this was a census pass.** Gate any fix hard: it
+   sits next to the negative-stock-valuation problem, where three attempts each shipped a different unbounded
+   Balance-Sheet error past a fully green suite.
+5. **The banking rows' predicted caption defect is REFUTED and replaced by a different one.** 8.5/8.6/8.7/8.10
+   print Particulars + Amount with real captions and real text — their builders deliberately ride in
+   `Particulars`, and `BuildChequeRegister`'s own comment says why. **Their real gap is that `ReportRow.Secondary`
+   reaches NEITHER projection**, so per-row detail the screen shows is dropped. Recorded because a wrong
+   mechanism sends the fix to the wrong file.
+
+**▶ WHAT THE PASS REFUTED — it is not a cherry-pick.** Rows proposed for promotion that **did not move**:
+**7.13 / 7.14** (`GratuityProvisionRegisterViewModel` and `BonusRegisterViewModel` derive from `ViewModelBase`
+alone — no print, no export; only their `DateOfLeaving` half was false) · **7.5** (nothing still seeds
+Present/Absent/Leave) · **7.7** (salary structure genuinely IS still create-only, and it is what every payroll
+run reads) · **7.16** (`4 of 8` → **`6 of 8`**: a fraction change, not a promotion) · **11.4** (gap (a) survives)
+· **11.13** (`4 of ~9` → **`7 of ~9`**) · **9.2** (three missing verbs → **one**, and the survivor is a silent
+no-op) · **5.2 / 5.3 / 1.2 / 2.5**. ⚠️ **The audit's blanket claim that "create only is false across 7.2–7.8"
+was true for four rows and FALSE for 7.7. A range claim is how a real gap gets struck by association.**
+
+**▶ 🔴 TWO AUDIT CLAIMS REFUTED OUTRIGHT.**
+- **2.5 has no divergence of either sign.** The audit said we ship a fifth numbering method, `None`, that the
+  vendor lacks. **The census cell was wrong in the OTHER direction and is now re-corrected for the THIRD time:**
+  `help.tallysolutions.com/use-voucher-numbering-methods/` (opened and checked by content) names all five
+  including `None` — *"Select this option to disable the voucher numbering."* Ours are five. **The lesson: ONE
+  vendor page is not the vendor's answer — this row was measured against one page twice and got a different
+  wrong answer each time.**
+- **Census line ~1397's `C=52 P=162` was a CORRECT historical transcription that went stale**, not a
+  mis-derivation. I re-ran the awk **at the commits that wrote it**: right at `4803a6b` and `1f49a63`, stale from
+  `623e029`. **Annotated, not overwritten** — overwriting would falsify what that run said on that date.
+
+**▶ VENDOR PAGES OPENED AND CHECKED BY CONTENT (ruling 14, four of them).** ratio-analysis (*"Sundry Debtors
+(due till today)"*) · use-voucher-numbering-methods (the `None` option) · budgets-tally (**`F10` (Budget
+Variance)**, from **Trial Balance, Group Summary AND Monthly Summary** — so census 11.11's `Alt+B` reframe named
+a chord the vendor does not use here, and its host list was short) · accounting-faq (Account Books > Ledger lands
+on **Ledger Vouchers** and `F6 (Monthly)` opens the summary — which **inverts census 11.5's gap (a) premise** and
+**retires T1-32's "building it once moves five rows" lever**; any estimate resting on T1-32 must be re-derived).
+
+**▶ MUTATION EVIDENCE.** `TdsService.ChargeableBase` forced to `return current` (the exact T0-1 defect) →
+**exactly the 6 named tests redden**: four `Tds194QExcessCarveTests` and two
+`TdsServiceTests.Section_194Q_resolves_special_no_pan_cap` cases (`Failed: 6, Passed: 2848` of 2854). Restored
+byte-exact from a copy; `git diff` on the file empty afterwards. **The file is LF-only (CR count 0), measured
+before editing.**
+
+**▶ THE PROBE — A MEASUREMENT, NOT A READING.** A throwaway `[Fact]` constructed `ReportsViewModel` directly
+(no Avalonia needed — the ctor takes `Company` + `ReportKind` and calls `Show` itself) over 13 report kinds and
+ran BOTH projectors, dumping family flags, both header lists and the first rows. Output kept at
+`…/Apex-Review-Artifacts/A12-w32-census-probe.txt`; **the test file was deleted before the commit.** This is what
+found finding 3 above and refuted finding 5 — neither was visible from reading the code.
+
+**▶ 🔴 A LINE-NUMBER CASCADE THIS PASS CAUSED AND HAD TO REPAIR.** Fixing the stale `"CurrentVersion = 59"`
+sentence in `Schema.cs` **added five lines near the top of the file**, which moved every later line and reddened
+`LoadBearingCitationContentTests` with **four** drifted citations. Re-anchored: `plan.md` `Schema.cs:264-265` →
+**`:287-288`** (two places) and `:4357` → **`:4380`**; `memory.md` `:4335` → **`:4358`**. ⚠️ **`CurrentVersion`
+itself is now at `Schema.cs:289`, NOT `:266`** — any brief still saying `:266` is stale.
+🔴 **AND THE FILE WAS WRONG ABOUT ITSELF TWICE, NOT ONCE.** The brief named the type doc at `:159`. While
+verifying that fix I found the SAME defect one summary lower and more misleading, because it sits directly on the
+constant: `CurrentVersion`'s OWN doc comment opened *"**v59** is the latest bump"* and had gone on saying it
+through five further bumps. Both are fixed the same way — **the restated digit is DELETED rather than updated,
+because a second copy of a number that already has an authoritative home is a defect whatever value it holds.**
+The v60–v64 ladder entries are **deliberately not written**: they are named by their migration constants
+(`MigrateV59ToV60` … `MigrateV63ToV64`) and left unsummarised, because an unverified summary of a migration is
+worse than a pointer to it — and summarising five from memory is exactly how the stale claim got written.
+
+**▶ LINE ENDINGS.** No `sed`, no mingw `awk` for writing — the Edit tool and Python with `newline=''` throughout.
+`docs/full-clone-census.md`, `plan.md` and `memory.md` are **LF-only (CR count 0 before and after)**. Bracketed
+probe quotes containing a pipe were escaped so they do not split a markdown table cell; a checker confirmed only
+the **three pre-existing** rows (2.12, 6.20, 6.35) still carry unescaped extra pipes.
+
+**▶ 🔴 WHAT THE NEXT SESSION SHOULD DO WITH THIS.** The honest reading of `C=73` is that **the census was 20 rows
+behind the code, not that 20 capabilities were built**. The real remaining work is unchanged in size. **The two
+highest-value items this pass surfaced and did NOT fix:** (1) **T0-27** — wrong money, three figures, live at
+main; (2) the **projector maps** — print captions zero for 69 kinds, plus three reports that print entirely
+blank. Both are now written down at their measured size rather than their assumed one.
