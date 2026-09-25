@@ -39,10 +39,23 @@ public sealed partial class PriceListSlabRowViewModel : ViewModelBase
 }
 
 /// <summary>A dated version row shown in the append-only history list on the master screen.</summary>
-public sealed class PriceListVersionRow
+public sealed partial class PriceListVersionRow : ObservableObject, IMasterListRow
 {
     public string ApplicableFrom { get; init; } = string.Empty;
     public string Slabs { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <summary><inheritdoc/>
+    /// <para>"Wholesale / Widget applicable from 01-Apr-2026". A version has no name — it is identified by the
+    /// (level, item) pair it prices plus its applicable-from date — and the pair is NOT redundant just because
+    /// the form above the list currently shows it: the confirmation is the last thing the operator reads before
+    /// an irreversible act, and it should be complete on its own.</para></summary>
+    public string MasterName { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -56,11 +69,52 @@ public sealed class PriceListVersionRow
 /// <para>Gated by <see cref="Company.EnableMultiplePriceLevels"/> (RQ-52) — a non-price-level company never
 /// reaches it (ER-13). MVVM boundary: domain + persistence only, no Avalonia types ⇒ headlessly testable.</para>
 /// </summary>
-public sealed partial class PriceListsViewModel : ViewModelBase
+public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 3.11): the shared master-list arm
+    //
+    // 🔴 THE LIST THE ARROWS WALK IS THE VERSION HISTORY, AND THE HISTORY IS SCOPED TO THE CHOSEN (level, item).
+    // That is the only list on this screen that holds deletable records; the Levels and Items collections are
+    // pickers, not masters, and the Slabs collection is an unsaved edit buffer. So Alt+D here withdraws ONE
+    // dated version — precisely the half of row 3.11's gap ("no route deletes a list or a version") that has a
+    // record behind it. Changing the level or the item rebuilds the history, which drops the highlight, so the
+    // chord can never act on a version the operator is no longer looking at.
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "price list";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen — a revision is a NEW dated version, not an Alter mode — so it is never
+    /// mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshHistory();
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. See
+    /// <c>PriceListService.DeleteList</c> for why no referential guard is owed here and for the one real
+    /// consequence (the preceding version's date range widens).</remarks>
+    public void DeleteMaster(Guid id) => new PriceListService(_company).DeleteList(id);
+
+    private PayrollMasterHighlight<PriceListVersionRow>? _highlight;
+
+    private PayrollMasterHighlight<PriceListVersionRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<PriceListVersionRow>(
+            History, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing price-list version, or null.</summary>
+    public PriceListVersionRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <summary>The price levels to price against (all defined levels).</summary>
     public ObservableCollection<PriceLevel> Levels { get; } = new();
@@ -212,19 +266,29 @@ public sealed partial class PriceListsViewModel : ViewModelBase
     /// <summary>Rebuilds the append-only history list for the chosen (level, item), newest first (RQ-27).</summary>
     private void RefreshHistory()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo. Changing the level or the item rebuilds
+        // this list with a DIFFERENT set of ids, so the restore finds nothing and the highlight correctly
+        // clears: Alt+D can never act on a version the operator has navigated away from.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         History.Clear();
-        if (SelectedLevel is null || SelectedItem is null) return;
+        if (SelectedLevel is null || SelectedItem is null) { Highlight.RestoreTo(null); return; }
 
         foreach (var pl in _company.PriceListsFor(SelectedLevel.Id, SelectedItem.Id)
                      .OrderByDescending(pl => pl.ApplicableFrom))
         {
             var slabs = string.Join("   ", pl.Slabs.Select(FormatSlab));
+            var from = ApexDate.Format(pl.ApplicableFrom);
             History.Add(new PriceListVersionRow
             {
-                ApplicableFrom = ApexDate.Format(pl.ApplicableFrom),
+                MasterId = pl.Id,
+                MasterName = $"{SelectedLevel.Name} / {SelectedItem.Name} applicable from {from}",
+                ApplicableFrom = from,
                 Slabs = slabs,
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 
     private static string FormatSlab(PriceListSlab s)

@@ -5,13 +5,14 @@ using System.Globalization;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A currency row for the existing-currencies list on the Currency master screen.</summary>
-public sealed class CurrencyListRow
+public sealed partial class CurrencyListRow : ObservableObject, IMasterListRow
 {
     public string Symbol { get; init; } = string.Empty;
     public string FormalName { get; init; } = string.Empty;
@@ -19,6 +20,18 @@ public sealed class CurrencyListRow
 
     /// <summary>"Base" for the company base currency, else blank.</summary>
     public string Kind { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <summary><inheritdoc/>
+    /// <para>"USD ($)" — the FORMAL NAME leads because that is the unique one. Two currencies can share a
+    /// symbol (USD, CAD, AUD, SGD and HKD are all "$"), so a confirmation built on the symbol alone could name
+    /// a different row than the one highlighted.</para></summary>
+    public string MasterName => $"{FormalName} ({Symbol})";
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>A rate-of-exchange row for the existing-rates list on the Currency master screen.</summary>
@@ -45,11 +58,188 @@ public sealed class ExchangeRateListRow
 /// refresh their lists. MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it
 /// is headlessly unit-testable. Mirrors <see cref="LedgerMasterViewModel"/> / <see cref="ScenarioMasterViewModel"/>.
 /// </summary>
-public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 2.11): the shared master-list arm
+    //
+    // 🔴 THIS SCREEN HAS **TWO** LISTS AND THE SHARED ARM CAN CARRY ONLY ONE. The page stacks the CURRENCIES
+    // grid over the RATES OF EXCHANGE grid. `IMasterListScreen` exposes exactly one highlighted row, so the
+    // arrows and Alt+D are bound to the CURRENCIES list and the rates list is deliberately NOT reachable by
+    // Alt+D. Row 2.11 therefore moves only half way and stays PARTIAL: `Company.RemoveExchangeRate` still has no
+    // Desktop caller.
+    //
+    // The alternative — a "which grid has focus" concept threaded through the shared arm — is a real design
+    // change to a contract six other masters depend on, and guessing at it here is how one master ends up gated
+    // differently from its siblings. It is recorded as owed rather than half-built.
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "currency";
+
+    /// <summary>The currency this screen was opened over for ALTERATION, or <see cref="Guid.Empty"/> when it is
+    /// creating. Set only by <see cref="ForAlter"/>.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    /// <remarks>🔴 Was the constant <c>false</c> until W33 C3 wired <see cref="ForAlter"/>. Now derived, and the
+    /// shell reads it twice: Alt+D is refused while it is true, and <c>ActivateSelected</c> uses it to decide
+    /// whether Ctrl+A on the currency form means <see cref="CreateCurrency"/> or <see cref="AlterCurrency"/>.
+    /// <b>The RATE form's Ctrl+A is unaffected</b> — it has its own button/handler and adds a dated quote either
+    /// way, which is what the vendor page describes as available alongside an alteration.</remarks>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The column caption — "Currency Alteration" while altering, else "Currency Creation".</summary>
+    public string Caption => IsAltering ? "Currency Alteration" : "Currency Creation";
+
+    /// <summary>
+    /// Opens this screen over an EXISTING currency, for an alteration of its symbol, formal name or decimal places
+    /// (census 2.11, W33 C3). Returns <c>null</c> if the id does not resolve <b>or if the id is the BASE
+    /// currency</b>.
+    ///
+    /// <para><b>FIDELITY (R7): VENDOR-ATTESTED.</b> TallyPrime reaches it at <i>Alt+G (Go To) &gt; Alter Master
+    /// &gt; Currency &gt; select the currency you want to alter</i>, and the alterable details are the symbol,
+    /// formal name, ISO code and decimal places
+    /// [help.tallysolutions.com/create-alter-or-delete-currencies/, read 2026-09-25]. <b>We carry no separate ISO
+    /// code field</b> — <see cref="FormalName"/> IS the ISO-style code in this product's model
+    /// (<c>Currency.FormalName</c>: "Formal / ISO name (e.g. INR, USD, EUR)") — so three of the four attested
+    /// fields are present and the fourth does not exist to alter. That is a model difference, recorded, not a
+    /// silent omission.</para>
+    ///
+    /// <para>🔴 <b>THE BASE CURRENCY IS REFUSED HERE AND THAT IS A CORRECTNESS RULE, NOT TIMIDITY.</b> The base
+    /// <c>Currency</c> row is a PROJECTION of <c>Company.BaseCurrencySymbol</c> / <c>BaseCurrencyName</c> /
+    /// <c>DecimalPlaces</c> — <c>SeedCurrencies.BuildBaseCurrency</c> builds it from exactly those three fields and
+    /// nothing re-syncs it afterwards. Renaming the row alone would leave the company profile saying ₹/INR while
+    /// the currency master said something else, and the two are printed by different screens. The company profile
+    /// (F3 &gt; Alter Company) is the one place that owns those fields and already edits them, which is also how
+    /// the vendor separates it — a distinct "Change Base Currency" procedure rather than an Alter Master. The
+    /// shell turns this <c>null</c> into a NOTICE naming that route, so the refusal is not a silent no-op.</para>
+    ///
+    /// <para><b>Altering DecimalPlaces cannot move a figure.</b> Measured, not assumed:
+    /// <c>Currency.DecimalPlaces</c> has exactly one reader in the whole product —
+    /// <see cref="RefreshCurrencies"/>, which prints it in the list column — so it formats and rounds nothing. A
+    /// forex line's base <see cref="Apex.Ledger.Domain.Money"/> is already exact paisa and is untouched.</para>
+    /// </summary>
+    public static CurrencyMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid currencyId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindCurrency(currencyId) is not { } currency) return null;
+        if (currency.IsBaseCurrency) return null;
+
+        var vm = new CurrencyMasterViewModel(company, storage, onChanged);
+        vm._editingId = currencyId;
+        vm.Symbol = currency.Symbol;
+        vm.FormalName = currency.FormalName;
+        vm.DecimalPlacesText = currency.DecimalPlaces.ToString(CultureInfo.InvariantCulture);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: writes the symbol, formal name and decimal places back onto the currency this screen
+    /// was opened over. Same three validations <see cref="CreateCurrency"/> applies, with the currency excluded
+    /// from its own uniqueness check so re-accepting an unchanged form is a no-op rather than a duplicate error.
+    ///
+    /// <para>🔴 <b>THE CHECK IS DONE BEFORE ANY FIELD IS WRITTEN</b>, and all three fields are then written
+    /// together. Setting <see cref="Apex.Ledger.Domain.Currency.Symbol"/> first and discovering the decimals do
+    /// not parse would leave the master half-altered in memory with the operator told it failed.</para>
+    /// </summary>
+    public bool AlterCurrency()
+    {
+        CurrencyMessage = null;
+        if (_editingId == Guid.Empty)
+        {
+            CurrencyMessage = "This screen is not altering an existing currency.";
+            return false;
+        }
+        if (_company.FindCurrency(_editingId) is not { } currency)
+        {
+            CurrencyMessage = "That currency no longer exists.";
+            return false;
+        }
+
+        var symbol = (Symbol ?? string.Empty).Trim();
+        var formal = (FormalName ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            CurrencyMessage = "A currency symbol is required (e.g. $).";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(formal))
+        {
+            CurrencyMessage = "A formal name is required (e.g. USD).";
+            return false;
+        }
+        // 🔴 EXCLUDE SELF BY ID. FindCurrencyByName matches the formal name OR the symbol, case-insensitively, so
+        // on an unchanged form it finds THIS currency — a bare null check would refuse the operator their own
+        // values back and make "open, look, accept" an error. A DIFFERENT currency owning either string is still
+        // refused, which is the rule Create enforces.
+        if ((_company.FindCurrencyByName(formal) is { } byName && byName.Id != _editingId)
+            || (_company.FindCurrencyByName(symbol) is { } bySymbol && bySymbol.Id != _editingId))
+        {
+            CurrencyMessage = $"A currency '{formal}' ({symbol}) already exists.";
+            return false;
+        }
+        if (!int.TryParse((DecimalPlacesText ?? string.Empty).Trim(), out var decimals) || decimals < 0)
+        {
+            CurrencyMessage = "Decimal places must be a whole number ≥ 0.";
+            return false;
+        }
+
+        currency.Symbol = symbol;
+        currency.FormalName = formal;
+        currency.DecimalPlaces = decimals;
+        _storage.Save(_company);
+
+        RefreshCurrencies();
+        RefreshRates();              // the rate list prints the currency NAME — it would otherwise show the old one
+        CurrencyMessage = $"Currency '{formal}' ({symbol}) altered.";
+        _onChanged();
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting()
+    {
+        RefreshCurrencies();
+        RefreshRates();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. The refusal is
+    /// <see cref="MasterDeletionRules.EnsureCurrencyDeletable"/>'s own message: the base currency is refused
+    /// outright, a currency any posted entry line is entered in is refused with the count, and a currency a
+    /// ledger or a rate quote still names is refused with the breakdown. A currency has no service of its own
+    /// (create goes straight to <c>Company.AddCurrency</c>), so the guard is asked here directly, which is the
+    /// same order every service-backed sibling uses: guard first, remove second, never half-applied.</remarks>
+    public void DeleteMaster(Guid id)
+    {
+        var currency = _company.FindCurrency(id)
+            ?? throw new InvalidOperationException($"Currency {id} not found.");
+
+        MasterDeletionRules.EnsureCurrencyDeletable(_company, currency);
+        _company.RemoveCurrency(currency);
+    }
+
+    private PayrollMasterHighlight<CurrencyListRow>? _highlight;
+
+    private PayrollMasterHighlight<CurrencyListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<CurrencyListRow>(
+            Currencies, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing currency, or null.</summary>
+    public CurrencyListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     /// <remarks>Snapshots the <see cref="Currencies"/> master list (the screen's primary grid); the dated
@@ -215,6 +405,9 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
 
     private void RefreshCurrencies()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Currencies.Clear();
         foreach (var c in _company.Currencies
                      .OrderByDescending(c => c.IsBaseCurrency)
@@ -222,12 +415,15 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
         {
             Currencies.Add(new CurrencyListRow
             {
+                MasterId = c.Id,
                 Symbol = c.Symbol,
                 FormalName = c.FormalName,
                 Decimals = c.DecimalPlaces.ToString(CultureInfo.InvariantCulture),
                 Kind = c.IsBaseCurrency ? "Base" : "Foreign",
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
 
         // Refresh the rate-form currency picker (foreign currencies only), keeping the selection if possible.
         var previousId = RateCurrency?.Id;

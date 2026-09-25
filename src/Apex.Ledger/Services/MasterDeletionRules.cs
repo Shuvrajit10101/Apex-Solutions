@@ -1183,6 +1183,143 @@ public static class MasterDeletionRules
         ThrowIfNamed(referenceParts, $"cost centre '{centre.Name}'");
     }
 
+    // ============================================================ W33 C3: the residual master-verb parents
+    //
+    // 🔴 WHY THESE TWO GUARDS ARRIVE TOGETHER AND WHY THE OTHER SIX MASTERS IN THE SAME SLICE GET NONE.
+    // Wave 33's cluster wires Alt+D on eight masters that never had it (Batch, BOM, Currency, Budget, Scenario,
+    // Price Level, Price List, Reorder Levels). A guard is owed exactly where the schema declares a foreign key
+    // into the parent that is NOT written from the parent's own object graph — the distinction
+    // `ForeignKeyColumnsThatDieWithTheirParent` above draws. Derived from the DDL rather than from a list:
+    //
+    //   · bill_of_materials  ← bom_lines.bom_id (child, dies with it)
+    //                        ← job_work_orders.fill_components_bom_id  🔴 NOT a child — GUARDED BELOW.
+    //   · currencies         ← ledgers.currency_id, exchange_rates.currency_id,
+    //                          entry_lines.forex_currency_id            🔴 none is a child — GUARDED BELOW.
+    //   · budgets            ← budget_lines.budget_id                   (child: Budget.Lines — dies with it)
+    //   · scenarios          ← scenario_voucher_types.scenario_id       (child: Scenario.IncludedTypeIds)
+    //   · price_lists        ← price_list_lines.price_list_id           (child: PriceList.Slabs)
+    //   · reorder_definitions← (nothing references it)
+    //   · price_levels       ← price_lists.price_level_id, ledgers.default_price_level_id
+    //                          — already guarded, in PriceListService.DeleteLevel, and left there.
+    //   · batch_masters      ← four *.batch_id columns that the store NEVER POPULATES (SqliteCompanyStore:2299
+    //                          says so outright); the real reference is the free-string batch LABEL, which
+    //                          BatchService.IsBatchReferenced already counts. Left there for the same reason.
+    //
+    // 🔴 THE FOUR "no guard" ROWS ABOVE ARE A MEASURED ABSENCE, NOT AN OVERSIGHT. Inventing a refusal with no
+    // rule behind it is the defect this file's own InventoryVoucher remarks name; a budget with no external
+    // referent simply deletes.
+
+    /// <summary>
+    /// <b>THE BILL-OF-MATERIALS DELETE GUARD</b> (census 3.9).
+    ///
+    /// <para>🔴 <b>THIS GUARD IS A DEFECT FIX, NOT A NEW RULE FOR A NEW VERB.</b> <c>BomService.DeleteBom</c> has
+    /// existed since Phase 6 and, exactly like <c>LedgerService.Delete</c> before S4, <b>nothing in the
+    /// application called it</b> — so the omission below has never been reachable. Wave 33 wires Alt+D onto the
+    /// BOM master, and the very first keystroke would have made it reachable:
+    /// <c>job_work_orders.fill_components_bom_id</c> is a real <c>REFERENCES bill_of_materials(id)</c> column
+    /// (Schema.cs, v-current DDL) written from <c>Company.InventoryVouchers</c> — a collection of its OWN that
+    /// knows nothing about whether the BOM survived. That is the <c>cheque_books</c> shape verbatim: under
+    /// <c>PRAGMA foreign_keys = ON</c> plus this product's delete-all-and-reinsert save, deleting a BOM a job-work
+    /// order was filled from raises <c>SQLITE_CONSTRAINT_FOREIGNKEY</c> on the NEXT save and on every save after
+    /// it, with the row already gone from memory — <b>the open company can never be saved again.</b></para>
+    ///
+    /// <para><b>The line lines need no clause.</b> <c>bom_lines.bom_id</c> is written from
+    /// <see cref="BillOfMaterials.Lines"/>, so a deleted BOM is simply not enumerated and no row is written.</para>
+    ///
+    /// <para><b>FIDELITY (R7).</b> <b>OURS, and recorded as ours.</b> No admissible source — vendor documentation,
+    /// statutory or internal catalog — speaks to what deleting a BOM does to an order already filled from it, and
+    /// no new vendor claim is made here. What is borrowed is this file's own established SHAPE: count, name the
+    /// blocking records, state the consequence, name the remedy.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A job-work order was filled from this BOM.</exception>
+    public static void EnsureBomDeletable(Company company, BillOfMaterials bom)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(bom);
+
+        // job_work_orders.fill_components_bom_id
+        var orders = company.InventoryVouchers.Count(
+            v => v.JobWorkOrder is { } o && o.FillComponentsBomId == bom.Id);
+
+        if (orders > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete BOM '{bom.Name}': "
+                + $"{Count(orders, "job-work order was filled from it", "job-work orders were filled from it")}. "
+                + "Each of those would be left pointing at a BOM that no longer exists, and the company could not "
+                + "be saved again. Delete those orders first.");
+    }
+
+    /// <summary>
+    /// <b>THE CURRENCY DELETE GUARD</b> (census 2.11). Three real foreign keys point at
+    /// <c>currencies(id)</c> and <b>not one of them is written from the currency's own object graph</b>, so all
+    /// three are counted here: a ledger denominated in it, a dated rate-of-exchange quote for it, and a posted
+    /// entry line entered in it.
+    ///
+    /// <para>🔴 <b>THE POSTED-LINE CLAUSE IS THE ONE THAT MATTERS AND IT IS DELIBERATELY FIRST.</b> It is the
+    /// attested master shape — <i>a master carrying transactions cannot be deleted</i> — and it is also the
+    /// clause with a WRONG-FIGURE consequence rather than merely an unsavable one: a forex line's base
+    /// <see cref="Money"/> is already exact, so a report would still foot, while the line's stated foreign
+    /// amount and rate would name a currency that no longer exists.</para>
+    ///
+    /// <para><b>The BASE currency is refused outright and separately.</b> It is seeded on company create, every
+    /// base-currency figure in the book is denominated in it, and <c>Company.AddCurrency</c> enforces exactly one
+    /// — so removing it is not a delete with consequences, it is a book with no unit. The refusal says so rather
+    /// than reporting a count.</para>
+    ///
+    /// <para><b>FIDELITY (R7). 🔴 PART VENDOR-ATTESTED, AND AN EARLIER DRAFT OF THIS COMMENT WAS WRONG TO CALL
+    /// THE WHOLE RULE OURS.</b> The vendor's own page for this master says it in one sentence — <i>"You can delete
+    /// a currency if it is not used in transactions or opening balance for ledgers"</i> — and gives the keystroke
+    /// as <i>Alt+G (Go To) &gt; Alter Master &gt; Currency &gt; select the currency &gt; press Alt+D (Delete)</i>
+    /// [help.tallysolutions.com/create-alter-or-delete-currencies/, read 2026-09-25]. So the transaction clause
+    /// and the keystroke are ATTESTED, not extrapolated.</para>
+    ///
+    /// <para><b>Where we are deliberately WIDER than the attested rule, said plainly.</b> The vendor names
+    /// <i>transactions</i> and <i>ledger opening balances</i>; the ledger clause below refuses <b>any</b> ledger
+    /// carrying <c>currency_id</c>, opening balance or not, because in this product that column is what makes the
+    /// row savable at all and a ledger left pointing at a deleted currency is the unsavable-company shape. The
+    /// <b>base-currency</b> refusal and the <b>rate-of-exchange</b> clause are OURS and vendor-silent (the page
+    /// treats the base currency through a separate change-base-currency procedure instead), as is every string
+    /// here. <b>No vendor citation is made or implied for those three.</b></para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The currency is the base, or something still names it.</exception>
+    public static void EnsureCurrencyDeletable(Company company, Currency currency)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(currency);
+
+        // 🔴 THE FORMAL NAME LEADS AND THE SYMBOL IS THE PARENTHETICAL, AND THAT IS NOT COSMETIC.
+        // A symbol is NOT unique: USD, CAD, AUD, SGD and HKD are all "$". A refusal — or a confirmation — built
+        // on the symbol alone would name a different row than the one the operator highlighted, on the one verb
+        // in this product that cannot be undone. This is the same string shape CurrencyListRow.MasterName uses,
+        // deliberately, so the question and the refusal identify the same master. A test in
+        // MasterVerbsW33DeletionGuardTests caught the symbol-only first cut of this file.
+        var what = $"currency '{currency.FormalName} ({currency.Symbol})'";
+
+        if (currency.IsBaseCurrency)
+            throw new InvalidOperationException(
+                $"Cannot delete {what}: it is the company's base currency. "
+                + "Every figure in the book is denominated in it, so it cannot be removed at all.");
+
+        // entry_lines.forex_currency_id — the attested "master carrying transactions" clause.
+        var lines = company.Vouchers.Sum(
+            v => v.Lines.Count(l => l.Forex is { } f && f.CurrencyId == currency.Id));
+        if (lines > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete {what}: "
+                + $"{Count(lines, "posted entry line is entered in it", "posted entry lines are entered in it")}. "
+                + "Delete those transactions first, and then you can delete the currency.");
+
+        var referenceParts = new List<string>();
+        // ledgers.currency_id
+        AddPart(referenceParts, company.Ledgers.Count(l => l.CurrencyId == currency.Id),
+                "ledger denominated in it", "ledgers denominated in it");
+        // exchange_rates.currency_id
+        AddPart(referenceParts, company.ExchangeRates.Count(r => r.CurrencyId == currency.Id),
+                "rate-of-exchange quote", "rate-of-exchange quotes");
+
+        ThrowIfNamed(referenceParts, what);
+    }
+
     // ==================================================================== helpers
 
     /// <summary>Appends "1 batch" / "3 batches" to <paramref name="parts"/> when the count is non-zero. One place,

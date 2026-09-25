@@ -11,8 +11,12 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>A batch row for the existing-batches list on the master screen.</summary>
-public sealed class BatchListRow
+/// <summary>A batch row for the existing-batches list on the master screen.
+///
+/// <para>W33 C3 (census 3.8) — carries <see cref="IMasterListRow"/> so the ONE shared
+/// <see cref="IMasterListScreen"/> arm can walk it with the arrows and delete it with Alt+D.</para>
+/// </summary>
+public sealed partial class BatchListRow : ObservableObject, IMasterListRow
 {
     public string BatchNumber { get; init; } = string.Empty;
     public string Item { get; init; } = string.Empty;
@@ -20,6 +24,19 @@ public sealed class BatchListRow
     public string MfgDate { get; init; } = string.Empty;
     public string Expiry { get; init; } = string.Empty;
     public string OpeningValue { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <summary><inheritdoc/>
+    /// <para>🔴 <b>"ABC-01 of Widget", not "ABC-01".</b> A batch number is unique <i>per item</i>, not per
+    /// company — <c>BatchService.CreateBatch</c> says so in its own duplicate message — so two rows in this very
+    /// list can legitimately both read "ABC-01". A confirmation naming only the number would not tell the
+    /// operator which item's batch is about to go.</para></summary>
+    public string MasterName => $"{BatchNumber} of {Item}";
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -59,11 +76,46 @@ public sealed class ExpiryPeriodUnitOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="GodownMasterViewModel"/> / <see cref="StockItemMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 3.8): the shared master-list arm
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "batch";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a batch — so it is never
+    /// mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. The refusal is
+    /// <c>BatchService.DeleteBatch</c>'s own message: a batch whose number appears on any opening balance,
+    /// inventory-voucher allocation, item-invoice line or physical-count line for the same item is refused, so
+    /// no stock movement is left naming a batch that no longer exists.</remarks>
+    public void DeleteMaster(Guid id) => new BatchService(_company).DeleteBatch(id);
+
+    private PayrollMasterHighlight<BatchListRow>? _highlight;
+
+    private PayrollMasterHighlight<BatchListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<BatchListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing batch, or null.</summary>
+    public BatchListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -314,6 +366,9 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
     private void RefreshList()
     {
         RefreshPickers();
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var b in _company.BatchMasters
                      .OrderBy(b => _company.FindStockItem(b.StockItemId)?.Name ?? string.Empty,
@@ -333,6 +388,7 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
                 : "—";
             Existing.Add(new BatchListRow
             {
+                MasterId = b.Id,
                 BatchNumber = b.BatchNumber,
                 Item = item?.Name ?? "—",
                 Godown = godown,
@@ -343,5 +399,7 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
                 OpeningValue = openingValue,
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 }

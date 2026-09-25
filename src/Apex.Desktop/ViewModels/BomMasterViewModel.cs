@@ -12,13 +12,25 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A Bill-of-Materials row for the existing-BOMs list on the master screen.</summary>
-public sealed class BomListRow
+public sealed partial class BomListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string FinishedGood { get; init; } = string.Empty;
     public string UnitOfManufacture { get; init; } = string.Empty;
     public string Components { get; init; } = string.Empty;
     public string CarveOuts { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <summary><inheritdoc/>
+    /// <para>"Standard of Widget" — a BOM name is unique <i>within its finished good</i> (Schema.cs says so on
+    /// the ux index), so the item is part of the identity and a confirmation that dropped it could name the
+    /// wrong BOM.</para></summary>
+    public string MasterName => $"{Name} of {FinishedGood}";
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>A BOM-line-type picker option (label + the enum value) — Component / By-Product / Co-Product / Scrap.</summary>
@@ -130,11 +142,49 @@ public sealed partial class BomLineRowViewModel : ViewModelBase
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="BatchMasterViewModel"/> / <see cref="StockItemMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 3.9): the shared master-list arm
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "BOM";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a BOM — so it is never
+    /// mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns.
+    /// <para>🔴 <b>THE REFUSAL THIS ROUTE DEPENDS ON DID NOT EXIST UNTIL THIS SLICE.</b>
+    /// <c>BomService.DeleteBom</c> shipped with no referential guard and with zero production callers, so the
+    /// omission was unreachable; this property is what would have made it reachable.
+    /// <c>MasterDeletionRules.EnsureBomDeletable</c> now refuses a BOM a job-work order was filled from — the
+    /// <c>job_work_orders.fill_components_bom_id</c> foreign key — which is the difference between a refused
+    /// keystroke and an open company that can never be saved again.</para></remarks>
+    public void DeleteMaster(Guid id) => new BomService(_company).DeleteBom(id);
+
+    private PayrollMasterHighlight<BomListRow>? _highlight;
+
+    private PayrollMasterHighlight<BomListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<BomListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing BOM, or null.</summary>
+    public BomListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -397,6 +447,9 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     private void RefreshList()
     {
         BuildPickerOptions();
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var bom in _company.BillsOfMaterials
                      .OrderBy(b => _company.FindStockItem(b.StockItemId)?.Name ?? string.Empty,
@@ -413,6 +466,7 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
                 .ToList();
             Existing.Add(new BomListRow
             {
+                MasterId = bom.Id,
                 Name = bom.Name,
                 FinishedGood = fg?.Name ?? "—",
                 UnitOfManufacture = bom.UnitOfManufacture.ToString("0.######", CultureInfo.InvariantCulture),
@@ -420,6 +474,8 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
                 CarveOuts = carveOutNames.Count > 0 ? string.Join(", ", carveOutNames) : "—",
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 
     private static string CarveOutLabel(BomLineType type) => type switch
