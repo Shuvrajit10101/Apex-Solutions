@@ -128,6 +128,166 @@ public sealed class InventoryPostingService
         return voucher;
     }
 
+    // ===================================================================== Replace — the THIRD lifecycle verb
+
+    /// <summary>
+    /// 🔴 <b>Alters a posted stock/order voucher in place (Ctrl+Enter) — the verb this service was MISSING, and
+    /// the sole reason census rows 4.9–4.16 and 9.2 could not reach <c>COMPLETE</c>.</b> <c>Post</c>,
+    /// <see cref="Cancel"/> and <see cref="Delete"/> shipped in PR #107; alteration had no engine counterpart, so
+    /// <c>VoucherEntryViewModel.ForAlter</c> refused every inventory-aggregate voucher by design and the Day Book's
+    /// Ctrl+Enter could only name the limit.
+    ///
+    /// <para><b>🔴 THE STOCK CONSEQUENCE IS THE WHOLE POINT, AND IT IS WHY THE SWAP IS STRUCTURAL RATHER THAN
+    /// ARITHMETIC.</b> A partial reversal — subtracting the old quantities and adding the new — would silently
+    /// corrupt closing stock, and closing stock moves the Balance Sheet. Nothing here computes a delta. The
+    /// outgoing voucher is removed from the timeline and the incoming one takes its slot, so <b>every</b> effect
+    /// the old voucher had (on-hand, batch and godown balances, FIFO/Avg consumption order, order fulfilment,
+    /// additional-cost apportionment, the Job Work pending figures) is reversed by the same mechanism that
+    /// created it, and the new effect is applied by the same mechanism that applies a post. There is no third
+    /// code path that could drift from either.</para>
+    ///
+    /// <para><b>It is logged as <see cref="VoucherEditVerb.Alter"/>, the SAME verb an ordinary voucher's
+    /// alteration records</b> (<c>LedgerService.Replace</c>), carrying a <c>VoucherSnapshot</c> of the OUTGOING
+    /// voucher. Deliberately not a new verb: an auditor reading the edit log must not have to know which of the
+    /// two aggregates a voucher lived in to recognise that it was amended. The entry is appended past every
+    /// guard and every throw — a REFUSED alteration logs nothing — and before the swap, so the snapshot is of the
+    /// state the operator is leaving.</para>
+    ///
+    /// <para>⚠️ <b>NS-3 — CALL SITE 5.</b> Like its three siblings this does not block on negative stock: the
+    /// alteration applies and <see cref="DetectNegativeStock"/> reports any shortfall the new figures introduced.
+    /// An interactive caller must ask, exactly as the Post and Cancel screens do.</para>
+    ///
+    /// <para><b>What it REFUSES, each by name rather than applied silently</b> — the same four identity facts
+    /// <c>LedgerService.Replace</c> refuses, for the same reasons: aliasing (handing the live voucher back as its
+    /// own replacement defeats every guard below, because each would compare a value to itself), a changed
+    /// <see cref="InventoryVoucher.Id"/> (the Guid is every order link's only handle), a changed
+    /// <see cref="InventoryVoucher.TypeId"/> (the preserved number belongs to THAT type's sequence, and carrying
+    /// it across would collide with the target type's own #n), a changed <see cref="InventoryVoucher.Number"/>,
+    /// and a changed <see cref="InventoryVoucher.Cancelled"/> flag (that is <see cref="Cancel"/>'s verb).</para>
+    /// </summary>
+    /// <returns>The replacement, now on the book at the outgoing voucher's index.</returns>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or the replacement changes one of the
+    /// identity facts above, or it fails a posting invariant. In every case <b>the original is still on the book,
+    /// unchanged, at its own index</b>, and nothing was written to the edit log.</exception>
+    public InventoryVoucher Replace(Guid voucherId, InventoryVoucher replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var existing = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        // 🔴 ALIASING — refused BEFORE anything else. Every guard below compares replacement.X to existing.X, and
+        // aliasing makes all of them compare a value to itself. Measured on the accounting sibling, the same hole
+        // renumbered a voucher, cancelled it and raised zero warnings; the pure-stock aggregate would additionally
+        // have handed ReplaceInventoryVoucherInternal a list slot holding the object it was told to overwrite.
+        if (ReferenceEquals(replacement, existing))
+            throw new InvalidOperationException(
+                $"Replace must be given a NEW inventory voucher instance: voucher {existing.Id} was passed as its "
+                + "own replacement, which defeats every identity guard (id, type, number, cancelled) because each "
+                + "would compare a value to itself. Build a replacement from the posted voucher's values.");
+
+        // Every identity fact is captured into a LOCAL before it is compared, so no later mutation of `existing`
+        // can move the thing a guard checks against.
+        var existingId = existing.Id;
+        var existingTypeId = existing.TypeId;
+        var existingNumber = existing.Number;
+        var existingCancelled = existing.Cancelled;
+
+        if (replacement.Id != existingId)
+            throw new InvalidOperationException(
+                $"Replace must preserve the voucher's identity: inventory voucher {existingId} cannot be replaced "
+                + $"by one carrying id {replacement.Id}. Order links and tracking-number links point at the "
+                + "voucher by that Guid.");
+
+        if (replacement.TypeId != existingTypeId)
+            throw new InvalidOperationException(
+                $"Replace does not retype a posted voucher: inventory voucher {existingId} is of type "
+                + $"{existingTypeId} and the replacement asks for {replacement.TypeId}. "
+                + "The preserved number belongs to the original type's numbering sequence and would collide with "
+                + "the target type's own number. Delete it and enter a fresh voucher of the type you want.");
+
+        // A caller that passes 0 (a freshly built replacement) inherits the original's number; one that passes
+        // the voucher's OWN number (the shape a ForAlter rehydration produces) is accepted; a DIFFERENT number is
+        // asking for a renumber, which alteration does not do.
+        if (replacement.Number != 0 && replacement.Number != existingNumber)
+            throw new InvalidOperationException(
+                $"Replace preserves the voucher number: inventory voucher {existingId} is #{existingNumber} and "
+                + $"the replacement asks for #{replacement.Number}. Renumbering a posted voucher is not part of "
+                + "Alter.");
+
+        if (replacement.Cancelled != existingCancelled)
+            throw new InvalidOperationException(
+                $"Replace does not cancel or un-cancel a voucher (inventory voucher {existingId}: "
+                + $"{existingCancelled} -> {replacement.Cancelled}). Cancellation is Alt+X's verb and is recorded "
+                + "as its own edit-log entry; build the replacement with the same flag.");
+
+        var type = _company.FindVoucherType(replacement.TypeId)
+            ?? throw new InvalidOperationException($"Unknown voucher type {replacement.TypeId}.");
+
+        if (replacement.Date < _company.BooksBeginFrom)
+            throw new InvalidOperationException(
+                $"Voucher date {replacement.Date:yyyy-MM-dd} is before BooksBeginFrom "
+                + $"{_company.BooksBeginFrom:yyyy-MM-dd}.");
+
+        // 🔴 Validate BEFORE the book is touched, and UNDO the number stamp if validation refuses. The stamp
+        // MUTATES the caller's object, so a rejected replacement handed back carrying the original's number would
+        // re-post as a SECOND live voucher sharing that number if the operator corrected and accepted it as new —
+        // the exact defect the accounting sibling records having measured.
+        var incomingNumber = replacement.Number;
+        replacement.Number = existingNumber;
+        try
+        {
+            EnsureContentMatchesType(replacement, type);
+            EnsureReferencesResolve(replacement);
+            if (RequiresSourceDestinationBalance(type, replacement))
+                EnsureStockJournalBalances(replacement);
+
+            // Prevent Duplicate, mirroring Post. Its loop already skips `other.Id == voucher.Id`, so the voucher
+            // being replaced cannot collide with itself — but a SIBLING of the same type that renders the same
+            // string still bites, which is the case this guard is for.
+            if (type.PreventDuplicate)
+            {
+                var rendered = VoucherNumberFormatter.Render(type, replacement.Number, replacement.Date);
+                if (rendered.Length > 0)
+                    foreach (var other in _company.InventoryVouchers)
+                    {
+                        if (other.Id == replacement.Id) continue;
+                        if (other.TypeId != replacement.TypeId) continue;
+                        if (string.Equals(
+                                VoucherNumberFormatter.Render(type, other.Number, other.Date), rendered,
+                                StringComparison.Ordinal))
+                            throw new InvalidOperationException(
+                                $"Voucher number '{rendered}' already exists for '{type.Name}' (Prevent "
+                                + "Duplicates is on).");
+                    }
+            }
+        }
+        catch
+        {
+            replacement.Number = incomingNumber;
+            throw;
+        }
+
+        // Past this point nothing throws, so the swap is safe. The log line goes first: the snapshot must be of
+        // the voucher the operator is leaving, and `existing` is still the one on the book.
+        var entry = RecordEdit(existing, VoucherEditVerb.Alter);
+
+        try
+        {
+            _company.ReplaceInventoryVoucherInternal(existing, replacement);
+        }
+        catch
+        {
+            // The swap is the only remaining throw site (an `existing` that left the list between the lookup and
+            // here). Unwinding the log entry keeps the append-only record from asserting an alteration that never
+            // happened — the same lie DiscardUncommittedCancel exists to prevent.
+            _company.RemoveLastVoucherEditLogEntryInternal(entry);
+            throw;
+        }
+
+        return replacement;
+    }
+
     /// <summary>
     /// Cancels a stock/order voucher (Alt+X): its effect drops to zero but its number is retained. ⚠️ NS-3 —
     /// CALL SITE 2 of 4: this used to be BLOCKED when removing the effect retro-drove a later movement negative.

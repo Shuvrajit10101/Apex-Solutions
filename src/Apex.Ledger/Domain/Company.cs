@@ -1290,6 +1290,34 @@ public sealed class Company
     /// <summary>Removes a stock/order voucher (delete guards live in <c>InventoryPostingService</c>).</summary>
     internal bool RemoveInventoryVoucherInternal(InventoryVoucher voucher) => _inventoryVouchers.Remove(voucher);
 
+    /// <summary>
+    /// Swaps a posted stock/order voucher for its altered replacement <b>at its own index</b> — the pure-stock
+    /// sibling of <see cref="ReplaceVoucherInternal"/>, and it exists for the identical reason.
+    ///
+    /// <para>🔴 <b>Never Remove + Add.</b> Every pure-stock projection in the product walks
+    /// <see cref="InventoryVouchers"/> in list order, and two of them are ORDER-SENSITIVE rather than merely
+    /// order-preferring: <c>InventoryLedger</c>'s running on-hand and the FIFO/Avg consumption it feeds read the
+    /// movements in sequence, and <c>OrderFulfilment</c> retires an order against the movements that follow it.
+    /// A Remove + Add would move an amended movement to the END of the timeline regardless of its date, which
+    /// re-orders consumption against every same-date movement and silently moves valuation. Swapping in place
+    /// leaves the timeline exactly as it was and changes only the content of the one slot.</para>
+    ///
+    /// <para>Alteration guards (identity, number, cancelled, content-matches-type) live in
+    /// <c>InventoryPostingService.Replace</c>, which is the only caller.</para>
+    /// </summary>
+    internal void ReplaceInventoryVoucherInternal(InventoryVoucher existing, InventoryVoucher replacement)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var index = _inventoryVouchers.IndexOf(existing);
+        if (index < 0)
+            throw new InvalidOperationException(
+                $"Inventory voucher {existing.Id} is not posted in this company; nothing to replace.");
+
+        _inventoryVouchers[index] = replacement;
+    }
+
     /// <summary>Adds a rehydrated stock/order voucher on load (bypasses posting guards — the store is trusted).</summary>
     public void AddInventoryVoucher(InventoryVoucher voucher) => _inventoryVouchers.Add(voucher ?? throw new ArgumentNullException(nameof(voucher)));
 

@@ -9510,7 +9510,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company is not null
         && (IsLiveReportPage
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
-            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // 🔴 Census 4.9–4.16 — the pure-stock drill column, added with the alteration verb itself. It is the
+            // FOURTH arm and it went in here rather than being special-cased in the key handler for the reason
+            // this property exists: Alt+D already reaches Screen.InventoryVoucherDetail
+            // (RequestDeleteHighlighted's own switch has that arm), so leaving Ctrl+Enter out would have left the
+            // two lifecycle verbs reachable from different sets of screens — the drift IsDeleteTargetPage and
+            // this property are a matched pair to prevent.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null));
 
     /// <summary>
     /// 🔴 <b>Census 4.9–4.16 — the verb the operator just pressed has NO pure-stock implementation, so SAY SO
@@ -9525,11 +9532,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// every other voucher, and NOTHING HAPPENS AND NOTHING IS SAID. "Honestly unavailable" is not a property a
     /// silent key can have — it is the exact defect class this project has filed three times.</para>
     ///
-    /// <para><b>Alteration really is unavailable, and the message is the truth rather than a placeholder.</b>
-    /// <c>VoucherEntryViewModel.ForAlter</c> refuses every inventory-aggregate voucher by design
-    /// (<c>VoucherAlterRefusalTests</c> pins that for all twelve base kinds) because no
-    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice;
-    /// naming the limit costs nothing and is owed now. The sentence points at the two routes that DO work.</para>
+    /// <para>🔴 <b>THE ALTERATION HALF OF THIS IS NOW FALSE AND IS STRUCK RATHER THAN DELETED, so a reader can
+    /// see what changed.</b> It used to read: <i>"Alteration really is unavailable … because no
+    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice."</i>
+    /// That slice is this one. <c>InventoryPostingService.Replace</c> and
+    /// <see cref="InventoryVoucherEntryViewModel.ForAlter"/> now exist, and Ctrl+Enter on a stock row OPENS the
+    /// alteration through <see cref="ShowInventoryVoucherAlteration"/> instead of arriving here. <b>This method's
+    /// one surviving caller is Alt+2 (duplicate)</b>, whose gap is real and unchanged: <c>DetachAsDuplicate</c>
+    /// is a <c>VoucherEntryViewModel</c> method and has no pure-stock counterpart.</para>
     ///
     /// <para>Scoped to <see cref="Screen.Report"/> alone, which is the only surface that can carry such a row:
     /// <see cref="IsVoucherAlterTargetPage"/>'s other two arms are the register drill and the ACCOUNTING
@@ -9544,8 +9554,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return false;
 
         RaiseLifecycleNotice(
-            $"{verb} is not available for a stock voucher. Cancel it with Alt+X or delete it with Alt+D, "
-            + "then re-enter it from the inventory voucher screen.");
+            $"{verb} is not available for a stock voucher. Alter it with Ctrl+Enter, cancel it with Alt+X or "
+            + "delete it with Alt+D — or enter a fresh one from the inventory voucher screen.");
         return true;
     }
 
@@ -9637,17 +9647,104 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        // Census 4.9–4.16 — asked BEFORE the fall-through so a pure-stock row gets a sentence instead of a dead
-        // key. Refused (not NoVoucherHere) so the keystroke is CONSUMED: falling through to the drill below would
-        // change screens, and OnCurrentScreenChanged wipes the notice bar on the way past — the operator would
-        // watch the explanation they were just given disappear.
+        // 🔴 Census 4.9–4.16 — THE PURE-STOCK ARM, and it is asked BEFORE the accounting fall-through because a
+        // stock row carries Guid.Empty in the accounting slot by design (see ReportRow.DrillInventoryVoucherId).
+        // This used to be RefuseVoucherVerbOnStockRow — a sentence saying the verb did not exist. It exists now:
+        // InventoryPostingService.Replace and InventoryVoucherEntryViewModel.ForAlter shipped together, so the
+        // row OPENS instead of explaining why it cannot.
+        if (ResolveInventoryVoucherForAlteration() is { } stock)
+            return ShowInventoryVoucherAlteration(stock);
+
+        // A row that resolves to no accounting voucher and no stock voucher is a header, a total or an
+        // empty-state note — a quiet no-op the caller must fall through on so the row still drills.
         if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
-            return RefuseVoucherVerbOnStockRow("Alteration (Ctrl+Enter)")
-                ? VoucherAlterationRequest.Refused
-                : VoucherAlterationRequest.NoVoucherHere;
+            return VoucherAlterationRequest.NoVoucherHere;
 
         var voucher = Company.FindVoucher(id)!;
         return ShowVoucherAlteration(voucher);
+    }
+
+    /// <summary>
+    /// The posted <see cref="InventoryVoucher"/> the highlight stands on, or <c>null</c>. Resolved from the two
+    /// surfaces a pure-stock voucher can be reached from — a report row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> (the Day Book and, since this slice, the four Job Work
+    /// registers) and the <see cref="Screen.InventoryVoucherDetail"/> drill column itself.
+    ///
+    /// <para>🔴 It resolves through <c>FindInventoryVoucher</c> rather than trusting the id on the row: the row
+    /// was built when the report was drawn, and the voucher may have been deleted since (Alt+D on another
+    /// column). A stale id would otherwise reach <c>ForAlter</c> and be refused there with a less specific
+    /// sentence.</para>
+    /// </summary>
+    private InventoryVoucher? ResolveInventoryVoucherForAlteration()
+    {
+        if (Company is null) return null;
+
+        var id = CurrentScreen switch
+        {
+            Screen.Report => Reports?.SelectedRow?.DrillInventoryVoucherId,
+            Screen.InventoryVoucherDetail => InventoryVoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        return id is { } stockId && stockId != Guid.Empty ? Company.FindInventoryVoucher(stockId) : null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Opens a posted PURE-STOCK voucher's alteration screen, or puts its named refusal on the notice
+    /// bar</b> — the pure-stock twin of <see cref="ShowVoucherAlteration"/>, census rows 4.9–4.16 and 9.2.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> The chord and the save key are the ones the accounting alteration
+    /// already uses, and their provenance is recorded in full on
+    /// <see cref="RequestAlterHighlightedVoucher"/> — Ctrl+Enter as a deliberate widening of an attested
+    /// alteration gesture, Ctrl+A as the attested save. <b>OURS — no source speaks:</b> that a PURE-STOCK
+    /// voucher is reachable by that chord from the Day Book, from a Job Work register and from the stock drill
+    /// column. Nothing is claimed for it beyond consistency with the accounting door.</para>
+    ///
+    /// <para><b>Why it opens as a DRILL column.</b> Same reason <see cref="ShowVoucherAlteration"/> gives:
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// the operator drilled from, so Esc would return to the Gateway instead of to the row they were standing
+    /// on.</para>
+    /// </summary>
+    private VoucherAlterationRequest ShowInventoryVoucherAlteration(InventoryVoucher voucher)
+    {
+        // Captured as INSTANCES, not as closures over the properties: OpenDrillColumn does not clear the sub
+        // screens but a later pop rebinds them, and a `() => Reports?.Show(...)` read at save time could see a
+        // different report. The same trap ShowVoucherAlteration records.
+        var report = Reports;
+        var detail = InventoryVoucherDetail;
+
+        var open = InventoryVoucherEntryViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                BackFromPage();
+                report?.Show(report.Kind);
+                // 🔴 The stock drill column is the pane that ISSUES DOCUMENTS from this family, so leaving it
+                // unrefreshed would re-print the SUPERSEDED movement under the live voucher number — the exact
+                // defect the accounting arm's `detail?.Refresh()` was added for. Refresh returns false when the
+                // voucher is gone, which cannot happen on a successful alteration.
+                detail?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // Shown, never swallowed — a dropped refusal is indistinguishable from a dead key, which is the
+            // defect census row 9.2 names as the worst of the three.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        // The batch-allocation cascade wiring OpenInventoryVoucher does. Without it a batch-tracked line on an
+        // altering screen raises an event nobody handles — the shell owns the cascade, not the entry VM.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Inventory Voucher Alteration — {entry.Type.Name}";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.InventoryVoucherEntry, title, () => InventoryVoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
     }
 
     /// <summary>
@@ -11661,8 +11758,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.VoucherEntry:
                 AcceptVoucherEntryOrAlteration();
                 return;
+            // Census 4.9–4.16 — the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was
+            // opened for, exactly as the accounting arm above and the master screens below do. 🔴 Branching here
+            // rather than inside Accept is not cosmetic: Accept builds with a FRESH Guid and number 0, so running
+            // it on an altering screen would post a SECOND stock movement and leave the original standing —
+            // closing stock double-counted. Accept ALSO hard-refuses, so this is a belt-and-braces pair and the
+            // refusal is what a test can red.
             case Screen.InventoryVoucherEntry:
-                InventoryVoucherEntry?.Accept();
+                if (InventoryVoucherEntry is { IsAltering: true } altering) altering.AcceptAlteration();
+                else InventoryVoucherEntry?.Accept();
                 return;
             // WI-3: the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was opened for.
             // Branching on IsAltering (not on a separate screen id) is what lets the alteration form be literally
