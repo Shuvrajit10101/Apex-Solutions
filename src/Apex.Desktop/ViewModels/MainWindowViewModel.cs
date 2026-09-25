@@ -9082,7 +9082,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Apex.Ledger.Domain.Voucher"/> and every refusal it raises is about the ACCOUNTING aggregate —
     /// a bill-wise settlement, a filed statutory document (IRN/e-Way Bill), a numbering consequence. A
     /// pure-stock voucher participates in none of those: it posts no entry, settles no bill and carries no IRN.
-    /// Inventing a guard here to look symmetrical would be a refusal with no rule behind it. What deletion CAN
+    /// Inventing a <c>MasterDeletionRules</c> guard here to look symmetrical would be a refusal with no rule
+    /// behind it.
+    ///
+    /// <para>🔴 <b>THAT REASONING HOLDS FOR <c>MasterDeletionRules</c> AND WAS OVER-READ AS "no guard at all",
+    /// WHICH WAS WRONG.</b> This aggregate does have one referential rule, and it is the engine's own: a Job Work
+    /// order that posted Material movements still link to cannot be deleted, because doing so leaves those
+    /// movements holding a dangling <c>OrderLinks</c> Guid — a state <c>InventoryPostingService.Post</c> refuses
+    /// by name, and which under <c>PRAGMA foreign_keys = ON</c> plus delete-all-and-reinsert persistence can make
+    /// the open company unsavable. It lives in <c>InventoryPostingService.EnsureDeletable</c> / <c>Delete</c>
+    /// rather than in <c>MasterDeletionRules</c> precisely BECAUSE the argument above is right about what that
+    /// class is for; it is pre-asked here and re-asked by the engine at the act.</para>
+    ///
+    /// <para>What deletion CAN also
     /// do is drive a later movement's on-hand negative, and the engine's own doc is explicit that this is no
     /// longer blocked (NS-3, call site 3 of 4) — it is reported afterwards by
     /// <c>InventoryPostingService.DetectNegativeStock</c>, which this route surfaces on the notice bar so the
@@ -9097,6 +9109,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (voucherId is not { } id) return false;
         if (id == Guid.Empty) return false;
         if (Company!.FindInventoryVoucher(id) is not { } voucher) return false;
+
+        // The ONE referential rule this aggregate has, pre-asked so a refusal arrives INSTEAD of the irreversible
+        // confirmation rather than after the operator has answered it. The engine re-asks it at the act itself.
+        if (!GuardsAllowDeletion(
+                () => new Apex.Ledger.Services.InventoryPostingService(Company).EnsureDeletable(id))) return false;
 
         return Arm(DeletionTarget.InventoryVoucher, id,
             $"Delete {InventoryVoucherLabel(voucher)}? The entry and every stock line on it are removed from "
@@ -9284,10 +9301,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     new Apex.Ledger.Services.LedgerService(Company).Delete(id);
                     break;
 
-                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask: there is no guard
-                // for this aggregate to re-ask (see RequestDeleteInventoryVoucher for why inventing one would be
-                // a refusal with no rule behind it). The engine's Delete appends the edit-log entry, so the
-                // deletion leaves the same audit evidence an accounting deletion does.
+                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask, because this
+                // aggregate's one referential rule lives in the ENGINE rather than in MasterDeletionRules:
+                // InventoryPostingService.Delete refuses to delete a Job Work order that posted Material
+                // movements still link to (the mirror of its own EnsureReferencesResolve), and it re-asks that
+                // rule itself, immediately before the irreversible act, on every caller rather than only on this
+                // one. Its InvalidOperationException is reportable, so the catch below turns it into a notice.
+                // The engine's Delete appends the edit-log entry, so the deletion leaves the same audit evidence
+                // an accounting deletion does.
                 case DeletionTarget.InventoryVoucher:
                 {
                     if (Company.FindInventoryVoucher(id) is not { } stockVoucher) return;

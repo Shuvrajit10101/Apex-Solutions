@@ -103,19 +103,33 @@ public class InventoryVoucherReplaceTests
     }
 
     /// <summary>
-    /// The direction flip — the case a delta-arithmetic implementation gets wrong by 2×. A 6-out delivery
-    /// altered to a 6-<b>in</b> movement must take on-hand from 10 − 6 = 4 to 10 + 6 = <b>16</b>, a swing of 12.
+    /// 🔴 <b>THIS TEST'S NAME AND SUMMARY USED TO DESCRIBE A CASE ITS BODY DOES NOT EXERCISE, AND BOTH WERE
+    /// CORRECTED RATHER THAN SOFTENED.</b> It was called
+    /// <c>Altering_a_movement_across_directions_swings_on_hand_by_twice_the_quantity</c> and claimed to be
+    /// <i>"the direction flip — the case a delta-arithmetic implementation gets wrong by 2×"</i>, worked as a
+    /// 6-out delivery altered to a 6-in movement taking on-hand from 4 to 16. <b>The body flips nothing:</b> it
+    /// replaces a 1-unit INWARD receipt with a 7-unit INWARD receipt. Both allocations are
+    /// <see cref="StockDirection.Inward"/>, so a subtract-old-add-new implementation reaches the asserted 11 too
+    /// — the test could not fail on the implementation it named, and a reader trusting the name would believe a
+    /// direction flip was covered when it is not.
+    ///
+    /// <para><b>What it DOES prove, which is worth keeping:</b> replacing a movement with a larger one of the same
+    /// direction re-derives on-hand from the amended quantity rather than the posted one (1 → 7 moves on-hand by
+    /// 6, not by 7).</para>
+    ///
+    /// <para>🔴 <b>THE GAP IS REPORTED, NOT QUIETLY FILLED: no test anywhere crosses directions.</b> A same-type
+    /// flip is refused by <c>EnsureContentMatchesType</c>, so the honest vehicle is a Stock Journal whose two arms
+    /// swap — that fixture does not exist in this file and inventing it was outside this remediation's scope.</para>
     /// </summary>
     [Fact]
-    public void Altering_a_movement_across_directions_swings_on_hand_by_twice_the_quantity()
+    public void Altering_a_movement_to_a_larger_same_direction_quantity_re_derives_on_hand()
     {
         var b = Seed();
         PostReceipt(b, 10m);
         var delivery = PostDelivery(b, 6m);
         Assert.Equal(4m, b.OnHand);
 
-        // Re-typed as an inward movement of the SAME type is not a legal alteration on the screen, but the engine
-        // is the thing under test here: a Receipt Note carrying 6 inward, under its own type.
+        // The engine is the thing under test here: a Receipt Note re-keyed under its own type, 1 inward → 7 inward.
         var receiptType = b.Company.FindVoucherTypeByName("Receipt Note")!;
         var inward = PostReceipt(b, 1m);
         b.Service.Replace(inward.Id, new InventoryVoucher(

@@ -1263,6 +1263,58 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.Equal(beforeOnDisk, book.ExportReloaded());
     }
 
+    /// <summary>
+    /// 🔴🔴 <b>A FAILED SAVE ON A POS ALTERATION MUST NOT FALSIFY THE AUDIT LOG.</b> Found by sweeping the class
+    /// behind the inventory door's blocking finding rather than the instance: this arm already caught on
+    /// <c>SaveFailure.IsReportable</c>, reported, and rolled the swap back, so the OPERATOR was told — but it never
+    /// discarded the two <c>Alter</c> edit-log entries the failed <c>Replace</c> and the rollback <c>Replace</c>
+    /// appended. The whole-window rollback in <c>AcceptAlteration</c> unwinds LEDGERS an engine created and knows
+    /// nothing about the log, so nothing else was going to catch them.
+    ///
+    /// <para><b>The exposure is the later save, not this one.</b> A throwing save persists nothing, so the bogus
+    /// entries do not reach disk here — they sit in the in-memory <c>Company</c> until the next SUCCESSFUL save on
+    /// any screen writes them out as two alterations of a bill nobody altered.</para>
+    ///
+    /// <para><b>Provoked as the accounting door's own save-failure test provokes it:</b> <c>CompanyStorage.Save</c>
+    /// opens with <c>Company.EnsureValid()</c>, which throws <c>ArgumentException</c> on a bad PIN.</para>
+    ///
+    /// <para><b>Fails without the fix</b> at the final assertion with THREE <c>Alter</c> entries where one is
+    /// owed.</para>
+    /// </summary>
+    [Fact]
+    public void A_failed_save_on_a_pos_alteration_leaves_the_audit_log_byte_identical()
+    {
+        using var book = AlterationBook.New("possavefail");
+        var kit = SeedPosKit(book);
+        var posted = PostFatPosBill(kit);
+        var logBefore = book.Company.VoucherEditLog.Select(e => e.Id).ToList();
+
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        var vm = open.Entry!;
+        vm.Narration = "POS nonce TWO";
+
+        book.Company.Pin = "NOT-A-PIN";               // the next Save throws ArgumentException out of EnsureValid
+
+        Assert.False(vm.AcceptAlteration());
+        Assert.Contains("Could not save the company", vm.Message!, StringComparison.Ordinal);
+        Assert.Contains("nothing was changed", vm.Message!, StringComparison.OrdinalIgnoreCase);
+
+        // THE LOG IS BYTE-IDENTICAL — by entry identity, not merely by count.
+        Assert.Equal(logBefore, book.Company.VoucherEditLog.Select(e => e.Id).ToList());
+
+        // 🔴 And a LATER SUCCESSFUL alteration persists exactly ONE Alter entry, not three.
+        book.Company.Pin = null;
+        vm.Narration = "POS nonce THREE";
+        Assert.True(vm.AcceptAlteration(), vm.Message);
+
+        var alters = book.Company.VoucherEditLog
+            .Where(e => e.Verb == VoucherEditVerb.Alter && e.VoucherId == posted.Id).ToList();
+        Assert.Single(alters);
+        Assert.Equal("POS nonce THREE", book.Company.FindVoucher(posted.Id)!.Narration);
+    }
+
     /// <summary>The POS detail survives FIELD BY FIELD — every tender's ledger, amount, reference and the cash
     /// tendered/change, plus both item rows.</summary>
     [Fact]

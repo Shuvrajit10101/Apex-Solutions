@@ -1021,29 +1021,40 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         {
             _storage.Save(_company);
         }
-        catch
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
         {
-            // Roll the in-memory swap back so the books and the .db cannot disagree. Replace is safe to call a
-            // second time here: it only ever reads its replacement argument and writes the list slot, so
-            // `existing` still holds exactly the figures it was posted with.
-            //
-            // 🔴 KNOWN DEFECT, NAMED HERE RATHER THAN LEFT TO BE REDISCOVERED — AND IT IS NOT MINE ALONE.
-            // The rollback goes through Replace, so it appends a SECOND VoucherEditVerb.Alter entry recording an
-            // alteration that never committed. `VoucherEntryViewModel.CommitAlteration` has the identical shape
-            // and the identical defect on the accounting side, which is why it is not fixed here: fixing one
-            // door would leave the two audit logs telling different stories about the same event.
-            //
-            // It is bounded, and the bound is why it was not worth diverging from the accounting door to fix in
-            // this slice: the only way to reach it is a THROWING SAVE, and a throwing save persists nothing —
-            // including the log — so neither entry reaches disk. The exposure is a later successful save in the
-            // SAME session carrying both bogus entries forward.
-            //
-            // The correct fix is the one `DiscardUncommittedCancel` already models for Alt+X: an
-            // out-parameter on Replace handing back the entry it appended, plus a bounded
-            // DiscardUncommittedAlteration that unwinds the swap AND the line together. It belongs in a slice
-            // that changes BOTH engines at once.
-            _service.Replace(replacement.Id, existing);
-            throw;
+            try
+            {
+                // Roll the in-memory swap back so the books and the .db cannot disagree. Replace is safe to call a
+                // second time here: it only ever reads its replacement argument and writes the list slot, so
+                // `existing` still holds exactly the figures it was posted with.
+                _service.Replace(replacement.Id, existing);
+
+                // 🔴 DISCARD BOTH EDIT-LOG ENTRIES, NEWEST FIRST. The failed alteration appended one and the
+                // rollback Replace immediately above appended a second; neither describes anything that reached
+                // disk, and leaving them would make the next successful save on ANY screen persist a pair of
+                // fictitious alterations of a voucher nobody altered. A falsified audit log is a worse outcome
+                // than the failed save that caused it.
+                //
+                // `DiscardUncommittedEditLogEntry` refuses anything but the most recent entry, so this LIFO order
+                // is the only order it accepts — which is exactly the bound that stops it being an
+                // audit-erasure API. This is the accounting door's arm verbatim (VoucherEntryViewModel
+                // .CommitAlteration), and it is deliberately the SAME shape so the two audit logs tell the same
+                // story about the same act.
+                for (var i = 0; i < 2; i++)
+                    if (_company.LastVoucherEditLogEntry is { } appended)
+                        _service.DiscardUncommittedEditLogEntry(appended);
+
+                Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
+                        + "changed.";
+            }
+            catch (Exception rollbackFailure)
+            {
+                Message = $"Could not save the company: {ex.Message} Putting the original voucher back ALSO "
+                        + $"failed ({rollbackFailure.Message}), so this company is now ahead of its file — close "
+                        + "it without saving.";
+            }
+            return false;
         }
 
         SavedNumber = existing.Number;
