@@ -146,13 +146,24 @@ public class StatementReportsTests
         var expectedNetProfitPct = -1000m / 73000m * 100m;
         Assert.Equal(Math.Round(100m - expectedNetProfitPct, 4), Math.Round(ra.OperatingCostPercent!.Value, 4));
 
-        // Receivables Turnover (days) = Sundry Debtors DUE TILL TODAY ÷ Sales × days-in-period.
-        // Default window = books-begin 2021-04-01 → as-of 2022-03-31 (inclusive) = 365 days.
-        // 🔴 T0-27: this assertion used to read 175 days — 35,000 ÷ 73,000 × 365 — computed from the CLOSING
-        // debtor balance. The vendor defines this ratio "irrespective of the outstanding balance on the
-        // statement date", so the old expectation was itself the defect. Bright has no bills, so the
-        // numerator is 0 and the ratio is an exact 0.
-        Assert.Equal(0m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
+        // Receivables Turnover (days) — 🔴 N/A ON BRIGHT, AND THIS ASSERTION HAS BEEN WRONG TWICE.
+        //   It first read 175 days (35,000 ÷ 73,000 × 365), computed from the CLOSING debtor balance — the
+        //   T0-27 defect itself, since the vendor defines the ratio "irrespective of the outstanding balance on
+        //   the statement date". Closing T0-27 then rewrote it to an exact 0, which is WORSE: Ram & Co does not
+        //   maintain bill-wise details, so the bill-wise numerator is 0 because the book RECORDS NO BILLS, not
+        //   because customers pay instantly — and "0 days" printed beside a Balance Sheet showing 35,000 of
+        //   debtors is a figure a bank or an auditor reads as fact. The only honest answer this book supports is
+        //   the one the report already has for an unanswerable ratio: null, rendered "N/A".
+        Assert.Null(ra.ReceivablesTurnoverDays);
+        // The money that forces it: 35,000 of Sundry Debtors that no bill can account for.
+        Assert.Equal(Money.FromRupees(35000m),
+            Outstandings.BillWiseBlindClosing(f.Company, f.AsOf, "Sundry Debtors"));
+        // 🔴 ANTI-REVERT, BY FIGURE. Both historic wrong answers are named so a regression fails with its own
+        // number rather than a bare "expected null". 175 = the closing-balance numerator; 0 = the confident zero.
+        // The sentinel stands for "withheld" and is neither, so a correct null passes both.
+        var published = ra.ReceivablesTurnoverDays ?? decimal.MinValue;
+        Assert.NotEqual(175m, published);
+        Assert.NotEqual(0m, published);
 
         // Return on Working Capital % = Nett Profit ÷ Working Capital × 100 = −1,000 / 95,000 × 100.
         Assert.Equal(Math.Round(-1000m / 95000m * 100m, 4), Math.Round(ra.ReturnOnWorkingCapitalPercent!.Value, 4));
@@ -192,6 +203,10 @@ public class StatementReportsTests
         Assert.Null(ra.GrossProfitPercent);
         Assert.Null(ra.NetProfitPercent);
         Assert.Null(ra.OperatingCostPercent);           // derives from Nett Profit % → null when Sales = 0
+        // Receivables Turnover is null on Robert for TWO independent reasons, and this test no longer claims to
+        // isolate the zero-denominator one: Sales = 0, AND Robert's debtors keep no bill-wise details so the
+        // numerator is unknowable. The zero-denominator guard is proved in isolation by InventoryTurnover below
+        // (Stock = 0 while the book IS otherwise measurable) and the bill-wise guard by its own test.
         Assert.Null(ra.ReceivablesTurnoverDays);
 
         // Denominator = Stock-in-Hand (0) → null.
@@ -353,5 +368,382 @@ public class StatementReportsTests
         var inv3 = Assert.Single(outstandings.Receivables, b => b.Reference == "INV-3");
         Assert.Equal(0, inv3.OverdueDays(asOf));
         Assert.True(inv3.IsDueBy(asOf));
+
+        // 🔴 AND THE REASON THE FIGURE IS PUBLISHABLE AT ALL ON THIS BOOK: every rupee of Sundry Debtors is
+        // carried by a bill-wise ledger, so the bill-wise numerator is a COMPLETE measurement, not a partial
+        // one. This is the zero that the withholding guard tests below are the complement of.
+        Assert.Equal(Money.Zero, Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+    }
+
+    /// <summary>
+    /// 🔴 THE DEFAULT BOOK SHAPE, AND THE FIGURE A BANK READS. <c>MaintainBillByBill</c> defaults to
+    /// <c>false</c>, so a book whose debtors carry real balances and no bills at all is the ordinary case, not
+    /// an edge case. Closing T0-27 correctly moved Receivables Turnover onto the bill-wise projection; on this
+    /// book that projection sees nothing, and the report published a confident <b>"0 days"</b> beside a Balance
+    /// Sheet showing the money. Zero is the one answer that is definitely wrong: it states that customers pay
+    /// instantly. The ratio must be WITHHELD — the same <c>null</c> → "N/A" the report already uses for an
+    /// unanswerable ratio.
+    /// <para>This test isolates the new guard: Sales is NON-zero here, so the pre-existing zero-denominator
+    /// guard cannot be what produces the null.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_withholds_receivables_turnover_when_debtor_money_is_invisible_to_bills()
+    {
+        // Books begin 2024-04-01; statement date 2024-06-30 → window 30 + 31 + 30 = 91 days inclusive.
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Plain Books Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+
+        // 🔴 NO maintainBillByBill argument — this is the DEFAULT, and that is the whole point of the fixture.
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Plain Co", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(debtor);
+        Assert.False(debtor.MaintainBillByBill);
+
+        var svc = new Services.LedgerService(c);
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 20), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(100000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(100000m), DrCr.Credit),
+        }));
+
+        var ra = RatioAnalysis.Build(c, asOf);
+
+        // ---- Hand-computed ----
+        // Closing debtor = 1,00,000 and the Balance Sheet shows it. Bills = none, so due till today = 0.
+        Assert.Equal(Money.FromRupees(100000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.Zero, ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(100000m), ra.Sales);
+        // The measured blind spot: 1,00,000 of debtors that no bill accounts for.
+        Assert.Equal(Money.FromRupees(100000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+
+        // 🔴 THE ASSERTION THIS WHOLE TRACK EXISTS FOR.
+        Assert.Null(ra.ReceivablesTurnoverDays);
+
+        // 🔴 ANTI-REVERT, BY FIGURE — both wrong answers named, so a regression fails with its own number.
+        //   0 days  = the bill-wise numerator published as fact (the defect this test closes).
+        //   91 days = 1,00,000 ÷ 1,00,000 × 91, i.e. a revert to the closing balance (which would reopen T0-27).
+        var published = ra.ReceivablesTurnoverDays ?? decimal.MinValue;
+        Assert.NotEqual(0m, published);
+        Assert.NotEqual(91m, published);
+
+        // Sales is non-zero, so the OTHER ratios that divide by Sales are real numbers on this same book —
+        // proof that the null above comes from the new bill-wise guard and not from a zero denominator.
+        Assert.NotNull(ra.GrossProfitPercent);
+        Assert.NotNull(ra.NetProfitPercent);
+
+        // The two Principal-Group rows still publish their "(due till today)" figures, qualifier and all: they
+        // say what they are in their caption, which a bare ratio row cannot.
+        var debtorLine = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
+        Assert.Equal(Money.Zero, debtorLine.Value);
+    }
+
+    /// <summary>
+    /// The MIXED book: one debtor keeps bill-wise details, another does not. A ratio built here would divide a
+    /// partial numerator (one party's bills) by whole-book Sales — a mixed-basis figure that is wrong in a way
+    /// no reader can see, which is the same class of defect as feeding it a scenario denominator. It is withheld.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_withholds_receivables_turnover_when_only_some_debtors_are_bill_wise()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Mixed Books Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var tracked = new Domain.Ledger(Guid.NewGuid(), "Tracked Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+        c.AddLedger(tracked);
+        var untracked = new Domain.Ledger(Guid.NewGuid(), "Untracked Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(untracked);
+
+        var svc = new Services.LedgerService(c);
+        // Tracked: a 70,000 bill already fallen due → the bill-wise projection DOES see 70,000.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 10), new[]
+        {
+            new EntryLine(tracked.Id, Money.FromRupees(70000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-T1", Money.FromRupees(70000m),
+                    dueDate: new DateOnly(2024, 5, 1)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(70000m), DrCr.Credit),
+        }));
+        // Untracked: 30,000 the projection cannot see at all.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 11), new[]
+        {
+            new EntryLine(untracked.Id, Money.FromRupees(30000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(30000m), DrCr.Credit),
+        }));
+
+        var ra = RatioAnalysis.Build(c, asOf);
+
+        // ---- Hand-computed ---- closing debtors 1,00,000; bill-wise due till today 70,000; blind 30,000.
+        Assert.Equal(Money.FromRupees(100000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.FromRupees(70000m), ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(30000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.Equal(Money.FromRupees(100000m), ra.Sales);
+
+        Assert.Null(ra.ReceivablesTurnoverDays);
+        // 🔴 The partial-basis figure that must NOT be published: 70,000 ÷ 1,00,000 × 91 = 63.7 days.
+        Assert.NotEqual(63.7m, ra.ReceivablesTurnoverDays ?? decimal.MinValue);
+    }
+
+    /// <summary>
+    /// The blind-spot measure sums MAGNITUDES, not signed balances, and this is the book that makes the
+    /// difference matter: a customer advance sits as a CREDIT balance under Sundry Debtors, so two blind
+    /// ledgers on opposite sides can net to exactly zero while neither is visible to any bill. Netting them
+    /// would report the book as fully covered and let the ratio publish a number built on nothing.
+    /// </summary>
+    [Fact]
+    public void BillWise_blind_closing_sums_magnitudes_so_opposite_blind_balances_cannot_cancel()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Contra Debtors Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var cash = new Domain.Ledger(Guid.NewGuid(), "Cash A", c.FindGroupByName("Cash-in-Hand")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(cash);
+        // Both blind (no bill-wise details), and their closing balances are equal and opposite.
+        var owing = new Domain.Ledger(Guid.NewGuid(), "Owes Us Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(owing);
+        var advance = new Domain.Ledger(Guid.NewGuid(), "Paid Ahead Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(advance);
+
+        var svc = new Services.LedgerService(c);
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 20), new[]
+        {
+            new EntryLine(owing.Id, Money.FromRupees(45000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(45000m), DrCr.Credit),
+        }));
+        // An advance received: Sundry Debtors goes CREDIT by the same 45,000.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 21), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(45000m), DrCr.Debit),
+            new EntryLine(advance.Id, Money.FromRupees(45000m), DrCr.Credit),
+        }));
+
+        // 🔴 Netted, these two are 0. Summed as magnitudes they are 90,000 — and 90,000 is the truth about
+        // how much money no bill can account for.
+        Assert.Equal(Money.FromRupees(90000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.NotEqual(Money.Zero, Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+
+        // …so the ratio is withheld on this book too, even though the net debtor position is zero.
+        Assert.Null(RatioAnalysis.Build(c, asOf).ReceivablesTurnoverDays);
+    }
+
+    /// <summary>
+    /// F3 — the scenario must reach the <b>numerator</b>, not only the Balance Sheet and P&amp;L around it.
+    /// <c>Outstandings.Build</c> had no scenario overload, so with a scenario active Receivables Turnover
+    /// divided an ACTUAL-book numerator by a scenario-basis denominator: a mixed-basis figure wrong on both
+    /// readings, and invisible because every number on screen looked plausible.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_and_outstandings_honour_the_scenario_in_the_due_till_today_numerator()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Scenario Books Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);   // window 2024-04-01 → 2024-06-30 inclusive = 91 days
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var cash = new Domain.Ledger(Guid.NewGuid(), "Cash A", c.FindGroupByName("Cash-in-Hand")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(cash);
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Acme Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+        c.AddLedger(debtor);
+
+        var svc = new Services.LedgerService(c);
+        // REAL: INV-1 60,000 due 2024-05-10 (fallen due) and INV-2 40,000 due 2024-07-20 (not yet due).
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 10), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(60000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-1", Money.FromRupees(60000m),
+                    dueDate: new DateOnly(2024, 5, 10)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(60000m), DrCr.Credit),
+        }));
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 12), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(40000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-2", Money.FromRupees(40000m),
+                    dueDate: new DateOnly(2024, 7, 20)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(40000m), DrCr.Credit),
+        }));
+        // OPTIONAL (provisional — never in the real books): a 20,000 receipt knocking off part of INV-1. It
+        // touches the NUMERATOR only, so the ratio moves for exactly one reason.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 6, 15), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(20000m), DrCr.Debit),
+            new EntryLine(debtor.Id, Money.FromRupees(20000m), DrCr.Credit, new[]
+            {
+                new BillAllocation(BillRefType.AgstRef, "INV-1", Money.FromRupees(20000m)),
+            }),
+        }, optional: true));
+
+        var scenario = new Scenario(Guid.NewGuid(), "What-if", includeActuals: true,
+            includedTypeIds: new[] { journal.Id });
+
+        // ---- The projection itself honours the scenario ----
+        // Actual books: the optional receipt is invisible, so INV-1 still stands at 60,000 and is due.
+        Assert.Equal(Money.FromRupees(60000m), Outstandings.Build(c, asOf).ReceivableDueTillToday);
+        // Under the scenario the receipt surfaces: INV-1 falls to 40,000; INV-2 is still not due.
+        Assert.Equal(Money.FromRupees(40000m), Outstandings.Build(c, asOf, scenario).ReceivableDueTillToday);
+
+        // ---- And so does the ratio, on ONE basis end to end ----
+        // Sales = 60,000 + 40,000 = 1,00,000 on BOTH bases (the receipt touches no sales ledger), so the only
+        // thing that may move is the numerator — which is exactly what F3 said never moved.
+        var actual = RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf));
+        var whatIf = RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf).WithScenario(scenario));
+        Assert.Equal(Money.FromRupees(100000m), actual.Sales);
+        Assert.Equal(Money.FromRupees(100000m), whatIf.Sales);
+
+        // Hand-computed: 60,000 ÷ 1,00,000 × 91 = 54.6 days actual; 40,000 ÷ 1,00,000 × 91 = 36.4 under the
+        // scenario. 🔴 Before the fix BOTH read 54.6 — the scenario column silently showed the actual numerator.
+        Assert.Equal(54.6m, Math.Round(actual.ReceivablesTurnoverDays!.Value, 4));
+        Assert.Equal(36.4m, Math.Round(whatIf.ReceivablesTurnoverDays!.Value, 4));
+        Assert.NotEqual(actual.ReceivablesTurnoverDays, whatIf.ReceivablesTurnoverDays);
+
+        // The published Sundry Debtors row moves with it rather than contradicting the ratio beside it.
+        Assert.Equal(Money.FromRupees(60000m), actual.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(40000m), whatIf.SundryDebtorsDueTillToday);
+    }
+
+    /// <summary>
+    /// F9 — <c>Outstandings.Build</c> now makes ONE pass over the vouchers instead of one pass per bill-wise
+    /// ledger. This pins the refactor's only obligation: the rows it emits must be identical, in the same
+    /// order, to the per-ledger <c>OpenBillsFor</c> projection it replaced. A multi-party book with
+    /// interleaved vouchers is used, because a single-party book cannot tell the two shapes apart.
+    /// </summary>
+    [Fact]
+    public void Outstandings_build_emits_exactly_the_per_ledger_projection_in_the_same_order()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Many Parties Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var purchases = new Domain.Ledger(Guid.NewGuid(), "Purchases", c.FindGroupByName("Purchase Accounts")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(purchases);
+
+        var debtors = new List<Domain.Ledger>();
+        var creditors = new List<Domain.Ledger>();
+        for (var i = 1; i <= 4; i++)
+        {
+            var d = new Domain.Ledger(Guid.NewGuid(), $"Customer {i}", c.FindGroupByName("Sundry Debtors")!.Id,
+                Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+            c.AddLedger(d);
+            debtors.Add(d);
+            var cr = new Domain.Ledger(Guid.NewGuid(), $"Vendor {i}", c.FindGroupByName("Sundry Creditors")!.Id,
+                Money.Zero, openingIsDebit: false, maintainBillByBill: true);
+            c.AddLedger(cr);
+            creditors.Add(cr);
+        }
+
+        var svc = new Services.LedgerService(c);
+        // Interleave the parties ACROSS vouchers so per-ledger and single-pass orderings could diverge.
+        for (var v = 0; v < 6; v++)
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                var day = new DateOnly(2024, 4, 2).AddDays(v * 5 + i);
+                var amount = Money.FromRupees(1000m * (v + 1) + 100m * (i + 1));
+                svc.Post(new Voucher(Guid.NewGuid(), journal.Id, day, new[]
+                {
+                    new EntryLine(debtors[i].Id, amount, DrCr.Debit, new[]
+                    {
+                        new BillAllocation(BillRefType.NewRef, $"D{i}-{v}", amount,
+                            dueDate: day.AddDays(20)),
+                    }),
+                    new EntryLine(sales.Id, amount, DrCr.Credit),
+                }));
+                svc.Post(new Voucher(Guid.NewGuid(), journal.Id, day, new[]
+                {
+                    new EntryLine(purchases.Id, amount, DrCr.Debit),
+                    new EntryLine(creditors[i].Id, amount, DrCr.Credit, new[]
+                    {
+                        new BillAllocation(BillRefType.NewRef, $"C{i}-{v}", amount,
+                            dueDate: day.AddDays(20)),
+                    }),
+                }));
+            }
+        }
+
+        var report = Outstandings.Build(c, asOf);
+
+        // Rebuild the SAME thing the old per-ledger loop produced: company.Ledgers order, each ledger's own
+        // first-opened order, receivables and payables split by kind.
+        var expectedReceivable = new List<OutstandingBill>();
+        var expectedPayable = new List<OutstandingBill>();
+        foreach (var ledger in c.Ledgers)
+        {
+            if (!ledger.MaintainBillByBill) continue;
+            foreach (var bill in Outstandings.OpenBillsFor(c, ledger, asOf))
+            {
+                if (bill.Kind == OutstandingKind.Receivable) expectedReceivable.Add(bill);
+                else expectedPayable.Add(bill);
+            }
+        }
+
+        Assert.NotEmpty(expectedReceivable);
+        Assert.NotEmpty(expectedPayable);
+        Assert.Equal(expectedReceivable, report.Receivables);   // records ⇒ value equality, order included
+        Assert.Equal(expectedPayable, report.Payables);
+        Assert.Equal(4 * 6, expectedReceivable.Count);
+        Assert.Equal(4 * 6, expectedPayable.Count);
+
+        // 🔴 THE ASSERTION ABOVE IS NOT ENOUGH ON ITS OWN AND A MUTATION PROVED IT. Build and OpenBillsFor
+        // share the emitter, so breaking the emitter's ordering breaks BOTH sides identically and the
+        // comparison stays green — a self-consistency test wearing an ordering test's clothes. So the expected
+        // sequence is also spelled out INDEPENDENTLY of any production code path: party by party in
+        // company.Ledgers order, and within each party in first-opened (voucher-date) order.
+        var expectedRefs = new List<string>();
+        for (var i = 0; i < 4; i++)
+            for (var v = 0; v < 6; v++)
+                expectedRefs.Add($"D{i}-{v}");
+        Assert.Equal(expectedRefs, report.Receivables.Select(b => b.Reference).ToList());
+
+        var expectedPayableRefs = new List<string>();
+        for (var i = 0; i < 4; i++)
+            for (var v = 0; v < 6; v++)
+                expectedPayableRefs.Add($"C{i}-{v}");
+        Assert.Equal(expectedPayableRefs, report.Payables.Select(b => b.Reference).ToList());
+
+        // Each party's rows are CONTIGUOUS — the grouping the per-ledger loop gave for free and that a single
+        // voucher pass could silently interleave.
+        var ledgerRuns = new List<Guid>();
+        foreach (var bill in report.Receivables)
+            if (ledgerRuns.Count == 0 || ledgerRuns[^1] != bill.LedgerId)
+                ledgerRuns.Add(bill.LedgerId);
+        Assert.Equal(4, ledgerRuns.Count);
+        Assert.Equal(debtors.Select(d => d.Id).ToList(), ledgerRuns);
+        // And the ageing/total roll-ups built on top of them agree.
+        Assert.Equal(report.TotalReceivable, report.ReceivableAgeing.Aggregate(
+            Money.Zero, (acc, b) => acc + b.Pending));
     }
 }

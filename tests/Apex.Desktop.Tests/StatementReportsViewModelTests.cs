@@ -156,6 +156,57 @@ public sealed class StatementReportsViewModelTests : IDisposable
             $"Operating Cost % should render '%' or 'N/A' but was '{opCostRow.Amount}'.");
     }
 
+    /// <summary>
+    /// 🔴 THE STRING A BANK OR AN AUDITOR ACTUALLY READS. The engine withholding the figure is only half the
+    /// fix: <c>AddRatioDays</c> renders <c>null</c> as "N/A" but <c>0</c> as <b>"0 days"</b>, so a book with no
+    /// bill-wise details used to PRINT "0 days" beside a Sundry Debtors figure of 1,00,000 — the wrong answer
+    /// stated with confidence rather than withheld. This asserts the rendered cell, not the engine member.
+    /// <para>The fixture has NON-ZERO sales on purpose, so the "N/A" cannot come from the pre-existing
+    /// zero-denominator guard.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_renders_NA_not_zero_days_when_debtors_keep_no_bill_wise_details()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+        var c = Apex.Ledger.Services.CompanyFactory.CreateSeeded(
+            "Plain Books Co " + Guid.NewGuid().ToString("N"),
+            new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Ledger.Domain.Ledger(Guid.NewGuid(), "Sales",
+            c.FindGroupByName("Sales Accounts")!.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        // Default MaintainBillByBill (false) — the ordinary book shape.
+        var debtor = new Ledger.Domain.Ledger(Guid.NewGuid(), "Plain Co",
+            c.FindGroupByName("Sundry Debtors")!.Id, Money.Zero, openingIsDebit: true);
+        c.AddLedger(debtor);
+
+        new Apex.Ledger.Services.LedgerService(c).Post(new Voucher(
+            Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 20), new[]
+            {
+                new EntryLine(debtor.Id, Money.FromRupees(100000m), DrCr.Debit),
+                new EntryLine(sales.Id, Money.FromRupees(100000m), DrCr.Credit),
+            }));
+
+        var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        vm.SetAsOf(asOf);
+
+        // 🔴 THE RENDERED CELL. "0 days" here is the shipped defect; "N/A" is the fix.
+        var recvRow = vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)");
+        Assert.Equal("N/A", recvRow.Amount);
+        Assert.NotEqual("0 days", recvRow.Amount);
+
+        // …while the Balance-Sheet-side figure on the SAME report shows the real money, which is exactly what
+        // made "0 days" beside it indefensible. The group row keeps its "(due till today)" qualifier.
+        Assert.Contains(vm.Rows, r => r.Particulars == "Sundry Debtors (due till today)");
+
+        // Sales is non-zero, so a ratio that divides by Sales still renders a number — proof the "N/A" above is
+        // the bill-wise guard and not a zero denominator.
+        var grossRow = vm.Rows.Single(r => r.Particulars == "Gross Profit %");
+        Assert.EndsWith("%", grossRow.Amount);
+        Assert.NotEqual("N/A", grossRow.Amount);
+    }
+
     [Fact]
     public void CashFlow_honours_the_slice1_period_selection()
     {

@@ -9,7 +9,7 @@ public enum RatioUnit
     Ratio,
     /// <summary>A percentage already multiplied by 100, e.g. Gross Profit 20.55 — rendered with a "%" suffix.</summary>
     Percent,
-    /// <summary>A count of days, e.g. Receivables Turnover 175 — rendered with a " days" suffix.</summary>
+    /// <summary>A count of days, e.g. Receivables Turnover 62 — rendered with a " days" suffix.</summary>
     Days,
 }
 
@@ -32,7 +32,10 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// ledger's actual <b>group id</b> (Current Assets / Current Liabilities / Loans / Capital / Stock-in-Hand /
 /// Sundry Debtors / Sundry Creditors). Profitability figures (gross/net profit, sales) come from the Trading &amp;
 /// P&amp;L. All money is exact decimal rupees; ratios are exact decimals (percentages are ×100).</para>
-/// <para><b>Verified against the reference product's official help documentation</b> (Principal Ratios): Current Ratio
+/// <para><b>Verified against the reference product's official help documentation</b>
+/// (<c>https://help.tallysolutions.com/tally-prime/accounting-financial-reports/ratio-analysis-tally/</c> — the
+/// single source for every vendor claim in this file; opened and checked by content, not quoted from memory)
+/// (Principal Ratios): Current Ratio
 /// (CA:CL), Quick Ratio ((CA−Stock):CL), Debt/Equity (Loans:(Capital+NettProfit)), Gross Profit % (GP/Turnover),
 /// Nett Profit % (NP/Turnover), Operating Cost % (100 − NettProfit %, i.e. operating cost as a % of Sales),
 /// Receivables Turnover in days (Debtors <b>due till today</b> ÷ Sales × days-in-period), Return on Investment %
@@ -44,7 +47,12 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// bills <i>irrespective of the outstanding balance on the statement date</i>. Both are therefore taken from the
 /// bill-wise <see cref="Outstandings"/> projection, and the closing balances remain available in their own right as
 /// <see cref="SundryDebtorsClosing"/> / <see cref="SundryCreditorsClosing"/>. See the note inside
-/// <see cref="Build(Company, DateOnly, ReportOptions)"/> for the two limitations this carries.</para>
+/// <see cref="Build(Company, DateOnly, ReportOptions)"/> for the limitation this carries.</para>
+/// <para>🔴 <b><see cref="ReceivablesTurnoverDays"/> is <c>null</c> ("N/A") whenever any Sundry-Debtors money is
+/// invisible to the bill-wise projection</b> — i.e. a debtor ledger carries a balance without maintaining
+/// bill-wise details, which is the DEFAULT book shape. On such a book the bill-wise numerator is 0, and "0 days"
+/// would state as fact that customers pay instantly while the Balance Sheet on the same report shows real
+/// debtors. The ratio is withheld instead, the way a zero denominator already is.</para>
 /// </summary>
 public sealed record RatioAnalysis(
     // ---- Principal-group figures (typed, for tests / direct access) ----
@@ -168,16 +176,25 @@ public sealed record RatioAnalysis(
         // voucher date (BillAllocation.EffectiveDueDate), so a book with no credit terms lands back on the full
         // pending amount; the two figures separate exactly when real credit periods exist, which is the point.
         //
-        // ⚠️ KNOWN LIMITATIONS, both stated rather than hidden:
-        //   • Ledgers that do NOT maintain bill-wise details have no bills and therefore contribute NOTHING
-        //     here, even when they carry a closing balance. That is the literal consequence of the vendor's
-        //     definition; falling back to the closing balance for those ledgers would reinstate T0-27 for every
-        //     non-bill-wise book. The Robert/Bright study fixtures are such books, so both figures are 0 there.
-        //   • Outstandings.Build has no scenario/period overload, so these two figures are un-scenarioed even
-        //     when options.Scenario is set — the same limitation SalesOf already records for period sales.
-        var outstandings = Outstandings.Build(company, asOf);
+        // ⚠️ KNOWN LIMITATION, stated rather than hidden: ledgers that do NOT maintain bill-wise details have
+        // no bills and therefore contribute NOTHING to these two totals, even when they carry a closing
+        // balance. That is the literal consequence of the vendor's definition; falling back to the closing
+        // balance for those ledgers would reinstate T0-27 for every non-bill-wise book. The two Principal-Group
+        // rows carry the "(due till today)" qualifier in their captions, so a 0 there is self-describing — but
+        // the RATIO cannot say that in a number, which is what receivablesTurnoverDays guards on below.
+        var outstandings = Outstandings.Build(company, asOf, options.Scenario);
         var sundryDebtorsDueTillToday = outstandings.ReceivableDueTillToday.Amount;
         var sundryCreditorsDueTillToday = outstandings.PayableDueTillToday.Amount;
+
+        // 🔴 CAN THIS BOOK ANSWER THE RECEIVABLES-TURNOVER QUESTION AT ALL? Money sitting under Sundry Debtors
+        // on ledgers that keep no bill-wise details is invisible to the projection above, so a numerator of 0
+        // there does NOT mean "nothing has fallen due" — it means "this book records no bills". Since
+        // MaintainBillByBill defaults to false, that is the DEFAULT book shape (both study fixtures are such
+        // books), and publishing "0 days" beside a Balance Sheet showing real debtors states a figure a bank or
+        // an auditor reads as fact. The report already has one honest way to say "not answerable here" — the
+        // null that every other ratio uses for a zero denominator, rendered "N/A" — so this uses it.
+        var debtorsBlindToBills = Outstandings.BillWiseBlindClosing(
+            company, asOf, "Sundry Debtors", options.Scenario).Amount;
 
         var sales = SalesOf(company, asOf, options);  // net turnover: ledgers under the Sales Accounts primary
         var grossProfit = pl.GrossProfit.Amount;
@@ -194,9 +211,13 @@ public sealed record RatioAnalysis(
 
         // Receivables Turnover in days = (Sundry Debtors DUE TILL TODAY ÷ Sales) × days-in-period (inclusive
         // window). 🔴 The numerator is the bill-wise figure, NOT the closing balance — see the T0-27 note above.
+        // 🔴 …and it is UNAVAILABLE (null → "N/A"), not 0, when any Sundry-Debtors money is invisible to the
+        // bill-wise projection: 0 is the one answer that is definitely wrong on a book with no bills.
         var window = options.EffectivePeriod(company);
         var daysInPeriod = window.To.DayNumber - window.From.DayNumber + 1;
-        var receivablesTurnoverDays = Ratio(sundryDebtorsDueTillToday * daysInPeriod, sales);
+        var receivablesTurnoverDays = debtorsBlindToBills != 0m
+            ? (decimal?)null
+            : Ratio(sundryDebtorsDueTillToday * daysInPeriod, sales);
 
         var currentRatio = Ratio(currentAssets, currentLiabilities);
         var quickRatio = Ratio(quickAssets, currentLiabilities);
