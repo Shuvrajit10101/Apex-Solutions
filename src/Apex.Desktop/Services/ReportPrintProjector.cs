@@ -31,6 +31,13 @@ public static class ReportPrintProjector
         if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
         if (vm.IsPayslipReport) return ProjectPayslip(vm);
 
+        // 🔴 THE DECLARED COLUMN BAND COMES FIRST — the same ReportColumnBands entry the export reads, so a
+        // printed page and a spreadsheet of one report carry identical headings by construction. Before this,
+        // THIS projector had no per-kind caption table at all and printed an empty caption for every column
+        // after the first, on every non-accounting, non-payroll report.
+        var band = ReportColumnBands.For(vm);
+        if (band.Count > 0) return ProjectBanded(vm, band);
+
         var columns = BuildColumns(vm);
         var rows = new List<PrintRow>(vm.Rows.Count);
         foreach (var r in vm.Rows)
@@ -42,6 +49,48 @@ public static class ReportPrintProjector
             // 🔴 RULING 18: carry the producer's provenance, do not re-decide it here. The view model built the
             // heading and is the only party that knows whether a master name is inside it.
             TitleCarriesMasterName = vm.TitleCarriesMasterName,
+            Subtitle = Ascii(vm.Subtitle),
+            Columns = columns,
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// Projects a report that declares a column band: one printed column per band entry, captioned from the band
+    /// and filled from the cell that entry names. Figure columns are right-aligned and narrow, label columns left
+    /// and wide, which is the same rule the payroll matrix already prints by.
+    /// </summary>
+    private static PrintReport ProjectBanded(ReportsViewModel vm, IReadOnlyList<ReportColumnBands.Spec> band)
+    {
+        var columns = new List<PrintColumn>(band.Count);
+        for (int i = 0; i < band.Count; i++)
+        {
+            var c = band[i];
+            // The leading label column carries the widest content (an item, party or particulars caption), so it
+            // gets the wide share the accounting Particulars column has always had.
+            double width = c.IsNumeric ? 1.5 : (i == 0 ? 3 : 2.2);
+            columns.Add(new PrintColumn(Ascii(c.Caption), width, c.IsNumeric ? CellAlign.Right : CellAlign.Left));
+        }
+
+        var rows = new List<PrintRow>(vm.Rows.Count);
+        foreach (var r in vm.Rows)
+        {
+            var cells = new string[band.Count];
+            for (int i = 0; i < band.Count; i++) cells[i] = Ascii(band[i].Cell(r));
+            rows.Add(new PrintRow
+            {
+                Cells = cells,
+                IsHeader = r.IsHeader,
+                IsTotal = r.IsTotal,
+                // ReportRow.Indent is in pixels (~8 px per nesting level); convert to a small space count.
+                Indent = (int)(r.Indent / 8),
+            });
+        }
+
+        return new PrintReport
+        {
+            Title = Ascii(vm.Title),
+            TitleCarriesMasterName = vm.TitleCarriesMasterName, // 🔴 RULING 18 — carry, never re-decide.
             Subtitle = Ascii(vm.Subtitle),
             Columns = columns,
             Rows = rows,
@@ -165,12 +214,13 @@ public static class ReportPrintProjector
         if (used == 0)
             return new[] { new PrintColumn("Particulars", 3, CellAlign.Left) };
 
+        // 🔴 THE LAST-RESORT PATH FOR A KIND THAT DECLARED NO BAND. Real captions come from ReportColumnBands
+        // now — the single source this projector and ReportTabularProjector share. A kind reaching here was born
+        // without a band, which is exactly what ReportColumnBandCoverageTests fails on; until that is satisfied
+        // it prints blank captions rather than a meaningless "Col 2"/"Col 3" placeholder, because a stray
+        // "Col N" word in a printed header band reads as a bug.
         var cols = new List<PrintColumn>(used);
         cols.Add(new PrintColumn("Particulars", 3, CellAlign.Left));
-        // The wide inventory/GST reports keep their real column captions in per-report XAML templates, which
-        // are not exposed to this projector. Emit blank right-aligned headers rather than a meaningless
-        // hardcoded "Col 2"/"Col 3" placeholder — a stray "Col N" word in the printed header band reads as a
-        // bug, whereas an empty caption keeps the figures lined up without inventing text.
         for (int i = 1; i < used; i++)
             cols.Add(new PrintColumn(string.Empty, 1.5, CellAlign.Right));
         return cols;
@@ -189,9 +239,11 @@ public static class ReportPrintProjector
             // anywhere. The voucher/invoice print path got a "CANCELLED" over-print because it is "the one that
             // leaves the building"; the report egress leaves the building too. Same token the screen shows, ASCII
             // already. `ReportTabularProjector.ProjectRow` carries the twin — CSV/XLSX go through that one.
-            string particulars = r.IsCancelled
-                ? Ascii(r.Particulars) + "  (Cancelled)"
-                : Ascii(r.Particulars);
+            // 🔴 Composed by ReportColumnBands.AccountingLabel — one composition shared with the export twin and
+            // with the screen, replacing the hand-rolled cancelled-only append described above. That append
+            // carried ONE fact out of Secondary; this carries the cell, so the reconciled counts, voucher
+            // numbers and monthly opening/closing figures the screen shows reach the printed page as well.
+            string particulars = Ascii(ReportColumnBands.AccountingLabel(r));
             cells = vm.IsTwoColumn
                 ? new[] { particulars, Ascii(r.Debit), Ascii(r.Credit) }
                 : new[] { particulars, Ascii(r.Amount) };
