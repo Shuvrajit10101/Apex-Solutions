@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -29,7 +30,7 @@ public sealed class ItcGateTripleRowVm
 /// <b>posts nothing</b> (ER-14). When no 2B has been imported it shows a clean empty state. Gated: Regular GST
 /// company (ER-13). MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class ItcGateReportViewModel : ViewModelBase
+public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -151,6 +152,61 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase
         ItcReversalReason.ImsAcceptedCreditNote => "Accepted CN/DN",
         _ => reason.ToString(),
     };
+
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> 6.19's own evidence names this view
+    /// model as one of six that derive from <see cref="ViewModelBase"/> alone, and records that the row did not
+    /// move while five siblings did precisely because of that: the general arm
+    /// (<c>MainWindowViewModel.TopMasterExportSource()</c>, which both <c>IsExportablePage</c> and
+    /// <c>IsPrintablePage</c> gate on) was already built and simply never adopted here. Implementing this method
+    /// is the whole fix — no new machinery, no per-screen list.
+    ///
+    /// <para><b>A sixth "Cess" column exists so the candidates are not truncated.</b> The comparison grid has no
+    /// cess (the ITC-gate triples are CGST/SGST/IGST), but the reversal candidates below it do, and dropping the
+    /// column would silently discard a real tax figure on export. The two blocks therefore share one widened
+    /// column set rather than the grid's own — a report that exports a subset of what it shows is the same dead
+    /// end in a quieter form.</para>
+    ///
+    /// <para><b>The candidates ride across labelled as ADVISORY.</b> They are suggestions for the S7 reversal
+    /// poster, not amounts this screen has reversed — it posts nothing (ER-14). Exporting them unlabelled beside
+    /// claimed ITC would invite a reader to treat a suggestion as a posted reversal.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Rows.Count + Candidates.Count + 3);
+        foreach (var r in Rows)
+            rows.Add(new[] { r.Label, r.Cgst, r.Sgst, r.Igst, string.Empty, r.Total });
+
+        if (Candidates.Count > 0)
+        {
+            rows.Add(new[]
+            {
+                "Reversal candidates (advisory — nothing posted)",
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+            });
+            foreach (var c in Candidates)
+                rows.Add(new[] { $"{c.Reason} — {c.Description}", c.Cgst, c.Sgst, c.Igst, c.Cess, c.Suggested });
+        }
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(new[]
+            {
+                StatusText, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+            });
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Particulars"),
+                MasterListColumn.Number("CGST"),
+                MasterListColumn.Number("SGST"),
+                MasterListColumn.Number("IGST"),
+                MasterListColumn.Number("Cess"),
+                MasterListColumn.Number("Total"),
+            },
+            rows);
+    }
 
     private static string P(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
     private static string A(Money m) => IndianFormat.AmountAlways(m);

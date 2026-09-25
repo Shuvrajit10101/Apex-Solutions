@@ -121,8 +121,20 @@ public class StatementReportsTests
         // Principal-group figures we newly expose (Bright, closing):
         //   Sundry Debtors  = Ram & Co 35,000 ; Sundry Creditors = Shyam Traders 35,000
         //   Capital Account = Bright's Capital 150,000 (EXCLUDES the folded −1,000 period net profit)
-        Assert.Equal(Money.FromRupees(35000m), ra.SundryDebtors);
-        Assert.Equal(Money.FromRupees(35000m), ra.SundryCreditors);
+        // 🔴 T0-27: these are the CLOSING balances, and they are asserted on the CLOSING members. The
+        // Balance-Sheet classification they prove is unchanged by the T0-27 fix — only which figure the
+        // report PUBLISHES changed.
+        Assert.Equal(Money.FromRupees(35000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.FromRupees(35000m), ra.SundryCreditorsClosing);
+
+        // 🔴 …and the PUBLISHED "due till today" figures are 0 for Bright, which is correct and not a
+        // regression: neither Ram & Co nor Shyam Traders maintains bill-wise details (bright.json sets no
+        // bill-by-bill flag and posts no bill allocations), so the book contains NO bills and nothing can
+        // have fallen due. A book where the two figures genuinely differ is covered by
+        // RatioAnalysis_publishes_sundry_figures_due_till_today_not_the_closing_balance below.
+        Assert.Equal(Money.Zero, ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.Zero, ra.SundryCreditorsDueTillToday);
+
         Assert.Equal(Money.FromRupees(150000m), ra.CapitalAccount);
         // Proprietor's funds = Capital + Nett Profit = 150,000 + (−1,000) = 149,000.
         Assert.Equal(Money.FromRupees(149000m), ra.ProprietorsFunds);
@@ -134,10 +146,13 @@ public class StatementReportsTests
         var expectedNetProfitPct = -1000m / 73000m * 100m;
         Assert.Equal(Math.Round(100m - expectedNetProfitPct, 4), Math.Round(ra.OperatingCostPercent!.Value, 4));
 
-        // Receivables Turnover (days) = Sundry Debtors ÷ Sales × days-in-period.
+        // Receivables Turnover (days) = Sundry Debtors DUE TILL TODAY ÷ Sales × days-in-period.
         // Default window = books-begin 2021-04-01 → as-of 2022-03-31 (inclusive) = 365 days.
-        //   35,000 ÷ 73,000 × 365 = 12,775,000 ÷ 73,000 = 175 days exactly.
-        Assert.Equal(175m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
+        // 🔴 T0-27: this assertion used to read 175 days — 35,000 ÷ 73,000 × 365 — computed from the CLOSING
+        // debtor balance. The vendor defines this ratio "irrespective of the outstanding balance on the
+        // statement date", so the old expectation was itself the defect. Bright has no bills, so the
+        // numerator is 0 and the ratio is an exact 0.
+        Assert.Equal(0m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
 
         // Return on Working Capital % = Nett Profit ÷ Working Capital × 100 = −1,000 / 95,000 × 100.
         Assert.Equal(Math.Round(-1000m / 95000m * 100m, 4), Math.Round(ra.ReturnOnWorkingCapitalPercent!.Value, 4));
@@ -150,7 +165,7 @@ public class StatementReportsTests
         Assert.Equal(0m, ra.DebtEquityRatio!.Value);
 
         // The two render-ready columns are populated and label-complete.
-        Assert.Contains(ra.PrincipalGroups, g => g.Label == "Sundry Debtors");
+        Assert.Contains(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
         Assert.Contains(ra.PrincipalRatios, r => r.Label == "Working Capital Turnover" && r.Unit == RatioUnit.Ratio);
         Assert.Contains(ra.PrincipalRatios, r => r.Label == "Receivables Turnover (days)" && r.Unit == RatioUnit.Days);
         Assert.Contains(ra.PrincipalRatios, r => r.Label == "Operating Cost %" && r.Unit == RatioUnit.Percent);
@@ -191,5 +206,152 @@ public class StatementReportsTests
         // ROI denominator = Capital + Nett Profit ≠ 0 → present (no throw).
         Assert.NotNull(ra.ReturnOnInvestmentPercent);
         _ = ra.DebtEquityRatio;
+    }
+
+    // ------------------------------------------------- Ratio Analysis — T0-27 ("due till today")
+
+    /// <summary>
+    /// A book built so the CLOSING balance and the DUE-TILL-TODAY figure differ on BOTH sides, with every
+    /// number hand-computed below. This is the regression test for defect <b>T0-27</b>: Ratio Analysis
+    /// published the Balance-Sheet closing balance as "Sundry Debtors" and "Sundry Creditors" and fed the
+    /// first into Receivables Turnover — three wrong figures at once.
+    /// <para>Source: the vendor's Ratio Analysis help page captions the two Principal Groups
+    /// <b>"Sundry Debtors (due till today)"</b> / <b>"Sundry Creditors (due till today)"</b> and defines
+    /// Receivables Turnover as the average time customers take to pay their bills <i>"irrespective of the
+    /// outstanding balance on the statement date"</i> — which names the closing balance as the wrong input.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_publishes_sundry_figures_due_till_today_not_the_closing_balance()
+    {
+        // Books begin 2024-04-01; statement date 2024-06-30.
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Due-Till-Today Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var purchases = new Domain.Ledger(Guid.NewGuid(), "Purchases", c.FindGroupByName("Purchase Accounts")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(purchases);
+
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Acme Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+        c.AddLedger(debtor);
+        var creditor = new Domain.Ledger(Guid.NewGuid(), "Supplier Co", c.FindGroupByName("Sundry Creditors")!.Id,
+            Money.Zero, openingIsDebit: false, maintainBillByBill: true);
+        c.AddLedger(creditor);
+
+        var svc = new Services.LedgerService(c);
+
+        // Receivables. Explicit due dates so the arithmetic needs no credit-period reasoning.
+        //   INV-1  60,000  due 2024-05-10  → fallen due by 30-Jun  ✔ counts
+        //   INV-2  40,000  due 2024-07-20  → NOT yet due by 30-Jun ✘ excluded
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 10), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(60000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-1", Money.FromRupees(60000m),
+                    dueDate: new DateOnly(2024, 5, 10)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(60000m), DrCr.Credit),
+        }));
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 6, 20), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(40000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-2", Money.FromRupees(40000m),
+                    dueDate: new DateOnly(2024, 7, 20)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(40000m), DrCr.Credit),
+        }));
+
+        // 🔴 THE BOUNDARY CASE, and it is the one an off-by-one gets wrong:
+        //   INV-3  25,000  due EXACTLY 2024-06-30 (the statement date) → it HAS fallen due ✔ counts.
+        //   Note this bill scores 0 overdue days and so sits in the ageing "Not due" bucket — "due till
+        //   today" is inclusive of today and is deliberately one day wider than "overdue".
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 6, 1), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(25000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-3", Money.FromRupees(25000m),
+                    dueDate: new DateOnly(2024, 6, 30)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(25000m), DrCr.Credit),
+        }));
+
+        // Payables.
+        //   BILL-1 50,000  due 2024-05-30  → fallen due ✔ counts
+        //   BILL-2 30,000  due 2024-08-09  → NOT yet due ✘ excluded
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 15), new[]
+        {
+            new EntryLine(purchases.Id, Money.FromRupees(50000m), DrCr.Debit),
+            new EntryLine(creditor.Id, Money.FromRupees(50000m), DrCr.Credit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "BILL-1", Money.FromRupees(50000m),
+                    dueDate: new DateOnly(2024, 5, 30)),
+            }),
+        }));
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 6, 25), new[]
+        {
+            new EntryLine(purchases.Id, Money.FromRupees(30000m), DrCr.Debit),
+            new EntryLine(creditor.Id, Money.FromRupees(30000m), DrCr.Credit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "BILL-2", Money.FromRupees(30000m),
+                    dueDate: new DateOnly(2024, 8, 9)),
+            }),
+        }));
+
+        var ra = RatioAnalysis.Build(c, asOf);
+
+        // ---- Hand-computed ----
+        // Closing debtor   = 60,000 + 40,000 + 25,000 = 1,25,000
+        //   due till today = 60,000 (INV-1) + 25,000 (INV-3, due exactly today) = 85,000; INV-2 not yet due.
+        // Closing creditor = 50,000 + 30,000 = 80,000 ; due till today = 50,000 (BILL-2 not yet due).
+        Assert.Equal(Money.FromRupees(125000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.FromRupees(80000m), ra.SundryCreditorsClosing);
+        Assert.Equal(Money.FromRupees(85000m), ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(50000m), ra.SundryCreditorsDueTillToday);
+
+        // The whole point of the fixture: the two bases genuinely differ, so an implementation that
+        // reverted to the closing balance CANNOT pass the assertions above by coincidence.
+        Assert.NotEqual(ra.SundryDebtorsClosing, ra.SundryDebtorsDueTillToday);
+        Assert.NotEqual(ra.SundryCreditorsClosing, ra.SundryCreditorsDueTillToday);
+
+        // Receivables Turnover (days) = due-till-today debtors ÷ Sales × days-in-period.
+        //   Default window = books-begin 2024-04-01 → 2024-06-30 inclusive = 30 + 31 + 30 = 91 days.
+        //   Sales = 60,000 + 40,000 + 25,000 = 1,25,000.
+        //   85,000 ÷ 1,25,000 × 91 = 0.68 × 91 = 61.88 days.
+        Assert.Equal(Money.FromRupees(125000m), ra.Sales);
+        Assert.Equal(61.88m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
+
+        // 🔴 THE ANTI-REVERT ASSERTION. Had the numerator stayed the closing balance the ratio would be
+        //   1,25,000 ÷ 1,25,000 × 91 = 91 days exactly. Naming the wrong answer makes the test fail loudly
+        //   with the defect's own figure rather than a bare inequality.
+        Assert.NotEqual(91m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
+        // 🔴 AND THE OFF-BY-ONE. Dropping INV-3 (due exactly today) would give 60,000 ÷ 1,25,000 × 91 =
+        //   43.68 days, so a strict "<" boundary is caught by figure, not by luck.
+        Assert.NotEqual(43.68m, Math.Round(ra.ReceivablesTurnoverDays!.Value, 4));
+
+        // The published Principal-Group rows carry the vendor's captions AND the bill-wise values — the
+        // report a user actually reads, not just the typed members a test can reach.
+        var debtorLine = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
+        var creditorLine = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Creditors (due till today)");
+        Assert.Equal(Money.FromRupees(85000m), debtorLine.Value);
+        Assert.Equal(Money.FromRupees(50000m), creditorLine.Value);
+
+        // And it agrees with the Outstandings report on the same book — the reuse that keeps the two
+        // screens from disagreeing about one set of bills.
+        var outstandings = Outstandings.Build(c, asOf);
+        Assert.Equal(outstandings.ReceivableDueTillToday, ra.SundryDebtorsDueTillToday);
+        Assert.Equal(outstandings.PayableDueTillToday, ra.SundryCreditorsDueTillToday);
+        // Sanity: total pending (1,25,000) exceeds due-till-today (85,000) precisely by the un-due INV-2.
+        Assert.Equal(Money.FromRupees(125000m), outstandings.TotalReceivable);
+        // And INV-3 really is in the "Not due" ageing bucket while still counting as due till today —
+        // the one-day distinction, asserted rather than only described.
+        var inv3 = Assert.Single(outstandings.Receivables, b => b.Reference == "INV-3");
+        Assert.Equal(0, inv3.OverdueDays(asOf));
+        Assert.True(inv3.IsDueBy(asOf));
     }
 }

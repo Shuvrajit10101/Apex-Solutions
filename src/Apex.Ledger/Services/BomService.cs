@@ -70,11 +70,23 @@ public sealed class BomService
     /// <summary>
     /// Deletes a BOM. If it was the finished good's <b>last</b> BOM, the item's
     /// <see cref="StockItem.SetComponents"/> flag is turned back off (it is no longer a manufactured item).
+    ///
+    /// <para>🔴 <b>THE REFERENTIAL GUARD WAS MISSING UNTIL W33 C3 AND ITS ABSENCE WAS UNREACHABLE, NOT
+    /// HARMLESS.</b> This method shipped with <b>zero production callers</b> — the same shape
+    /// <c>StockItemMasterViewModel.ForAlter</c> and <c>LedgerService.Delete</c> both shipped in — so a BOM could
+    /// only be deleted from a test. Wave 33 wires Alt+D onto the BOM master, which makes it reachable, and
+    /// <c>job_work_orders.fill_components_bom_id</c> is a real foreign key into this parent written from a
+    /// collection of its own. Deleting a BOM a job-work order was filled from would have made the open company
+    /// <b>permanently unsavable</b>. <see cref="MasterDeletionRules.EnsureBomDeletable"/> is that guard and it is
+    /// asked BEFORE anything is removed — the delete is all-or-nothing, never half-applied.</para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">The BOM is unknown, or a job-work order was filled from it.</exception>
     public void DeleteBom(Guid bomId)
     {
         var bom = _company.FindBillOfMaterials(bomId)
             ?? throw new InvalidOperationException($"BOM {bomId} not found.");
+
+        MasterDeletionRules.EnsureBomDeletable(_company, bom);
 
         _company.RemoveBillOfMaterials(bom);
 

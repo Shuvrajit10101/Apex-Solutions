@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -45,7 +46,7 @@ public sealed class QrmpPmt06RowVm
 /// deposited). A Monthly filer / Composition / GST-off company yields a not-applicable (empty) projection (ER-13). It
 /// posts nothing. MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class QrmpReportViewModel : ViewModelBase
+public sealed partial class QrmpReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -150,6 +151,70 @@ public sealed partial class QrmpReportViewModel : ViewModelBase
         SelfAssessment = A(s.SelfAssessment),
         AlreadyDeposited = A(s.AlreadyDeposited),
     };
+
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> Named in 6.19's "QRMP/IFF" clause as
+    /// one of the six screens that never adopted <see cref="IMasterListExportSource"/>. The general arm
+    /// (<c>TopMasterExportSource()</c>) already gated both E / Alt+E and P / Ctrl+P on this interface; this
+    /// method is the adoption.
+    ///
+    /// <para>🔴 <b>This export does NOT become an IFF upload, and 6.19 says so in as many words:</b> "QRMP is a
+    /// PMT-06 advisory only; its IFF rows are a window view, not an upload artefact." Nothing here is a filable
+    /// JSON — this is the cadence an operator reads and hands on. Exporting it closes the output dead end the
+    /// row records; it does not close the upload gap, which stays open and is reported as such.</para>
+    ///
+    /// <para><b>The cap column travels with the IFF rows on purpose.</b> An IFF taxable value means nothing
+    /// without the ₹50-lakh cap it is measured against — <see cref="QrmpIffRowVm.ExceedsCap"/> is the reason
+    /// the screen exists — so the cap and an explicit over-cap marker ride beside the value rather than being
+    /// left to a reader who no longer has the screen in front of them.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(IffRows.Count + Pmt06Rows.Count + 4);
+
+        static IReadOnlyList<string> Section(string label) => new[]
+        {
+            label, string.Empty, string.Empty, string.Empty, string.Empty,
+            string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+        };
+
+        rows.Add(Section("IFF (Invoice Furnishing Facility) — window view, not an upload artefact"));
+        foreach (var r in IffRows)
+            rows.Add(new[]
+            {
+                r.Quarter, r.Month, r.Invoices, r.TaxableValue, r.Cap,
+                r.ExceedsCap ? "Exceeds cap" : string.Empty,
+                string.Empty, string.Empty, string.Empty, string.Empty,
+            });
+
+        rows.Add(Section("PMT-06 (advisory)"));
+        foreach (var r in Pmt06Rows)
+            rows.Add(new[]
+            {
+                r.Quarter, r.Month, string.Empty, string.Empty, string.Empty, string.Empty,
+                r.FixedSum35, r.FixedSum100, r.SelfAssessment, r.AlreadyDeposited,
+            });
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Section(StatusText));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Quarter"),
+                MasterListColumn.Text("Month"),
+                MasterListColumn.Number("Invoices"),
+                MasterListColumn.Number("Taxable Value"),
+                MasterListColumn.Number("Cap"),
+                MasterListColumn.Text("Cap Status"),
+                MasterListColumn.Number("Fixed Sum 35%"),
+                MasterListColumn.Number("Fixed Sum 100%"),
+                MasterListColumn.Number("Self-Assessment"),
+                MasterListColumn.Number("Already Deposited"),
+            },
+            rows);
+    }
 
     private static string A(Money m) => IndianFormat.AmountAlways(m);
 }

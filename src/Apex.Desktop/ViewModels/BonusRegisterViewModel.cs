@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -47,7 +48,7 @@ public sealed class BonusRegisterRowVm
 /// computation over the dated salary structure, so the register is byte-stable. MVVM boundary: engine only, no Avalonia
 /// types (headlessly testable); deterministic — no clock/RNG.</para>
 /// </summary>
-public sealed partial class BonusRegisterViewModel : ViewModelBase
+public sealed partial class BonusRegisterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -140,6 +141,59 @@ public sealed partial class BonusRegisterViewModel : ViewModelBase
             : IsEmpty
                 ? "No bonus-eligible employees this year (within the ₹21,000 wage ceiling)."
                 : $"Bonus register ready — {MemberCountText}; total bonus payable ₹{TotalBonusText}.";
+    }
+
+    /// <summary>
+    /// <b>Census 7.14 — the snapshot that gives this register an exit.</b> The row was held at PARTIAL on
+    /// "no print, no export", for exactly the reason 7.13 was: this is not a <c>Screen.Report</c>, so
+    /// <c>IsReportContext</c> is false and both E / Alt+E and P / Ctrl+P had nothing to act on. The general arm
+    /// (<c>TopMasterExportSource()</c>) already existed in <c>IsExportablePage</c> / <c>IsPrintablePage</c>;
+    /// only the adoption was missing, so this one method is the whole fix.
+    ///
+    /// <para><b>Both wage bases are exported, and deliberately.</b> A bonus register is the document an employer
+    /// is asked to produce to show the §12 calculation ceiling was applied correctly, and that is unprovable from
+    /// the bonus figure alone — it needs the ACTUAL Basic + DA beside the CAPPED base it was computed on. Dropping
+    /// either column would make the export unable to answer the one question it is produced for.</para>
+    ///
+    /// <para><b>The accounting year and the applied rate ride as trailing rows.</b> The rate is a range under the
+    /// Act (8.33%–20%), so a sheet of bonus figures with no rate and no year on it cannot be tied to the year it
+    /// discharges, and the ₹21,000-ceiling exclusions mean the row count is NOT the headcount — the status line
+    /// carries that caveat across with the numbers.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Rows.Count + 4);
+        foreach (var r in Rows)
+            rows.Add(new[]
+            {
+                r.EmployeeName, r.EmployeeNumber, r.Eligible,
+                r.ActualBasicDa, r.CappedBase, r.RatePercent, r.AnnualBonus,
+            });
+
+        static IReadOnlyList<string> Footing(string label, string value)
+            => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, value };
+
+        rows.Add(Footing("Total Bonus Payable", TotalBonusText));
+        if (!string.IsNullOrWhiteSpace(AccountingYearText))
+            rows.Add(Footing($"Accounting year {AccountingYearText}", string.Empty));
+        if (!string.IsNullOrWhiteSpace(RateText))
+            rows.Add(Footing(RateText, string.Empty));
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Footing(StatusText, string.Empty));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Employee"),
+                MasterListColumn.Text("Employee No."),
+                MasterListColumn.Text("Eligible"),
+                MasterListColumn.Number("Actual Basic + DA"),
+                MasterListColumn.Number("Capped Base"),
+                MasterListColumn.Text("Rate"),
+                MasterListColumn.Number("Annual Bonus"),
+            },
+            rows);
     }
 
     /// <summary>Whole-rupee Indian-grouped display of a bonus integer figure (always rendered, even zero).</summary>

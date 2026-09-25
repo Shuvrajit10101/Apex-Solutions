@@ -3240,6 +3240,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col3 = o.PartyName ?? string.Empty,
                 Col4 = $"{o.VoucherTypeName} No. {o.FormattedNumber} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
                 IsHeader = true,
+                // 🔴 Census 9.2 — THE ROW IS NOW REACHABLE. Until this line the Job Work Order Books showed a
+                // voucher the operator could see but could not act on: Enter did not drill and Ctrl+Enter, Alt+X
+                // and Alt+D were SILENT no-ops, because all four resolve through DrillInventoryVoucherId and this
+                // builder never set it. The id goes in the INVENTORY slot, never the accounting one — a Job Work
+                // order is an InventoryVoucher, and a pure-stock id in the accounting slot is a dead key (see
+                // ReportRow.DrillInventoryVoucherId).
+                DrillInventoryVoucherId = o.VoucherId,
             });
             foreach (var c in o.Components)
                 Rows.Add(new ReportRow
@@ -3249,6 +3256,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     Col6 = IndianFormat.Quantity(c.OrderedQuantity),
                     Col7 = IndianFormat.Quantity(c.FulfilledQuantity),
                     Col8 = IndianFormat.Quantity(c.PendingQuantity),
+                    // The component lines belong to the same order voucher, so standing on one and pressing a
+                    // lifecycle verb acts on the order — which is what the operator means. Leaving them blank
+                    // would make the verb work on the header row and die one arrow-key away.
+                    DrillInventoryVoucherId = o.VoucherId,
                 });
         }
 
@@ -3284,6 +3295,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col7 = r.Rate is { } rate ? IndianFormat.Amount(rate) : string.Empty,
                 Col8 = IndianFormat.Amount(r.Value),
                 Secondary = r.BatchLabel ?? string.Empty,
+                // 🔴 Census 9.2 — same fix, same reason as the Order Books above: without this the Material
+                // In/Out registers carried rows no keyboard verb could reach. A voucher with N allocation lines
+                // shows N rows all carrying the SAME id, which is correct — the lifecycle verbs act on the
+                // voucher, not on the line.
+                DrillInventoryVoucherId = r.VoucherId,
             });
             // Head-line value = the register's primary direction (received for In, dispatched for Out), so a
             // balanced transfer is not double-counted across its source + destination legs.

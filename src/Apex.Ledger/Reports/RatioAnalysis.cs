@@ -35,9 +35,16 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// <para><b>Verified against the reference product's official help documentation</b> (Principal Ratios): Current Ratio
 /// (CA:CL), Quick Ratio ((CA−Stock):CL), Debt/Equity (Loans:(Capital+NettProfit)), Gross Profit % (GP/Turnover),
 /// Nett Profit % (NP/Turnover), Operating Cost % (100 − NettProfit %, i.e. operating cost as a % of Sales),
-/// Receivables Turnover in days (Debtors ÷ Sales × days-in-period), Return on Investment %
+/// Receivables Turnover in days (Debtors <b>due till today</b> ÷ Sales × days-in-period), Return on Investment %
 /// (NettProfit ÷ (Capital + NettProfit) × 100), Return on Working Capital % (NettProfit ÷ WorkingCapital × 100),
 /// Inventory Turnover (Turnover ÷ Stock), Working Capital Turnover (Sales ÷ Working Capital).</para>
+/// <para>🔴 <b>The two Sundry figures are the exception to the sentence above and are deliberately NOT Balance-Sheet
+/// closing balances (defect T0-27).</b> The vendor captions them "Sundry Debtors (due till today)" and "Sundry
+/// Creditors (due till today)" and defines Receivables Turnover as the average time customers take to pay their
+/// bills <i>irrespective of the outstanding balance on the statement date</i>. Both are therefore taken from the
+/// bill-wise <see cref="Outstandings"/> projection, and the closing balances remain available in their own right as
+/// <see cref="SundryDebtorsClosing"/> / <see cref="SundryCreditorsClosing"/>. See the note inside
+/// <see cref="Build(Company, DateOnly, ReportOptions)"/> for the two limitations this carries.</para>
 /// </summary>
 public sealed record RatioAnalysis(
     // ---- Principal-group figures (typed, for tests / direct access) ----
@@ -50,8 +57,10 @@ public sealed record RatioAnalysis(
     Money NetProfit,
     Money ProprietorsFunds,
     Money LongTermDebt,
-    Money SundryDebtors,
-    Money SundryCreditors,
+    Money SundryDebtorsDueTillToday,
+    Money SundryCreditorsDueTillToday,
+    Money SundryDebtorsClosing,
+    Money SundryCreditorsClosing,
     Money CapitalAccount,
     // ---- Principal ratios (typed, for tests / direct access) ----
     decimal? CurrentRatio,
@@ -91,7 +100,7 @@ public sealed record RatioAnalysis(
         // Net-Profit heads have a null group id — handled explicitly below.
         var currentAssets = 0m;
         var inventory = 0m;
-        var sundryDebtors = 0m;
+        var sundryDebtorsClosing = 0m;
         foreach (var line in bs.Assets)
         {
             var isStock = ClassificationRules.GroupIsUnder(line.GroupId, "Stock-in-Hand", company)
@@ -105,12 +114,12 @@ public sealed record RatioAnalysis(
             {
                 currentAssets += line.Amount.Amount;
                 if (ClassificationRules.GroupIsUnder(line.GroupId, "Sundry Debtors", company))
-                    sundryDebtors += line.Amount.Amount;
+                    sundryDebtorsClosing += line.Amount.Amount;
             }
         }
 
         var currentLiabilities = 0m;
-        var sundryCreditors = 0m;
+        var sundryCreditorsClosing = 0m;
         var longTermDebt = 0m;
         var capitalAccount = 0m;   // Capital Account ledgers only (excludes folded Net Profit)
         var proprietorsFunds = 0m; // Capital Account + folded period Net Profit (= Capital + Nett Profit)
@@ -120,7 +129,7 @@ public sealed record RatioAnalysis(
             {
                 currentLiabilities += line.Amount.Amount;
                 if (ClassificationRules.GroupIsUnder(line.GroupId, "Sundry Creditors", company))
-                    sundryCreditors += line.Amount.Amount;
+                    sundryCreditorsClosing += line.Amount.Amount;
             }
             else if (ClassificationRules.GroupIsUnder(line.GroupId, "Loans (Liability)", company))
             {
@@ -141,6 +150,35 @@ public sealed record RatioAnalysis(
         var workingCapital = currentAssets - currentLiabilities;
         var quickAssets = currentAssets - inventory;
 
+        // ---------------------------------------------------------------- T0-27: "due till today"
+        // 🔴 THE TWO SUNDRY FIGURES THIS REPORT PUBLISHES ARE BILL-WISE, NOT BALANCE-SHEET CLOSING BALANCES.
+        // The reference product's Ratio Analysis labels them "Sundry Debtors (due till today)" and "Sundry
+        // Creditors (due till today)", and defines Receivables Turnover as the average time customers take to
+        // pay their bills "irrespective of the outstanding balance on the statement date" — a phrase that names
+        // the closing balance as the WRONG input. This report used to accumulate both from bs.Assets/bs.Liabilities
+        // and feed the first into receivablesTurnoverDays, so THREE published figures were wrong at once.
+        //
+        // 🔴 REUSED, NOT RE-DERIVED. The due-till-today amount comes from the SAME bill-wise projection the
+        // Outstandings reports bind to (Outstandings.Build → OutstandingsReport.Receivable/PayableDueTillToday).
+        // Computing ageing a second way here would let Ratio Analysis and Outstandings disagree about the same
+        // book, which would be a new defect wearing the old one's clothes.
+        //
+        // A bill counts once its due date has ARRIVED (DueDate <= asOf), which is one day wider than the ageing
+        // "Not due" bucket — see OutstandingBill.IsDueBy. A bill carrying no credit period is due on its own
+        // voucher date (BillAllocation.EffectiveDueDate), so a book with no credit terms lands back on the full
+        // pending amount; the two figures separate exactly when real credit periods exist, which is the point.
+        //
+        // ⚠️ KNOWN LIMITATIONS, both stated rather than hidden:
+        //   • Ledgers that do NOT maintain bill-wise details have no bills and therefore contribute NOTHING
+        //     here, even when they carry a closing balance. That is the literal consequence of the vendor's
+        //     definition; falling back to the closing balance for those ledgers would reinstate T0-27 for every
+        //     non-bill-wise book. The Robert/Bright study fixtures are such books, so both figures are 0 there.
+        //   • Outstandings.Build has no scenario/period overload, so these two figures are un-scenarioed even
+        //     when options.Scenario is set — the same limitation SalesOf already records for period sales.
+        var outstandings = Outstandings.Build(company, asOf);
+        var sundryDebtorsDueTillToday = outstandings.ReceivableDueTillToday.Amount;
+        var sundryCreditorsDueTillToday = outstandings.PayableDueTillToday.Amount;
+
         var sales = SalesOf(company, asOf, options);  // net turnover: ledgers under the Sales Accounts primary
         var grossProfit = pl.GrossProfit.Amount;
         var netProfit = pl.NetProfit.Amount;
@@ -154,10 +192,11 @@ public sealed record RatioAnalysis(
         // there are no sales (Nett Profit % itself is N/A).
         var operatingCostPercent = netProfitPercent is { } np ? 100m - np : (decimal?)null;
 
-        // Receivables Turnover in days = (Sundry Debtors ÷ Sales) × days-in-period (inclusive window).
+        // Receivables Turnover in days = (Sundry Debtors DUE TILL TODAY ÷ Sales) × days-in-period (inclusive
+        // window). 🔴 The numerator is the bill-wise figure, NOT the closing balance — see the T0-27 note above.
         var window = options.EffectivePeriod(company);
         var daysInPeriod = window.To.DayNumber - window.From.DayNumber + 1;
-        var receivablesTurnoverDays = Ratio(sundryDebtors * daysInPeriod, sales);
+        var receivablesTurnoverDays = Ratio(sundryDebtorsDueTillToday * daysInPeriod, sales);
 
         var currentRatio = Ratio(currentAssets, currentLiabilities);
         var quickRatio = Ratio(quickAssets, currentLiabilities);
@@ -173,8 +212,11 @@ public sealed record RatioAnalysis(
             new("Working Capital", new Money(workingCapital)),
             new("Current Assets", new Money(currentAssets)),
             new("Current Liabilities", new Money(currentLiabilities)),
-            new("Sundry Debtors", new Money(sundryDebtors)),
-            new("Sundry Creditors", new Money(sundryCreditors)),
+            // 🔴 The vendor's own captions carry the qualifier, and the qualifier is the whole of T0-27: a bare
+            // "Sundry Debtors" invites the reader to reconcile it against the Balance Sheet, which is precisely
+            // what it must NOT equal. The label states the basis so the two figures can differ in plain sight.
+            new("Sundry Debtors (due till today)", new Money(sundryDebtorsDueTillToday)),
+            new("Sundry Creditors (due till today)", new Money(sundryCreditorsDueTillToday)),
             new("Stock-in-Hand", new Money(inventory)),
             new("Sales Accounts", new Money(sales)),
             new("Capital Account", new Money(capitalAccount)),
@@ -206,8 +248,10 @@ public sealed record RatioAnalysis(
             new Money(netProfit),
             new Money(proprietorsFunds),
             new Money(longTermDebt),
-            new Money(sundryDebtors),
-            new Money(sundryCreditors),
+            new Money(sundryDebtorsDueTillToday),
+            new Money(sundryCreditorsDueTillToday),
+            new Money(sundryDebtorsClosing),
+            new Money(sundryCreditorsClosing),
             new Money(capitalAccount),
             CurrentRatio: currentRatio,
             QuickRatio: quickRatio,

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -102,7 +103,7 @@ public sealed class Drc03RowVm : ViewModelBase
 /// <para><b>Opening this screen posts nothing</b> — only the explicit Post action (Ctrl+A) mutates. Gated: Regular
 /// GST company (ER-13). MVVM boundary: engine only, no Avalonia types (headlessly testable); deterministic.</para>
 /// </summary>
-public sealed partial class Drc03PaymentViewModel : ViewModelBase
+public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListExportSource
 {
     /// <summary>The portal's own sentence on which ledger may discharge interest and penalty — quoted verbatim.</summary>
     public const string CashOnlyRule = "Interest and penalty amount shall be paid out of cash ledger only.";
@@ -461,6 +462,64 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// <b>Census 6.20 — the snapshot that gives this panel an exit.</b> 6.20 records the remaining gap as "no
+    /// export or print path on the panel". This is an action screen, not a <c>Screen.Report</c>, so
+    /// <c>IsReportContext</c> is false on it and neither E / Alt+E nor P / Ctrl+P had anything to act on. The
+    /// general arm (<c>TopMasterExportSource()</c>) already existed; this is the adoption.
+    ///
+    /// <para>🔴 <b>What this DOES NOT close, stated plainly so the row is not over-graded.</b> 6.20's gap has two
+    /// halves: no output path, and "the DRC-03 itself is still not emitted as a filable artefact". This closes the
+    /// FIRST half only. What exports is the register of DRC-03 payments this company has filed — a working paper —
+    /// <b>not</b> a portal-shaped DRC-03 JSON. The second half, and live portal submission, remain open.</para>
+    ///
+    /// <para><b>The FILED register is what exports, not the entry form.</b> The panel's upper half is an unposted
+    /// draft; exporting draft figures beside filed ones would produce a sheet in which a payment that was never
+    /// made is indistinguishable from one that was. Only <see cref="Filed"/> rows — records that actually posted —
+    /// cross the boundary, with the available-cash footing that makes them reconcilable.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Filed.Count + 4);
+
+        static IReadOnlyList<string> Section(string label)
+            => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty };
+
+        foreach (var r in Filed)
+            rows.Add(new[] { r.Cause, r.Period, r.Tax, r.Interest, r.Total, r.DemandRef });
+
+        if (Filed.Count == 0)
+            rows.Add(Section("No DRC-03 payment has been filed for this company."));
+
+        // 🔴 The available-cash figures may read the constant "not read" rather than a number when a cash cell
+        // could not be read (the banner case 6.20 records). That text rides across UNCHANGED: the projector only
+        // recovers a decimal from a parseable cell, so an unreadable balance can never export as "0.00" — which
+        // an operator would read as a nil balance.
+        rows.Add(Section("Available cash balance at the time of this export"));
+        rows.Add(new[]
+        {
+            "Available cash", string.Empty,
+            AvailableCgstText, AvailableSgstText, AvailableIgstText, AvailableCessText,
+        });
+        if (CashReadFailed && !string.IsNullOrWhiteSpace(CashReadErrorText))
+            rows.Add(Section(CashReadErrorText));
+
+        rows.Add(Section("Register of filed DRC-03 payments — NOT a filable DRC-03 artefact."));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Cause"),
+                MasterListColumn.Text("Period"),
+                MasterListColumn.Number("Tax"),
+                MasterListColumn.Number("Interest"),
+                MasterListColumn.Number("Total"),
+                MasterListColumn.Text("Demand Ref."),
+            },
+            rows);
     }
 
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));

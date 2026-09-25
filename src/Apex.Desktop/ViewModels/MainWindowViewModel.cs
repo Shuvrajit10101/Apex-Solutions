@@ -9002,6 +9002,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 or Screen.StockCategoryMaster or Screen.CostCategoryMaster or Screen.CostCentreMaster
                 => RequestDeleteMasterListRow(),
 
+            // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the eight residual masters, through
+            // that same shared arm. Every one of these screens was CREATE-ONLY: a mistyped batch, BOM, currency,
+            // budget, scenario, price level, price list version or reorder definition could be added and never
+            // removed by any sequence of keys. Five of the eight delete services already existed in Apex.Ledger
+            // with ZERO callers in Apex.Desktop, one of them (BomService.DeleteBom) missing the very guard that
+            // stops a delete making the open company unsavable — see MasterListScreen above for the per-master
+            // refusal and for why three of the eight owe no guard at all.
+            Screen.BatchMaster or Screen.BomMaster or Screen.CurrencyMaster or Screen.BudgetMaster
+                or Screen.ScenarioMaster or Screen.PriceLevelsMaster or Screen.PriceListsMaster
+                or Screen.ReorderLevelsMaster
+                => RequestDeleteMasterListRow(),
+
             _ => false,
         };
     }
@@ -9498,7 +9510,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company is not null
         && (IsLiveReportPage
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
-            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // 🔴 Census 4.9–4.16 — the pure-stock drill column, added with the alteration verb itself. It is the
+            // FOURTH arm and it went in here rather than being special-cased in the key handler for the reason
+            // this property exists: Alt+D already reaches Screen.InventoryVoucherDetail
+            // (RequestDeleteHighlighted's own switch has that arm), so leaving Ctrl+Enter out would have left the
+            // two lifecycle verbs reachable from different sets of screens — the drift IsDeleteTargetPage and
+            // this property are a matched pair to prevent.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null));
 
     /// <summary>
     /// 🔴 <b>Census 4.9–4.16 — the verb the operator just pressed has NO pure-stock implementation, so SAY SO
@@ -9513,11 +9532,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// every other voucher, and NOTHING HAPPENS AND NOTHING IS SAID. "Honestly unavailable" is not a property a
     /// silent key can have — it is the exact defect class this project has filed three times.</para>
     ///
-    /// <para><b>Alteration really is unavailable, and the message is the truth rather than a placeholder.</b>
-    /// <c>VoucherEntryViewModel.ForAlter</c> refuses every inventory-aggregate voucher by design
-    /// (<c>VoucherAlterRefusalTests</c> pins that for all twelve base kinds) because no
-    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice;
-    /// naming the limit costs nothing and is owed now. The sentence points at the two routes that DO work.</para>
+    /// <para>🔴 <b>THE ALTERATION HALF OF THIS IS NOW FALSE AND IS STRUCK RATHER THAN DELETED, so a reader can
+    /// see what changed.</b> It used to read: <i>"Alteration really is unavailable … because no
+    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice."</i>
+    /// That slice is this one. <c>InventoryPostingService.Replace</c> and
+    /// <see cref="InventoryVoucherEntryViewModel.ForAlter"/> now exist, and Ctrl+Enter on a stock row OPENS the
+    /// alteration through <see cref="ShowInventoryVoucherAlteration"/> instead of arriving here. <b>This method's
+    /// one surviving caller is Alt+2 (duplicate)</b>, whose gap is real and unchanged: <c>DetachAsDuplicate</c>
+    /// is a <c>VoucherEntryViewModel</c> method and has no pure-stock counterpart.</para>
     ///
     /// <para>Scoped to <see cref="Screen.Report"/> alone, which is the only surface that can carry such a row:
     /// <see cref="IsVoucherAlterTargetPage"/>'s other two arms are the register drill and the ACCOUNTING
@@ -9532,8 +9554,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return false;
 
         RaiseLifecycleNotice(
-            $"{verb} is not available for a stock voucher. Cancel it with Alt+X or delete it with Alt+D, "
-            + "then re-enter it from the inventory voucher screen.");
+            $"{verb} is not available for a stock voucher. Alter it with Ctrl+Enter, cancel it with Alt+X or "
+            + "delete it with Alt+D — or enter a fresh one from the inventory voucher screen.");
         return true;
     }
 
@@ -9625,17 +9647,104 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        // Census 4.9–4.16 — asked BEFORE the fall-through so a pure-stock row gets a sentence instead of a dead
-        // key. Refused (not NoVoucherHere) so the keystroke is CONSUMED: falling through to the drill below would
-        // change screens, and OnCurrentScreenChanged wipes the notice bar on the way past — the operator would
-        // watch the explanation they were just given disappear.
+        // 🔴 Census 4.9–4.16 — THE PURE-STOCK ARM, and it is asked BEFORE the accounting fall-through because a
+        // stock row carries Guid.Empty in the accounting slot by design (see ReportRow.DrillInventoryVoucherId).
+        // This used to be RefuseVoucherVerbOnStockRow — a sentence saying the verb did not exist. It exists now:
+        // InventoryPostingService.Replace and InventoryVoucherEntryViewModel.ForAlter shipped together, so the
+        // row OPENS instead of explaining why it cannot.
+        if (ResolveInventoryVoucherForAlteration() is { } stock)
+            return ShowInventoryVoucherAlteration(stock);
+
+        // A row that resolves to no accounting voucher and no stock voucher is a header, a total or an
+        // empty-state note — a quiet no-op the caller must fall through on so the row still drills.
         if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
-            return RefuseVoucherVerbOnStockRow("Alteration (Ctrl+Enter)")
-                ? VoucherAlterationRequest.Refused
-                : VoucherAlterationRequest.NoVoucherHere;
+            return VoucherAlterationRequest.NoVoucherHere;
 
         var voucher = Company.FindVoucher(id)!;
         return ShowVoucherAlteration(voucher);
+    }
+
+    /// <summary>
+    /// The posted <see cref="InventoryVoucher"/> the highlight stands on, or <c>null</c>. Resolved from the two
+    /// surfaces a pure-stock voucher can be reached from — a report row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> (the Day Book and, since this slice, the four Job Work
+    /// registers) and the <see cref="Screen.InventoryVoucherDetail"/> drill column itself.
+    ///
+    /// <para>🔴 It resolves through <c>FindInventoryVoucher</c> rather than trusting the id on the row: the row
+    /// was built when the report was drawn, and the voucher may have been deleted since (Alt+D on another
+    /// column). A stale id would otherwise reach <c>ForAlter</c> and be refused there with a less specific
+    /// sentence.</para>
+    /// </summary>
+    private InventoryVoucher? ResolveInventoryVoucherForAlteration()
+    {
+        if (Company is null) return null;
+
+        var id = CurrentScreen switch
+        {
+            Screen.Report => Reports?.SelectedRow?.DrillInventoryVoucherId,
+            Screen.InventoryVoucherDetail => InventoryVoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        return id is { } stockId && stockId != Guid.Empty ? Company.FindInventoryVoucher(stockId) : null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Opens a posted PURE-STOCK voucher's alteration screen, or puts its named refusal on the notice
+    /// bar</b> — the pure-stock twin of <see cref="ShowVoucherAlteration"/>, census rows 4.9–4.16 and 9.2.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> The chord and the save key are the ones the accounting alteration
+    /// already uses, and their provenance is recorded in full on
+    /// <see cref="RequestAlterHighlightedVoucher"/> — Ctrl+Enter as a deliberate widening of an attested
+    /// alteration gesture, Ctrl+A as the attested save. <b>OURS — no source speaks:</b> that a PURE-STOCK
+    /// voucher is reachable by that chord from the Day Book, from a Job Work register and from the stock drill
+    /// column. Nothing is claimed for it beyond consistency with the accounting door.</para>
+    ///
+    /// <para><b>Why it opens as a DRILL column.</b> Same reason <see cref="ShowVoucherAlteration"/> gives:
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// the operator drilled from, so Esc would return to the Gateway instead of to the row they were standing
+    /// on.</para>
+    /// </summary>
+    private VoucherAlterationRequest ShowInventoryVoucherAlteration(InventoryVoucher voucher)
+    {
+        // Captured as INSTANCES, not as closures over the properties: OpenDrillColumn does not clear the sub
+        // screens but a later pop rebinds them, and a `() => Reports?.Show(...)` read at save time could see a
+        // different report. The same trap ShowVoucherAlteration records.
+        var report = Reports;
+        var detail = InventoryVoucherDetail;
+
+        var open = InventoryVoucherEntryViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                BackFromPage();
+                report?.Show(report.Kind);
+                // 🔴 The stock drill column is the pane that ISSUES DOCUMENTS from this family, so leaving it
+                // unrefreshed would re-print the SUPERSEDED movement under the live voucher number — the exact
+                // defect the accounting arm's `detail?.Refresh()` was added for. Refresh returns false when the
+                // voucher is gone, which cannot happen on a successful alteration.
+                detail?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // Shown, never swallowed — a dropped refusal is indistinguishable from a dead key, which is the
+            // defect census row 9.2 names as the worst of the three.
+            RaiseLifecycleNotice(refusal);
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        // The batch-allocation cascade wiring OpenInventoryVoucher does. Without it a batch-tracked line on an
+        // altering screen raises an event nobody handles — the shell owns the cascade, not the entry VM.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Inventory Voucher Alteration — {entry.Type.Name}";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.InventoryVoucherEntry, title, () => InventoryVoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
     }
 
     /// <summary>
@@ -11042,18 +11151,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.CostCategoryMaster => CostCategoryMaster,
         Screen.CostCentreMaster => CostCentreMaster,
 
+        // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+        // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the EIGHT residual masters join the same
+        // arm, continuing what PR #108 started.
+        //
+        // 🔴 AN EARLIER DRAFT OF THIS COMMENT CLAIMED THAT AFTER THIS LINE "every master screen in the product
+        // that owns an existing-list is on ONE arrow arm and ONE Alt+D arm". THAT IS FALSE AND IS CORRECTED HERE
+        // RATHER THAN DELETED, because an overstated closure claim in a comment is how a census row drifts to
+        // COMPLETE without anyone building anything. Counted from the source, what is still OFF the arm:
+        //   • the SALARY STRUCTURE and TAX DECLARATION masters — PayrollMasterScreen's own remarks below carry the
+        //     detail (PayrollService has no alter or delete for a salary structure at all), row 7.16 stays open;
+        //   • the RATES OF EXCHANGE grid on the Currency screen — IMasterListScreen exposes exactly one
+        //     highlighted row per screen, so the second grid on that page is deliberately unreachable by Alt+D and
+        //     Company.RemoveExchangeRate still has no Desktop caller (see CurrencyMasterViewModel).
+        // What IS true after this line: every master screen listed in this switch is on one arrow arm and one
+        // Alt+D arm, and no screen in it is half-wired.
+        //
+        // 🔴 EIGHT WORDS, EIGHT CAPABILITIES, AND NOT ONE OF THEM IS A NEW MECHANISM. Appearing here is what
+        // grants a screen the arrows, the Alt+D confirmation, the guarded engine call, the save and the
+        // post-delete refresh — IsDeleteTargetPage and RequestDeleteHighlighted both ask THIS property rather
+        // than keeping their own list, which is the whole reason a master cannot arrive half-wired.
+        //
+        // 🔴 WHAT EACH ONE'S REFUSAL IS, because "it joined the arm" is not evidence that it is SAFE to delete:
+        //   · Batch      — BatchService.DeleteBatch: refuses a batch whose number appears on any opening
+        //                  balance, allocation, invoice line or physical-count line for the same item.
+        //   · BOM        — BomService.DeleteBom: refuses a BOM a job-work order was filled from. 🔴 THAT GUARD
+        //                  DID NOT EXIST BEFORE THIS SLICE. The service shipped without it and with zero
+        //                  production callers; this line is what would have made the omission reachable, and
+        //                  the consequence was an open company that could never be saved again.
+        //   · Currency   — MasterDeletionRules.EnsureCurrencyDeletable (NEW): base currency refused outright;
+        //                  posted forex lines, denominated ledgers and rate quotes each counted by name.
+        //   · Price Level— PriceListService.DeleteLevel: price lists, or a party default, refuse it.
+        //   · Budget / Scenario / Price List / Reorder — NO referential guard, and that is DERIVED FROM THE DDL
+        //                  rather than assumed: each one's only inbound foreign key is a child row written from
+        //                  the parent's own object graph (budget_lines, scenario_voucher_types, price_list_lines)
+        //                  or there is none at all (reorder_definitions). The full derivation is written out in
+        //                  MasterDeletionRules' W33 block so a later reader can falsify it against the schema
+        //                  instead of trusting this comment.
+        Screen.BatchMaster => BatchMaster,
+        Screen.BomMaster => BomMaster,
+        Screen.CurrencyMaster => CurrencyMaster,
+        Screen.BudgetMaster => BudgetMaster,
+        Screen.ScenarioMaster => ScenarioMaster,
+        Screen.PriceLevelsMaster => PriceLevels,
+        Screen.PriceListsMaster => PriceLists,
+        Screen.ReorderLevelsMaster => ReorderLevels,
+
         _ => PayrollMasterScreen,
     };
 
     /// <summary>
-    /// <b>Ctrl+Enter on one of the six W29 master lists — open the highlighted master for ALTERATION.</b> Returns
-    /// false (a quiet no-op) on every other screen, and while the screen is already mid-alteration, so the chord
-    /// stays free elsewhere.
+    /// <b>Ctrl+Enter on one of the SEVEN master lists this switch resolves — open the highlighted master for
+    /// ALTERATION.</b> Returns false (a quiet no-op) on every other screen, and while the screen is already
+    /// mid-alteration, so the chord stays free elsewhere.
+    ///
+    /// <para>🔴 <b>COUNTED FROM THE CASES BELOW, NOT FROM THE LAST REPORT.</b> This sentence read "one of the six
+    /// W29 master lists" until W33 C3 added the <b>price level</b> (census 3.10) and the <b>currency</b> (census
+    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. The list
+    /// is: Godown, Unit, Stock Category, Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3).
+    /// <c>IPayrollMasterList</c>'s own remarks record what a stale count in a doc comment like this one costs.</para>
     ///
     /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
     /// <see cref="AlterHighlightedPayrollMasterRow"/>'s remarks give: <c>ForAlter</c> is a static factory per type
     /// that builds a whole screen with its own pickers, so alteration is the one verb that cannot be shared
-    /// through the interface. Every OTHER verb these six gained IS shared, through the switch above.</para>
+    /// through the interface. Every OTHER verb these screens gained IS shared, through the switch above.</para>
     ///
     /// <para>🔴 <b><see cref="Screen.StockGroupMaster"/> is DELIBERATELY ABSENT from this switch and that is not an
     /// oversight.</b> Census 3.13 already gave the Stock Group master an identical, already-tested Ctrl+Enter arm
@@ -11111,6 +11272,48 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => CostCentreMaster = m);
                 return true;
             }
+
+            // ───────────────────────────────────────────────────────────── W33 C3: the ALTER half of the cluster
+            //
+            // 🔴 TWO OF THE EIGHT RESIDUAL MASTERS, NOT EIGHT, AND THE SPLIT IS BY EVIDENCE. Alteration needs a
+            // `ForAlter` factory, and building one is only honest where a VENDOR PAGE says what altering that
+            // master means. Two do: the price level ("Change the names of the Price Levels and press Ctrl+A to
+            // save" — help.tallysolutions.com/selling-buying-prices/) and the currency ("Alt+G > Alter Master >
+            // Currency", altering symbol / formal name / ISO code / decimal places —
+            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. The other six
+            // (batch, BOM, budget, scenario, price list, reorder) keep create+delete only and their census rows
+            // stay PARTIAL. Inventing an alter shape for a master no source describes is how this project has
+            // previously shipped a verb nobody asked for.
+            case Screen.PriceLevelsMaster:
+            {
+                if (PriceLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceLevelsMaster, m.Caption,
+                    () => PriceLevels = m);
+                return true;
+            }
+            case Screen.CurrencyMaster:
+            {
+                // 🔴 THE BASE CURRENCY IS REFUSED WITH A NOTICE, NOT WITH SILENCE. ForAlter returns null for it —
+                // its row is a projection of the company profile's own base-currency fields and nothing re-syncs
+                // the two — and a bare `return false` would make Ctrl+Enter on that one row do nothing whatsoever
+                // with no statement why: the same shape a sibling review caught as an empty notice bar on a
+                // refused delete. Returning TRUE also stops the chord falling through to another arm.
+                if (Company.FindCurrency(id) is { IsBaseCurrency: true })
+                {
+                    RaiseLifecycleNotice(
+                        "The base currency cannot be altered here — its symbol, formal name and decimal places "
+                        + "belong to the company itself. Change them on Alter Company (F3) instead.");
+                    return true;
+                }
+
+                if (CurrencyMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CurrencyMaster, m.Caption,
+                    () => CurrencyMaster = m);
+                return true;
+            }
+
             default:
                 return false;
         }
@@ -11555,8 +11758,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.VoucherEntry:
                 AcceptVoucherEntryOrAlteration();
                 return;
+            // Census 4.9–4.16 — the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was
+            // opened for, exactly as the accounting arm above and the master screens below do. 🔴 Branching here
+            // rather than inside Accept is not cosmetic: Accept builds with a FRESH Guid and number 0, so running
+            // it on an altering screen would post a SECOND stock movement and leave the original standing —
+            // closing stock double-counted. Accept ALSO hard-refuses, so this is a belt-and-braces pair and the
+            // refusal is what a test can red.
             case Screen.InventoryVoucherEntry:
-                InventoryVoucherEntry?.Accept();
+                if (InventoryVoucherEntry is { IsAltering: true } altering) altering.AcceptAlteration();
+                else InventoryVoucherEntry?.Accept();
                 return;
             // WI-3: the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was opened for.
             // Branching on IsAltering (not on a separate screen id) is what lets the alteration form be literally
@@ -11627,8 +11837,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BomMaster:
                 BomMaster?.Create();
                 return;
+            // W33 C3: the same screen now serves Create and Alter, so Ctrl+A must run whichever verb it was
+            // opened for — the WI-3 branch shape. Without it, a Price Level Alteration screen's Ctrl+A would run
+            // Create() and fail on the duplicate name, leaving the rename unsaved behind an "already exists".
             case Screen.PriceLevelsMaster:
-                PriceLevels?.Create();
+                if (PriceLevels is { IsAltering: true }) PriceLevels.Alter();
+                else PriceLevels?.Create();
                 return;
             case Screen.PriceListsMaster:
                 PriceLists?.Save();
@@ -11684,8 +11898,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ScenarioMaster:
                 ScenarioMaster?.Create();
                 return;
+            // W33 C3: the currency form now serves Create and Alter through the one screen, so Ctrl+A branches.
+            // 🔴 The RATE form on the same page is untouched: it has its own accept (CreateRate) and adds a dated
+            // quote whether or not the currency half is mid-alteration, which is what the vendor page describes as
+            // available alongside an alteration ("Modify the Rates of Exchange, if required").
             case Screen.CurrencyMaster:
-                CurrencyMaster?.CreateCurrency();
+                if (CurrencyMaster is { IsAltering: true }) CurrencyMaster.AlterCurrency();
+                else CurrencyMaster?.CreateCurrency();
                 return;
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();

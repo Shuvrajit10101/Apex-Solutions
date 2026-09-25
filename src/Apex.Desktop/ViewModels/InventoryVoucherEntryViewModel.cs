@@ -415,6 +415,244 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         Recalculate();
     }
 
+    // ============================================== ALTERATION (census 4.9–4.16, 9.2) — Ctrl+Enter's door
+
+    /// <summary>The posted voucher this screen is amending, or <c>null</c> when it is entering a new one.</summary>
+    private Guid? _alteringVoucherId;
+
+    /// <summary>
+    /// True while this screen is amending a POSTED voucher rather than entering a new one. Drives the window's
+    /// accept routing (Ctrl+A ⇒ <see cref="AcceptAlteration"/>) and the hard refusal in <see cref="Accept"/>.
+    /// </summary>
+    public bool IsAltering => _alteringVoucherId is not null;
+
+    /// <summary>The posted voucher's id while <see cref="IsAltering"/>, else <see cref="Guid.Empty"/>.</summary>
+    public Guid AlteringVoucherId => _alteringVoucherId ?? Guid.Empty;
+
+    /// <summary>
+    /// 🔴 <b>Opens this screen on a POSTED pure-stock voucher, pre-filled, or refuses BY NAME — the door census
+    /// rows 4.9–4.16 were missing.</b>
+    ///
+    /// <para>Until this existed, <c>InventoryPostingService</c> had <c>Post</c>, <c>Cancel</c> and <c>Delete</c>
+    /// but no <c>Replace</c>, so <c>VoucherEntryViewModel.ForAlter</c> refused every inventory-aggregate voucher
+    /// by design and the Day Book's Ctrl+Enter could only name the limit. The engine verb and this door ship
+    /// together, because either alone is useless: a service with no caller is not a feature, and a screen with no
+    /// engine cannot save.</para>
+    ///
+    /// <para>The result is never a bare <c>null</c> and never a silent no-op — it holds either a rehydrated view
+    /// model or a sentence naming why this voucher's posted shape cannot be rebuilt here. That two-sided shape is
+    /// the same discipline <c>VoucherAlterationOpen</c> enforces on the accounting door, for the reason this
+    /// project has filed three times: a dead key is worse than a refusal, because the operator believes the
+    /// action happened.</para>
+    /// </summary>
+    public static InventoryVoucherAlterationOpen ForAlter(
+        Company company,
+        Guid voucherId,
+        CompanyStorage storage,
+        Action onSaved,
+        Action onCancelled)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        if (InventoryVoucherAlterationEligibility.RefusalFor(company, voucherId) is { } refusal)
+            return InventoryVoucherAlterationOpen.Refused(refusal);
+
+        // Both are non-null: RefusalFor returned null, which it only does after resolving each of them.
+        var voucher = company.FindInventoryVoucher(voucherId)!;
+        var type = company.FindVoucherType(voucher.TypeId)!;
+
+        // 🔴 THE SHAPES THIS SCREEN DOES NOT SERVE ARE REFUSED BEFORE THE VIEW MODEL IS CONSTRUCTED, and that
+        // ordering is load-bearing rather than tidy. The constructor runs the whole entry screen's set-up for
+        // the voucher's TYPE — line grids, unit options, transfer classes, the first Recalculate — and a Job
+        // Work order's type is not one this screen is built for. Constructing it and then refusing was measured
+        // to HANG the headless window, so a Ctrl+Enter on a Job Work order in the Day Book would have hung the
+        // real app. Refusing first means nothing is built for a type that has no screen here.
+        if (ShapeThisScreenCannotServe(voucher) is { } shape)
+            return InventoryVoucherAlterationOpen.Refused(shape);
+
+        // The date is deliberately NOT passed to the constructor: RehydrateFrom sets it, so there is exactly one
+        // writer and a test can falsify it (a voucher that is not the latest in the book would otherwise open on
+        // the constructor's default and no assertion could tell).
+        var entry = new InventoryVoucherEntryViewModel(company, type, storage, onSaved, onCancelled);
+        return entry.RehydrateFrom(voucher) is { } shapeRefusal
+            ? InventoryVoucherAlterationOpen.Refused(shapeRefusal)
+            : InventoryVoucherAlterationOpen.Opened(entry);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The inverse of the four builders</b> — re-keys <paramref name="v"/> onto this screen, or returns a
+    /// NAMED sentence saying why its posted shape cannot be rebuilt. Returning <c>null</c> is the assertion that
+    /// pressing Ctrl+A immediately would rebuild a voucher identical to the one on the book.
+    ///
+    /// <para>🔴 <b>Every arm that refuses here refuses because re-saving would MOVE STOCK.</b> That is the whole
+    /// bar for this family: the screen keys some fields and derives others, so a posted voucher carrying a field
+    /// this screen does not key would have that field silently dropped by the writer — and a dropped allocation,
+    /// batch, godown or order link is a corrupted closing stock, which moves the Balance Sheet. A round-trip
+    /// backstop per line (see <c>InventoryVoucherLineViewModel.RehydrateFromAllocation</c>) plus the
+    /// shape guards below is what makes "opened" mean "safely re-savable".</para>
+    /// </summary>
+    private string? RehydrateFrom(InventoryVoucher v)
+    {
+        ArgumentNullException.ThrowIfNull(v);
+
+        // Re-asked here as well as in ForAlter: RehydrateFrom is the method that must be safe to call on any
+        // posted voucher, and a future second caller must not be able to skip the pre-construction check.
+        if (ShapeThisScreenCannotServe(v) is { } shape) return shape;
+
+        if (!IsStockJournal && v.DestinationAllocations.Count > 0)
+            return $"This {_type.Name} carries a destination (inward) side, which only a Stock Journal or a "
+                 + "material movement keys, so this screen cannot rebuild it.";
+
+        if (!IsStockJournal && v.AdditionalCostLines.Count > 0)
+            return $"This {_type.Name} carries additional-cost lines, which only a Stock Journal keys on this "
+                 + "screen, so re-saving it here would drop them and change the landed rate.";
+
+        if (v.PartyId is { } partyId && Parties.FirstOrDefault(p => p.Ledger?.Id == partyId) is null)
+            return "The party ledger on this voucher is no longer in this company, so the screen cannot show it.";
+
+        // ---- the header. Date FIRST: FormattedVoucherNumber depends on it, and the number preview the
+        //      constructor seeded from NextNumber must be overwritten by the voucher's OWN number.
+        _alteringVoucherId = v.Id;
+        Date = v.Date;
+        VoucherNumber = v.Number;
+        Narration = v.Narration ?? string.Empty;
+        IsPostDated = v.PostDated;
+        SelectedParty = v.PartyId is { } pid
+            ? Parties.First(p => p.Ledger?.Id == pid)
+            : Parties.First(p => p.IsNone);
+        Title = $"{_type.Name} Alteration";
+
+        // ---- the lines, by shape.
+        if (IsOrder)
+        {
+            if (v.OrderLines.Count == 0)
+                return $"This {_type.Name} has no order lines to re-key.";
+            if (v.Allocations.Count > 0 || v.PhysicalLines.Count > 0)
+                return $"This {_type.Name} carries stock movement lines as well as order lines, a shape this "
+                     + "screen cannot rebuild.";
+
+            Lines.Clear();
+            foreach (var ol in v.OrderLines)
+                if (AddLine().RehydrateFromOrderLine(ol) is { } r) return Prefix(r);
+        }
+        else if (IsPhysicalStock)
+        {
+            if (v.PhysicalLines.Count == 0)
+                return $"This {_type.Name} has no counted lines to re-key.";
+            if (v.Allocations.Count > 0 || v.OrderLines.Count > 0)
+                return $"This {_type.Name} carries movement lines as well as counted lines, a shape this screen "
+                     + "cannot rebuild.";
+
+            Lines.Clear();
+            foreach (var pl in v.PhysicalLines)
+                if (AddLine().RehydrateFromPhysicalLine(pl) is { } r) return Prefix(r);
+        }
+        else if (IsStockJournal)
+        {
+            if (v.Allocations.Count == 0 || v.DestinationAllocations.Count == 0)
+                return "This Stock Journal is missing one of its two sides, so the screen cannot rebuild it.";
+
+            // 🔴 The transfer class is reset to "◦ No class" and BOTH arms are re-keyed by hand. Nothing on a
+            // posted voucher records which class produced it — the class only ever mirrored the source at posting
+            // time — so re-selecting one would be a guess, and BuildStockJournal would then DERIVE the
+            // destination and discard whatever the book actually holds. Keying both arms reproduces the posted
+            // allocations exactly, which is what the per-line backstop then proves.
+            SelectedTransferClass = TransferClassOptions.FirstOrDefault(o => o.IsNone)
+                                    ?? TransferClassOptions.FirstOrDefault();
+            TransferDestinationGodown = null;
+
+            Lines.Clear();
+            foreach (var a in v.Allocations)
+            {
+                if (a.Direction != StockDirection.Outward)
+                    return "This Stock Journal's source side carries an inward line, so the screen would re-key "
+                         + "it in the wrong direction.";
+                if (AddLine().RehydrateFromAllocation(a) is { } r) return Prefix(r);
+            }
+
+            DestinationLines.Clear();
+            foreach (var a in v.DestinationAllocations)
+            {
+                if (a.Direction != StockDirection.Inward)
+                    return "This Stock Journal's destination side carries an outward line, so the screen would "
+                         + "re-key it in the wrong direction.";
+                if (AddDestinationLine() is not { } row) return "The destination grid is not available on this "
+                                                              + "screen, so the Stock Journal cannot be re-keyed.";
+                if (row.RehydrateFromAllocation(a) is { } r) return Prefix(r);
+            }
+
+            AdditionalCosts.Clear();
+            foreach (var ac in v.AdditionalCostLines)
+            {
+                var row = AddAdditionalCostRow();
+                var led = AdditionalCostLedgers.FirstOrDefault(l => l.Id == ac.LedgerId);
+                if (led is null)
+                    return "One of its additional-cost ledgers is no longer marked as an additional-cost ledger "
+                         + "in this company, so re-saving would drop the cost and change the landed rate.";
+                row.SelectedLedger = led;
+                row.AmountText = ac.Amount.Amount.ToString(CultureInfo.InvariantCulture);
+                if (row.ParsedAmount != ac.Amount.Amount)
+                    return $"the additional cost on '{led.Name}' cannot be re-keyed exactly "
+                         + $"({ac.Amount.Amount} was posted, the screen rebuilds {row.ParsedAmount}).";
+            }
+            // A blank trailing row so the operator can add a cost, matching what the constructor seeds.
+            AddAdditionalCostRow();
+        }
+        else
+        {
+            if (v.Allocations.Count == 0)
+                return $"This {_type.Name} has no movement lines to re-key.";
+            if (v.OrderLines.Count > 0 || v.PhysicalLines.Count > 0)
+                return $"This {_type.Name} carries order or counted lines as well as movement lines, a shape "
+                     + "this screen cannot rebuild.";
+
+            // 🔴 The direction is DERIVED by BuildMovementNote from the base type, never keyed — so a posted line
+            // whose direction disagrees with what the writer will stamp would be SILENTLY REVERSED on save,
+            // turning a receipt into an issue. Asserted per line rather than assumed.
+            var writerDirection = _type.BaseType is VoucherBaseType.ReceiptNote or VoucherBaseType.RejectionIn
+                ? StockDirection.Inward
+                : StockDirection.Outward;
+
+            Lines.Clear();
+            foreach (var a in v.Allocations)
+            {
+                if (a.Direction != writerDirection)
+                    return $"One of its lines was posted {a.Direction} and this screen re-keys a {_type.Name} as "
+                         + $"{writerDirection}, so re-saving would reverse the stock movement.";
+                if (AddLine().RehydrateFromAllocation(a) is { } r) return Prefix(r);
+            }
+        }
+
+        Recalculate();
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 The posted shapes this screen has no grids for at all, named rather than silently mangled. Static and
+    /// type-free on purpose: it is asked BEFORE a view model exists, so that a voucher whose TYPE this screen is
+    /// not built for never reaches the constructor. (Census 9.2 — both of these are the Job Work family, whose
+    /// two entry screens are <c>JobWorkOrderEntryViewModel</c> and <c>MaterialMovementEntryViewModel</c>.)
+    /// </summary>
+    private static string? ShapeThisScreenCannotServe(InventoryVoucher v)
+    {
+        if (v.JobWorkOrder is not null)
+            return "This is a Job Work order — its finished good and component list are keyed on the Job Work "
+                 + "order screen, not here, so this screen cannot re-open it. Cancel it with Alt+X or delete it "
+                 + "with Alt+D and enter a corrected one.";
+
+        if (v.OrderLinks.Count > 0)
+            return "This movement is linked to a Job Work order, and this screen does not key those links — "
+                 + "re-saving it here would detach the movement from the order and the order would report as "
+                 + "outstanding again. Cancel it with Alt+X or delete it with Alt+D and enter a corrected one.";
+
+        return null;
+    }
+
+    /// <summary>Wraps a line-level refusal in the one sentence every alteration refusal opens with, so the
+    /// operator reads a whole statement rather than a fragment.</summary>
+    private static string Prefix(string lineRefusal) =>
+        "This voucher cannot be re-opened for alteration: " + lineRefusal;
+
     /// <summary>The kind of the primary "Lines" grid, from the voucher's base type.</summary>
     private InventoryLineKind PrimaryLineKind => _type.BaseType switch
     {
@@ -685,6 +923,17 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     {
         Message = null;
 
+        // 🔴 HARD REFUSAL ON AN ALTERING SCREEN, exactly as VoucherEntryViewModel.Accept refuses one, and for the
+        // same measured reason. Accept BUILDS WITH A FRESH Guid AND number 0: taken on an altering screen it would
+        // post a SECOND voucher and leave the original standing, which is a duplicated stock movement — closing
+        // stock double-counted and the Balance Sheet moved. AcceptAlteration is the verb for this screen.
+        if (IsAltering)
+        {
+            Message = "This screen is altering a posted voucher — press Ctrl+A to save the alteration. "
+                    + "Accepting it as a new entry would post a second voucher and leave the original standing.";
+            return false;
+        }
+
         // Reject half-filled (touched-but-incomplete) rows up front with a clear message.
         if (Lines.Any(l => !l.IsBlank && !l.IsComplete)
             || DestinationLines.Any(l => !l.IsBlank && !l.IsComplete))
@@ -695,24 +944,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             return false;
         }
 
-        var narration = string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim();
-        InventoryVoucher voucher;
-
-        try
-        {
-            voucher = _type.BaseType switch
-            {
-                VoucherBaseType.PurchaseOrder or VoucherBaseType.SalesOrder => BuildOrder(narration),
-                VoucherBaseType.PhysicalStock => BuildPhysical(narration),
-                VoucherBaseType.StockJournal => BuildStockJournal(narration),
-                _ => BuildMovementNote(narration),
-            };
-        }
-        catch (InvalidValidationException ex)
-        {
-            Message = ex.Message; // a friendly pre-validation failure (blank grid, imbalance, …)
-            return false;
-        }
+        if (!TryBuild(Guid.NewGuid(), number: 0, cancelled: false, out var voucher)) return false;
 
         try
         {
@@ -730,9 +962,125 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         }
     }
 
+    /// <summary>
+    /// 🔴 <b>Ctrl+A on an ALTERING screen — rebuilds the voucher under its OWN id and number and hands it to
+    /// <c>InventoryPostingService.Replace</c>.</b> Census rows 4.9–4.16.
+    ///
+    /// <para><b>It shares <see cref="TryBuild"/> with <see cref="Accept"/>, deliberately.</b> The four builders
+    /// are the only place that knows how a keyed grid becomes a posted voucher; a second copy for alteration is
+    /// how the printed shape and the altered shape drift apart. The ONLY difference between the two verbs is the
+    /// three values handed in — the id, the number and the cancelled flag — and the engine call at the end.</para>
+    ///
+    /// <para><b>🔴 A FAILED SAVE ROLLS THE SWAP BACK</b>, exactly as the accounting screen's
+    /// <c>CommitAlteration</c> does. <c>Replace</c> mutates the in-memory aggregate and the save happens after it,
+    /// so without this the books would hold the amended movement, the .db the original, and every later save would
+    /// carry the divergence — a silently wrong closing stock on the next reload.</para>
+    /// </summary>
+    public bool AcceptAlteration()
+    {
+        Message = null;
+
+        if (_alteringVoucherId is not { } alteringId)
+        {
+            Message = "This screen is entering a new voucher, not altering a posted one — press Enter to accept it.";
+            return false;
+        }
+
+        if (_company.FindInventoryVoucher(alteringId) is not { } existing)
+        {
+            Message = "That voucher is no longer in this company's books — it may have been deleted since this "
+                    + "screen was opened. Nothing was altered.";
+            return false;
+        }
+
+        if (Lines.Any(l => !l.IsBlank && !l.IsComplete)
+            || DestinationLines.Any(l => !l.IsBlank && !l.IsComplete))
+        {
+            Message = IsPhysicalStock
+                ? "Every entered line needs a stock item, a godown and a counted quantity ≥ 0."
+                : "Every entered line needs a stock item, a godown and a positive quantity (rate, if entered, to the paisa).";
+            return false;
+        }
+
+        // The number and the cancelled flag are carried from the POSTED voucher, never read off the screen:
+        // Replace refuses a change to either by name, and re-reading them from the book is what makes the screen
+        // unable to ask for one by accident.
+        if (!TryBuild(existing.Id, existing.Number, existing.Cancelled, out var replacement)) return false;
+
+        try
+        {
+            _service.Replace(existing.Id, replacement);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Cannot alter: {ex.Message}";
+            return false;
+        }
+
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch
+        {
+            // Roll the in-memory swap back so the books and the .db cannot disagree. Replace is safe to call a
+            // second time here: it only ever reads its replacement argument and writes the list slot, so
+            // `existing` still holds exactly the figures it was posted with.
+            //
+            // 🔴 KNOWN DEFECT, NAMED HERE RATHER THAN LEFT TO BE REDISCOVERED — AND IT IS NOT MINE ALONE.
+            // The rollback goes through Replace, so it appends a SECOND VoucherEditVerb.Alter entry recording an
+            // alteration that never committed. `VoucherEntryViewModel.CommitAlteration` has the identical shape
+            // and the identical defect on the accounting side, which is why it is not fixed here: fixing one
+            // door would leave the two audit logs telling different stories about the same event.
+            //
+            // It is bounded, and the bound is why it was not worth diverging from the accounting door to fix in
+            // this slice: the only way to reach it is a THROWING SAVE, and a throwing save persists nothing —
+            // including the log — so neither entry reaches disk. The exposure is a later successful save in the
+            // SAME session carrying both bogus entries forward.
+            //
+            // The correct fix is the one `DiscardUncommittedCancel` already models for Alt+X: an
+            // out-parameter on Replace handing back the entry it appended, plus a bounded
+            // DiscardUncommittedAlteration that unwinds the swap AND the line together. It belongs in a slice
+            // that changes BOTH engines at once.
+            _service.Replace(replacement.Id, existing);
+            throw;
+        }
+
+        SavedNumber = existing.Number;
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered.";
+        _onSaved();
+        return true;
+    }
+
+    /// <summary>
+    /// The one build path both verbs use: dispatches on the base type to the four builders and turns a friendly
+    /// pre-validation failure into <see cref="Message"/>. Returns false with <see cref="Message"/> set.
+    /// </summary>
+    private bool TryBuild(Guid id, int number, bool cancelled, out InventoryVoucher voucher)
+    {
+        var narration = string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim();
+        try
+        {
+            voucher = _type.BaseType switch
+            {
+                VoucherBaseType.PurchaseOrder or VoucherBaseType.SalesOrder => BuildOrder(narration, id, number, cancelled),
+                VoucherBaseType.PhysicalStock => BuildPhysical(narration, id, number, cancelled),
+                VoucherBaseType.StockJournal => BuildStockJournal(narration, id, number, cancelled),
+                _ => BuildMovementNote(narration, id, number, cancelled),
+            };
+            return true;
+        }
+        catch (InvalidValidationException ex)
+        {
+            Message = ex.Message; // a friendly pre-validation failure (blank grid, imbalance, …)
+            voucher = null!;
+            return false;
+        }
+    }
+
     // ---------------------------------------------------------------- builders
 
-    private InventoryVoucher BuildOrder(string? narration)
+    private InventoryVoucher BuildOrder(string? narration, Guid id, int number, bool cancelled)
     {
         var lines = CompleteLines(Lines)
             .Select(l => new OrderLine(l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, RateOf(l)))
@@ -740,11 +1088,12 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         if (lines.Count == 0) throw Blank();
 
         return InventoryVoucher.Order(
-            Guid.NewGuid(), _type.Id, Date, lines,
-            number: 0, narration: narration, partyId: SelectedParty?.Ledger?.Id, postDated: IsPostDated);
+            id, _type.Id, Date, lines,
+            number: number, narration: narration, partyId: SelectedParty?.Ledger?.Id,
+            cancelled: cancelled, postDated: IsPostDated);
     }
 
-    private InventoryVoucher BuildMovementNote(string? narration)
+    private InventoryVoucher BuildMovementNote(string? narration, Guid id, int number, bool cancelled)
     {
         var direction = _type.BaseType is VoucherBaseType.ReceiptNote or VoucherBaseType.RejectionIn
             ? StockDirection.Inward
@@ -769,11 +1118,12 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         // retired NOTHING, so the Order Register reported every delivered order fully outstanding for ever.
         // Like BuildOrder's, the party is OPTIONAL — "(none)" posts a null, which is a real shape, not an error.
         return new InventoryVoucher(
-            Guid.NewGuid(), _type.Id, Date, allocations,
-            number: 0, narration: narration, partyId: SelectedParty?.Ledger?.Id, postDated: IsPostDated);
+            id, _type.Id, Date, allocations,
+            number: number, narration: narration, partyId: SelectedParty?.Ledger?.Id,
+            cancelled: cancelled, postDated: IsPostDated);
     }
 
-    private InventoryVoucher BuildStockJournal(string? narration)
+    private InventoryVoucher BuildStockJournal(string? narration, Guid id, int number, bool cancelled)
     {
         var source = CompleteLines(Lines)
             .Select(l => new InventoryAllocation(
@@ -830,12 +1180,12 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         }
 
         return InventoryVoucher.StockJournal(
-            Guid.NewGuid(), _type.Id, Date, source, dest,
-            number: 0, narration: narration, postDated: IsPostDated,
+            id, _type.Id, Date, source, dest,
+            number: number, narration: narration, cancelled: cancelled, postDated: IsPostDated,
             additionalCostLines: additionalCostLines.Count > 0 ? additionalCostLines : null);
     }
 
-    private InventoryVoucher BuildPhysical(string? narration)
+    private InventoryVoucher BuildPhysical(string? narration, Guid id, int number, bool cancelled)
     {
         var lines = CompleteLines(Lines)
             .Select(l => new PhysicalStockLine(
@@ -844,8 +1194,8 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         if (lines.Count == 0) throw Blank();
 
         return InventoryVoucher.PhysicalStock(
-            Guid.NewGuid(), _type.Id, Date, lines,
-            number: 0, narration: narration, postDated: IsPostDated);
+            id, _type.Id, Date, lines,
+            number: number, narration: narration, cancelled: cancelled, postDated: IsPostDated);
     }
 
     private static IEnumerable<InventoryVoucherLineViewModel> CompleteLines(
