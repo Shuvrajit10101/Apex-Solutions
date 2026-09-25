@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -31,7 +32,7 @@ public sealed class ItcSetOffLineRowVm
 /// <b>It posts nothing</b> — this is a read-only what-if projection; the actual set-off is
 /// posted by the S7 engine, not here. Gated: Regular GST company (ER-13). MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class ItcSetOffReportViewModel : ViewModelBase
+public sealed partial class ItcSetOffReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -179,6 +180,73 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase
 
     /// <summary>Delegates to <see cref="Apex.Ledger.PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
     /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a set-off view quantises, it does not abort.</summary>
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> One of the six view models 6.19 names
+    /// as deriving from <see cref="ViewModelBase"/> alone, which is why the row stayed PARTIAL while its
+    /// siblings moved. The general arm already exists in <c>IsExportablePage</c> / <c>IsPrintablePage</c>
+    /// (<c>TopMasterExportSource()</c>); this method is the adoption it was waiting for.
+    ///
+    /// <para><b>The set-off LINES alone are not the report, so the three blocks all ride.</b> A Rule-88A
+    /// projection is read for what must be paid in CASH after credit is utilised — the whole reason to run it —
+    /// and that figure appears in none of the per-line rows: the lines say which credit head discharged which
+    /// liability head, while liability, cash payable and closing credit are separate footings. An export of the
+    /// lines alone would be a working, not an answer.</para>
+    ///
+    /// <para><b>It is labelled a projection in the exported title row.</b> This screen posts nothing; the cash
+    /// figures are what WOULD be payable. A spreadsheet of them with no such marker is exactly the artefact
+    /// someone reconciles against an actual challan.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Lines.Count + 20);
+
+        static IReadOnlyList<string> Row(string a, string b, string c) => new[] { a, b, c };
+        static IReadOnlyList<string> Section(string label) => new[] { label, string.Empty, string.Empty };
+
+        rows.Add(Section("Set-off lines (credit head → liability head)"));
+        foreach (var l in Lines)
+            rows.Add(Row(l.CreditHead, l.LiabilityHead, l.Amount));
+
+        rows.Add(Section("Liability"));
+        rows.Add(Row("CGST", string.Empty, LiabCgstText));
+        rows.Add(Row("SGST", string.Empty, LiabSgstText));
+        rows.Add(Row("IGST", string.Empty, LiabIgstText));
+        rows.Add(Row("RCM (cash only)", string.Empty, LiabRcmCashText));
+
+        rows.Add(Section("Credit available"));
+        rows.Add(Row("CGST", string.Empty, CreditCgstText));
+        rows.Add(Row("SGST", string.Empty, CreditSgstText));
+        rows.Add(Row("IGST", string.Empty, CreditIgstText));
+        rows.Add(Row("Cess", string.Empty, CreditCessText));
+
+        rows.Add(Section("Cash payable after set-off (projected — nothing posted)"));
+        rows.Add(Row("CGST", string.Empty, CashCgstText));
+        rows.Add(Row("SGST", string.Empty, CashSgstText));
+        rows.Add(Row("IGST", string.Empty, CashIgstText));
+        rows.Add(Row("Cess", string.Empty, CashCessText));
+        rows.Add(Row("RCM", string.Empty, CashRcmText));
+        rows.Add(Row("Total cash payable", string.Empty, TotalCashText));
+        rows.Add(Row("Total credit utilised", string.Empty, TotalCreditUtilisedText));
+
+        rows.Add(Section("Closing credit balance"));
+        rows.Add(Row("CGST", string.Empty, ClosingCgstText));
+        rows.Add(Row("SGST", string.Empty, ClosingSgstText));
+        rows.Add(Row("IGST", string.Empty, ClosingIgstText));
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Section(StatusText));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Credit Head / Particulars"),
+                MasterListColumn.Text("Liability Head"),
+                MasterListColumn.Number("Amount"),
+            },
+            rows);
+    }
+
     private static long P(Money m) => Apex.Ledger.PaisaConversion.ToPaisaRounded(m);
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
 }

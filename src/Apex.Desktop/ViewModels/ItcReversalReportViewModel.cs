@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -32,7 +33,7 @@ public sealed class ItcReversalCandidateRowVm
 /// reversal poster is the S7b engine, not this view. When no 2B has been imported the candidate list is empty with a
 /// clean note. Gated: Regular GST company (ER-13). MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class ItcReversalReportViewModel : ViewModelBase
+public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -125,6 +126,58 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase
         ItcReversalReason.ImsAcceptedCreditNote => "Accepted CN/DN",
         _ => reason.ToString(),
     };
+
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> The third of the three view models
+    /// 6.19 names explicitly as deriving from <see cref="ViewModelBase"/> alone. The general arm
+    /// (<c>TopMasterExportSource()</c>, gating both <c>IsExportablePage</c> and <c>IsPrintablePage</c>) was
+    /// already general; only the adoption was missing here, so this method is the entire fix.
+    ///
+    /// <para><b>The outstanding BALANCE leads, and the candidates follow it labelled as suggestions.</b> Those
+    /// are two different kinds of number and the distinction is the whole meaning of this screen: the balance is
+    /// reversal already recognised and outstanding, the candidates are amounts the S7 poster MIGHT reverse and
+    /// which nothing here has posted. Exported as one undifferentiated block they would read as a single
+    /// reversal total, which is the misreading most likely to reach a return.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Candidates.Count + 4);
+
+        static IReadOnlyList<string> Section(string label)
+            => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty };
+
+        rows.Add(new[]
+        {
+            "Outstanding reversal balance", string.Empty,
+            BalanceCgstText, BalanceSgstText, BalanceIgstText, BalanceCessText, BalanceTotalText,
+        });
+
+        if (Candidates.Count > 0)
+        {
+            rows.Add(Section(string.IsNullOrWhiteSpace(CandidatesHeader)
+                ? "Reversal candidates (advisory — nothing posted)"
+                : CandidatesHeader));
+            foreach (var c in Candidates)
+                rows.Add(new[] { c.Reason, c.Description, c.Cgst, c.Sgst, c.Igst, c.Cess, c.Suggested });
+        }
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Section(StatusText));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Reason"),
+                MasterListColumn.Text("Description"),
+                MasterListColumn.Number("CGST"),
+                MasterListColumn.Number("SGST"),
+                MasterListColumn.Number("IGST"),
+                MasterListColumn.Number("Cess"),
+                MasterListColumn.Number("Suggested"),
+            },
+            rows);
+    }
 
     private static string P(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
     private static string A(Money m) => IndianFormat.AmountAlways(m);

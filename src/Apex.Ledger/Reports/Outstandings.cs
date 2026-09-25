@@ -39,6 +39,19 @@ public sealed record OutstandingBill(
         var days = asOf.DayNumber - DueDate.DayNumber;
         return days > 0 ? days : 0;
     }
+
+    /// <summary>
+    /// Whether this bill has <b>fallen due on or before</b> <paramref name="asOf"/> — the "due till today"
+    /// test behind <see cref="OutstandingsReport.ReceivableDueTillToday"/> /
+    /// <see cref="OutstandingsReport.PayableDueTillToday"/>.
+    ///
+    /// <para>🔴 <b>This is NOT the complement of "Not due" in the ageing buckets, and the difference is one
+    /// day.</b> <see cref="OverdueDays"/> floors at 0, so a bill falling due exactly on <paramref name="asOf"/>
+    /// scores 0 overdue days and lands in the <c>"Not due"</c> bucket — correct, because it is not yet
+    /// <i>overdue</i>. It has still <i>fallen due</i> today, so it counts here. Ageing asks "how late is it";
+    /// this asks "has its date arrived".</para>
+    /// </summary>
+    public bool IsDueBy(DateOnly asOf) => DueDate.DayNumber <= asOf.DayNumber;
 }
 
 /// <summary>
@@ -68,6 +81,20 @@ public sealed record OutstandingsReport(
     {
         var s = 0m;
         foreach (var b in bills) s += b.Pending.Amount;
+        return new Money(s);
+    }
+
+    /// <summary>Σ pending across the receivable bills that have fallen due on or before <see cref="AsOf"/>.</summary>
+    public Money ReceivableDueTillToday => SumDue(Receivables, AsOf);
+
+    /// <summary>Σ pending across the payable bills that have fallen due on or before <see cref="AsOf"/>.</summary>
+    public Money PayableDueTillToday => SumDue(Payables, AsOf);
+
+    private static Money SumDue(IReadOnlyList<OutstandingBill> bills, DateOnly asOf)
+    {
+        var s = 0m;
+        foreach (var b in bills)
+            if (b.IsDueBy(asOf)) s += b.Pending.Amount;
         return new Money(s);
     }
 }
