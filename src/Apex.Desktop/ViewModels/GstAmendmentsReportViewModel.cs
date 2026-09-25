@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -42,7 +43,7 @@ public sealed class Gstr1Amend9CRowVm
 /// subsequent period, and from Jul-2025 the 3B outward tables are auto-populated + hard-locked). A Composition /
 /// GST-off company yields a not-applicable (empty) projection (ER-13). It posts nothing. MVVM boundary: engine only.
 /// </summary>
-public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
+public sealed partial class GstAmendmentsReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -162,6 +163,77 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
 
         StatusText = $"Table 9A: {Table9A.Count} amended B2B (advisory)  ·  Table 9C: {Table9C.Count} amended CDN  ·  " +
                      $"3B correction: {CorrectionCountText} item(s), net tax ₹{CorrectionTaxText}.";
+    }
+
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> Named in 6.19's "GST Amendments"
+    /// clause among the six screens that never adopted <see cref="IMasterListExportSource"/>, which is what
+    /// <c>TopMasterExportSource()</c> gates both E / Alt+E and P / Ctrl+P on. This method is the adoption.
+    ///
+    /// <para><b>Table 9A and Table 9C share one column set under a section label.</b> They are different
+    /// amendment mechanisms — 9A revises an already-filed invoice, 9C is the credit/debit-note route — and an
+    /// amendment working paper is read for the DIFFERENTIAL, so both the original and the revised figure have
+    /// to survive the export. A 9C row has no differential taxable of its own (the note IS the correction), so
+    /// that cell is left empty rather than filled with a zero a reader would total.</para>
+    ///
+    /// <para><b>The 3B correction footing rides too.</b> <see cref="RequiresCorrection"/> and
+    /// <see cref="MechanismText"/> are the screen's conclusion — whether a correction is owed and by which
+    /// mechanism — and a sheet of amendment rows without it does not say what must actually be done.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Table9A.Count + Table9C.Count + 6);
+
+        static IReadOnlyList<string> Section(string label) => new[]
+        {
+            label, string.Empty, string.Empty, string.Empty,
+            string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+        };
+
+        rows.Add(Section("Table 9A — amended invoices"));
+        foreach (var r in Table9A)
+            rows.Add(new[]
+            {
+                "9A", r.Party, r.DocNo, r.OriginalDate, string.Empty,
+                r.OriginalTaxable, r.RevisedTaxable, r.DifferentialTaxable, r.DifferentialTax,
+            });
+
+        rows.Add(Section("Table 9C — credit / debit notes"));
+        foreach (var r in Table9C)
+            rows.Add(new[]
+            {
+                "9C", r.NoteType, r.OriginalInvoice, r.OriginalDate, r.NoteDate,
+                string.Empty, r.RevisedTaxable, string.Empty, r.RevisedTax,
+            });
+
+        rows.Add(Section("GSTR-3B correction"));
+        rows.Add(new[]
+        {
+            "3B", "Correction items", CorrectionCountText, string.Empty, string.Empty,
+            string.Empty, CorrectionTaxableText, string.Empty, CorrectionTaxText,
+        });
+        rows.Add(Section(RequiresCorrection
+            ? $"A 3B correction IS required. {MechanismText}"
+            : $"No 3B correction required. {MechanismText}"));
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Section(StatusText));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Table"),
+                MasterListColumn.Text("Party / Note Type"),
+                MasterListColumn.Text("Document"),
+                MasterListColumn.Text("Original Date"),
+                MasterListColumn.Text("Note Date"),
+                MasterListColumn.Number("Original Taxable"),
+                MasterListColumn.Number("Revised Taxable"),
+                MasterListColumn.Number("Differential Taxable"),
+                MasterListColumn.Number("Tax"),
+            },
+            rows);
     }
 
     private static string A(Money m) => IndianFormat.AmountAlways(m);
