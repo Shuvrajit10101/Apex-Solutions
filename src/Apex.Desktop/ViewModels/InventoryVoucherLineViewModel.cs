@@ -680,6 +680,168 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         return null;
     }
 
+    // ===================================================== PURE-STOCK rehydration (census 4.9–4.16, 9.2)
+
+    /// <summary>
+    /// 🔴 <b>The inverse of <c>InventoryVoucherEntryViewModel.BuildMovementNote</c> / <c>BuildStockJournal</c> for
+    /// ONE posted <see cref="InventoryAllocation"/></b> — re-keys the line onto this row, or returns a NAMED
+    /// sentence saying why the posted shape cannot be re-keyed.
+    ///
+    /// <para><b>The round-trip backstop is the whole point and is the same discipline
+    /// <see cref="RehydrateFrom(VoucherInventoryLine)"/> follows</b>: every figure is compared against the value
+    /// this row now REBUILDS (<see cref="ParsedQuantity"/>, <see cref="Batch"/>, <see cref="UnitId"/>,
+    /// <see cref="Tracking"/>, <see cref="CostTracking"/>) rather than against the text it holds. A hidden column
+    /// that would silently drop a posted value is therefore caught HERE, at the door, instead of moving stock.
+    /// 🔴 That is not theoretical on this family: <see cref="Batch"/>, <see cref="Tracking"/> and
+    /// <see cref="CostTracking"/> each return <c>null</c> when their column is switched off, so a voucher posted
+    /// with batch tracking on and re-opened after it was switched off would rebuild WITHOUT the batch and move
+    /// the stock to the unbatched bucket.</para>
+    ///
+    /// <para><see cref="InventoryAllocation.Direction"/> is deliberately NOT rehydrated: it is not a keyed field
+    /// on this screen. The direction of a movement-note line is derived from the voucher's base type and the
+    /// grid it sits in (source ⇒ Outward, destination ⇒ Inward), so the writer restamps exactly what was posted.
+    /// <c>InventoryVoucherEntryViewModel.RehydrateFrom</c> asserts that, per line, before it opens.</para>
+    /// </summary>
+    public string? RehydrateFromAllocation(InventoryAllocation posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        if (SeedItemAndGodown(posted.StockItemId, posted.GodownId) is { } refusal) return refusal;
+        var item = SelectedItem!;
+
+        if (RehydrateUnitId(posted.UnitId, item) is { } unitRefusal) return unitRefusal;
+
+        QuantityText = ExactDecimalText(posted.Quantity);
+        RateText = posted.Rate is { } rate ? ExactDecimalText(rate.Amount) : string.Empty;
+        BatchLabel = posted.BatchLabel ?? string.Empty;
+        TrackingNumber = posted.TrackingNumber ?? string.Empty;
+        CostTrackingNumber = posted.CostTrackingNumber ?? string.Empty;
+
+        if (ParsedQuantity != posted.Quantity)
+            return $"the quantity on '{item.Name}' cannot be re-keyed exactly ({posted.Quantity} was posted, the "
+                 + $"screen rebuilds {ParsedQuantity}).";
+
+        var rebuiltRate = HasRate && ParsedRate is { } r ? new Money(r) : (Money?)null;
+        if (rebuiltRate?.Amount != posted.Rate?.Amount)
+            return $"the rate on '{item.Name}' cannot be re-keyed exactly ({Describe(posted.Rate?.Amount)} was "
+                 + $"posted, the screen rebuilds {Describe(rebuiltRate?.Amount)}).";
+
+        if (Batch != posted.BatchLabel)
+            return $"the batch on '{item.Name}' cannot be re-keyed exactly ('{posted.BatchLabel}' was posted, the "
+                 + $"screen rebuilds '{Batch}') — batch details are switched off on this company, so re-saving "
+                 + "would move the stock out of its batch.";
+
+        if (Tracking != posted.TrackingNumber)
+            return $"the Tracking No. on '{item.Name}' cannot be re-keyed ('{posted.TrackingNumber}' was posted, "
+                 + $"the screen rebuilds '{Tracking}') — the tracking-number column is switched off on this "
+                 + "company, so re-saving would break the link to its bill.";
+
+        if (CostTracking != posted.CostTrackingNumber)
+            return $"the Cost Tracking Number on '{item.Name}' cannot be re-keyed ("
+                 + $"'{posted.CostTrackingNumber}' was posted, the screen rebuilds '{CostTracking}') — cost "
+                 + "tracking is switched off on this company, so re-saving would detach the lot.";
+
+        if (UnitId != posted.UnitId)
+            return $"the unit on '{item.Name}' cannot be re-keyed exactly, so its quantity and rate would be "
+                 + "restated in a different unit from the one they were posted in.";
+
+        return null;
+    }
+
+    /// <summary>The inverse of <c>InventoryVoucherEntryViewModel.BuildOrder</c> for one posted
+    /// <see cref="OrderLine"/>. An order line carries no batch, unit or tracking data, so the backstop is the
+    /// quantity and the rate.</summary>
+    public string? RehydrateFromOrderLine(OrderLine posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        if (SeedItemAndGodown(posted.StockItemId, posted.GodownId) is { } refusal) return refusal;
+        var item = SelectedItem!;
+
+        QuantityText = ExactDecimalText(posted.Quantity);
+        RateText = posted.Rate is { } rate ? ExactDecimalText(rate.Amount) : string.Empty;
+
+        if (ParsedQuantity != posted.Quantity)
+            return $"the ordered quantity on '{item.Name}' cannot be re-keyed exactly ({posted.Quantity} was "
+                 + $"posted, the screen rebuilds {ParsedQuantity}).";
+
+        var rebuiltRate = HasRate && ParsedRate is { } r ? new Money(r) : (Money?)null;
+        if (rebuiltRate?.Amount != posted.Rate?.Amount)
+            return $"the rate on '{item.Name}' cannot be re-keyed exactly ({Describe(posted.Rate?.Amount)} was "
+                 + $"posted, the screen rebuilds {Describe(rebuiltRate?.Amount)}).";
+
+        return null;
+    }
+
+    /// <summary>The inverse of <c>InventoryVoucherEntryViewModel.BuildPhysical</c> for one posted
+    /// <see cref="PhysicalStockLine"/>. 🔴 A physical count carries NO rate — the register deliberately leaves the
+    /// rate and value cells empty because a count is not a movement — so nothing writes
+    /// <see cref="RateText"/> here.</summary>
+    public string? RehydrateFromPhysicalLine(PhysicalStockLine posted)
+    {
+        ArgumentNullException.ThrowIfNull(posted);
+
+        if (SeedItemAndGodown(posted.StockItemId, posted.GodownId) is { } refusal) return refusal;
+        var item = SelectedItem!;
+
+        QuantityText = ExactDecimalText(posted.CountedQuantity);
+        BatchLabel = posted.BatchLabel ?? string.Empty;
+
+        if (ParsedQuantity != posted.CountedQuantity)
+            return $"the counted quantity on '{item.Name}' cannot be re-keyed exactly "
+                 + $"({posted.CountedQuantity} was posted, the screen rebuilds {ParsedQuantity}).";
+
+        if (Batch != posted.BatchLabel)
+            return $"the batch on '{item.Name}' cannot be re-keyed exactly ('{posted.BatchLabel}' was posted, the "
+                 + $"screen rebuilds '{Batch}') — batch details are switched off on this company, so re-saving "
+                 + "the count would move the stock out of its batch.";
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves and assigns the item and godown a posted pure-stock line names, or refuses by name. Assigning the
+    /// ITEM comes first because that is what rebuilds <see cref="UnitOptions"/>, exactly as
+    /// <see cref="RehydrateFrom(VoucherInventoryLine)"/> orders it.
+    /// </summary>
+    private string? SeedItemAndGodown(Guid stockItemId, Guid godownId)
+    {
+        var item = StockItems.FirstOrDefault(i => i.Id == stockItemId);
+        if (item is null)
+            return "one of its lines moves a stock item that is no longer in this company, so the entry screen "
+                 + "cannot show it.";
+
+        var godown = Godowns.FirstOrDefault(g => g.Id == godownId);
+        if (godown is null)
+            return $"the location one of its '{item.Name}' lines moved through is no longer in this company, so "
+                 + "the entry screen cannot show it.";
+
+        SelectedItem = item;
+        SelectedGodown = godown;
+        return null;
+    }
+
+    /// <summary>
+    /// <see cref="RehydrateUnit"/> for a bare posted unit id — the pure-stock lines carry a <c>Guid?</c> rather
+    /// than a <c>VoucherInventoryLine</c>. Same rule and same refusal: a posted unit the item no longer offers is
+    /// refused by name, because falling back to the base unit would restate "2 Doz @ 10" as "2 Nos @ 10".
+    /// </summary>
+    private string? RehydrateUnitId(Guid? postedUnitId, StockItem item)
+    {
+        if (postedUnitId is not { } unitId) return null;
+
+        var unit = UnitOptions.FirstOrDefault(u => u.Id == unitId);
+        if (unit is null || !ShowUnit)
+            return $"one of its '{item.Name}' lines states its quantity and rate in a unit this item no longer "
+                 + "offers, so the screen cannot re-key it without restating the line in another unit.";
+
+        SelectedUnit = unit;
+        return null;
+    }
+
+    private static string Describe(decimal? amount) =>
+        amount is { } a ? a.ToString(CultureInfo.InvariantCulture) : "no rate";
+
     /// <summary>
     /// Renders <paramref name="value"/> so that parsing it back yields the SAME decimal - the same lossless-render
     /// discipline <c>VoucherLineViewModel.ExactDecimalText</c> follows on the plain grid, and for the same reason:
