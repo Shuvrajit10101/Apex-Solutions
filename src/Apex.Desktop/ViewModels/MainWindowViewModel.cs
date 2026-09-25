@@ -3720,7 +3720,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para><b>The bare M / W arms are deliberately NOT re-gated onto this.</b> They are shipped doors; on a
     /// master list they already match, swallow the key and no-op, so moving them would change what an unclaimed
     /// letter falls through to (type-ahead on a data-driven column) — a behaviour change this slice did not
-    /// measure. That dead bare key is pre-existing and is reported rather than quietly altered.</para>
+    /// measure. That dead bare key is pre-existing and is reported rather than quietly altered.
+    /// 🔴 <b>AMENDED: the no-op is no longer SILENT.</b> The guard is still <c>IsPrintablePage</c> and the key is
+    /// still swallowed on all 45 such screens — that half stands — but
+    /// <see cref="OpenEmailCompose"/> / <see cref="OpenWhatsAppShare"/> now set <see cref="Message"/> instead of
+    /// returning with nothing said. See <c>ShareChannelUnavailableMessage</c> for the measurement of the 45-screen
+    /// surface and for why re-gating is still refused as unmeasured.</para>
     /// </summary>
     public bool IsShareablePage =>
         !IsActionMenuColumn
@@ -5074,6 +5079,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== screen: e-mail compose (RQ-25/26)
 
     /// <summary>
+    /// 🔴 <b>The sentence a share channel says instead of doing nothing at all.</b> Both channels can build a
+    /// panel from exactly two things — a drilled voucher and a live report — and returned SILENTLY from anything
+    /// else. The keys that reach them are gated on <see cref="IsPrintablePage"/>, which carries a third arm
+    /// (<c>TopMasterExportSource()</c>), so on every screen in that gap the handler matched, set
+    /// <c>e.Handled = true</c>, called one of these two methods and returned: <b>no panel, no refusal, no status
+    /// line.</b> An operator pressing <b>M</b> on the DRC-03 panel or the ITC Gate got nothing and could not
+    /// learn why.
+    ///
+    /// <para><b>THE SURFACE, MEASURED RATHER THAN ESTIMATED.</b> The gap is exactly the set of screens on which
+    /// <c>IsPrintablePage</c> is true and <see cref="IsShareablePage"/> is false — i.e. pages that are printable
+    /// only through the third arm. That arm tests the top cascade column's page for
+    /// <see cref="IMasterListExportSource"/>, and <b>45</b> view models in this assembly implement it (counted by
+    /// grep over <c>src/Apex.Desktop/ViewModels/</c> for <c>MasterListSnapshot ToMasterListSnapshot</c>, excluding
+    /// the interface's own declaration). None of them is a <c>Screen.Report</c>, so <c>IsReportContext</c> is
+    /// false on all 45 and every one of them could reach the silent no-op. The ten screens this wave's cluster
+    /// fix added are members of that 45, not a new class: the hole is pre-existing and was WIDENED, not created.
+    /// </para>
+    ///
+    /// <para>🔴 <b>WHY THE FIX IS HERE AND NOT ON THE KEY'S GUARD — AND WHAT IS DELIBERATELY NOT DONE.</b> The
+    /// obvious repair is to re-gate the bare <b>M</b> / <b>W</b> arms onto <see cref="IsShareablePage"/>. That is
+    /// REFUSED, for the reason <see cref="IsShareablePage"/> already records: those are shipped doors, and moving
+    /// the guard changes what an unclaimed letter falls through to — type-ahead on a data-driven column — on all
+    /// 45 screens. The letter <c>M</c> is a plausible first character of a ledger, a stock item, a godown and an
+    /// employee, so that is a live behaviour change across 45 grids, and NOTHING in this project has measured it.
+    /// Half-fixing a key route is worse than leaving it. This fix changes no guard and no fall-through: the key is
+    /// swallowed exactly where it was swallowed before, and the only difference is that the operator is now TOLD.
+    /// Re-gating remains the right end state and is reported as a follow-up, not smuggled in here.</para>
+    ///
+    /// <para><b>It is on the METHOD, not on the key handler, so every caller inherits it</b> — the bare letter,
+    /// <c>Ctrl</c>+letter, the Alt+M Share menu's two rows and the button-bar badges all route through these two
+    /// methods. Gating the message on the key would have left the menu rows silent.</para>
+    /// </summary>
+    private static string ShareChannelUnavailableMessage(string key, string channel) =>
+        $"{key}: {channel} acts on an open REPORT or a drilled voucher, and this screen is neither. "
+        + "Press E to export this screen, or P to print it.";
+
+    /// <summary>
     /// M / Ctrl+M — opens the "E-Mail" compose panel for the CURRENT report (RQ-25) or a drilled voucher / tax
     /// invoice (RQ-11 attachment), as its own cascading column to the RIGHT of the page, never a stacked overlay,
     /// mirroring <see cref="OpenExport"/>. The report/invoice stays live beneath; the attachment defaults to its
@@ -5081,6 +5123,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// byte-stable <c>.eml</c> (carrying the attachment), or a <c>mailto:</c> opens the OS mail client for a quick
     /// body — <b>nothing is sent</b>; no socket/SMTP path exists. A no-op unless a report or voucher-detail is on
     /// screen; re-pressing while the panel is open is a no-op (there is already a compose column).
+    /// 🔴 On a screen neither channel can act on it now sets <see cref="Message"/> rather than returning silently
+    /// — see <c>ShareChannelUnavailableMessage</c>.
     /// </summary>
     public void OpenEmailCompose()
     {
@@ -5092,7 +5136,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (IsReportContext && Reports is { } r)
             panel = new EmailComposeViewModel(r);        // e-mail the open report
         else
-            return;                                      // nothing to e-mail
+        {
+            // 🔴 A REFUSAL, NOT A SILENT return. See ShareChannelUnavailableMessage for the measured defect and
+            // why the fix is here rather than on the key's guard.
+            Message = ShareChannelUnavailableMessage("M", "E-Mail");
+            return;
+        }
 
         panel.Launcher = Launcher;      // the OS hand-off seam (a test substitutes a recording double)
         EmailCompose = panel;
@@ -5150,7 +5199,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (IsReportContext && Reports is { } r)
             panel = new WhatsAppShareViewModel(r);       // share the open report
         else
-            return;                                      // nothing to share
+        {
+            // 🔴 A REFUSAL, NOT A SILENT return — the same correction as OpenEmailCompose, stated once in
+            // ShareChannelUnavailableMessage so the two channels cannot come to answer differently.
+            Message = ShareChannelUnavailableMessage("W", "WhatsApp");
+            return;
+        }
 
         panel.Launcher = Launcher;
         WhatsAppShare = panel;

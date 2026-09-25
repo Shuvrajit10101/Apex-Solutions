@@ -178,8 +178,6 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase, IMasterLis
         _ => head.ToString(),
     };
 
-    /// <summary>Delegates to <see cref="Apex.Ledger.PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
-    /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a set-off view quantises, it does not abort.</summary>
     /// <summary>
     /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> One of the six view models 6.19 names
     /// as deriving from <see cref="ViewModelBase"/> alone, which is why the row stayed PARTIAL while its
@@ -247,6 +245,8 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase, IMasterLis
             rows);
     }
 
+    /// <summary>Delegates to <see cref="Apex.Ledger.PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
+    /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a set-off view quantises, it does not abort.</summary>
     private static long P(Money m) => Apex.Ledger.PaisaConversion.ToPaisaRounded(m);
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));
 }

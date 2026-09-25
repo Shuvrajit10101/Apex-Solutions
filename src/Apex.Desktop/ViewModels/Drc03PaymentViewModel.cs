@@ -482,7 +482,7 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public MasterListSnapshot ToMasterListSnapshot()
     {
-        var rows = new List<IReadOnlyList<string>>(Filed.Count + 4);
+        var rows = new List<IReadOnlyList<string>>(Filed.Count + 10);
 
         static IReadOnlyList<string> Section(string label)
             => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty };
@@ -493,20 +493,42 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListEx
         if (Filed.Count == 0)
             rows.Add(Section("No DRC-03 payment has been filed for this company."));
 
-        // 🔴 The available-cash figures may read the constant "not read" rather than a number when a cash cell
-        // could not be read (the banner case 6.20 records). That text rides across UNCHANGED: the projector only
-        // recovers a decimal from a parseable cell, so an unreadable balance can never export as "0.00" — which
-        // an operator would read as a nil balance.
-        rows.Add(Section("Available cash balance at the time of this export"));
-        rows.Add(new[]
-        {
-            "Available cash", string.Empty,
-            AvailableCgstText, AvailableSgstText, AvailableIgstText, AvailableCessText,
-        });
+        // 🔴 THE CASH FOOTING IS LABEL-COLUMN PROSE, NOT GRID CELLS, AND THAT IS THE WHOLE POINT.
+        // This footing used to emit ONE row carrying the four head balances positionally —
+        // CGST/SGST/IGST/Cess under the captions Tax / Interest / Total / Demand Ref. Every caption lied about
+        // its cell, and the Cess balance landed in a TEXT column so it was not even a number. The measured harm
+        // was not cosmetic: an operator who sums the "Total" column got the filed totals PLUS the available IGST
+        // cash balance, i.e. a wrong figure in a document about a statutory payment. A caption that lies about
+        // its column is worse than a blank one, because it is believable.
+        //
+        // These balances are ELECTRONIC CASH LEDGER balances, not DRC-03 amounts: they belong to a different
+        // dimension than the grid's Tax / Interest / Total, so no head of theirs has an honest column here.
+        // Writing each one into the LABEL column, head named beside its figure, means (a) every figure is
+        // head-labelled and unmistakable, and (b) NOTHING lands in a numeric column, so Tax / Interest / Total
+        // still sum to exactly the filed figures and nothing else.
+        //
+        // The label column is also the only place the unreadable-cell signal survives. A cash cell that could
+        // not be read reads the constant "not read" (<see cref="CashUnreadable"/>); the projector recovers a
+        // decimal only from a parseable cell and emits TabularCell.Empty otherwise, so in a NUMBER column that
+        // warning exported as a BLANK — losing the one signal that the figure is not a real balance. In this
+        // Text column it rides across verbatim.
+        rows.Add(Section("Available cash balance at the time of this export — Electronic Cash Ledger balances, "
+                       + "NOT DRC-03 amounts, and deliberately outside the Tax / Interest / Total columns."));
+        rows.Add(Section($"Available cash — CGST {AvailableCgstText}"));
+        rows.Add(Section($"Available cash — SGST/UTGST {AvailableSgstText}"));
+        rows.Add(Section($"Available cash — IGST {AvailableIgstText}"));
+        rows.Add(Section($"Available cash — Cess {AvailableCessText}"));
         if (CashReadFailed && !string.IsNullOrWhiteSpace(CashReadErrorText))
             rows.Add(Section(CashReadErrorText));
 
         rows.Add(Section("Register of filed DRC-03 payments — NOT a filable DRC-03 artefact."));
+
+        // 🔴 The declared divergence rides into the artefact, because the screen exists to state it. The class
+        // remarks make a point that three portal fields are absent and are said on the screen's FACE rather
+        // than dropped quietly; an export that carried the "not a filable artefact" label but not the reason
+        // would drop the very caveat this panel was built to state, at the moment the document leaves the app.
+        if (!string.IsNullOrWhiteSpace(DivergenceText))
+            rows.Add(Section(DivergenceText));
 
         return new MasterListSnapshot(
             Title,
