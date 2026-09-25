@@ -39,6 +39,13 @@ public static class ReportTabularProjector
         if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
         if (vm.IsPayslipReport) return ProjectPayslip(vm);
 
+        // 🔴 THE DECLARED COLUMN BAND COMES FIRST. When the kind declares one (ReportColumnBands), it is the
+        // single source both this projector and ReportPrintProjector caption from, and it names the CELL each
+        // column reads — which is the only way to export a report that skips Col4 (CST forms) or keeps its
+        // money column in Secondary (Batchwise / Batch Age / Price List) without mis-aligning the captions.
+        var band = ReportColumnBands.For(vm);
+        if (band.Count > 0) return ProjectBanded(vm, band);
+
         var columns = BuildColumns(vm);
         var rows = new List<TabularRow>(vm.Rows.Count);
         foreach (var r in vm.Rows)
@@ -47,6 +54,36 @@ public static class ReportTabularProjector
         // 🔴 RULING 18: carry the producer's provenance flag into the export model, do not re-decide it here — the
         // view model built the heading and is the only party that knows whether a master name is inside it. One
         // flag then decides HTML, XML, JSON and XLSX identically (TabularExport.TitleText).
+        return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
+    }
+
+    /// <summary>
+    /// Projects a report that declares a column band: one export column per band entry, captioned from the band
+    /// and filled from the cell that entry names. A figure column stores a real spreadsheet Number when the cell
+    /// parses as one, and falls back to Text when it does not — so "onwards" in Price List's To-quantity column
+    /// and "Undeposited" in the TDS interest deposit-date column survive verbatim instead of being coerced.
+    /// </summary>
+    private static TabularExport ProjectBanded(ReportsViewModel vm, IReadOnlyList<ReportColumnBands.Spec> band)
+    {
+        var columns = new List<TabularColumn>(band.Count);
+        foreach (var c in band)
+            columns.Add(new TabularColumn(c.Caption, c.IsNumeric ? CellType.Number : CellType.Text));
+
+        var rows = new List<TabularRow>(vm.Rows.Count);
+        foreach (var r in vm.Rows)
+        {
+            var cells = new TabularCell[band.Count];
+            for (int i = 0; i < band.Count; i++)
+            {
+                string text = band[i].Cell(r) ?? string.Empty;
+                cells[i] = band[i].IsNumeric && TryParseAmount(text, out var v)
+                    ? TabularCell.Number(v)
+                    : TabularCell.Text(text);
+            }
+            rows.Add(new TabularRow(cells, isHeader: r.IsHeader, isTotal: r.IsTotal));
+        }
+
+        // 🔴 RULING 18: carry the producer's provenance flag, do not re-decide it here.
         return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
     }
 
@@ -161,51 +198,23 @@ public static class ReportTabularProjector
         if (used == 0)
             return new[] { new TabularColumn("Particulars", CellType.Text) };
 
-        // The wide inventory/GST reports keep their real captions in per-report XAML DataTemplates the projector
-        // cannot see, so it carries the SAME on-screen captions here (RQ-18 header row; RQ-15 match-screen). The
-        // caption for the first column replaces the generic "Particulars"; a caption missing for a column falls
-        // back to blank (never a "Col N" placeholder). Number vs Text is still inferred from the body cells.
-        string[] captions = HeadersFor(vm.Kind);
+        // 🔴 THE LAST-RESORT PATH FOR A KIND THAT DECLARED NO BAND, AND IT IS DELIBERATELY UGLY. Captions come
+        // from ReportColumnBands now — the single source this projector and ReportPrintProjector share. A kind
+        // that reaches here is one that was born without a band, which is precisely what
+        // ReportColumnBandCoverageTests fails on; it exports blank headings rather than a "Col N" placeholder
+        // until that test is satisfied. The old private HeadersFor switch that used to caption 16 kinds here was
+        // DELETED with this change rather than left beside the band: two caption tables for one report is how
+        // the printed and exported headings drifted apart in the first place.
         var cols = new List<TabularColumn>(used);
         for (int i = 0; i < used; i++)
         {
-            string header = i < captions.Length ? captions[i] : string.Empty;
             CellType type = i == 0
                 ? CellType.Text                                                    // the label column is always text
                 : ColumnIsNumeric(vm, i) ? CellType.Number : CellType.Text;
-            cols.Add(new TabularColumn(header, type));
+            cols.Add(new TabularColumn(string.Empty, type));
         }
         return cols;
     }
-
-    /// <summary>
-    /// The on-screen column captions for a wide inventory/GST <paramref name="kind"/>, matching the report's
-    /// per-ReportKind DataTemplate headers in the shell exactly (so an exported header row reads like the screen;
-    /// RQ-15/18). An empty array (an unmapped kind) yields blank headers, never a placeholder. Kept here beside
-    /// the projection because these captions are a property of the export, not of the accounting VM.
-    /// </summary>
-    private static string[] HeadersFor(ReportKind kind) => kind switch
-    {
-        ReportKind.StockSummary        => new[] { "Stock Item", "Inward", "Outward", "Closing Qty", "Rate", "Value" },
-        ReportKind.GodownSummary       => new[] { "Godown", "Stock Item", "Quantity", "Value" },
-        ReportKind.StockItemMovement   => new[] { "Date", "Voucher Type", "Inward", "Outward", "Balance", "Value" },
-        ReportKind.ReorderStatus       => new[] { "Stock Item", "Closing", "Reorder Level", "Pending POs", "SOs Due", "Shortfall", "Order to be Placed" },
-        ReportKind.PhysicalStockRegister => new[] { "Date", "Stock Item", "Godown", "Book", "Counted", "Variance" },
-        ReportKind.OrderRegister       => new[] { "Date", "Voucher", "Party", "Stock Item", "Godown", "Ordered", "Pending", "Rate" },
-        ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister or ReportKind.RejectionRegister
-        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister
-                                       => new[] { "Date", "No.", "Party", "Stock Item", "Godown", "Qty", "Rate", "Value" },
-        ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook
-                                       => new[] { "Date", "Order No.", "Party", "Item", "Track", "Ordered", "Fulfilled", "Pending" },
-        ReportKind.TaxAnalysis         => new[] { "Rate / Head", "CGST", "SGST", "IGST", "Taxable", "Tax" },
-        ReportKind.Gstr1               => new[] { "Party / HSN", "GSTIN / Description", "Invoice / UQC", "POS / Qty", "Taxable", "CGST", "SGST", "IGST" },
-        // Census 6.9 — Cess is a real column of the form (Table 3.1(d) and Table 4(B) both carry Compensation
-        // Cess and the projection computes them). It was missing here as well as on the grid, so an exported or
-        // e-mailed GSTR-3B dropped a cess figure the screen had computed. Kept in step with the GSTR-3B grid's
-        // own six columns in MainWindow.axaml — the two must not drift, which is what the export test pins.
-        ReportKind.Gstr3b              => new[] { "Particulars", "Taxable Value", "CGST", "SGST", "IGST", "Cess" },
-        _                              => System.Array.Empty<string>(),
-    };
 
     private static TabularRow ProjectRow(ReportsViewModel vm, ReportRow r, int colCount)
     {
@@ -218,8 +227,13 @@ public static class ReportTabularProjector
             // (the "(Cancelled)" tag lives in `ReportRow.Secondary`, which has no cell here). The Amount cell stays
             // a real Number so the spreadsheet still sums the column exactly as the screen totals it; the fact
             // rides on the label, where a reader sees it.
-            var particulars = TabularCell.Text(
-                r.IsCancelled ? r.Particulars + "  (Cancelled)" : r.Particulars);
+            // 🔴 The label cell is composed by ReportColumnBands.AccountingLabel — the SAME composition the
+            // print twin uses, and the same one the screen uses. The hand-rolled `IsCancelled ? … + "
+            // (Cancelled)"` this replaces is subsumed by it (the builder writes "(Cancelled) " into Secondary),
+            // and everything ELSE the accounting reports put in Secondary — the Cheque Register's reconciled
+            // counts, the Deposit Slip's and e-Payments' voucher numbers, the Ledger Monthly Summary's opening
+            // and closing money — travels now instead of being dropped on the way out of the building.
+            var particulars = TabularCell.Text(ReportColumnBands.AccountingLabel(r));
             cells = vm.IsTwoColumn
                 ? new[] { particulars, MoneyCell(r.Debit), MoneyCell(r.Credit) }
                 : new[] { particulars, MoneyCell(r.Amount) };

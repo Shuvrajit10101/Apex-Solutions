@@ -569,9 +569,29 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <para>🔴 <see cref="IsWideMatrixReport"/> MUST be excluded here. It is not a tidiness point: this
     /// property is the accounting grid's own IsVisible, and a matrix report left inside it renders the empty
     /// Particulars/Dr/Cr table stacked on top of its own grid — two tables at once, which is the exact defect
-    /// the W-K1 comment on <see cref="IsInventoryReport"/> records having already been shipped once.</para></summary>
+    /// the W-K1 comment on <see cref="IsInventoryReport"/> records having already been shipped once.</para>
+    ///
+    /// <para>🔴 <b><see cref="IsVatComputation"/> AND <see cref="IsCstForms"/> ARE EXCLUDED FOR THE SAME REASON,
+    /// AND THEIR OMISSION HAD ALREADY SHIPPED THAT DEFECT A THIRD TIME — IN A WORSE FORM.</b> This property is a
+    /// NEGATION over the report families, so a family nobody added to the list falls into the accounting branch
+    /// by default rather than failing loudly. VAT Computation and the two CST declaration-forms reports write
+    /// <c>Col1..Col8</c> like every other wide report, but were in none of the five lists above, so they were
+    /// treated as accounting reports everywhere at once:
+    /// <list type="bullet">
+    ///   <item>ON SCREEN the empty Particulars/Dr/Cr grid rendered stacked above their own grid, because
+    ///   <see cref="ShowSingleAccountingGrid"/> is gated on this property.</item>
+    ///   <item>IN PRINT AND EXPORT both projectors read <c>Particulars</c>/<c>Amount</c>/<c>Debit</c>/
+    ///   <c>Credit</c> — none of which these builders ever set — so a printed or exported VAT Computation,
+    ///   Forms Receivable or Forms Issuable was a page of <b>entirely blank cells</b>. Not a missing heading: a
+    ///   statutory working paper that said nothing at all, with its row count and totals intact so it looked
+    ///   like a real document.</item>
+    /// </list>
+    /// Nothing guarded it. <c>ReportColumnBandCoverageTests</c> now does, by asserting over EVERY
+    /// <see cref="ReportKind"/> that the cells a builder populates are the cells its projected document
+    /// actually renders — which fails on any future family added to a builder and forgotten here.</para></summary>
     public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport
-        && !IsPayrollReport && !IsWideMatrixReport;
+        && !IsPayrollReport && !IsWideMatrixReport
+        && !IsVatComputation && !IsCstForms;
 
     // ---- statutory-report layout flags (drive which statutory DataTemplate the view shows; Phase 7 slice 8) ----
     // The TDS and TCS reports mirror each other, so each pair shares a column layout; the header labels that differ
@@ -630,8 +650,29 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Show the single-column accounting grid — an accounting report NOT currently in comparative mode.</summary>
     public bool ShowSingleAccountingGrid => IsAccountingReport && !IsComparative;
 
-    /// <summary>Show the single-column inventory grids — an inventory report NOT currently in comparative mode.</summary>
-    public bool ShowSingleInventoryGrid => IsInventoryReport && !IsComparative;
+    /// <summary>
+    /// Show the single-column grids that live inside <c>InventoryReportPane</c> — NOT currently in comparative
+    /// mode.
+    ///
+    /// <para>🔴 <b>THAT PANE HOLDS MORE THAN THE INVENTORY GRIDS, AND MISSING THAT RENDERED THREE SHIPPED
+    /// REPORTS AS A BLANK SCREEN.</b> The VAT Computation grid and the shared CST Declaration Forms grid are
+    /// parented inside <c>InventoryReportPane</c> in <c>MainWindow.axaml</c> (they were added beside the
+    /// inventory family because they render through the same generic <c>Col1..Col8</c> row template), but
+    /// neither kind is in <see cref="IsInventoryReport"/> — so this flag was false and <b>the pane that
+    /// contains their only grid was collapsed</b>. Measured on the populated fixture with State VAT enabled:
+    /// VAT Computation built <b>10</b> rows, Forms Receivable <b>12</b> and Forms Issuable <b>12</b>, and
+    /// <c>InventoryReportPane.IsEffectivelyVisible</c> was <c>false</c> for all three — every figure computed
+    /// and none of it drawn. The operator saw the empty accounting Particulars/Dr/Cr table instead, because
+    /// the <see cref="IsAccountingReport"/> negation also mis-claimed them; removing them from that negation
+    /// fixes the printed and exported copies and, on its own, would have left the screen showing <i>nothing at
+    /// all</i>. Both halves are required.</para>
+    ///
+    /// <para>The honest structural fix is to re-parent those two grids into a pane of their own; that is a
+    /// layout move with its own star-column invariants to re-run, recorded as a follow-up rather than taken
+    /// inside a column-captions change. Until then this flag names the PANE it gates, not one family.</para>
+    /// </summary>
+    public bool ShowSingleInventoryGrid =>
+        (IsInventoryReport || IsVatComputation || IsCstForms) && !IsComparative;
 
     /// <summary>Show the GST grids — a GST report (GST reports are never comparative).</summary>
     public bool ShowGstGrid => IsGstReport;
@@ -1370,6 +1411,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsBillsPending));
         OnPropertyChanged(nameof(IsItemCostAnalysis));
         OnPropertyChanged(nameof(IsJobWorkAnalysis));
+        // W-N1 (census 15.5 / 15.6): these two were MISSING from this block, which is the very defect the
+        // comment above describes — an operator arriving on VAT Computation or a CST declaration-forms report
+        // from another report in the same viewer got no grid at all, because Kind had changed and nothing told
+        // the view. They are additionally load-bearing now: both gate IsAccountingReport, so a stale value here
+        // would leave the empty accounting table showing over their own.
+        OnPropertyChanged(nameof(IsVatComputation));
+        OnPropertyChanged(nameof(IsCstForms));
+        // 🔴 AND THE TWO PANE GATES THEMSELVES, which this block never raised at all. They were previously
+        // notified ONLY from NotifyComparativeVisibility, which a plain kind change does not call — and both
+        // are now functions of the two flags above: ShowSingleInventoryGrid because the VAT and CST grids are
+        // parented inside InventoryReportPane, ShowSingleAccountingGrid because IsAccountingReport no longer
+        // mis-claims them. Leaving them stale is how an operator drilling from one report to another lands on a
+        // collapsed pane (no grid at all) or on two stacked tables.
+        OnPropertyChanged(nameof(ShowSingleInventoryGrid));
+        OnPropertyChanged(nameof(ShowSingleAccountingGrid));
         OnPropertyChanged(nameof(IsDepositSlip));
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
