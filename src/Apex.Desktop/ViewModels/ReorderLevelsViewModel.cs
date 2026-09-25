@@ -11,8 +11,12 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>A reorder-definition row for the existing-definitions list on the master screen.</summary>
-public sealed class ReorderLevelListRow
+/// <summary>A reorder-definition row for the existing-definitions list on the master screen.
+///
+/// <para>W33 C3 (census 3.12) — carries <see cref="IMasterListRow"/> so the ONE shared
+/// <see cref="IMasterListScreen"/> arm can walk it with the arrows and delete it with Alt+D.</para>
+/// </summary>
+public sealed partial class ReorderLevelListRow : ObservableObject, IMasterListRow
 {
     public string Scope { get; init; } = string.Empty;
     public string Target { get; init; } = string.Empty;
@@ -20,6 +24,19 @@ public sealed class ReorderLevelListRow
     public string MinQty { get; init; } = string.Empty;
     public string Period { get; init; } = string.Empty;
     public string Criteria { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <summary><inheritdoc/>
+    /// <para>🔴 <b>"Item 'Widget'", not "Widget".</b> A reorder definition has no name of its own — it is
+    /// identified by its SCOPE plus its TARGET, and the same target name can legitimately appear under two
+    /// scopes. A confirmation reading <i>Delete reorder level 'Widget'?</i> would not tell the operator which
+    /// of the two rows they are about to remove; this one does.</para></summary>
+    public string MasterName => $"{Scope} '{Target}'";
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>A reorder-scope picker option (Item / Group / Category).</summary>
@@ -61,11 +78,48 @@ public sealed class ReorderTargetOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="BatchMasterViewModel"/> / <see cref="PriceLevelsViewModel"/>.</para>
 /// </summary>
-public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 3.12): the shared master-list arm
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "reorder level for";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen (an existing scope+target is replaced by <c>CreateOrUpdate</c>, which is an
+    /// upsert rather than an Alter mode), so it is never mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns.
+    /// <para>🔴 <b>NO REFERENTIAL GUARD, AND THAT IS MEASURED RATHER THAN FORGOTTEN.</b> Nothing in the schema
+    /// declares a foreign key into <c>reorder_definitions(id)</c> — it is a pure configuration row read by the
+    /// Reorder Status report, which recomputes from the definitions that exist. There is no rule to enforce, and
+    /// inventing a refusal with nothing behind it is the defect <c>MasterDeletionRules</c> names on the
+    /// inventory-voucher arm.</para></remarks>
+    public void DeleteMaster(Guid id) => new ReorderLevelsService(_company).Delete(id);
+
+    private PayrollMasterHighlight<ReorderLevelListRow>? _highlight;
+
+    private PayrollMasterHighlight<ReorderLevelListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<ReorderLevelListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing reorder definition, or null.</summary>
+    public ReorderLevelListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -271,6 +325,9 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
     private void RefreshList()
     {
         RefreshTargets();
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var d in _company.ReorderDefinitions
                      .OrderBy(d => d.Scope)
@@ -278,6 +335,7 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
         {
             Existing.Add(new ReorderLevelListRow
             {
+                MasterId = d.Id,
                 Scope = ScopeLabel(d.Scope),
                 Target = TargetName(d.Scope, d.TargetId),
                 Reorder = FigureLabel(d.ReorderAdvanced, d.ReorderQuantity),
@@ -288,6 +346,8 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
                 Criteria = d.Criteria is { } c ? c.ToString() : "—",
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 
     private static string ScopeLabel(ReorderScope scope) => scope switch

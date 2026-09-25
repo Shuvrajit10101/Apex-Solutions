@@ -274,6 +274,12 @@ public partial class MainWindow : Window
         // Category, Cost Category and Cost Centre masters' existing-lists. ONE arm for all five: the VM resolves
         // which of them is open and returns false on every other screen, so this is inert everywhere else.
         //
+        // W33 C3 adds the PRICE LEVEL (census 3.10) and the CURRENCY (census 2.11) to that same switch — SEVEN
+        // screens now, through this one unchanged line, which is the point of resolving by VM rather than by key
+        // handler. The currency case is also the one that can return true WITHOUT opening a screen: the base
+        // currency is refused with a notice naming Alter Company, so the chord is consumed rather than falling
+        // through to an arm below and acting on whatever page sits underneath.
+        //
         // 🔴 ORDER IS LOAD-BEARING AND IT IS BELOW THE STOCK-GROUP ARM ON PURPOSE. Census 3.13 already wired
         // Ctrl+Enter on Screen.StockGroupMaster, so that screen is handled by the arm at the top of this block and
         // AlterHighlightedMasterListRow deliberately has no case for it. Two arms racing for one screen is exactly
@@ -2446,8 +2452,15 @@ public partial class MainWindow : Window
     private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
         => Vm?.ScenarioMaster?.Create();
 
+    // W33 C3: branches exactly as the Ctrl+A arm in ActivateSelected does. 🔴 The mouse button and the keyboard
+    // chord MUST agree — OnCreateStockCategoryClick below is the shipped counter-example (it calls Create()
+    // unconditionally while the keyboard branches), and on an Alteration screen that button fails on the
+    // duplicate name and discards the operator's edits.
     private void OnCreateCurrencyClick(object? sender, RoutedEventArgs e)
-        => Vm?.CurrencyMaster?.CreateCurrency();
+    {
+        if (Vm?.CurrencyMaster is not { } master) return;
+        if (master.IsAltering) master.AlterCurrency(); else master.CreateCurrency();
+    }
 
     private void OnCreateExchangeRateClick(object? sender, RoutedEventArgs e)
         => Vm?.CurrencyMaster?.CreateRate();
@@ -2479,8 +2492,13 @@ public partial class MainWindow : Window
     private void OnCreateBomClick(object? sender, RoutedEventArgs e)
         => Vm?.BomMaster?.Create();
 
+    // W33 C3: branches exactly as the Ctrl+A arm does — see OnCreateCurrencyClick for why the two routes must
+    // agree rather than one of them always creating.
     private void OnCreatePriceLevelClick(object? sender, RoutedEventArgs e)
-        => Vm?.PriceLevels?.Create();
+    {
+        if (Vm?.PriceLevels is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
         => Vm?.ReorderLevels?.Create();

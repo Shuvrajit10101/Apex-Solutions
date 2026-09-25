@@ -9002,6 +9002,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 or Screen.StockCategoryMaster or Screen.CostCategoryMaster or Screen.CostCentreMaster
                 => RequestDeleteMasterListRow(),
 
+            // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the eight residual masters, through
+            // that same shared arm. Every one of these screens was CREATE-ONLY: a mistyped batch, BOM, currency,
+            // budget, scenario, price level, price list version or reorder definition could be added and never
+            // removed by any sequence of keys. Five of the eight delete services already existed in Apex.Ledger
+            // with ZERO callers in Apex.Desktop, one of them (BomService.DeleteBom) missing the very guard that
+            // stops a delete making the open company unsavable — see MasterListScreen above for the per-master
+            // refusal and for why three of the eight owe no guard at all.
+            Screen.BatchMaster or Screen.BomMaster or Screen.CurrencyMaster or Screen.BudgetMaster
+                or Screen.ScenarioMaster or Screen.PriceLevelsMaster or Screen.PriceListsMaster
+                or Screen.ReorderLevelsMaster
+                => RequestDeleteMasterListRow(),
+
             _ => false,
         };
     }
@@ -11139,18 +11151,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.CostCategoryMaster => CostCategoryMaster,
         Screen.CostCentreMaster => CostCentreMaster,
 
+        // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+        // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the EIGHT residual masters join the same
+        // arm, continuing what PR #108 started.
+        //
+        // 🔴 AN EARLIER DRAFT OF THIS COMMENT CLAIMED THAT AFTER THIS LINE "every master screen in the product
+        // that owns an existing-list is on ONE arrow arm and ONE Alt+D arm". THAT IS FALSE AND IS CORRECTED HERE
+        // RATHER THAN DELETED, because an overstated closure claim in a comment is how a census row drifts to
+        // COMPLETE without anyone building anything. Counted from the source, what is still OFF the arm:
+        //   • the SALARY STRUCTURE and TAX DECLARATION masters — PayrollMasterScreen's own remarks below carry the
+        //     detail (PayrollService has no alter or delete for a salary structure at all), row 7.16 stays open;
+        //   • the RATES OF EXCHANGE grid on the Currency screen — IMasterListScreen exposes exactly one
+        //     highlighted row per screen, so the second grid on that page is deliberately unreachable by Alt+D and
+        //     Company.RemoveExchangeRate still has no Desktop caller (see CurrencyMasterViewModel).
+        // What IS true after this line: every master screen listed in this switch is on one arrow arm and one
+        // Alt+D arm, and no screen in it is half-wired.
+        //
+        // 🔴 EIGHT WORDS, EIGHT CAPABILITIES, AND NOT ONE OF THEM IS A NEW MECHANISM. Appearing here is what
+        // grants a screen the arrows, the Alt+D confirmation, the guarded engine call, the save and the
+        // post-delete refresh — IsDeleteTargetPage and RequestDeleteHighlighted both ask THIS property rather
+        // than keeping their own list, which is the whole reason a master cannot arrive half-wired.
+        //
+        // 🔴 WHAT EACH ONE'S REFUSAL IS, because "it joined the arm" is not evidence that it is SAFE to delete:
+        //   · Batch      — BatchService.DeleteBatch: refuses a batch whose number appears on any opening
+        //                  balance, allocation, invoice line or physical-count line for the same item.
+        //   · BOM        — BomService.DeleteBom: refuses a BOM a job-work order was filled from. 🔴 THAT GUARD
+        //                  DID NOT EXIST BEFORE THIS SLICE. The service shipped without it and with zero
+        //                  production callers; this line is what would have made the omission reachable, and
+        //                  the consequence was an open company that could never be saved again.
+        //   · Currency   — MasterDeletionRules.EnsureCurrencyDeletable (NEW): base currency refused outright;
+        //                  posted forex lines, denominated ledgers and rate quotes each counted by name.
+        //   · Price Level— PriceListService.DeleteLevel: price lists, or a party default, refuse it.
+        //   · Budget / Scenario / Price List / Reorder — NO referential guard, and that is DERIVED FROM THE DDL
+        //                  rather than assumed: each one's only inbound foreign key is a child row written from
+        //                  the parent's own object graph (budget_lines, scenario_voucher_types, price_list_lines)
+        //                  or there is none at all (reorder_definitions). The full derivation is written out in
+        //                  MasterDeletionRules' W33 block so a later reader can falsify it against the schema
+        //                  instead of trusting this comment.
+        Screen.BatchMaster => BatchMaster,
+        Screen.BomMaster => BomMaster,
+        Screen.CurrencyMaster => CurrencyMaster,
+        Screen.BudgetMaster => BudgetMaster,
+        Screen.ScenarioMaster => ScenarioMaster,
+        Screen.PriceLevelsMaster => PriceLevels,
+        Screen.PriceListsMaster => PriceLists,
+        Screen.ReorderLevelsMaster => ReorderLevels,
+
         _ => PayrollMasterScreen,
     };
 
     /// <summary>
-    /// <b>Ctrl+Enter on one of the six W29 master lists — open the highlighted master for ALTERATION.</b> Returns
-    /// false (a quiet no-op) on every other screen, and while the screen is already mid-alteration, so the chord
-    /// stays free elsewhere.
+    /// <b>Ctrl+Enter on one of the SEVEN master lists this switch resolves — open the highlighted master for
+    /// ALTERATION.</b> Returns false (a quiet no-op) on every other screen, and while the screen is already
+    /// mid-alteration, so the chord stays free elsewhere.
+    ///
+    /// <para>🔴 <b>COUNTED FROM THE CASES BELOW, NOT FROM THE LAST REPORT.</b> This sentence read "one of the six
+    /// W29 master lists" until W33 C3 added the <b>price level</b> (census 3.10) and the <b>currency</b> (census
+    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. The list
+    /// is: Godown, Unit, Stock Category, Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3).
+    /// <c>IPayrollMasterList</c>'s own remarks record what a stale count in a doc comment like this one costs.</para>
     ///
     /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
     /// <see cref="AlterHighlightedPayrollMasterRow"/>'s remarks give: <c>ForAlter</c> is a static factory per type
     /// that builds a whole screen with its own pickers, so alteration is the one verb that cannot be shared
-    /// through the interface. Every OTHER verb these six gained IS shared, through the switch above.</para>
+    /// through the interface. Every OTHER verb these screens gained IS shared, through the switch above.</para>
     ///
     /// <para>🔴 <b><see cref="Screen.StockGroupMaster"/> is DELIBERATELY ABSENT from this switch and that is not an
     /// oversight.</b> Census 3.13 already gave the Stock Group master an identical, already-tested Ctrl+Enter arm
@@ -11208,6 +11272,48 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => CostCentreMaster = m);
                 return true;
             }
+
+            // ───────────────────────────────────────────────────────────── W33 C3: the ALTER half of the cluster
+            //
+            // 🔴 TWO OF THE EIGHT RESIDUAL MASTERS, NOT EIGHT, AND THE SPLIT IS BY EVIDENCE. Alteration needs a
+            // `ForAlter` factory, and building one is only honest where a VENDOR PAGE says what altering that
+            // master means. Two do: the price level ("Change the names of the Price Levels and press Ctrl+A to
+            // save" — help.tallysolutions.com/selling-buying-prices/) and the currency ("Alt+G > Alter Master >
+            // Currency", altering symbol / formal name / ISO code / decimal places —
+            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. The other six
+            // (batch, BOM, budget, scenario, price list, reorder) keep create+delete only and their census rows
+            // stay PARTIAL. Inventing an alter shape for a master no source describes is how this project has
+            // previously shipped a verb nobody asked for.
+            case Screen.PriceLevelsMaster:
+            {
+                if (PriceLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceLevelsMaster, m.Caption,
+                    () => PriceLevels = m);
+                return true;
+            }
+            case Screen.CurrencyMaster:
+            {
+                // 🔴 THE BASE CURRENCY IS REFUSED WITH A NOTICE, NOT WITH SILENCE. ForAlter returns null for it —
+                // its row is a projection of the company profile's own base-currency fields and nothing re-syncs
+                // the two — and a bare `return false` would make Ctrl+Enter on that one row do nothing whatsoever
+                // with no statement why: the same shape a sibling review caught as an empty notice bar on a
+                // refused delete. Returning TRUE also stops the chord falling through to another arm.
+                if (Company.FindCurrency(id) is { IsBaseCurrency: true })
+                {
+                    RaiseLifecycleNotice(
+                        "The base currency cannot be altered here — its symbol, formal name and decimal places "
+                        + "belong to the company itself. Change them on Alter Company (F3) instead.");
+                    return true;
+                }
+
+                if (CurrencyMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CurrencyMaster, m.Caption,
+                    () => CurrencyMaster = m);
+                return true;
+            }
+
             default:
                 return false;
         }
@@ -11731,8 +11837,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BomMaster:
                 BomMaster?.Create();
                 return;
+            // W33 C3: the same screen now serves Create and Alter, so Ctrl+A must run whichever verb it was
+            // opened for — the WI-3 branch shape. Without it, a Price Level Alteration screen's Ctrl+A would run
+            // Create() and fail on the duplicate name, leaving the rename unsaved behind an "already exists".
             case Screen.PriceLevelsMaster:
-                PriceLevels?.Create();
+                if (PriceLevels is { IsAltering: true }) PriceLevels.Alter();
+                else PriceLevels?.Create();
                 return;
             case Screen.PriceListsMaster:
                 PriceLists?.Save();
@@ -11788,8 +11898,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ScenarioMaster:
                 ScenarioMaster?.Create();
                 return;
+            // W33 C3: the currency form now serves Create and Alter through the one screen, so Ctrl+A branches.
+            // 🔴 The RATE form on the same page is untouched: it has its own accept (CreateRate) and adds a dated
+            // quote whether or not the currency half is mid-alteration, which is what the vendor page describes as
+            // available alongside an alteration ("Modify the Rates of Exchange, if required").
             case Screen.CurrencyMaster:
-                CurrencyMaster?.CreateCurrency();
+                if (CurrencyMaster is { IsAltering: true }) CurrencyMaster.AlterCurrency();
+                else CurrencyMaster?.CreateCurrency();
                 return;
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();

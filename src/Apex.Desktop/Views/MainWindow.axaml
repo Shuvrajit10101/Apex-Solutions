@@ -6781,6 +6781,11 @@
                                   <DataTemplate x:DataType="vm:BudgetListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,240,120" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.9). A destructive verb may not
+                                             run on an invisible cursor: Alt+D deletes the row the arrows are on,
+                                             so the operator has to be able to SEE which row that is. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Period}"
@@ -6894,6 +6899,9 @@
                                   <DataTemplate x:DataType="vm:ScenarioListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,90,*" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Actuals}"
@@ -7040,6 +7048,12 @@
                                     <DataTemplate x:DataType="vm:CurrencyListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*,90,90" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 2.11). This is the CURRENCIES
+                                               grid; the Rates of Exchange grid below it is deliberately NOT on
+                                               the shared arm and carries no highlight, because the arm exposes
+                                               one highlighted row per screen. See CurrencyMasterViewModel. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Symbol}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FormalName}"
@@ -8921,6 +8935,9 @@
                                   <DataTemplate x:DataType="vm:BatchListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="118,*,96,92,124,96" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.8) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding BatchNumber}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9214,6 +9231,9 @@
                                   <DataTemplate x:DataType="vm:BomListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="140,150,70,*,*" Height="26">
+                                        <!-- W33 C3 keyboard highlight (census 3.9) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9830,6 +9850,9 @@
                                   <DataTemplate x:DataType="vm:PriceLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,140" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Lists}"
@@ -9956,6 +9979,9 @@
                                     <DataTemplate x:DataType="vm:PriceListVersionRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 3.11) — see the Budget list. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding ApplicableFrom}" Margin="8,0"
                                                      VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
                                           <TextBlock Grid.Column="1" Text="{Binding Slabs}" Margin="0,0,8,0"
@@ -10120,6 +10146,9 @@
                                   <DataTemplate x:DataType="vm:ReorderLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="90,*,120,120,120,100" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.12) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Scope}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Target}" Margin="0,0,8,0"
