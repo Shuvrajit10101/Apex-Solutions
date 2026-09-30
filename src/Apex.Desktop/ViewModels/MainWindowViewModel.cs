@@ -9151,7 +9151,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Apex.Ledger.Domain.Voucher"/> and every refusal it raises is about the ACCOUNTING aggregate —
     /// a bill-wise settlement, a filed statutory document (IRN/e-Way Bill), a numbering consequence. A
     /// pure-stock voucher participates in none of those: it posts no entry, settles no bill and carries no IRN.
-    /// Inventing a guard here to look symmetrical would be a refusal with no rule behind it. What deletion CAN
+    /// Inventing a <c>MasterDeletionRules</c> guard here to look symmetrical would be a refusal with no rule
+    /// behind it.
+    ///
+    /// <para>🔴 <b>THAT REASONING HOLDS FOR <c>MasterDeletionRules</c> AND WAS OVER-READ AS "no guard at all",
+    /// WHICH WAS WRONG.</b> This aggregate does have one referential rule, and it is the engine's own: a Job Work
+    /// order that posted Material movements still link to cannot be deleted, because doing so leaves those
+    /// movements holding a dangling <c>OrderLinks</c> Guid — a state <c>InventoryPostingService.Post</c> refuses
+    /// by name, and which under <c>PRAGMA foreign_keys = ON</c> plus delete-all-and-reinsert persistence can make
+    /// the open company unsavable. It lives in <c>InventoryPostingService.EnsureDeletable</c> / <c>Delete</c>
+    /// rather than in <c>MasterDeletionRules</c> precisely BECAUSE the argument above is right about what that
+    /// class is for; it is pre-asked here and re-asked by the engine at the act.</para>
+    ///
+    /// <para>What deletion CAN also
     /// do is drive a later movement's on-hand negative, and the engine's own doc is explicit that this is no
     /// longer blocked (NS-3, call site 3 of 4) — it is reported afterwards by
     /// <c>InventoryPostingService.DetectNegativeStock</c>, which this route surfaces on the notice bar so the
@@ -9166,6 +9178,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (voucherId is not { } id) return false;
         if (id == Guid.Empty) return false;
         if (Company!.FindInventoryVoucher(id) is not { } voucher) return false;
+
+        // The ONE referential rule this aggregate has, pre-asked so a refusal arrives INSTEAD of the irreversible
+        // confirmation rather than after the operator has answered it. The engine re-asks it at the act itself.
+        if (!GuardsAllowDeletion(
+                () => new Apex.Ledger.Services.InventoryPostingService(Company).EnsureDeletable(id),
+                StockCancelRouting())) return false;
 
         return Arm(DeletionTarget.InventoryVoucher, id,
             $"Delete {InventoryVoucherLabel(voucher)}? The entry and every stock line on it are removed from "
@@ -9279,6 +9297,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             : "Alt+X works on the Day Book — open it there to cancel this voucher.";
     }
 
+    /// <summary>
+    /// 🔴 <b>The PURE-STOCK analogue of <see cref="CancelRoutingFor"/>, and it exists because the refusal it
+    /// appends to named a DEAD KEY on the one screen this slice newly made reachable.</b> Returns the extra
+    /// sentence to append, or <c>null</c> when Alt+X is genuinely live where the operator is standing.
+    ///
+    /// <para><b>Measured, not reasoned.</b> Exactly two surfaces reach a pure-stock lifecycle refusal
+    /// (<see cref="RequestDeleteHighlighted"/>'s switch and <see cref="ResolveInventoryVoucherForAlteration"/>
+    /// agree on the pair): <see cref="Screen.Report"/>, where the window's Alt+X arm is live because it is gated
+    /// on <see cref="IsLiveReportPage"/> and <see cref="RequestCancelHighlightedVoucher"/> routes a row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> to <c>RequestCancelInventoryVoucher</c>; and
+    /// <see cref="Screen.InventoryVoucherDetail"/>, where that arm does not fire at all. On the second surface
+    /// the engine's own remedy sentence ("cancel this order with Alt+X instead") was unreachable, and after this
+    /// slice's delete guard the destructive verb is refused there too — so a linked Job Work order had NO working
+    /// lifecycle verb while two separate refusals both pointed at a key that does nothing.
+    ///
+    /// <para>🔴 <b>The named surfaces are verified to carry the verb, not assumed.</b> The Day Book lists the
+    /// pure-stock aggregate (<c>DayBook</c> walks <c>company.InventoryVouchers</c> whole, Job Work orders
+    /// included) and the four Job Work registers plus the two Material registers assign
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/>, so Alt+X resolves an order from any of them. Naming a
+    /// second dead key would be the same defect wearing different words.</para>
+    ///
+    /// <para><b>Why not widen the Alt+X arm to <see cref="Screen.InventoryVoucherDetail"/> instead.</b> The same
+    /// reason <see cref="CancelRoutingFor"/> records: that arm belongs to S3, its current scope is deliberately
+    /// pinned by a test, and widening a shipped destructive verb's surface is a scope decision for its own slice
+    /// rather than a side-effect of a delete fix.</para>
+    /// </summary>
+    private string? StockCancelRouting() =>
+        IsLiveReportPage
+            ? null
+            : "Alt+X does not work on this screen — it works on the Day Book and on the Job Work and Material "
+            + "registers, so cancel it from one of those.";
+
     /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
     private bool Arm(DeletionTarget kind, Guid id, string prompt)
     {
@@ -9353,10 +9403,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     new Apex.Ledger.Services.LedgerService(Company).Delete(id);
                     break;
 
-                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask: there is no guard
-                // for this aggregate to re-ask (see RequestDeleteInventoryVoucher for why inventing one would be
-                // a refusal with no rule behind it). The engine's Delete appends the edit-log entry, so the
-                // deletion leaves the same audit evidence an accounting deletion does.
+                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask, because this
+                // aggregate's one referential rule lives in the ENGINE rather than in MasterDeletionRules:
+                // InventoryPostingService.Delete refuses to delete a Job Work order that posted Material
+                // movements still link to (the mirror of its own EnsureReferencesResolve), and it re-asks that
+                // rule itself, immediately before the irreversible act, on every caller rather than only on this
+                // one. Its InvalidOperationException is reportable, so the catch below turns it into a notice.
+                // The engine's Delete appends the edit-log entry, so the deletion leaves the same audit evidence
+                // an accounting deletion does.
                 case DeletionTarget.InventoryVoucher:
                 {
                     if (Company.FindInventoryVoucher(id) is not { } stockVoucher) return;
@@ -9800,7 +9854,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             // Shown, never swallowed — a dropped refusal is indistinguishable from a dead key, which is the
             // defect census row 9.2 names as the worst of the three.
-            RaiseLifecycleNotice(refusal);
+            //
+            // 🔴 AND A REFUSAL THAT OFFERS Alt+X MUST NOT OFFER IT WHERE Alt+X IS DEAD — the SAME defect one
+            // remove, and the reason `StockCancelRouting` exists. `ShapeThisScreenCannotServe` is static and
+            // type-free by design (it is asked before a view model exists), so it cannot know the surface; this
+            // is the nearest site that does. Appended only when the sentence actually names the key, so the
+            // refusals that do not mention it are left exactly as the rule wrote them.
+            var routing = refusal.Contains("Alt+X", System.StringComparison.Ordinal)
+                ? StockCancelRouting()
+                : null;
+            RaiseLifecycleNotice(routing is null ? refusal : $"{refusal} {routing}");
             return VoucherAlterationRequest.Refused;
         }
 

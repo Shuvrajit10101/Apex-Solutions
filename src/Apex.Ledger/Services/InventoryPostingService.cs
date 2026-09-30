@@ -343,9 +343,105 @@ public sealed class InventoryPostingService
         var v = _company.FindInventoryVoucher(voucherId)
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
 
+        EnsureNothingStillReferences(v);
+
         var entry = RecordEdit(v, VoucherEditVerb.Delete);
         _company.RemoveInventoryVoucherInternal(v);
         return entry;
+    }
+
+    /// <summary>
+    /// Asks <see cref="Delete"/>'s referential guard WITHOUT deleting anything, so a screen can refuse before it
+    /// puts an irreversible Y/N confirmation on the operator's screen instead of after they answer it.
+    ///
+    /// <para><b>Why a public pre-ask rather than letting the shell catch <see cref="Delete"/>'s throw.</b> The
+    /// throw is still the enforcement — every caller re-asks the rule immediately before the irreversible act,
+    /// which is what makes it safe against a book that moved while a prompt was on screen. But a refusal that
+    /// arrives only AFTER the operator has confirmed a deletion reads as a failure rather than as a rule, and the
+    /// shell's post-confirmation catch appends "Re-open the company before continuing" — advice that is wrong
+    /// here, because a refusal removes nothing. The accounting door pre-asks
+    /// <c>MasterDeletionRules.EnsureVoucherDeletable</c> for exactly this reason; this is the pure-stock
+    /// equivalent, and the two paths share one rule rather than two copies of it.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or a posted Material movement still
+    /// links to it.</exception>
+    public void EnsureDeletable(Guid voucherId)
+    {
+        var v = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+        EnsureNothingStillReferences(v);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE REFERENCED-MASTER GUARD ON <see cref="Delete"/> — the mirror of
+    /// <see cref="EnsureReferencesResolve"/>, and it exists because the two were asymmetric.</b> Posting a
+    /// Material movement REFUSES BY NAME when its <c>OrderLinks</c> do not resolve to a posted Job Work order,
+    /// while <see cref="Delete"/> would happily remove the order out from under movements that link to it —
+    /// leaving every one of them holding a dangling Guid, a state this engine's own <c>Post</c> declares invalid.
+    /// An engine that refuses to CREATE a state must not be able to DELETE its way into it.
+    ///
+    /// <para>🔴 <b>AND THE CONSEQUENCE IS NOT COSMETIC.</b> Persistence here is delete-all-and-reinsert under
+    /// <c>PRAGMA foreign_keys = ON</c>, so an orphan is not merely an ugly report: it can make the OPEN COMPANY
+    /// UNSAVABLE, with the operator's only route out being to close without saving and lose the session. The
+    /// Job Work Order Books also made Alt+D reachable from the surface where an operator would actually reach for
+    /// it, which is what turned a latent hole into one worth closing.</para>
+    ///
+    /// <para><b>Named, not counted.</b> The refusal lists the movements by voucher number so the operator knows
+    /// which entries to unlink or delete first, exactly as the master-deletion refusals do — a bare "it is in
+    /// use" leaves them hunting.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A posted Material movement still links to this voucher.</exception>
+    private void EnsureNothingStillReferences(InventoryVoucher v)
+    {
+        // Only a Job Work ORDER can be the target of an OrderLinks reference, so nothing else pays for this scan.
+        if (v.JobWorkOrder is null) return;
+
+        var linked = _company.InventoryVouchers
+            .Where(other => other.Id != v.Id && other.OrderLinks.Contains(v.Id))
+            .ToList();
+        if (linked.Count == 0) return;
+
+        var names = string.Join(", ", linked.Select(m =>
+        {
+            var type = _company.FindVoucherType(m.TypeId);
+            var rendered = type is null ? string.Empty : VoucherNumberFormatter.Render(type, m.Number, m.Date);
+            if (rendered.Length == 0) rendered = $"#{m.Number}";
+            return $"{type?.Name ?? "Material voucher"} No. {rendered}";
+        }));
+
+        throw new InvalidOperationException(
+            $"This Job Work order cannot be deleted: {linked.Count} posted material "
+            + $"movement{(linked.Count == 1 ? "" : "s")} still fulfil{(linked.Count == 1 ? "s" : "")} it "
+            + $"({names}). Deleting it would leave {(linked.Count == 1 ? "that movement" : "those movements")} "
+            + "linked to an order that no longer exists — a state posting refuses by name. Delete or re-key "
+            + $"{(linked.Count == 1 ? "it" : "them")} first, or cancel this order with Alt+X instead, which keeps "
+            + "the link intact.");
+    }
+
+    /// <summary>
+    /// Drops <paramref name="entry"/> from the edit log because <b>the save that would have made its verb durable
+    /// did not commit</b>. Refuses anything but the most recent entry. The pure-stock sibling of
+    /// <c>LedgerService.DiscardUncommittedEditLogEntry</c>, which carries the full argument for why an
+    /// append-only audit log has a removal at all; the short form is that this application's persistence is a
+    /// whole-aggregate snapshot with no transaction spanning the engine and the store, so every lifecycle verb
+    /// mutates the in-memory book BEFORE the save, and a screen that unwound the mutation without unwinding the
+    /// log line would leave the log asserting an edit that never reached disk.
+    ///
+    /// <para>🔴 <b>WHY THIS EXISTS ON THIS SERVICE AND NOT ONLY ON <c>LedgerService</c>.</b>
+    /// <see cref="Replace"/> appends an <see cref="VoucherEditVerb.Alter"/> entry, and the inventory alteration
+    /// screen's rollback calls <see cref="Replace"/> a SECOND time to put the original back — which appends a
+    /// second. Without this method that screen could unwind the swap but not the two log lines, so a later
+    /// successful save in the same session persisted TWO fictitious alterations of a voucher nobody had altered.
+    /// The accounting door has had the equivalent since v52; this is the pure-stock half, and a caller unwinding
+    /// both verbs calls this twice, <b>newest first</b>.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="entry"/> is not the last entry in the log.</exception>
+    public void DiscardUncommittedEditLogEntry(VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is not the last entry and cannot be discarded.");
     }
 
     /// <summary>
@@ -372,9 +468,7 @@ public sealed class InventoryPostingService
         // Order matters and is the opposite of Cancel's: the log line goes first, because its removal is the
         // bounded one (last-entry-only, enforced inside Company) and is the half that can legitimately refuse.
         // Clearing the flag first and then failing to remove the line would leave the two disagreeing.
-        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
-            throw new InvalidOperationException(
-                $"Edit-log entry {entry.Id} is not the last entry and cannot be discarded.");
+        DiscardUncommittedEditLogEntry(entry);
 
         v.Cancelled = false;
     }

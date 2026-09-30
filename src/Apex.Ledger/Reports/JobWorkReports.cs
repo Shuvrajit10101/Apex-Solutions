@@ -41,6 +41,13 @@ public sealed record JobWorkOrderRow(
     /// Ctrl+Enter, Alt+X and Alt+D were SILENT no-ops, because every one of those verbs resolves through
     /// <c>ReportRow.DrillInventoryVoucherId</c> and this projection had no id to put in it. A silent no-op is
     /// the worst of the failure modes on this surface — the operator believes the correction landed.
+    ///
+    /// <para>🔴 <b>THE ID IS NECESSARY AND WAS NOT SUFFICIENT, and this sentence is here because a shipped
+    /// comment once claimed it was.</b> Ctrl+Enter, Alt+X and Alt+D resolve the id through the shell, so those
+    /// three went live the moment this field was populated. <b>Enter does not</b> — it goes through
+    /// <c>ReportsViewModel.Drill</c>, a <c>switch</c> on report kind with no default arm, so until that switch
+    /// gained a case for these four kinds Enter stayed a no-op with the id sitting right there unused. Populating
+    /// a drill id and wiring the drill are two separate changes; do not read one as evidence of the other.</para>
     /// </summary>
     Guid VoucherId = default);
 
@@ -68,9 +75,10 @@ public sealed record MaterialRegisterRow(
     string? Narration,
     string FormattedNumber = "",
     /// <summary>The posted <c>InventoryVoucher</c> this movement line belongs to — census 9.2. Same reason as
-    /// <see cref="JobWorkOrderRow.VoucherId"/>: without it the Material In/Out registers carry rows no keyboard
-    /// verb can reach. N lines of one voucher all carry the SAME id, which is correct — the lifecycle verbs act
-    /// on the voucher, not on the line.</summary>
+    /// <see cref="JobWorkOrderRow.VoucherId"/>, including the necessary-but-not-sufficient note there: the id
+    /// arms Ctrl+Enter, Alt+X and Alt+D, while Enter additionally needs an arm in <c>ReportsViewModel.Drill</c>.
+    /// Without the id the Material In/Out registers carry rows no keyboard verb can reach. N lines of one voucher
+    /// all carry the SAME id, which is correct — the lifecycle verbs act on the voucher, not on the line.</summary>
     Guid VoucherId = default);
 
 /// <summary>
