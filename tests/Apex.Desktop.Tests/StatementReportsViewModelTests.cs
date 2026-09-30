@@ -148,9 +148,19 @@ public sealed class StatementReportsViewModelTests : IDisposable
 
         // Unit suffixes: a days ratio ends " days" or "N/A"; a percent ends "%" or "N/A"; a plain ratio is a
         // 2-dp number or "N/A".
+        // 🔴 CORRECTED. This clause used to allow only " days" or a bare "N/A", and Robert is accounts-only with
+        // no bill-wise details — so it REJECTED the explicit marker user ruling 27 requires. A withheld ratio
+        // that carries a reason renders that reason; the suffix rule applies to a ratio that HAS a value.
         var recvRow = vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)");
-        Assert.True(recvRow.Amount == "N/A" || recvRow.Amount.EndsWith(" days"),
-            $"Receivables Turnover should render ' days' or 'N/A' but was '{recvRow.Amount}'.");
+        Assert.True(
+            recvRow.Amount == "N/A"
+            || recvRow.Amount == RatioAnalysis.ReceivablesNoBillWiseDetails
+            || recvRow.Amount == RatioAnalysis.ReceivablesNoBillsDueYet
+            || recvRow.Amount.EndsWith(" days"),
+            $"Receivables Turnover should render ' days', 'N/A' or a stated reason but was '{recvRow.Amount}'.");
+        // On Robert specifically the answer is the marker, not a number and not a bare "N/A": the book keeps no
+        // bill-wise details at all, which is the case the ruling is about.
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, recvRow.Amount);
         var opCostRow = vm.Rows.Single(r => r.Particulars == "Operating Cost %");
         Assert.True(opCostRow.Amount == "N/A" || opCostRow.Amount.EndsWith("%"),
             $"Operating Cost % should render '%' or 'N/A' but was '{opCostRow.Amount}'.");
@@ -191,20 +201,180 @@ public sealed class StatementReportsViewModelTests : IDisposable
         var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
         vm.SetAsOf(asOf);
 
-        // 🔴 THE RENDERED CELL. "0 days" here is the shipped defect; "N/A" is the fix.
+        // 🔴 THE RENDERED CELL. "0 days" here is the shipped defect. A BARE "N/A" was the previous attempt and
+        // is ALSO wrong: it is byte-identical to the zero-denominator "N/A" every other ratio uses, so an
+        // operator cannot tell "we have no bill-wise data" from "the denominator was zero". User ruling 27
+        // requires an explicit marker that says WHY, and this asserts the shipping string.
         var recvRow = vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)");
-        Assert.Equal("N/A", recvRow.Amount);
+        Assert.Equal(Apex.Ledger.Reports.RatioAnalysis.ReceivablesNoBillWiseDetails, recvRow.Amount);
         Assert.NotEqual("0 days", recvRow.Amount);
+        Assert.NotEqual("N/A", recvRow.Amount);
+        // …and it is a legible sentence, not a code: it names the missing thing.
+        Assert.Contains("bill-wise", recvRow.Amount);
 
         // …while the Balance-Sheet-side figure on the SAME report shows the real money, which is exactly what
         // made "0 days" beside it indefensible. The group row keeps its "(due till today)" qualifier.
         Assert.Contains(vm.Rows, r => r.Particulars == "Sundry Debtors (due till today)");
 
-        // Sales is non-zero, so a ratio that divides by Sales still renders a number — proof the "N/A" above is
+        // Sales is non-zero, so a ratio that divides by Sales still renders a number — proof the marker above is
         // the bill-wise guard and not a zero denominator.
         var grossRow = vm.Rows.Single(r => r.Particulars == "Gross Profit %");
         Assert.EndsWith("%", grossRow.Amount);
         Assert.NotEqual("N/A", grossRow.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 USER RULING 27, ASSERTED AS THREE RENDERED STRINGS IN ONE PLACE. Receivables Turnover can be absent for
+    /// three different reasons, and an operator reading the cell must be able to tell them apart:
+    /// <list type="number">
+    /// <item>the book keeps no bill-wise details, so the numerator measures nothing;</item>
+    /// <item>the bills exist and cover every rupee, but none has fallen due yet;</item>
+    /// <item>the denominator is zero — the ordinary guard every other ratio uses, which renders a bare "N/A".</item>
+    /// </list>
+    /// A previous attempt rendered case 1 as a bare "N/A", byte-identical to case 3. This test fails if any two of
+    /// the three ever render the same string again.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_renders_a_DIFFERENT_cell_for_each_reason_the_receivables_ratio_is_absent()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+
+        // ---- (1) no bill-wise details: a default-flag debtor funded by a credit sale.
+        var noBills = NewBook("No Bills Co");
+        var noBillsSales = AddLedger(noBills, "Sales", "Sales Accounts", debit: false);
+        var plainDebtor = AddLedger(noBills, "Plain Co", "Sundry Debtors", debit: true);
+        Post(noBills, new DateOnly(2024, 4, 20),
+            new EntryLine(plainDebtor.Id, Money.FromRupees(100000m), DrCr.Debit),
+            new EntryLine(noBillsSales.Id, Money.FromRupees(100000m), DrCr.Credit));
+
+        // ---- (2) covered by bills, none due: a bill-wise debtor whose only invoice is due after the statement.
+        var notDue = NewBook("Not Due Co");
+        var notDueSales = AddLedger(notDue, "Sales", "Sales Accounts", debit: false);
+        var patient = AddLedger(notDue, "Patient Ltd", "Sundry Debtors", debit: true, billWise: true);
+        Post(notDue, new DateOnly(2024, 4, 20),
+            new EntryLine(patient.Id, Money.FromRupees(100000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-9", Money.FromRupees(100000m),
+                    dueDate: new DateOnly(2024, 7, 20)),
+            }),
+            new EntryLine(notDueSales.Id, Money.FromRupees(100000m), DrCr.Credit));
+
+        // ---- (3) zero denominator: a bill-wise debtor with a DUE bill and NO sales at all, so the numerator is
+        //          real and it is Sales that is 0 — the pre-existing guard, untouched by this work.
+        var noSales = NewBook("No Sales Co");
+        var loan = AddLedger(noSales, "Loan Taken", "Loans (Liability)", debit: false);
+        var owing = AddLedger(noSales, "Owes Us Ltd", "Sundry Debtors", debit: true, billWise: true);
+        Post(noSales, new DateOnly(2024, 4, 20),
+            new EntryLine(owing.Id, Money.FromRupees(50000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-Z", Money.FromRupees(50000m),
+                    dueDate: new DateOnly(2024, 5, 1)),
+            }),
+            new EntryLine(loan.Id, Money.FromRupees(50000m), DrCr.Credit));
+
+        // ---- (1b) THE SHAPE THE FLAG-BASED GUARD COULD NOT SEE: the debtor IS bill-wise, but its balance came in
+        //           as an OPENING balance, so no bill exists for it. Rendered here, because this is the cell the
+        //           reviewer found still printing "0 days".
+        var opening = NewBook("Opening Co");
+        var openingSales = AddLedger(opening, "Sales", "Sales Accounts", debit: false);
+        var cash = AddLedger(opening, "Cash A", "Cash-in-Hand", debit: true);
+        var carried = new Ledger.Domain.Ledger(Guid.NewGuid(), "Carried Forward Ltd",
+            opening.FindGroupByName("Sundry Debtors")!.Id, Money.FromRupees(100000m), openingIsDebit: true,
+            maintainBillByBill: true);
+        opening.AddLedger(carried);
+        Post(opening, new DateOnly(2024, 4, 20),
+            new EntryLine(cash.Id, Money.FromRupees(80000m), DrCr.Debit),
+            new EntryLine(openingSales.Id, Money.FromRupees(80000m), DrCr.Credit));
+
+        var a = RenderedReceivablesCell(noBills, asOf);
+        var b = RenderedReceivablesCell(notDue, asOf);
+        var z = RenderedReceivablesCell(noSales, asOf);
+
+        // 🔴 THE RENDERED CELL ON THE OPENING-BALANCE BOOK. "0 days" is what shipped past the flag-based guard.
+        var carriedCell = RenderedReceivablesCell(opening, asOf);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, carriedCell);
+        Assert.NotEqual("0 days", carriedCell);
+
+        // 🔴 THE THREE SHIPPING STRINGS, each named.
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, a);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillsDueYet, b);
+        Assert.Equal("N/A", z);
+
+        // 🔴 AND PAIRWISE DISTINCT — the ruling's actual requirement, independent of the constants' values.
+        Assert.NotEqual(a, b);
+        Assert.NotEqual(a, z);
+        Assert.NotEqual(b, z);
+        // None of them is the confident zero, which is where this whole track started.
+        Assert.NotEqual("0 days", a);
+        Assert.NotEqual("0 days", b);
+        Assert.NotEqual("0 days", z);
+    }
+
+    /// <summary>
+    /// 🔴 THE MARKER HAS TO LEAVE THE BUILDING INTACT, AND THAT IS NOT FREE. The printed Amount column carries
+    /// weight 1.5 against Particulars' 3, and <c>ReportPdf</c> silently truncates any cell too wide for its column
+    /// (<c>PdfWriter.FitToWidth</c>, ellipsis appended). A marker is a sentence, not a money figure, so it is far
+    /// wider than anything this column was sized for — and a previous pass in this very family shipped a print
+    /// regression that clipped a figure mid-number. This asserts the EMITTED PDF BYTES, not the screen row: the
+    /// ASCII-folded marker (the em dash folds to '-' in <c>ReportPrintProjector.Ascii</c>) must appear whole, with
+    /// no ellipsis, in the rendered document.
+    /// </summary>
+    [Fact]
+    public void The_withheld_receivables_marker_survives_whole_into_the_emitted_report_PDF()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+        var c = NewBook("Printed Marker Co");
+        var salesLedger = AddLedger(c, "Sales", "Sales Accounts", debit: false);
+        var debtor = AddLedger(c, "Plain Co", "Sundry Debtors", debit: true);
+        Post(c, new DateOnly(2024, 4, 20),
+            new EntryLine(debtor.Id, Money.FromRupees(100000m), DrCr.Debit),
+            new EntryLine(salesLedger.Id, Money.FromRupees(100000m), DrCr.Credit));
+
+        var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        vm.SetAsOf(asOf);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails,
+            vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)").Amount);
+
+        var pdf = System.Text.Encoding.Latin1.GetString(
+            Apex.Ledger.Io.ReportPdf.Render(
+                Apex.Desktop.Services.ReportPrintProjector.Project(vm),
+                new Apex.Ledger.Io.PageConfig()));
+
+        // The marker as the printed page spells it: em dash folded to a hyphen, nothing else changed.
+        var printed = RatioAnalysis.ReceivablesNoBillWiseDetails.Replace('—', '-');
+        Assert.Contains(printed, pdf, StringComparison.Ordinal);
+        // 🔴 AND NOT TRUNCATED. "N/A - no bill-..." with an ellipsis would still "contain" nothing useful, so the
+        // clipped forms are named: if the column ever narrows, this fails instead of shipping a half sentence.
+        Assert.DoesNotContain("bill-wise deta...", pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain("no bill-...", pdf, StringComparison.Ordinal);
+        // The row's own caption is on the page too, so the marker is demonstrably beside its label. Note the
+        // parentheses: a PDF content stream delimits strings with "(" and ")", so the writer escapes them —
+        // searching for the screen caption verbatim finds nothing. Match the unparenthesised stem.
+        Assert.Contains("Receivables Turnover", pdf, StringComparison.Ordinal);
+    }
+
+    private static Company NewBook(string name)
+        => Apex.Ledger.Services.CompanyFactory.CreateSeeded(
+            name + " " + Guid.NewGuid().ToString("N"), new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+
+    private static Ledger.Domain.Ledger AddLedger(
+        Company c, string name, string groupName, bool debit, bool billWise = false)
+    {
+        var l = new Ledger.Domain.Ledger(Guid.NewGuid(), name, c.FindGroupByName(groupName)!.Id,
+            Money.Zero, openingIsDebit: debit, maintainBillByBill: billWise);
+        c.AddLedger(l);
+        return l;
+    }
+
+    private static void Post(Company c, DateOnly date, params EntryLine[] lines)
+        => new Apex.Ledger.Services.LedgerService(c).Post(
+            new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, date, lines));
+
+    private static string RenderedReceivablesCell(Company c, DateOnly asOf)
+    {
+        var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        vm.SetAsOf(asOf);
+        return vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)").Amount;
     }
 
     [Fact]

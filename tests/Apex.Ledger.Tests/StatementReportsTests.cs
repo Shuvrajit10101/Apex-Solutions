@@ -157,7 +157,7 @@ public class StatementReportsTests
         Assert.Null(ra.ReceivablesTurnoverDays);
         // The money that forces it: 35,000 of Sundry Debtors that no bill can account for.
         Assert.Equal(Money.FromRupees(35000m),
-            Outstandings.BillWiseBlindClosing(f.Company, f.AsOf, "Sundry Debtors"));
+            Outstandings.ClosingNotCoveredByBills(f.Company, f.AsOf, "Sundry Debtors"));
         // 🔴 ANTI-REVERT, BY FIGURE. Both historic wrong answers are named so a regression fails with its own
         // number rather than a bare "expected null". 175 = the closing-balance numerator; 0 = the confident zero.
         // The sentinel stands for "withheld" and is neither, so a correct null passes both.
@@ -372,7 +372,7 @@ public class StatementReportsTests
         // 🔴 AND THE REASON THE FIGURE IS PUBLISHABLE AT ALL ON THIS BOOK: every rupee of Sundry Debtors is
         // carried by a bill-wise ledger, so the bill-wise numerator is a COMPLETE measurement, not a partial
         // one. This is the zero that the withholding guard tests below are the complement of.
-        Assert.Equal(Money.Zero, Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.Equal(Money.Zero, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
     }
 
     /// <summary>
@@ -420,7 +420,7 @@ public class StatementReportsTests
         Assert.Equal(Money.Zero, ra.SundryDebtorsDueTillToday);
         Assert.Equal(Money.FromRupees(100000m), ra.Sales);
         // The measured blind spot: 1,00,000 of debtors that no bill accounts for.
-        Assert.Equal(Money.FromRupees(100000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.Equal(Money.FromRupees(100000m), Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
 
         // 🔴 THE ASSERTION THIS WHOLE TRACK EXISTS FOR.
         Assert.Null(ra.ReceivablesTurnoverDays);
@@ -489,7 +489,7 @@ public class StatementReportsTests
         // ---- Hand-computed ---- closing debtors 1,00,000; bill-wise due till today 70,000; blind 30,000.
         Assert.Equal(Money.FromRupees(100000m), ra.SundryDebtorsClosing);
         Assert.Equal(Money.FromRupees(70000m), ra.SundryDebtorsDueTillToday);
-        Assert.Equal(Money.FromRupees(30000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.Equal(Money.FromRupees(30000m), Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
         Assert.Equal(Money.FromRupees(100000m), ra.Sales);
 
         Assert.Null(ra.ReceivablesTurnoverDays);
@@ -540,8 +540,8 @@ public class StatementReportsTests
 
         // 🔴 Netted, these two are 0. Summed as magnitudes they are 90,000 — and 90,000 is the truth about
         // how much money no bill can account for.
-        Assert.Equal(Money.FromRupees(90000m), Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
-        Assert.NotEqual(Money.Zero, Outstandings.BillWiseBlindClosing(c, asOf, "Sundry Debtors"));
+        Assert.Equal(Money.FromRupees(90000m), Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
+        Assert.NotEqual(Money.Zero, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
 
         // …so the ratio is withheld on this book too, even though the net debtor position is zero.
         Assert.Null(RatioAnalysis.Build(c, asOf).ReceivablesTurnoverDays);
@@ -628,6 +628,196 @@ public class StatementReportsTests
         // The published Sundry Debtors row moves with it rather than contradicting the ratio beside it.
         Assert.Equal(Money.FromRupees(60000m), actual.SundryDebtorsDueTillToday);
         Assert.Equal(Money.FromRupees(40000m), whatIf.SundryDebtorsDueTillToday);
+    }
+
+    /// <summary>
+    /// 🔴 THE BOOK THE FLAG-BASED GUARD COULD NEVER SEE, AND IT IS THE ORDINARY FIRST STATE OF THIS PRODUCT.
+    /// The debtor DOES maintain bill-wise details, so the previous guard — which summed the closing balances of
+    /// the ledgers whose <c>MaintainBillByBill</c> flag was <c>false</c> — measured 0 and let the ratio publish
+    /// <b>"0 days"</b> beside a Balance Sheet carrying 1,00,000. But the money arrived as an <b>opening
+    /// balance</b>, and this build has no opening bill-wise breakdown at all
+    /// (<c>CompanySplit</c> refuses a split rather than produce a book whose party balances and Outstandings
+    /// disagree), so there is no bill for it to be due against and there never will be. The flag claimed cover
+    /// that does not exist; measuring the MONEY finds it.
+    /// <para>Sales is non-zero (a cash sale, which touches no debtor) so the withholding cannot come from the
+    /// pre-existing zero-denominator guard.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_withholds_when_a_bill_wise_debtor_balance_arrived_as_an_opening_balance()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Opening Balance Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var cash = new Domain.Ledger(Guid.NewGuid(), "Cash A", c.FindGroupByName("Cash-in-Hand")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(cash);
+        // 🔴 BILL-WISE — the flag is TRUE — and the whole balance is an OPENING balance carrying no bill.
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Carried Forward Ltd",
+            c.FindGroupByName("Sundry Debtors")!.Id, Money.FromRupees(100000m), openingIsDebit: true,
+            maintainBillByBill: true);
+        c.AddLedger(debtor);
+        Assert.True(debtor.MaintainBillByBill);
+
+        // A cash sale: Sales becomes non-zero without touching any debtor.
+        new Services.LedgerService(c).Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 20), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(80000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(80000m), DrCr.Credit),
+        }));
+
+        var ra = RatioAnalysis.Build(c, asOf);
+
+        // ---- Hand-computed ---- closing debtors 1,00,000; bills none, so due till today 0; sales 80,000.
+        Assert.Equal(Money.FromRupees(100000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.Zero, ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(80000m), ra.Sales);
+        Assert.Empty(Outstandings.Build(c, asOf).Receivables);
+
+        // 🔴 THE MEASUREMENT THAT CHANGED: the money no bill accounts for is 1,00,000, not the 0 the flag implied.
+        Assert.Equal(Money.FromRupees(100000m),
+            Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
+
+        Assert.Null(ra.ReceivablesTurnoverDays);
+        var recv = Assert.Single(ra.PrincipalRatios, r => r.Label == "Receivables Turnover (days)");
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, recv.UnavailableReason);
+
+        // 🔴 ANTI-REVERT, BY FIGURE. 0 = what the flag-based guard published here (the defect this closes);
+        //   113.75 = 1,00,000 ÷ 80,000 × 91, i.e. a revert to the closing-balance numerator (reopens T0-27).
+        var published = ra.ReceivablesTurnoverDays ?? decimal.MinValue;
+        Assert.NotEqual(0m, published);
+        Assert.NotEqual(113.75m, published);
+
+        // Sales is non-zero, so the ratios that divide by Sales are real numbers on this same book.
+        Assert.NotNull(ra.GrossProfitPercent);
+    }
+
+    /// <summary>
+    /// 🔴 THE MOST COMMON STEADY STATE OF A HEALTHY DEBTORS LEDGER — full bill-wise discipline and nothing yet
+    /// overdue — on which the report used to state that customers pay in <b>0 days</b>. Here the bills DO account
+    /// for every rupee, so the coverage measure is correctly 0; what is 0 is the <i>due till today</i> numerator,
+    /// because the single invoice is still inside its credit period. A true 0 numerator beside real receivables is
+    /// still not a payment speed, so the ratio is withheld — with its OWN reason, distinct from "no bill-wise
+    /// details", because the two facts are different and an operator must be able to tell them apart.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_withholds_when_every_debtor_bill_is_still_inside_its_credit_period()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Not Yet Due Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Patient Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+        c.AddLedger(debtor);
+
+        // One invoice, fully bill-wise, due AFTER the statement date → pending but not yet due.
+        new Services.LedgerService(c).Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 20), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(100000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-9", Money.FromRupees(100000m),
+                    dueDate: new DateOnly(2024, 7, 20)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(100000m), DrCr.Credit),
+        }));
+
+        var ra = RatioAnalysis.Build(c, asOf);
+
+        // ---- Hand-computed ---- closing 1,00,000, ALL of it carried by one pending bill, none of it due.
+        Assert.Equal(Money.FromRupees(100000m), ra.SundryDebtorsClosing);
+        Assert.Equal(Money.FromRupees(100000m), Outstandings.Build(c, asOf).TotalReceivable);
+        Assert.Equal(Money.Zero, ra.SundryDebtorsDueTillToday);
+        Assert.Equal(Money.FromRupees(100000m), ra.Sales);
+        // 🔴 Coverage is COMPLETE here — this is not the "no bill-wise details" case, and the reason must differ.
+        Assert.Equal(Money.Zero, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors"));
+
+        Assert.Null(ra.ReceivablesTurnoverDays);
+        var recv = Assert.Single(ra.PrincipalRatios, r => r.Label == "Receivables Turnover (days)");
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillsDueYet, recv.UnavailableReason);
+        Assert.NotEqual(RatioAnalysis.ReceivablesNoBillWiseDetails, recv.UnavailableReason);
+
+        // 🔴 ANTI-REVERT, BY FIGURE. 0 = the confident zero this test closes; 91 = 1,00,000 ÷ 1,00,000 × 91,
+        //   the closing-balance numerator.
+        var published = ra.ReceivablesTurnoverDays ?? decimal.MinValue;
+        Assert.NotEqual(0m, published);
+        Assert.NotEqual(91m, published);
+    }
+
+    /// <summary>
+    /// 🔴 A SCENARIO NUMERATOR OVER AN ACTUAL-BOOKS DENOMINATOR IS THE SAME DEFECT WITH THE SIDES SWAPPED.
+    /// <c>SalesOf</c> drops the scenario whenever an explicit period window is set, so threading
+    /// <c>options.Scenario</c> into the numerator unconditionally produced a brand-new mixed-basis figure on the
+    /// one configuration the UI can set from a saved view: scenario AND period together. The numerator now follows
+    /// the same rule the denominator implements, so BOTH readings of this book answer 91 days.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_keeps_one_basis_when_a_scenario_and_a_period_are_both_selected()
+    {
+        var c = Services.CompanyFactory.CreateSeeded(
+            "Both Filters Co", new DateOnly(2024, 4, 1), new DateOnly(2024, 4, 1));
+        var asOf = new DateOnly(2024, 6, 30);   // 2024-04-01 → 2024-06-30 inclusive = 91 days
+        var journal = c.FindVoucherTypeByName("Journal")!;
+
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Acme Ltd", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true, maintainBillByBill: true);
+        c.AddLedger(debtor);
+
+        var svc = new Services.LedgerService(c);
+        // REAL: 1,00,000 invoiced and already fallen due.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 10), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(100000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-1", Money.FromRupees(100000m),
+                    dueDate: new DateOnly(2024, 5, 10)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(100000m), DrCr.Credit),
+        }));
+        // OPTIONAL (provisional): a further 50,000 invoice, also already due. It moves BOTH sides — numerator
+        // and Sales — so on either single basis the answer stays 91.
+        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 12), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(50000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-2", Money.FromRupees(50000m),
+                    dueDate: new DateOnly(2024, 5, 15)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(50000m), DrCr.Credit),
+        }, optional: true));
+
+        var scenario = new Scenario(Guid.NewGuid(), "What-if", includeActuals: true,
+            includedTypeIds: new[] { journal.Id });
+        var period = new PeriodRange(new DateOnly(2024, 4, 1), asOf);
+
+        // ---- SCENARIO + PERIOD: SalesOf falls back to un-scenarioed movement (1,00,000), so the numerator
+        //      must do the same (1,00,000) ⇒ 1,00,000 ÷ 1,00,000 × 91 = 91.
+        var both = RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf).WithPeriod(period).WithScenario(scenario));
+        Assert.Equal(Money.FromRupees(100000m), both.Sales);
+        Assert.Equal(Money.FromRupees(100000m), both.SundryDebtorsDueTillToday);
+        Assert.Equal(91m, Math.Round(both.ReceivablesTurnoverDays!.Value, 4));
+
+        // 🔴 THE REGRESSION FIGURE, NAMED. A scenario numerator (1,50,000) over an actual denominator
+        //   (1,00,000) reads 136.5 days — wrong on BOTH readings of this book, where 91 is right on each.
+        Assert.NotEqual(136.5m, Math.Round(both.ReceivablesTurnoverDays!.Value, 4));
+
+        // ---- SCENARIO ALONE (no window): SalesOf honours it, so the numerator does too — 1,50,000 ÷ 1,50,000
+        //      × 91 = 91. Same answer, the other basis, and the scenario is still genuinely threaded.
+        var scenarioOnly = RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf).WithScenario(scenario));
+        Assert.Equal(Money.FromRupees(150000m), scenarioOnly.Sales);
+        Assert.Equal(Money.FromRupees(150000m), scenarioOnly.SundryDebtorsDueTillToday);
+        Assert.Equal(91m, Math.Round(scenarioOnly.ReceivablesTurnoverDays!.Value, 4));
     }
 
     /// <summary>

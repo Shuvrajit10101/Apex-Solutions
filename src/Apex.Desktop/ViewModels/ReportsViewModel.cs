@@ -4313,9 +4313,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
             AddRatioLine(r);
     }
 
-    /// <summary>Adds a Principal-Ratio row, formatting per its unit (ratio / percent / days; null → "N/A").</summary>
+    /// <summary>
+    /// Adds a Principal-Ratio row, formatting per its unit (ratio / percent / days; null → "N/A").
+    /// <para>🔴 A withheld ratio that carries a <see cref="PrincipalRatioLine.UnavailableReason"/> renders THAT
+    /// sentence instead of the bare "N/A" (user ruling 27): "N/A" alone cannot tell an operator that the book
+    /// records no bills apart from a zero denominator, and the two are not the same fact.</para>
+    /// </summary>
     private void AddRatioLine(PrincipalRatioLine ratio)
     {
+        if (ratio.Value is null && ratio.UnavailableReason is { } reason)
+        {
+            Rows.Add(new ReportRow { Particulars = ratio.Label, Amount = reason });
+            return;
+        }
+
         switch (ratio.Unit)
         {
             case RatioUnit.Percent: AddRatioPercent(ratio.Label, ratio.Value); break;

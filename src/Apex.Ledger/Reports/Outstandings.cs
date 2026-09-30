@@ -130,9 +130,12 @@ public static class Outstandings
         // 🔴 ONE voucher pass for the WHOLE company. This used to call OpenBillsFor per bill-wise ledger, and
         // each of those calls walked every voucher — so a report that merely opens this projection paid
         // O(parties × vouchers × lines × allocations). Accumulate takes the whole ledger set at once.
-        // MEASURED, not estimated (Release, this machine): 100 parties × 2,000 vouchers 14.2 ms → 1.8 ms;
-        // 200 parties × 4,000 vouchers 50.9 ms → 2.9 ms. The old shape grew with the PRODUCT (3.6× for a 4×
-        // product), the new one grows with the vouchers alone (1.6×), so the gap widens with book size.
+        // MEASURED, not estimated, at 100 parties × 2,000 vouchers and 200 × 4,000: the old shape grew with the
+        // PRODUCT of parties and vouchers, the new one grows with the vouchers alone, so the gap WIDENS with book
+        // size — that is the claim, and it is the one that stays true. 🔴 The absolute milliseconds and the
+        // speedup multiple deliberately do NOT live here: they are machine- and run-specific, CI cannot falsify
+        // them, and re-running the same probe one wave later already produced a different multiple on the SAME
+        // machine. The figures live in the evidence files (a5-r1-f9-measurement*.txt, a5-r1-p4-f9-reverify.txt).
         // The emission below still walks company.Ledgers in order, and each ledger's own first-opened order,
         // so the row sequence is identical to the per-ledger loop this replaced — pinned by
         // Outstandings_build_emits_exactly_the_per_ledger_projection_in_the_same_order, which spells the
@@ -179,43 +182,68 @@ public static class Outstandings
     }
 
     /// <summary>
-    /// The money under <paramref name="groupName"/> that the bill-wise projection <b>structurally cannot
-    /// see</b> as of <paramref name="asOf"/>: Σ |closing| over the ledgers under that group which do NOT
-    /// maintain bill-wise details. Zero means every rupee on that side is represented by bills, so a
-    /// "due till today" figure derived from them is a complete measurement.
+    /// The money under <paramref name="groupName"/> that the bill-wise projection <b>cannot account for</b> as
+    /// of <paramref name="asOf"/>: for every ledger under that group, |closing| minus the pending amount its own
+    /// open bills carry, summed over the ledgers that fall short. Zero means every rupee on that side is
+    /// represented by a bill, so a "due till today" figure derived from those bills is a complete measurement.
     ///
-    /// <para>🔴 <b>This exists so a caller can tell "nothing has fallen due" apart from "this book cannot
-    /// answer the question".</b> <see cref="Domain.Ledger.MaintainBillByBill"/> defaults to <c>false</c>, so a
-    /// book whose debtors carry real balances and no bills at all is the DEFAULT shape, not an edge case — and
-    /// on it every due-till-today total is 0 while the Balance Sheet shows the money. A ratio built on such a
-    /// numerator must be published as unavailable, never as a confident zero. Magnitudes are summed (not
-    /// netted) so two opposite-signed blind ledgers cannot cancel each other into a false "covered".</para>
+    /// <para>🔴 <b>THIS MEASURES THE MONEY, NOT THE <see cref="Domain.Ledger.MaintainBillByBill"/> FLAG, AND
+    /// THE DIFFERENCE IS THE WHOLE POINT.</b> An earlier version summed the closing balances of the ledgers
+    /// whose flag was <c>false</c>, i.e. it trusted the flag to imply that a bill-wise ledger's money is carried
+    /// by bills. It is not: a bill-wise party's balance can arrive as an <b>opening balance</b> (this build has
+    /// no opening bill-wise breakdown at all — <c>CompanySplit</c> refuses a split rather than produce a book
+    /// whose party balances and Outstandings disagree), on a line posted with <b>no allocations</b>, or against
+    /// an <b>On Account</b> allocation. On each of those the flag says "covered" while no bill exists, the
+    /// due-till-today total is 0, and a ratio built on it published a confident "0 days". Comparing the
+    /// projection's own pending amounts against the closing balances they claim to represent covers all three
+    /// shapes in one rule, and needs no new knowledge of why a rupee has no bill.</para>
+    ///
+    /// <para>Two deliberate arithmetic choices: magnitudes are used (not signed netting) so two opposite-signed
+    /// uncovered ledgers cannot cancel each other into a false "covered"; and each ledger's shortfall is floored
+    /// at zero so a ledger carrying MORE bills than balance cannot mask another ledger's missing money.</para>
     /// </summary>
-    public static Money BillWiseBlindClosing(
+    public static Money ClosingNotCoveredByBills(
         Company company, DateOnly asOf, string groupName, Scenario? scenario = null)
     {
-        // Candidate set first, then ONE voucher pass over it — never one pass per ledger.
-        var blind = new Dictionary<Guid, decimal>();
+        // Candidate set first, then ONE voucher pass over it — never one pass per ledger (see Build).
+        var candidates = new List<Domain.Ledger>();
+        var closing = new Dictionary<Guid, decimal>();
         foreach (var ledger in company.Ledgers)
         {
-            if (ledger.MaintainBillByBill) continue;
             if (!ClassificationRules.GroupIsUnder(ledger.GroupId, groupName, company)) continue;
+            candidates.Add(ledger);
             // Mirrors LedgerBalances.SignedClosing under a scenario: the actual-books opening is only in the
             // scenario column when the scenario includes actuals.
-            blind[ledger.Id] = scenario is { } s && !s.IncludeActuals ? 0m : ledger.SignedOpening;
+            closing[ledger.Id] = scenario is { } s && !s.IncludeActuals ? 0m : ledger.SignedOpening;
         }
-        if (blind.Count == 0) return Money.Zero;
+        if (candidates.Count == 0) return Money.Zero;
 
         foreach (var v in company.Vouchers)
         {
             if (!CountsUnder(company, v, asOf, scenario)) continue;
             foreach (var line in v.Lines)
-                if (blind.TryGetValue(line.LedgerId, out var running))
-                    blind[line.LedgerId] = running + line.Signed;
+                if (closing.TryGetValue(line.LedgerId, out var running))
+                    closing[line.LedgerId] = running + line.Signed;
         }
 
+        // The cover: the pending amounts the projection itself holds for these ledgers, on the same basis.
+        // One accumulation for the whole candidate set, exactly as Build does.
+        var billWise = new List<Domain.Ledger>();
+        foreach (var ledger in candidates)
+            if (ledger.MaintainBillByBill) billWise.Add(ledger);
+        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario);
+
         var total = 0m;
-        foreach (var signed in blind.Values) total += Math.Abs(signed);
+        foreach (var ledger in candidates)
+        {
+            var covered = 0m;
+            if (sets is not null && ledger.MaintainBillByBill)
+                foreach (var bill in BillsOf(ledger, sets[ledger.Id], KindOf(company, ledger)))
+                    covered += bill.Pending.Amount;   // BillsOf drops settled bills, so Pending is > 0
+
+            var shortfall = Math.Abs(closing[ledger.Id]) - covered;
+            if (shortfall > 0m) total += shortfall;
+        }
         return new Money(total);
     }
 
