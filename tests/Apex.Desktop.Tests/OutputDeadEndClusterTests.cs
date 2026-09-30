@@ -1,12 +1,21 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
+using Apex.Desktop.Views;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Xunit;
 
 using DomainLedger = Apex.Ledger.Domain.Ledger;
@@ -286,6 +295,374 @@ public sealed class OutputDeadEndClusterTests : IDisposable
         var snap = Assert.IsAssignableFrom<IMasterListExportSource>(vm.Columns[^1].Page).ToMasterListSnapshot();
 
         Assert.Contains(snap.Rows, r => r[0].Contains("NOT a filable DRC-03 artefact", StringComparison.Ordinal));
+    }
+
+    // ------------------------------------------------- 6.20 · F1 / F12 remediation (defects that SHIPPED on main)
+
+    /// <summary>
+    /// Files one DRC-03 of a KNOWN total out of deposited cash, and leaves a KNOWN residual balance in every cash
+    /// head so that a cash figure leaking into a money column is arithmetically detectable rather than merely
+    /// visible. Deposits 4,000 into each of the four (head, Tax) cells, then files a 1,000 IGST DRC-03 from cash —
+    /// so afterwards IGST cash is 3,000 while CGST / SGST / Cess are 4,000 each, and the register's one filed row
+    /// totals exactly 1,000.
+    /// </summary>
+    private (MainWindowViewModel Vm, decimal FiledTotal) Drc03WithCashAndOneFiling(string name)
+    {
+        var vm = NewRegularGstCompany(name);
+        var c = vm.Company!;
+        var bank = Add(c, "Bank", "Bank Accounts", true);
+        var deposit = new GstDepositService(c);
+
+        int n = 0;
+        foreach (var head in new[] { GstTaxHead.Central, GstTaxHead.State, GstTaxHead.Integrated, GstTaxHead.Cess })
+        {
+            n++;
+            deposit.PostPmt06(head, GstMinorHead.Tax, Money.FromRupees(4000m), bank, new DateOnly(2024, 4, 10),
+                cpin: $"24040700{n:D4}", cin: $"BANKR24040700{n:D4}");
+        }
+
+        deposit.PostDrc03(
+            cause: Drc03CauseOption.All[9].Text, period: "04-2024", date: new DateOnly(2024, 4, 20),
+            cgstPaisa: 0, sgstPaisa: 0, igstPaisa: 100_000, cessPaisa: 0, interestPaisa: 0,
+            method: GstDepositService.PaymentMethod.Cash);
+
+        _storage.Save(c);
+        vm.ShowGateway();
+        return (vm, 1000m);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F1 — THE MONEY COLUMNS OF THE EXPORTED REGISTER CARRY FILED FIGURES AND NOTHING ELSE.</b>
+    ///
+    /// <para><b>The defect this pins, which SHIPPED on main.</b> The available-cash footing used to emit ONE row
+    /// carrying the four head balances positionally, so CGST / SGST / IGST / Cess cash landed under the captions
+    /// <i>Tax / Interest / Total / Demand Ref.</i> Nothing in the artefact said which head was which, and the Cess
+    /// balance landed in a Text column so it was not even a number. The measured harm: an operator who exports the
+    /// register and sums the <b>Total</b> column gets the filed totals PLUS the available IGST cash — a wrong
+    /// figure in a document about a statutory payment.</para>
+    ///
+    /// <para><b>Why this asserts the EMITTED CSV and sums a column.</b> The reviewer proved the defect from the
+    /// artefact, and the artefact is what reaches the operator. A snapshot-shape assertion would have passed with
+    /// the balances merely moved; summing the Total column is the operator's own act, and it is the act that was
+    /// wrong. The original defect went out past a fully green four-project gate, and mutation M2 (reversing the
+    /// four figures) left all 31 sibling tests green — no test could see it, which is why this one sums.</para>
+    /// </summary>
+    [Fact]
+    public void Row_6_20_drc03_export_money_columns_carry_only_filed_figures_never_cash_balances()
+    {
+        var (vm, filedTotal) = Drc03WithCashAndOneFiling("Drc03 Cash Caption Co");
+        vm.OpenDrc03Payment();
+        var source = Assert.IsAssignableFrom<IMasterListExportSource>(vm.Columns[^1].Page);
+
+        var export = MasterListTabularProjector.ProjectSource(source);
+        var csv = ParseCsv(CsvWriter.Write(export));
+
+        var header = csv[0];
+        int tax = header.IndexOf("Tax");
+        int interest = header.IndexOf("Interest");
+        int total = header.IndexOf("Total");
+        Assert.True(tax >= 0 && interest >= 0 && total >= 0, "the three money captions must be present");
+
+        static decimal SumColumn(List<List<string>> rows, int col)
+        {
+            decimal sum = 0m;
+            foreach (var r in rows.Skip(1))
+                if (col < r.Count && decimal.TryParse(r[col], NumberStyles.Number, CultureInfo.InvariantCulture, out var v))
+                    sum += v;
+            return sum;
+        }
+
+        // The whole of each money column is the one filed DRC-03 — 1,000 of IGST tax, no interest, 1,000 total.
+        // Under the shipped defect these read 5,000 / 4,000 / 4,000: the four 4,000-rupee cash balances leaked in
+        // (IGST cash 3,000 into "Total", CGST 4,000 into "Tax", SGST 4,000 into "Interest").
+        Assert.Equal(filedTotal, SumColumn(csv, tax));
+        Assert.Equal(0m, SumColumn(csv, interest));
+        Assert.Equal(filedTotal, SumColumn(csv, total));
+
+        // 🔴 The old row itself must be gone, not merely supplemented — an unlabelled "Available cash" row is the
+        // defect. This is the assertion that reddens if the positional row is restored beside the pointer line.
+        Assert.DoesNotContain(csv, r => r.Count > 0 && r[0] == "Available cash");
+
+        // 🔴 AND NO CASH FIGURE MAY RIDE IN THE LABEL COLUMN EITHER. The second attempt at this fix moved the four
+        // balances there, head named beside each, and the PRINTED artefact then cut the SGST/UTGST balance
+        // mid-number from ₹1,00,000.00 upward (the sibling print test measures that). So the rule this asserts is
+        // stronger than "not in a money column": no cash label carries a figure at all. The balances stay on the
+        // screen, which shows all five cells and cannot clip them, and the artefact says exactly that.
+        var labels = csv.Skip(1).Where(r => r.Count > 0).Select(r => r[0]).ToList();
+        Assert.Contains("Available cash: on screen only.", labels);
+        Assert.DoesNotContain(labels, l =>
+            l.StartsWith("Available cash", StringComparison.Ordinal) && l.Any(char.IsDigit));
+
+        // The screen still knows the balances — this test removes them from the ARTEFACT, not from the app.
+        var screen = Assert.IsType<Drc03PaymentViewModel>(vm.Columns[^1].Page);
+        Assert.Equal("3,000.00", screen.AvailableIgstText);
+        Assert.Equal("4,000.00", screen.AvailableCgstText);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F1, the half the CSV cannot see: THE PRINTED ARTEFACT CUTS NO MONEY FIGURE, AND HOLDS THE WIDEST ONE
+    /// WHOLE.</b>
+    ///
+    /// <para><b>Why this test exists at all.</b> The first attempt at F1 cured the lying caption by moving the four
+    /// cash balances into the LABEL column — and produced something worse: the label column is clipped by
+    /// <c>PdfWriter.FitToWidth</c>, so at the shipped A4-portrait default the SGST/UTGST balance was cut
+    /// <b>mid-number</b> from ₹1,00,000.00 upward in the printed and PDF document, where the shape it replaced
+    /// printed whole. The test that shipped with that attempt read only the CSV and could not see it. This one
+    /// drives <b>P</b> on the real window and reads the bytes the production renderer emitted.</para>
+    ///
+    /// <para><b>The two assertions, and the arithmetic behind the second.</b> (a) No drawn string that names the
+    /// cash footing ends in an ellipsis — the exact signature of a clipped cell — so no balance can be cut
+    /// mid-number, whatever the figures are. (b) The widest figure a money column of this register must ever hold,
+    /// <c>999999999.00</c> (₹99,99,99,999.00 as the invariant number a spreadsheet gets), is drawn COMPLETE: at six
+    /// columns the number column is 523.28 ÷ 7.4 = 70.7pt wide, 66.7pt inside its 2pt padding, and that figure
+    /// measures 57.29pt at 9pt Helvetica — 64.04pt is that amount's GROUPED form, which the page never carries.
+    /// A seventh column — the shape that would have given the cash heads honest captions of their own — takes the
+    /// inner width to 58.30pt, where the figure still FITS, but with only 1.00pt (~1.7% of the cell) to spare,
+    /// which is why the remedy keeps six columns and states the balances on the screen only.</para>
+    /// </summary>
+    [Fact]
+    public void Row_6_20_the_printed_drc03_register_cuts_no_money_figure_and_holds_the_widest_one_whole()
+    {
+        var vm = NewRegularGstCompany("Drc03 Print Width Co");
+        var c = vm.Company!;
+        var bank = Add(c, "Bank", "Bank Accounts", true);
+        var deposit = new GstDepositService(c);
+
+        // The balance that the withheld shape cut mid-number: ₹1,00,000.00 of SGST/UTGST cash, the exact threshold.
+        deposit.PostPmt06(GstTaxHead.State, GstMinorHead.Tax, Money.FromRupees(100_000m), bank,
+            new DateOnly(2024, 4, 10), cpin: "2404070001", cin: "BANKR2404070001");
+
+        // The widest figure the money columns must hold: ₹99,99,99,999.00, bank-funded so no cash cell caps it.
+        deposit.PostDrc03(
+            cause: Drc03CauseOption.All[9].Text, period: "04-2024", date: new DateOnly(2024, 4, 20),
+            cgstPaisa: 99_999_999_900, sgstPaisa: 0, igstPaisa: 0, cessPaisa: 0, interestPaisa: 0,
+            method: GstDepositService.PaymentMethod.Bank, bank: bank);
+
+        _storage.Save(c);
+        vm.ShowGateway();
+        vm.OpenDrc03Payment();
+
+        var page = Assert.IsType<Drc03PaymentViewModel>(vm.Columns[^1].Page);
+        Assert.Equal("1,00,000.00", page.AvailableSgstText);          // the screen shows the whole balance …
+        Assert.Equal("99,99,99,999.00", page.Filed[0].Total);          // … and the register the whole filed total.
+
+        vm.OpenPrintPreview();
+        Assert.NotNull(vm.PrintPreview);
+        var drawn = DrawnStrings(vm.PrintPreview!.PdfBytes);
+
+        // (a) Nothing about the cash footing is clipped — and a clipped cell is exactly a drawn string ending "...".
+        Assert.DoesNotContain(drawn, s =>
+            s.Contains("Available cash", StringComparison.Ordinal) && s.EndsWith("...", StringComparison.Ordinal));
+
+        // (b) The widest money figure reached the page in one piece. Under the withheld shape the SGST/UTGST cash
+        // drew as "Available cash - SGST/UTGST 1,00,00..." — a money figure cut mid-number.
+        Assert.Contains(drawn, s => s.Contains("999999999.00", StringComparison.Ordinal));
+        Assert.DoesNotContain(drawn, s => s.Contains("1,00,00", StringComparison.Ordinal));
+
+        // (c) And the line that REPLACED the figures is itself drawn whole — 31 characters against the label
+        // column's ~36, checked here rather than assumed, because "it fits" is exactly what the last attempt assumed.
+        Assert.Contains("Available cash: on screen only.", drawn);
+    }
+
+    /// <summary>
+    /// The strings a PDF actually DREW, in order: <c>Apex.Ledger.Io</c> writes uncompressed content streams (no
+    /// <c>FlateDecode</c> anywhere in the project), so each <c>Tj</c> operand is the literal text of one cell —
+    /// already passed through <c>FitToWidth</c>. Asserting on these is asserting on the rendered artefact rather
+    /// than on the model that fed it, which is the only level at which a clipped cell is visible.
+    /// </summary>
+    private static List<string> DrawnStrings(byte[] pdf)
+    {
+        string text = Encoding.Latin1.GetString(pdf);
+        var drawn = new List<string>();
+        int i = 0;
+        while (true)
+        {
+            int close = text.IndexOf(") Tj", i, StringComparison.Ordinal);
+            if (close < 0) break;
+            int open = text.LastIndexOf('(', close);
+            if (open < 0) break;
+            drawn.Add(text.Substring(open + 1, close - open - 1).Replace("\\", string.Empty));
+            i = close + 4;
+        }
+        return drawn;
+    }
+
+    /// <summary>
+    /// 🔴 <b>F12 — the exported register carries the declared divergence, the caveat the screen exists to state.</b>
+    /// The class remarks make a point that three portal fields (Penalty / Fee / Others, the Section Number and the
+    /// Communication Reference Number) are absent and are said on the screen's FACE rather than dropped quietly.
+    /// The snapshot carried the "NOT a filable DRC-03 artefact" label but not <c>DivergenceText</c> — so the
+    /// document dropped the reason at exactly the moment it left the application and stopped being read beside the
+    /// screen that explains it.
+    /// </summary>
+    [Fact]
+    public void Row_6_20_drc03_export_carries_the_declared_divergence_not_only_the_label()
+    {
+        var vm = NewRegularGstCompany("Drc03 Divergence Co");
+        vm.OpenDrc03Payment();
+        var page = Assert.IsType<Drc03PaymentViewModel>(vm.Columns[^1].Page);
+        var snap = ((IMasterListExportSource)page).ToMasterListSnapshot();
+
+        Assert.False(string.IsNullOrWhiteSpace(page.DivergenceText));
+        Assert.Contains(snap.Rows, r => r[0] == page.DivergenceText);
+
+        // The three named portal fields survive into the artefact, not just the word "divergence".
+        string emitted = Encoding.UTF8.GetString(CsvWriter.Write(MasterListTabularProjector.ProjectSource(page)));
+        foreach (var field in new[] { "Penalty", "Fee", "Others", "Section Number", "Communication Reference Number" })
+            Assert.Contains(field, emitted, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F4 — pressing M where no share channel can act says so, instead of doing nothing at all.</b>
+    ///
+    /// <para>Both share channels build a panel from a drilled voucher or a live report only, and returned
+    /// SILENTLY from everything else — while the bare <b>M</b> / <b>W</b> handler, gated on the wider
+    /// <c>IsPrintablePage</c>, had already set <c>e.Handled = true</c>. On the DRC-03 panel an operator pressed M
+    /// and got no panel, no refusal and no status line.</para>
+    ///
+    /// <para>🔴 <b>IT ASSERTS <c>Notice</c>, AND THE FIRST VERSION OF THIS TEST ASSERTED <c>Message</c> — WHICH IS
+    /// WHY IT IS WORTH SPELLING OUT.</b> A refusal on <c>Message</c> renders on NONE of these 45 screens: the only
+    /// shell-level <c>{Binding Message}</c> sits in a grid gated on <c>IsMenuScreen</c>, which is false on every
+    /// cascade page column, and every other one binds a PAGE's own <c>Message</c>. So the first version certified a
+    /// refusal the operator could not see, and — worse — it REDDENED if you moved to the channel that works. The
+    /// window-level bar is <c>Notice</c>. The assertion is therefore on <c>Notice</c>, with <c>Message</c> checked
+    /// alongside because the routes that do render it must keep working. A test that rejects the correct fix is
+    /// worse than no test.</para>
+    ///
+    /// <para><b>What this test deliberately does NOT assert.</b> It does not assert that the key falls through or
+    /// that <c>IsPrintablePage</c> changed. Re-gating the bare arms onto <c>IsShareablePage</c> was REFUSED as
+    /// unmeasured across the 45 screens that implement <see cref="IMasterListExportSource"/> — it would change
+    /// what an unclaimed letter falls through to (type-ahead on a data-driven column). So printability stays TRUE
+    /// here on purpose, and what is asserted is that the operator is told.</para>
+    /// </summary>
+    [Fact]
+    public void Row_6_20_pressing_the_share_key_where_no_channel_can_act_refuses_out_loud()
+    {
+        var vm = NewRegularGstCompany("Drc03 Share Refusal Co");
+        vm.OpenDrc03Payment();
+
+        // The precondition that makes the no-op reachable: printable (so the key matches) but not shareable.
+        Assert.True(vm.IsPrintablePage);
+        Assert.False(vm.IsShareablePage);
+
+        // 🔴 And the precondition that makes Message useless here: this is a cascade page column, so the one
+        // shell-level {Binding Message} is switched off. The refusal MUST come out on the window-level bar.
+        Assert.False(vm.IsMenuScreen);
+
+        vm.Notice = string.Empty;
+        vm.Message = null;
+        vm.OpenEmailCompose();
+        Assert.Null(vm.EmailCompose);                        // still no panel — that half is unchanged …
+        Assert.False(string.IsNullOrWhiteSpace(vm.Notice));  // … but it is no longer SILENT, on the bar that paints.
+        Assert.Contains("E-Mail", vm.Notice, StringComparison.Ordinal);
+        Assert.Equal(vm.Notice, vm.Message);                 // the routes that do render Message still get it.
+
+        vm.Notice = string.Empty;
+        vm.Message = null;
+        vm.OpenWhatsAppShare();
+        Assert.Null(vm.WhatsAppShare);
+        Assert.False(string.IsNullOrWhiteSpace(vm.Notice));
+        Assert.Contains("WhatsApp", vm.Notice, StringComparison.Ordinal);
+        Assert.Equal(vm.Notice, vm.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F4, ASSERTED ON THE REALISED WINDOW: the refusal is a string an operator can actually READ.</b>
+    ///
+    /// <para><b>Why a headless window and not a property.</b> The previous attempt set the refusal on
+    /// <c>Message</c>, whose only shell-level binding is switched off on every cascade page column, and pinned it
+    /// with a property assertion that passed while the operator still got silence. A property assertion cannot tell
+    /// the two channels apart; a realised window can. This test opens the real <c>MainWindow</c>, walks to the
+    /// DRC-03 panel, presses the share route, lays the window out, and requires that SOME effectively-visible
+    /// <c>TextBlock</c> with non-zero bounds is showing the refusal sentence. Under the withheld shape — the
+    /// refusal on <c>Message</c> alone — no such control exists and this reddens.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Row_6_20_the_share_refusal_is_painted_on_the_realised_window_not_merely_assigned()
+    {
+        var vm = NewRegularGstCompany("Drc03 Painted Refusal Co");
+        var window = new MainWindow { DataContext = vm, Width = 1280, Height = 720 };
+        try
+        {
+            window.Show();
+            vm.OpenDrc03Payment();
+            Pump(window);
+
+            vm.OpenEmailCompose();
+            Pump(window);
+
+            // The sentence, taken from the production builder's own words rather than restated here.
+            Assert.Contains("acts on an open REPORT", vm.Notice, StringComparison.Ordinal);
+
+            var painted = Descendants(window)
+                .OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible && t.Bounds.Width > 0 && t.Bounds.Height > 0)
+                .Select(t => t.Text ?? string.Empty)
+                .ToList();
+
+            Assert.Contains(painted, s => s.Contains("acts on an open REPORT", StringComparison.Ordinal)
+                                          && s.Contains("E-Mail", StringComparison.Ordinal));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void Pump(MainWindow window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static IEnumerable<Visual> Descendants(Visual v)
+    {
+        foreach (var c in v.GetVisualChildren())
+        {
+            yield return c;
+            foreach (var g in Descendants(c)) yield return g;
+        }
+    }
+
+    private static List<List<string>> ParseCsv(byte[] bytes)
+    {
+        int start = (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) ? 3 : 0;
+        string text = Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
+
+        var records = new List<List<string>>();
+        var record = new List<string>();
+        var field = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '"') { field.Append('"'); i++; }
+                    else inQuotes = false;
+                }
+                else field.Append(c);
+            }
+            else if (c == '"') inQuotes = true;
+            else if (c == ',') { record.Add(field.ToString()); field.Clear(); }
+            else if (c == '\r') { /* swallow; the \n ends the record */ }
+            else if (c == '\n')
+            {
+                record.Add(field.ToString()); field.Clear();
+                records.Add(record); record = new List<string>();
+            }
+            else field.Append(c);
+        }
+        if (field.Length > 0 || record.Count > 0)
+        {
+            record.Add(field.ToString());
+            records.Add(record);
+        }
+        return records;
     }
 
     // ============================================================ 7.13 / 7.14 — the two payroll registers
