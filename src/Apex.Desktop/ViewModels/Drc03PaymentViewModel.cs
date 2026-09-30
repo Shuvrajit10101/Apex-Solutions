@@ -507,13 +507,26 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListEx
         // ₹1,00,000.00 or more MID-NUMBER in the printed and PDF artefact, where the positional shape printed it
         // whole. A money figure cut mid-number is worse than a mislabelled one: it is unreadable AND believable.
         //
-        // 🔴 NOR A COLUMN OF THEIR OWN, WHICH WOULD OTHERWISE BE THE HONEST SHAPE — THE WIDTH MATH REFUSES IT. A
-        // MasterListSnapshot carries ONE column set for every row, so a per-head cash amount column would be a
-        // SEVENTH column on the filed register too. 523.28pt of A4-portrait body width over weights 2.4 + 6x1.0
-        // gives a number column of 62.3pt, inner width 58.3pt after the 2pt cell padding — while the widest figure
-        // a money column must hold, 999999999.00 at 9pt Helvetica, measures 64.0pt. It would clip the FILED
-        // figures: the same defect one column over. At six columns the inner width is 66.7pt and that figure draws
-        // whole, which is what the print test asserts.
+        // 🔴 NOR A COLUMN OF THEIR OWN, WHICH WOULD OTHERWISE BE THE HONEST SHAPE. A MasterListSnapshot carries ONE
+        // column set for every row, so a per-head cash amount column would be a SEVENTH column on the FILED
+        // register too — blank on every filed row, and a new column in the CSV / XLSX / XML / JSON / HTML header
+        // for a value that belongs to a different dimension than the ones beside it.
+        //
+        // 🔴 AND THE WIDTH MARGIN IT WOULD LEAVE IS 1.00pt. THAT NUMBER IS MEASURED, AND AN EARLIER DRAFT OF THIS
+        // COMMENT GOT IT WRONG IN A WAY WORTH RECORDING. 523.28pt of A4-portrait body width over weights 2.4 + 6x1.0
+        // gives a number column of 62.30pt, inner 58.30pt after the 2pt cell padding; the widest figure a money
+        // column here must hold draws at 57.29pt, so it FITS — with 1.00pt, about 1.7% of the cell, to spare. At the
+        // shipped six columns the inner width is 66.71pt and the margin is 9.42pt. So the seventh column is refused
+        // for the column-set reason above and for a margin one added character of any kind would consume — NOT
+        // because it clips, which is what the earlier draft claimed.
+        //
+        // 🔴 WHERE THAT WRONG NUMBER CAME FROM, BECAUSE IT IS A TRAP THE NEXT AUTHOR WILL WALK INTO. The draft said
+        // the figure measures 64.0pt and therefore clips. 64.04pt is the width of "99,99,99,999.00" — the GROUPED
+        // Indian form the SCREEN shows. The print never draws it: ExportViewModel.TabularToPrint takes
+        // TabularCell.NumberText for a Number cell, which is invariant and UNGROUPED, so the page carries
+        // "999999999.00" — eleven digits and one dot, 57.29pt, three separators lighter. Measuring the on-screen
+        // string instead of the emitted one overstates every money column in this renderer by 6.75pt.
+        // Pinned by Apex.Ledger.Io.Tests, ReportPdfMoneyColumnWidthTests, so it cannot drift back into prose.
         //
         // So the balances stay where they cannot be clipped or mis-captioned — the SCREEN, which shows all five
         // cash cells — and the artefact says so in ONE SHORT line (short deliberately: the label column draws about
