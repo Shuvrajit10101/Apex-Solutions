@@ -166,11 +166,13 @@ public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase, IM
     /// the liability be discharged from credit, or is cash needed — cannot be answered from any one of them.
     /// They share one widened column set with a section label rather than being exported separately.</para>
     ///
-    /// <para>🔴 <b>An unreadable cash cell exports as its on-screen text, never as a number.</b> The cash rows
-    /// carry the constant <c>not read</c> when a cell could not be read, and <see cref="CashBalanceText"/> may
-    /// say the same. That string flows through the <c>Closing / Balance</c> column unchanged: the projector
-    /// recovers a decimal only from a parseable cell, so an unreadable balance cannot be exported as
-    /// <c>0.00</c> — which an operator would read as a nil balance and pay against.</para>
+    /// <para>🔴 <b>THIS CLASS HAS NO UNREADABLE-CASH-CELL GUARD, and a paragraph here once said it did.</b> That
+    /// paragraph is gone: it described a placeholder constant, a reader seam and a read-failure flag that belong to
+    /// <see cref="Drc03PaymentViewModel"/> and to none of this file. This view model reads
+    /// <see cref="ElectronicLedgersView.CashCells"/>, whose every value is a <see cref="Money"/> that
+    /// <c>IndianFormat.AmountAlways</c> always formats, so there is no failure path here to describe.
+    /// <c>FalseDocCommentTests</c> now fails any view model that names that constant without owning the
+    /// machinery.</para>
     /// </summary>
     public MasterListSnapshot ToMasterListSnapshot()
     {
