@@ -312,6 +312,107 @@ public sealed class AccountingRowLayoutTests : IDisposable
             + string.Join("\n  ", failures));
     }
 
+    /// <summary>
+    /// 🔴 RULING 27'S MARKER HAS TO BE LEGIBLE WHERE THE OPERATOR READS IT, AND IT WAS NOT. The Ratio-Analysis
+    /// withheld cell renders through the shared single-amount accounting row, whose Amount track is a hard
+    /// <b>150 DIP</b> column carrying <c>Classes="numCell"</c> — right-aligned, an 8px right margin, and
+    /// (deliberately, for money) <b>neither TextTrimming nor TextWrapping</b>. A money figure fits that column;
+    /// "N/A — no bill-wise details" is a SENTENCE and does not. With no trimming and right alignment, the
+    /// overflowing text line starts at a NEGATIVE offset inside its cell and paints leftward straight over the
+    /// Particulars column — which is exactly the C1 financial-misread shape this file already locks, only
+    /// arriving from the amount side. The engine string was correct the whole time; the screen was not.
+    ///
+    /// <para>THE REMEDY: in single-amount mode the Debit track is empty (both Dr/Cr cells are IsVisible=False),
+    /// so the Amount cell spans it — the sentence gets both 150px tracks while right alignment plus the 8px
+    /// numCell margin pin the RIGHT edge exactly where it was, which is the only thing a money figure cares
+    /// about. Trimming would have been the wrong remedy and is ruled out by the sibling PDF test: an ellipsised
+    /// "N/A — no bill-wise d…" satisfies no one and the emitted report already forbids it.</para>
+    ///
+    /// <para>🔴 WHAT IS ASSERTED, AND WHY IT IS NOT A NAKED "IT FITS". Under the committed plain-headless
+    /// harness the fallback font's advance widths are coarse and inflated — the sibling Day Book test documents
+    /// the same thing, measuring a 13-character identity at ~325px. A literal
+    /// <c>markerWidth &lt;= cellWidth</c> assertion would therefore be false-RED here for a font reason and
+    /// would go green only on a Skia harness the Linux/macOS CI runners do not run. So this proves the defect
+    /// and the remedy from signals headless supplies faithfully:
+    /// <list type="number">
+    /// <item><b>NECESSITY (measured).</b> The marker is wider than ONE amount track. True under the coarse
+    ///   fallback AND under a real font, so it is a font-independent statement that the old single-track cell
+    ///   could not hold this string — the assertion is never vacuous.</item>
+    /// <item><b>REMEDY (geometry).</b> The cell's arranged width really spans BOTH amount tracks, so the room
+    ///   available to the sentence is doubled. Collapsing the span back to one column fails here by name.</item>
+    /// <item><b>NO COLLATERAL (geometry).</b> The cell's right edge is still flush with the row's right edge
+    ///   less the numCell margin — every numeric amount on every accounting report is unmoved.</item>
+    /// </list></para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ratio_analysis_withheld_marker_fits_its_own_amount_cell()
+    {
+        var vm = new MainWindowViewModel(_storage);
+        vm.LoadRobertDemo();
+        vm.ShowGateway();
+        vm.OpenReport(ReportKind.RatioAnalysis);
+        var win = Show(vm);
+
+        var marker = Apex.Ledger.Reports.RatioAnalysis.ReceivablesNoBillWiseDetails;
+
+        // The single-amount accounting row: Grid "*,150,150" inside a ListBoxItem. Locate the marker cell BY ITS
+        // TEXT, so the assertion does not encode which of the two amount tracks the cell happens to occupy.
+        var rows = win.GetVisualDescendants()
+                      .OfType<ListBoxItem>()
+                      .SelectMany(item => item.GetVisualDescendants().OfType<Grid>())
+                      .Where(g => g.ColumnDefinitions.Count == 3
+                                  && g.ColumnDefinitions[0].Width.IsStar
+                                  && g.ColumnDefinitions[1].Width.IsAbsolute
+                                  && g.ColumnDefinitions[2].Width.IsAbsolute)
+                      .ToList();
+        Assert.NotEmpty(rows);
+
+        var markerCells = new List<(Grid Row, TextBlock Cell)>();
+        foreach (var row in rows)
+            foreach (var t in row.Children.OfType<TextBlock>())
+                if (t.Text == marker && t.Bounds.Width > 0)
+                    markerCells.Add((row, t));
+
+        // CALIBRATION / ANTI-VACUITY. Robert is accounts-only with no bill-wise details, so the withheld marker
+        // is on screen; if it ever stops rendering, this fails loudly instead of passing on an empty set.
+        Assert.NotEmpty(markerCells);
+
+        var failures = new List<string>();
+        foreach (var (row, cell) in markerCells)
+        {
+            // The two absolute amount tracks, read off the live row rather than hardcoded, so a legitimate
+            // future rebalance of the column widths does not turn this into a confusing pixel mismatch.
+            var trackA = row.ColumnDefinitions[1].Width.Value;
+            var trackB = row.ColumnDefinitions[2].Width.Value;
+
+            // NOTE: Bounds is the ARRANGED rect, which already excludes the control's own Margin. So the cell's
+            // usable text area IS Bounds.Width, and the margin is what separates Bounds.Right from the row edge.
+            var textArea = cell.Bounds.Width;
+            var markerWidth = MeasuredWidth(cell, marker);
+
+            // (1) NECESSITY. Wider than one amount track — the single-track cell could not hold it.
+            if (markerWidth <= trackA)
+                failures.Add($"marker width {markerWidth:F1} already fits one {trackA:F0}px amount track — this "
+                             + "test no longer demonstrates the overflow it exists to lock");
+
+            // (2) REMEDY. The cell spans BOTH amount tracks, so the room for the sentence is doubled.
+            if (textArea < trackA + trackB - cell.Margin.Left - cell.Margin.Right - 0.5)
+                failures.Add($"amount cell is {textArea:F1}px — it no longer spans both the {trackA:F0}px and "
+                             + $"{trackB:F0}px amount tracks, so the marker paints over the Particulars column");
+
+            // (3) NO COLLATERAL. The right edge is unmoved, so every numeric amount still lines up as before.
+            var right = cell.TranslatePoint(new Point(cell.Bounds.Width, 0), row);
+            var expectedRight = row.Bounds.Width - cell.Margin.Right;
+            if (right is null || Math.Abs(right.Value.X - expectedRight) > 0.5)
+                failures.Add($"amount cell right edge {right?.X:F1} is not the expected {expectedRight:F1} "
+                             + "(row right edge less the numCell margin) — money figures would shift");
+        }
+
+        Assert.True(failures.Count == 0,
+            $"{failures.Count} of {markerCells.Count} withheld marker cell(s) are not legible:\n  "
+            + string.Join("\n  ", failures));
+    }
+
     public void Dispose()
     {
         try

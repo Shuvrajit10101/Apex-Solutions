@@ -118,17 +118,39 @@ public static class Outstandings
         ("90+ days", 91, (int?)null),
     };
 
-    /// <summary>Builds the Outstandings projection for the whole company as of <paramref name="asOf"/>.</summary>
-    public static OutstandingsReport Build(Company company, DateOnly asOf)
+    /// <summary>
+    /// Builds the Outstandings projection for the whole company as of <paramref name="asOf"/>, optionally
+    /// under a <paramref name="scenario"/> (catalog §7). Passing <c>null</c> reproduces the actual books
+    /// exactly, so a report builder can thread its <c>options.Scenario</c> through unconditionally — the same
+    /// optional-trailing-parameter shape <see cref="BalanceSheet"/> and
+    /// <see cref="LedgerBalances.SignedClosing(Company, Domain.Ledger, DateOnly, Scenario?)"/> already use.
+    /// </summary>
+    public static OutstandingsReport Build(Company company, DateOnly asOf, Scenario? scenario = null)
     {
+        // 🔴 ONE voucher pass for the WHOLE company. This used to call OpenBillsFor per bill-wise ledger, and
+        // each of those calls walked every voucher — so a report that merely opens this projection paid
+        // O(parties × vouchers × lines × allocations). Accumulate takes the whole ledger set at once.
+        // MEASURED, not estimated, at 100 parties × 2,000 vouchers and 200 × 4,000: the old shape grew with the
+        // PRODUCT of parties and vouchers, the new one grows with the vouchers alone, so the gap WIDENS with book
+        // size — that is the claim, and it is the one that stays true. 🔴 The absolute milliseconds and the
+        // speedup multiple deliberately do NOT live here: they are machine- and run-specific, CI cannot falsify
+        // them, and re-running the same probe one wave later already produced a different multiple on the SAME
+        // machine. The figures live in the evidence files (a5-r1-f9-measurement*.txt, a5-r1-p4-f9-reverify.txt).
+        // The emission below still walks company.Ledgers in order, and each ledger's own first-opened order,
+        // so the row sequence is identical to the per-ledger loop this replaced — pinned by
+        // Outstandings_build_emits_exactly_the_per_ledger_projection_in_the_same_order, which spells the
+        // expected sequence out independently because comparing the two code paths shares this emitter.
+        var billWise = new List<Domain.Ledger>();
+        foreach (var ledger in company.Ledgers)
+            if (ledger.MaintainBillByBill) billWise.Add(ledger);
+
+        var sets = Accumulate(company, billWise, asOf, scenario);
+
         var receivables = new List<OutstandingBill>();
         var payables = new List<OutstandingBill>();
-
-        foreach (var ledger in company.Ledgers)
+        foreach (var ledger in billWise)
         {
-            if (!ledger.MaintainBillByBill) continue;
-            var bills = OpenBillsFor(company, ledger, asOf);
-            foreach (var bill in bills)
+            foreach (var bill in BillsOf(ledger, sets[ledger.Id], KindOf(company, ledger)))
             {
                 if (bill.Kind == OutstandingKind.Receivable) receivables.Add(bill);
                 else payables.Add(bill);
@@ -146,29 +168,169 @@ public static class Outstandings
     /// <summary>
     /// The open bills for a single bill-by-bill ledger as of <paramref name="asOf"/> — the
     /// building block the UI Outstandings/Ctrl+B screen binds to. Bills fully knocked off (pending
-    /// ≤ 0) are excluded; the remainder are returned in first-opened order.
+    /// ≤ 0) are excluded; the remainder are returned in first-opened order. Optionally projected under
+    /// a <paramref name="scenario"/>; <c>null</c> means the actual books.
+    /// <para>The ledger's own <see cref="Domain.Ledger.MaintainBillByBill"/> flag is deliberately NOT
+    /// consulted here — callers ask about a specific ledger and get whatever allocations it carries.
+    /// <see cref="Build"/> is the one that selects the bill-wise ledgers.</para>
     /// </summary>
-    public static IReadOnlyList<OutstandingBill> OpenBillsFor(Company company, Domain.Ledger ledger, DateOnly asOf)
+    public static IReadOnlyList<OutstandingBill> OpenBillsFor(
+        Company company, Domain.Ledger ledger, DateOnly asOf, Scenario? scenario = null)
     {
-        var kind = KindOf(company, ledger);
+        var sets = Accumulate(company, new[] { ledger }, asOf, scenario);
+        return BillsOf(ledger, sets[ledger.Id], KindOf(company, ledger));
+    }
 
-        // Accumulate per reference name, preserving first-seen order.
-        var order = new List<string>();
-        var acc = new Dictionary<string, BillState>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// The money under <paramref name="groupName"/> that the bill-wise projection <b>cannot account for</b> as
+    /// of <paramref name="asOf"/>: for every ledger under that group, |closing| minus the pending amount its own
+    /// open bills carry, summed over the ledgers that fall short. Zero means every rupee on that side is
+    /// represented by a bill, so a "due till today" figure derived from those bills is a complete measurement.
+    ///
+    /// <para>🔴 <b>THIS MEASURES THE MONEY, NOT THE <see cref="Domain.Ledger.MaintainBillByBill"/> FLAG, AND
+    /// THE DIFFERENCE IS THE WHOLE POINT.</b> An earlier version summed the closing balances of the ledgers
+    /// whose flag was <c>false</c>, i.e. it trusted the flag to imply that a bill-wise ledger's money is carried
+    /// by bills. It is not: a bill-wise party's balance can arrive as an <b>opening balance</b> (this build has
+    /// no opening bill-wise breakdown at all — <c>CompanySplit</c> refuses a split rather than produce a book
+    /// whose party balances and Outstandings disagree), on a line posted with <b>no allocations</b>, or against
+    /// an <b>On Account</b> allocation. On each of those the flag says "covered" while no bill exists, the
+    /// due-till-today total is 0, and a ratio built on it published a confident "0 days". Comparing the
+    /// projection's own pending amounts against the closing balances they claim to represent covers all three
+    /// shapes in one rule, and needs no new knowledge of why a rupee has no bill.</para>
+    ///
+    /// <para>Two deliberate arithmetic choices: magnitudes are used (not signed netting) so two opposite-signed
+    /// uncovered ledgers cannot cancel each other into a false "covered"; and each ledger's shortfall is floored
+    /// at zero so a ledger carrying MORE bills than balance cannot mask another ledger's missing money.</para>
+    /// </summary>
+    public static Money ClosingNotCoveredByBills(
+        Company company, DateOnly asOf, string groupName, Scenario? scenario = null)
+    {
+        // Candidate set first, then ONE voucher pass over it — never one pass per ledger (see Build).
+        var candidates = new List<Domain.Ledger>();
+        var closing = new Dictionary<Guid, decimal>();
+        foreach (var ledger in company.Ledgers)
+        {
+            if (!ClassificationRules.GroupIsUnder(ledger.GroupId, groupName, company)) continue;
+            candidates.Add(ledger);
+            // Mirrors LedgerBalances.SignedClosing under a scenario: the actual-books opening is only in the
+            // scenario column when the scenario includes actuals.
+            closing[ledger.Id] = scenario is { } s && !s.IncludeActuals ? 0m : ledger.SignedOpening;
+        }
+        if (candidates.Count == 0) return Money.Zero;
 
         foreach (var v in company.Vouchers)
         {
-            if (!LedgerBalances.CountsAsOf(v, asOf)) continue;
+            // 🔴 CountsForClosing, NOT CountsUnder: this is a CLOSING BALANCE, so it must drop the provisional
+            // base types (Memorandum / Reversing Journal) exactly as LedgerBalances.SignedClosing does. See the
+            // note on CountsForClosing for the two rendered figures the looser rule produced.
+            if (!CountsForClosing(company, v, asOf, scenario)) continue;
+            foreach (var line in v.Lines)
+                if (closing.TryGetValue(line.LedgerId, out var running))
+                    closing[line.LedgerId] = running + line.Signed;
+        }
+
+        // The cover: the pending amounts the projection itself holds for these ledgers, on the same basis.
+        // One accumulation for the whole candidate set, exactly as Build does.
+        //
+        // 🔴 closingRule: true — BOTH SIDES OF THIS COMPARISON MUST DROP THE SAME VOUCHERS. The closing side
+        // above uses CountsForClosing; the cover side used the looser CountsUnder, so a single Memorandum
+        // voucher CARRYING A BILL ALLOCATION manufactured cover that the closing balance it is measured against
+        // does not contain — the shortfall collapsed to 0, the guard went blind, and the rendered cell published
+        // "91 days" over 1,00,000 of debtor money with no posting bill behind it. It is wrong in the other
+        // direction too: a memo AgstRef knocking a real bill off removed cover the closing balance still held,
+        // inventing a shortfall and withholding a publishable ratio. A Memorandum is non-posting by definition,
+        // so neither side of a closing-balance comparison may see it. This does NOT change which vouchers may
+        // open a bill in the shipped Outstandings projection — Build still uses the looser rule deliberately.
+        var billWise = new List<Domain.Ledger>();
+        foreach (var ledger in candidates)
+            if (ledger.MaintainBillByBill) billWise.Add(ledger);
+        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario, closingRule: true);
+
+        var total = 0m;
+        foreach (var ledger in candidates)
+        {
+            var covered = 0m;
+            if (sets is not null && ledger.MaintainBillByBill)
+                foreach (var bill in BillsOf(ledger, sets[ledger.Id], KindOf(company, ledger)))
+                    covered += bill.Pending.Amount;   // BillsOf drops settled bills, so Pending is > 0
+
+            var shortfall = Math.Abs(closing[ledger.Id]) - covered;
+            if (shortfall > 0m) total += shortfall;
+        }
+        return new Money(total);
+    }
+
+    /// <summary>Whether a voucher counts as of a date, under a scenario when one is given.</summary>
+    private static bool CountsUnder(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
+        => scenario is { } s
+            ? LedgerBalances.CountsAsOf(v, asOf, s, company)
+            : LedgerBalances.CountsAsOf(v, asOf);
+
+    /// <summary>
+    /// Whether a voucher counts toward a <b>closing balance</b> as of a date — byte-for-byte the rule
+    /// <see cref="LedgerBalances.SignedClosing(Company, Domain.Ledger, DateOnly, Scenario?)"/> applies,
+    /// <b>base type included</b>.
+    /// <para>🔴 <b>THE BASE TYPE IS THE ENTIRE REASON THIS IS NOT <see cref="CountsUnder"/>.</b> Without it a
+    /// <b>Memorandum</b> or <b>Reversing Journal</b> — vouchers that by definition never touch the real books, and
+    /// which <c>SignedClosing</c> therefore drops — moved the closing figure
+    /// <see cref="ClosingNotCoveredByBills"/> measures its cover against, in BOTH directions, measured at the
+    /// rendered cell: a memo debit with no allocations invented a 50,000 shortfall and withheld the ratio on a
+    /// perfectly bill-wise, fully covered book that had rendered "91 days"; and a memo credit cancelled a real
+    /// uncovered opening balance out of the measure, so the guard went blind and a partial-basis "91 days"
+    /// published again over 1,00,000 of debtor money with no bill behind it. A guard that compares against the
+    /// Balance Sheet's closing balance has to use the Balance Sheet's own voucher rule.</para>
+    /// <para><see cref="CountsUnder"/> deliberately keeps the looser rule: it feeds <see cref="Accumulate"/>,
+    /// which is the pre-existing bill projection, and changing which vouchers may open a bill is a separate
+    /// decision about a shipped report — not this guard's business.</para>
+    /// </summary>
+    private static bool CountsForClosing(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
+        => scenario is { } s
+            ? LedgerBalances.CountsAsOf(v, asOf, s, company)
+            : LedgerBalances.CountsAsOf(v, asOf, company.FindVoucherType(v.TypeId)?.BaseType);
+
+    /// <summary>
+    /// Accumulates bill state for <paramref name="ledgers"/> in a <b>single</b> pass over the voucher set.
+    /// Every ledger asked for gets an entry, empty or not, so callers can index without a null check.
+    /// <para><paramref name="closingRule"/> selects the voucher rule. The default <c>false</c> is the shipped
+    /// bill projection's own rule (<see cref="CountsUnder"/>) and is what <see cref="Build"/> and
+    /// <see cref="OpenBillsFor"/> use — unchanged. <c>true</c> switches to <see cref="CountsForClosing"/> and
+    /// exists for <see cref="ClosingNotCoveredByBills"/> alone, whose result is COMPARED against a closing
+    /// balance and so must drop the same non-posting vouchers that balance drops.</para>
+    /// </summary>
+    private static Dictionary<Guid, LedgerBillSet> Accumulate(
+        Company company, IReadOnlyList<Domain.Ledger> ledgers, DateOnly asOf, Scenario? scenario,
+        bool closingRule = false)
+    {
+        var sets = new Dictionary<Guid, LedgerBillSet>();
+        var byId = new Dictionary<Guid, Domain.Ledger>();
+        var kinds = new Dictionary<Guid, OutstandingKind>();
+        foreach (var l in ledgers)
+        {
+            if (sets.ContainsKey(l.Id)) continue;
+            sets[l.Id] = new LedgerBillSet();
+            byId[l.Id] = l;
+            kinds[l.Id] = KindOf(company, l);
+        }
+        if (sets.Count == 0) return sets;
+
+        foreach (var v in company.Vouchers)
+        {
+            if (!(closingRule
+                    ? CountsForClosing(company, v, asOf, scenario)
+                    : CountsUnder(company, v, asOf, scenario))) continue;
             foreach (var line in v.Lines)
             {
-                if (line.LedgerId != ledger.Id || !line.HasBillAllocations) continue;
+                if (!line.HasBillAllocations) continue;
+                if (!sets.TryGetValue(line.LedgerId, out var set)) continue;
+                var ledger = byId[line.LedgerId];
+                var kind = kinds[line.LedgerId];
                 foreach (var a in line.BillAllocations)
                 {
                     // On-Account is unallocated/suspense — it never opens or settles a named bill.
                     if (a.RefType == BillRefType.OnAccount) continue;
 
                     var key = a.Name;
-                    if (!acc.TryGetValue(key, out var state))
+                    if (!set.Bills.TryGetValue(key, out var state))
                     {
                         state = new BillState
                         {
@@ -177,8 +339,8 @@ public static class Outstandings
                             Date = v.Date,
                             DueDate = a.EffectiveDueDate(v.Date, ledger.DefaultCreditPeriodDays),
                         };
-                        acc[key] = state;
-                        order.Add(key);
+                        set.Bills[key] = state;
+                        set.Order.Add(key);
                     }
 
                     // Signed contribution toward the bill's OWN natural side, apportioned to THIS
@@ -202,11 +364,16 @@ public static class Outstandings
                 }
             }
         }
+        return sets;
+    }
 
+    /// <summary>Emits one ledger's accumulated state as bills, first-opened order, dropping settled ones.</summary>
+    private static List<OutstandingBill> BillsOf(Domain.Ledger ledger, LedgerBillSet set, OutstandingKind kind)
+    {
         var result = new List<OutstandingBill>();
-        foreach (var key in order)
+        foreach (var key in set.Order)
         {
-            var s = acc[key];
+            var s = set.Bills[key];
             if (s.Pending <= 0m) continue; // fully settled (or net-advance already consumed)
             result.Add(new OutstandingBill(
                 ledger.Id,
@@ -267,6 +434,13 @@ public static class Outstandings
                 return i;
         }
         return DefaultBuckets.Count - 1;
+    }
+
+    /// <summary>One ledger's bills, keyed by reference name, with first-seen order preserved.</summary>
+    private sealed class LedgerBillSet
+    {
+        public readonly List<string> Order = new();
+        public readonly Dictionary<string, BillState> Bills = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class BillState

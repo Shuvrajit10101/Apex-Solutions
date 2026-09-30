@@ -4329,16 +4329,27 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // labelled sections one under the other (the report grid is single-column here).
         Rows.Add(new ReportRow { Particulars = "Principal Groups", IsHeader = true });
         foreach (var g in ra.PrincipalGroups)
-            AddRatioMoney(g.Label, g.Value);
+            AddRatioMoney(g.Label, g.Value, g.UnavailableReason);
 
         Rows.Add(new ReportRow { Particulars = "Principal Ratios", IsHeader = true });
         foreach (var r in ra.PrincipalRatios)
             AddRatioLine(r);
     }
 
-    /// <summary>Adds a Principal-Ratio row, formatting per its unit (ratio / percent / days; null → "N/A").</summary>
+    /// <summary>
+    /// Adds a Principal-Ratio row, formatting per its unit (ratio / percent / days; null → "N/A").
+    /// <para>🔴 A withheld ratio that carries a <see cref="PrincipalRatioLine.UnavailableReason"/> renders THAT
+    /// sentence instead of the bare "N/A" (user ruling 27): "N/A" alone cannot tell an operator that the book
+    /// records no bills apart from a zero denominator, and the two are not the same fact.</para>
+    /// </summary>
     private void AddRatioLine(PrincipalRatioLine ratio)
     {
+        if (ratio.Value is null && ratio.UnavailableReason is { } reason)
+        {
+            Rows.Add(new ReportRow { Particulars = ratio.Label, Amount = reason });
+            return;
+        }
+
         switch (ratio.Unit)
         {
             case RatioUnit.Percent: AddRatioPercent(ratio.Label, ratio.Value); break;
@@ -4357,9 +4368,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 : "N/A",
         });
 
-    /// <summary>Adds a label → money row to the Ratio-Analysis dashboard (always rendered, even zero).</summary>
-    private void AddRatioMoney(string label, Money value)
-        => Rows.Add(new ReportRow { Particulars = label, Amount = IndianFormat.AmountAlways(value) });
+    /// <summary>
+    /// Adds a label → money row to the Ratio-Analysis dashboard (always rendered, even zero).
+    /// <para>🔴 A Principal-Group figure the book cannot measure renders its
+    /// <see cref="PrincipalGroupLine.UnavailableReason"/> instead of the number (user ruling 27, all three
+    /// figures). "0.00" is read as a measured zero, so a nil that only means "no bills" may not be printed as
+    /// one. A <c>null</c> reason is the ordinary case and formats exactly as before.</para>
+    /// </summary>
+    private void AddRatioMoney(string label, Money value, string? unavailableReason = null)
+        => Rows.Add(new ReportRow
+        {
+            Particulars = label,
+            Amount = unavailableReason ?? IndianFormat.AmountAlways(value),
+        });
 
     /// <summary>Adds a label → ratio row; a null (zero-denominator) ratio renders "N/A", else 2 dp.</summary>
     private void AddRatioValue(string label, decimal? ratio)

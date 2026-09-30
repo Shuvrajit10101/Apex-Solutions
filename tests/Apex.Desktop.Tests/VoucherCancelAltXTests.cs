@@ -886,9 +886,17 @@ public sealed class VoucherCancelAltXTests
 
             Assert.True(rows.Count >= 2, $"only {rows.Count} Day-Book rows realised — this test proves nothing");
 
+            // 🔴 MATCHED ON THE LAST OCCUPIED COLUMN, NOT Grid.GetColumn. The single-amount cell SPANS the
+            // (empty, IsVisible=False) Debit track so a Ratio-Analysis withheld marker is legible instead of
+            // painting over Particulars — see Ratio_analysis_withheld_marker_fits_its_own_amount_cell. That moved
+            // its Grid.Column from 2 to 1, and a bare `GetColumn(c) == 2` then matched nothing and threw
+            // "Sequence contains no matching element" here. The span-aware predicate is index-independent and
+            // keeps this test's ENTIRE bite: still the Amount cell (its last column is the final one), still
+            // required to be a visible TextBlock, still required to carry a different brush.
             static TextBlock CellAt(Grid g, int column) =>
                 Assert.IsType<TextBlock>(g.Children
-                    .First(c => Grid.GetColumn(c) == column && c.IsEffectivelyVisible));
+                    .First(c => Grid.GetColumn(c) + Grid.GetColumnSpan(c) - 1 == column
+                                && c.IsEffectivelyVisible));
 
             var cancelledGrid = rows.Single(x => x.Row!.DrillVoucherId == k.Receipt.Id).Grid;
             var liveGrid = rows.Single(x => x.Row!.DrillVoucherId == second.Id).Grid;
