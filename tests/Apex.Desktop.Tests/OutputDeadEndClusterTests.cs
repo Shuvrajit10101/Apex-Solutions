@@ -415,9 +415,10 @@ public sealed class OutputDeadEndClusterTests : IDisposable
     /// mid-number, whatever the figures are. (b) The widest figure a money column of this register must ever hold,
     /// <c>999999999.00</c> (₹99,99,99,999.00 as the invariant number a spreadsheet gets), is drawn COMPLETE: at six
     /// columns the number column is 523.28 ÷ 7.4 = 70.7pt wide, 66.7pt inside its 2pt padding, and that figure
-    /// measures 64.0pt at 9pt Helvetica. A seventh column — the shape that would have given the cash heads honest
-    /// captions of their own — takes the inner width to 58.3pt and would clip the FILED figures instead, which is
-    /// why the remedy keeps six columns and states the balances on the screen only.</para>
+    /// measures 57.29pt at 9pt Helvetica — 64.04pt is that amount's GROUPED form, which the page never carries.
+    /// A seventh column — the shape that would have given the cash heads honest captions of their own — takes the
+    /// inner width to 58.30pt, where the figure still FITS, but with only 1.00pt (~1.7% of the cell) to spare,
+    /// which is why the remedy keeps six columns and states the balances on the screen only.</para>
     /// </summary>
     [Fact]
     public void Row_6_20_the_printed_drc03_register_cuts_no_money_figure_and_holds_the_widest_one_whole()

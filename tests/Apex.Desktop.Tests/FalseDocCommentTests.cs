@@ -226,4 +226,52 @@ public sealed class FalseDocCommentTests
         Assert.Contains("drift lock D3", block, StringComparison.Ordinal);
         Assert.Contains("ToPaisaRounded", block, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// 🔴 <b>M1 — the export summary may not promise a footing the same pass DELETED.</b> The fix for F1 removed the
+    /// tax-head cash row from <c>ToMasterListSnapshot</c>, and its <c>&lt;summary&gt;</c> went on asserting that filed
+    /// rows cross the boundary "with the available-cash footing that makes them reconcilable" — the exact defect class
+    /// this whole class exists to remove, one method above the 40-line comment explaining why the footing went. Left
+    /// standing, it invites the next author to re-add the cash row and re-introduce F1 verbatim.
+    /// </summary>
+    [Fact]
+    public void The_snapshot_summary_does_not_promise_the_available_cash_footing_the_fix_removed()
+    {
+        string path = Path.Combine(
+            RepoRoot(), "src", "Apex.Desktop", "ViewModels", "Drc03PaymentViewModel.cs");
+        var lines = File.ReadAllLines(path);
+
+        int m = Array.FindIndex(
+            lines, l => l.Contains("public MasterListSnapshot ToMasterListSnapshot()", StringComparison.Ordinal));
+        Assert.True(m > 0, "Drc03PaymentViewModel must still declare ToMasterListSnapshot().");
+
+        var doc = new List<string>();
+        for (int i = m - 1; i >= 0 && lines[i].TrimStart().StartsWith("///", StringComparison.Ordinal); i--)
+            doc.Add(lines[i]);
+        string block = string.Join("\n", doc);
+
+        Assert.DoesNotContain("available-cash footing", block, StringComparison.OrdinalIgnoreCase);
+        // The surrounding sentence must survive — the guard is against the false promise, not against the paragraph.
+        Assert.Contains("cross the boundary", block, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>M2 — the print test's rationale must carry the MEASURED width, not the grouped string's.</b>
+    /// <c>OutputDeadEndClusterTests</c> justified refusing a seventh money column by citing 64.0pt against a 58.3pt
+    /// cell. 64.04pt is the on-SCREEN grouped form; the page carries <c>999999999.00</c>, which measures 57.29pt and
+    /// FITS the seven-column cell with 1.00pt to spare — proven at the renderer's own seam by
+    /// <c>ReportPdfMoneyColumnWidthTests</c>. The wrong number sat on the very test a future author reads first, and
+    /// it had already been re-derived from memory three times.
+    /// </summary>
+    [Fact]
+    public void The_print_width_rationale_cites_the_emitted_figures_measurement_not_the_grouped_forms()
+    {
+        string path = Path.Combine(
+            RepoRoot(), "tests", "Apex.Desktop.Tests", "OutputDeadEndClusterTests.cs");
+        string text = File.ReadAllText(path);
+
+        Assert.DoesNotContain("measures 64.0pt", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("would clip the FILED figures", text, StringComparison.Ordinal);
+        Assert.Contains("measures 57.29pt", text, StringComparison.Ordinal);
+    }
 }

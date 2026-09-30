@@ -478,7 +478,7 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListEx
     /// <para><b>The FILED register is what exports, not the entry form.</b> The panel's upper half is an unposted
     /// draft; exporting draft figures beside filed ones would produce a sheet in which a payment that was never
     /// made is indistinguishable from one that was. Only <see cref="Filed"/> rows — records that actually posted —
-    /// cross the boundary, with the available-cash footing that makes them reconcilable.</para>
+    /// cross the boundary.</para>
     /// </summary>
     public MasterListSnapshot ToMasterListSnapshot()
     {
