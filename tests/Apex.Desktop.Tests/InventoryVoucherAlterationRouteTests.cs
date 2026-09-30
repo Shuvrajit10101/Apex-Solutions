@@ -689,6 +689,90 @@ public sealed class InventoryVoucherAlterationRouteTests
         finally { Close(window, dir); }
     }
 
+    // ================================================== (f2) review A11p4-2 — THE DISCARD MUST NOT EAT REAL HISTORY
+
+    /// <summary>
+    /// 🔴🔴 <b>THE DIRECTION THE SIBLING TEST ABOVE CANNOT SEE: the failure arm must discard the TWO entries it
+    /// appended and NOT ONE MORE.</b> Measured by the reviewer's own mutation, not reasoned: raising the discard
+    /// loop's bound from 2 to 3 left ALL 77 tests in this class GREEN, because every fixture reached the failed
+    /// save with an <b>empty</b> edit log — so the third iteration found nothing and no-opped. A positional pop
+    /// with no history beneath it cannot be caught being wrong, which means nothing in the suite pinned the half
+    /// that matters: <b>with history beneath it, one iteration too many DELETES A COMMITTED ENTRY</b> describing
+    /// an alteration that really did reach disk. An append-only audit record quietly losing a line, done by the
+    /// very code that exists to keep it honest, is a worse fault than the two fictitious entries it was added to
+    /// remove.
+    ///
+    /// <para><b>So this test puts history underneath first.</b> One real alteration is saved (6 → 5, committed,
+    /// on disk) and only THEN is the next attempt failed with a bad PIN. What survives must be exactly the
+    /// committed entry, matched BY IDENTITY rather than by count.</para>
+    ///
+    /// <para><b>Asserted on the EMITTED ARTEFACT.</b> The exposure was never the failing save — a throwing save
+    /// writes nothing at all. It is the NEXT successful save persisting whatever the in-memory log holds. So the
+    /// pin is fixed, a second real alteration is saved, and the final assertion is taken from the company
+    /// <b>reloaded from the <c>.db</c></b>: exactly the two real alterations are on disk, the committed one still
+    /// among them by id.</para>
+    ///
+    /// <para><b>Fails with the loop at 3</b> at leg (3): the committed entry is gone and the log is empty.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_failed_save_discards_only_its_own_two_entries_and_leaves_committed_history_standing()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = Seed(vm, "Stock Alter SaveFail History Co");
+            var delivery = PostThroughTheScreen(vm, k, VoucherBaseType.DeliveryNote, qty: 6m, rate: "80");
+            var c = vm.Company!;
+
+            // (1) ONE REAL ALTERATION, SAVED — the committed history the failure arm must leave alone. Driven
+            // through the same real keys as everything else here, so the entry is the one the door really writes.
+            OpenDayBookOnStockRow(window, vm, delivery.Id);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+            Pump(window);
+            vm.InventoryVoucherEntry!.Lines[0].QuantityText = "5";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(5m, c.FindInventoryVoucher(delivery.Id)!.Allocations.Single().Quantity);
+
+            // The log is NOT empty when the next save fails — which is the whole point of this fixture.
+            var committedId = Assert.Single(c.VoucherEditLog).Id;
+
+            // (2) THE FAILING ATTEMPT, on top of that history.
+            OpenDayBookOnStockRow(window, vm, delivery.Id);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+            Pump(window);
+            var entry = vm.InventoryVoucherEntry!;
+            Assert.True(entry.IsAltering);
+            entry.Lines[0].QuantityText = "2";
+            c.Pin = "NOT-A-PIN";                         // the next Save throws ArgumentException out of EnsureValid
+
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Contains("Could not save the company", entry.Message!, StringComparison.Ordinal);
+
+            // (3) 🔴 THE COMMITTED ENTRY STILL STANDS, and the two fictitious ones are gone. With the discard
+            // loop at 3 this log is EMPTY — a real alteration erased from an append-only record.
+            Assert.Equal(committedId, Assert.Single(c.VoucherEditLog).Id);
+            Assert.Equal(5m, c.FindInventoryVoucher(delivery.Id)!.Allocations.Single().Quantity);
+
+            // (4) THE EMITTED ARTEFACT — the next successful save writes the real history and nothing else. Read
+            // back from the .db, because that file is what the operator's audit trail actually is.
+            c.Pin = null;
+            entry.Lines[0].QuantityText = "3";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+
+            var reopened = new CompanyStorage(dir);
+            var onDisk = reopened.Load(reopened.ListCompanies().Single(e => e.Name == c.Name));
+            var altersOnDisk = onDisk.VoucherEditLog
+                .Where(e => e.Verb == VoucherEditVerb.Alter && e.VoucherId == delivery.Id).ToList();
+            Assert.Equal(2, altersOnDisk.Count);
+            Assert.Contains(committedId, altersOnDisk.Select(e => e.Id));
+            Assert.Equal(3m, onDisk.FindInventoryVoucher(delivery.Id)!.Allocations.Single().Quantity);
+        }
+        finally { Close(window, dir); }
+    }
+
     // ============================================================ (g) review F5 — the load-bearing OrderLinks guard
 
     /// <summary>

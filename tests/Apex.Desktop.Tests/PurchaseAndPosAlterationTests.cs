@@ -1315,6 +1315,66 @@ public sealed class PurchaseAndPosAlterationTests
         Assert.Equal("POS nonce THREE", book.Company.FindVoucher(posted.Id)!.Narration);
     }
 
+    /// <summary>
+    /// 🔴🔴 <b>THE SAME UNPINNED DIRECTION ON THE POS DOOR: the discard must take the TWO entries this failure
+    /// appended and NOT ONE MORE.</b> The sibling test above captures its <c>logBefore</c> from an <b>empty</b>
+    /// log, so raising the discard loop's bound leaves it green — the extra iteration finds nothing to pop. With
+    /// committed history underneath, that same extra iteration deletes a REAL alteration entry: the loop pops by
+    /// POSITION and <c>DiscardUncommittedEditLogEntry</c>'s only bound is "must be the last entry", which a
+    /// committed entry satisfies perfectly once the two fictitious ones are off.
+    ///
+    /// <para><b>Fixture: one real alteration saved first</b> (nonce TWO, committed and on disk), then the failing
+    /// attempt over the top of it. What survives is matched BY IDENTITY, and the closing assertion is read from
+    /// the company <b>reloaded from the <c>.db</c></b> — the audit trail as the operator would actually find
+    /// it — because the exposure was always the NEXT successful save, never the throwing one.</para>
+    ///
+    /// <para><b>Fails with the loop at 3</b> at the surviving-entry assertion: the committed entry is gone.</para>
+    /// </summary>
+    [Fact]
+    public void A_failed_save_on_a_pos_alteration_leaves_committed_history_standing()
+    {
+        using var book = AlterationBook.New("poshistory");
+        var kit = SeedPosKit(book);
+        var posted = PostFatPosBill(kit);
+
+        // (1) ONE REAL ALTERATION, SAVED — the committed history the failure arm must not touch.
+        var first = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(first.IsRefused, first.Refusal);
+        first.Entry!.Narration = "POS nonce TWO";
+        Assert.True(first.Entry!.AcceptAlteration(), first.Entry!.Message);
+
+        // The log is NOT empty when the next save fails — which is the whole point of this fixture.
+        var committedId = Assert.Single(book.Company.VoucherEditLog).Id;
+
+        // (2) THE FAILING ATTEMPT, on top of that history.
+        var open = PosBillingViewModel.ForAlter(
+            book.Company, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        var vm = open.Entry!;
+        vm.Narration = "POS nonce THREE";
+        book.Company.Pin = "NOT-A-PIN";               // the next Save throws ArgumentException out of EnsureValid
+
+        Assert.False(vm.AcceptAlteration());
+        Assert.Contains("Could not save the company", vm.Message!, StringComparison.Ordinal);
+
+        // (3) 🔴 THE COMMITTED ENTRY STILL STANDS. With the discard loop at 3 this log is EMPTY.
+        Assert.Equal(committedId, Assert.Single(book.Company.VoucherEditLog).Id);
+        Assert.Equal("POS nonce TWO", book.Company.FindVoucher(posted.Id)!.Narration);
+
+        // (4) THE EMITTED ARTEFACT — the next successful save writes the real history and nothing else.
+        book.Company.Pin = null;
+        vm.Narration = "POS nonce FOUR";
+        Assert.True(vm.AcceptAlteration(), vm.Message);
+
+        var onDisk = book.Storage.Load(book.Storage.ListCompanies().Single(e => e.Name == book.Company.Name));
+        var altersOnDisk = onDisk.VoucherEditLog
+            .Where(e => e.Verb == VoucherEditVerb.Alter && e.VoucherId == posted.Id).ToList();
+        Assert.Equal(2, altersOnDisk.Count);
+        Assert.Contains(committedId, altersOnDisk.Select(e => e.Id));
+        Assert.Equal("POS nonce FOUR", onDisk.FindVoucher(posted.Id)!.Narration);
+    }
+
     /// <summary>The POS detail survives FIELD BY FIELD — every tender's ledger, amount, reference and the cash
     /// tendered/change, plus both item rows.</summary>
     [Fact]
