@@ -220,7 +220,10 @@ public static class Outstandings
 
         foreach (var v in company.Vouchers)
         {
-            if (!CountsUnder(company, v, asOf, scenario)) continue;
+            // 🔴 CountsForClosing, NOT CountsUnder: this is a CLOSING BALANCE, so it must drop the provisional
+            // base types (Memorandum / Reversing Journal) exactly as LedgerBalances.SignedClosing does. See the
+            // note on CountsForClosing for the two rendered figures the looser rule produced.
+            if (!CountsForClosing(company, v, asOf, scenario)) continue;
             foreach (var line in v.Lines)
                 if (closing.TryGetValue(line.LedgerId, out var running))
                     closing[line.LedgerId] = running + line.Signed;
@@ -252,6 +255,28 @@ public static class Outstandings
         => scenario is { } s
             ? LedgerBalances.CountsAsOf(v, asOf, s, company)
             : LedgerBalances.CountsAsOf(v, asOf);
+
+    /// <summary>
+    /// Whether a voucher counts toward a <b>closing balance</b> as of a date — byte-for-byte the rule
+    /// <see cref="LedgerBalances.SignedClosing(Company, Domain.Ledger, DateOnly, Scenario?)"/> applies,
+    /// <b>base type included</b>.
+    /// <para>🔴 <b>THE BASE TYPE IS THE ENTIRE REASON THIS IS NOT <see cref="CountsUnder"/>.</b> Without it a
+    /// <b>Memorandum</b> or <b>Reversing Journal</b> — vouchers that by definition never touch the real books, and
+    /// which <c>SignedClosing</c> therefore drops — moved the closing figure
+    /// <see cref="ClosingNotCoveredByBills"/> measures its cover against, in BOTH directions, measured at the
+    /// rendered cell: a memo debit with no allocations invented a 50,000 shortfall and withheld the ratio on a
+    /// perfectly bill-wise, fully covered book that had rendered "91 days"; and a memo credit cancelled a real
+    /// uncovered opening balance out of the measure, so the guard went blind and a partial-basis "91 days"
+    /// published again over 1,00,000 of debtor money with no bill behind it. A guard that compares against the
+    /// Balance Sheet's closing balance has to use the Balance Sheet's own voucher rule.</para>
+    /// <para><see cref="CountsUnder"/> deliberately keeps the looser rule: it feeds <see cref="Accumulate"/>,
+    /// which is the pre-existing bill projection, and changing which vouchers may open a bill is a separate
+    /// decision about a shipped report — not this guard's business.</para>
+    /// </summary>
+    private static bool CountsForClosing(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
+        => scenario is { } s
+            ? LedgerBalances.CountsAsOf(v, asOf, s, company)
+            : LedgerBalances.CountsAsOf(v, asOf, company.FindVoucherType(v.TypeId)?.BaseType);
 
     /// <summary>
     /// Accumulates bill state for <paramref name="ledgers"/> in a <b>single</b> pass over the voucher set.

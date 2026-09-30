@@ -377,6 +377,97 @@ public sealed class StatementReportsViewModelTests : IDisposable
         return vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)").Amount;
     }
 
+    private static void PostAs(Company c, string typeName, DateOnly date, params EntryLine[] lines)
+        => new Apex.Ledger.Services.LedgerService(c).Post(
+            new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName(typeName)!.Id, date, lines));
+
+    /// <summary>
+    /// 🔴 A MEMORANDUM VOUCHER MUST NOT MOVE THE BILL-COVERAGE GUARD — IN EITHER DIRECTION. A Memorandum never
+    /// touches the real books (<c>LedgerBalances.IsProvisionalBaseType</c>), so
+    /// <c>LedgerBalances.SignedClosing</c> drops it and it is absent from the Balance-Sheet debtors figure. The
+    /// coverage guard compares the bill-wise projection's pending amounts against exactly that closing balance, so
+    /// it has to drop the same vouchers. It did not: it re-derived the closing balance with the voucher rule that
+    /// omits the base type, and BOTH errors were reachable and rendered:
+    /// <list type="bullet">
+    /// <item><b>Spurious withholding.</b> A fully bill-wise book whose one invoice is already due rendered
+    ///   "91 days". A Memorandum debit of 50,000 with no allocations invented a 50,000 shortfall and the cell
+    ///   became the no-bill-wise-details marker — while the Balance Sheet still showed 1,00,000, unchanged.</item>
+    /// <item><b>The leak back to a published number.</b> Debtor X's 1,00,000 is an uncovered bill-wise OPENING
+    ///   balance, so the ratio is correctly withheld. A Memorandum CREDIT of 1,00,000 to X cancelled it out of the
+    ///   measure, the guard went blind, and the report published "91 days" computed from debtor Y's 50,000 alone —
+    ///   the partial-basis figure this whole track exists to stop.</item>
+    /// </list>
+    /// The two directions are two Facts, so a regression in either reddens by its own name; each asserts the
+    /// RENDERED cell BEFORE and AFTER the memo, so the memo is proved to be the only thing that changed.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_a_memorandum_voucher_does_not_withhold_a_fully_bill_covered_ratio()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+
+        // ---- A perfectly bill-wise, fully covered, already-due book. It publishes an honest number.
+        var covered = NewBook("Memo Withhold Co");
+        var coveredSales = AddLedger(covered, "Sales", "Sales Accounts", debit: false);
+        var billsCo = AddLedger(covered, "Bills Co", "Sundry Debtors", debit: true, billWise: true);
+        Post(covered, new DateOnly(2024, 4, 20),
+            new EntryLine(billsCo.Id, Money.FromRupees(100000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-A", Money.FromRupees(100000m),
+                    dueDate: new DateOnly(2024, 5, 1)),
+            }),
+            new EntryLine(coveredSales.Id, Money.FromRupees(100000m), DrCr.Credit));
+        Assert.Equal("91 days", RenderedReceivablesCell(covered, asOf));
+
+        var coveredSuspense = AddLedger(covered, "Suspense", "Suspense A/c", debit: true);
+        PostAs(covered, "Memorandum", new DateOnly(2024, 5, 10),
+            new EntryLine(billsCo.Id, Money.FromRupees(50000m), DrCr.Debit),
+            new EntryLine(coveredSuspense.Id, Money.FromRupees(50000m), DrCr.Credit));
+
+        // 🔴 THE RENDERED CELL FIRST — that is the thing the operator reads, and the thing that moved.
+        var afterMemo = RenderedReceivablesCell(covered, asOf);
+        Assert.Equal("91 days", afterMemo);
+        Assert.NotEqual(RatioAnalysis.ReceivablesNoBillWiseDetails, afterMemo);
+        // And the two figures behind it: the memo is NOT in the books, so neither may move either.
+        Assert.Equal(100000m,
+            RatioAnalysis.Build(covered, asOf, ReportOptions.AsOf(asOf)).SundryDebtorsClosing.Amount);
+        Assert.Equal(0m, Outstandings.ClosingNotCoveredByBills(covered, asOf, "Sundry Debtors").Amount);
+    }
+
+    /// <inheritdoc cref="RatioAnalysis_a_memorandum_voucher_does_not_withhold_a_fully_bill_covered_ratio"/>
+    [Fact]
+    public void RatioAnalysis_a_memorandum_voucher_does_not_blind_the_bill_coverage_guard()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+
+        // ---- An uncovered bill-wise OPENING balance beside a genuinely covered debtor: correctly withheld.
+        var leak = NewBook("Memo Leak Co");
+        var leakSales = AddLedger(leak, "Sales", "Sales Accounts", debit: false);
+        var carriedX = new Ledger.Domain.Ledger(Guid.NewGuid(), "Carried X",
+            leak.FindGroupByName("Sundry Debtors")!.Id, Money.FromRupees(100000m), openingIsDebit: true,
+            maintainBillByBill: true);
+        leak.AddLedger(carriedX);
+        var coveredY = AddLedger(leak, "Covered Y", "Sundry Debtors", debit: true, billWise: true);
+        Post(leak, new DateOnly(2024, 4, 20),
+            new EntryLine(coveredY.Id, Money.FromRupees(50000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-Y", Money.FromRupees(50000m),
+                    dueDate: new DateOnly(2024, 5, 1)),
+            }),
+            new EntryLine(leakSales.Id, Money.FromRupees(50000m), DrCr.Credit));
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, RenderedReceivablesCell(leak, asOf));
+
+        var leakSuspense = AddLedger(leak, "Suspense", "Suspense A/c", debit: true);
+        PostAs(leak, "Memorandum", new DateOnly(2024, 5, 10),
+            new EntryLine(leakSuspense.Id, Money.FromRupees(100000m), DrCr.Debit),
+            new EntryLine(carriedX.Id, Money.FromRupees(100000m), DrCr.Credit));
+
+        // 🔴 THE RENDERED CELL FIRST. The memo must not blind the guard: 1,00,000 still has no bill behind it.
+        var stillWithheld = RenderedReceivablesCell(leak, asOf);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, stillWithheld);
+        Assert.NotEqual("91 days", stillWithheld);   // the exact partial-basis figure the memo used to publish
+        Assert.Equal(100000m, Outstandings.ClosingNotCoveredByBills(leak, asOf, "Sundry Debtors").Amount);
+    }
+
     [Fact]
     public void CashFlow_honours_the_slice1_period_selection()
     {
