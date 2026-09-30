@@ -9113,7 +9113,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // The ONE referential rule this aggregate has, pre-asked so a refusal arrives INSTEAD of the irreversible
         // confirmation rather than after the operator has answered it. The engine re-asks it at the act itself.
         if (!GuardsAllowDeletion(
-                () => new Apex.Ledger.Services.InventoryPostingService(Company).EnsureDeletable(id))) return false;
+                () => new Apex.Ledger.Services.InventoryPostingService(Company).EnsureDeletable(id),
+                StockCancelRouting())) return false;
 
         return Arm(DeletionTarget.InventoryVoucher, id,
             $"Delete {InventoryVoucherLabel(voucher)}? The entry and every stock line on it are removed from "
@@ -9226,6 +9227,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ? null
             : "Alt+X works on the Day Book — open it there to cancel this voucher.";
     }
+
+    /// <summary>
+    /// 🔴 <b>The PURE-STOCK analogue of <see cref="CancelRoutingFor"/>, and it exists because the refusal it
+    /// appends to named a DEAD KEY on the one screen this slice newly made reachable.</b> Returns the extra
+    /// sentence to append, or <c>null</c> when Alt+X is genuinely live where the operator is standing.
+    ///
+    /// <para><b>Measured, not reasoned.</b> Exactly two surfaces reach a pure-stock lifecycle refusal
+    /// (<see cref="RequestDeleteHighlighted"/>'s switch and <see cref="ResolveInventoryVoucherForAlteration"/>
+    /// agree on the pair): <see cref="Screen.Report"/>, where the window's Alt+X arm is live because it is gated
+    /// on <see cref="IsLiveReportPage"/> and <see cref="RequestCancelHighlightedVoucher"/> routes a row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> to <c>RequestCancelInventoryVoucher</c>; and
+    /// <see cref="Screen.InventoryVoucherDetail"/>, where that arm does not fire at all. On the second surface
+    /// the engine's own remedy sentence ("cancel this order with Alt+X instead") was unreachable, and after this
+    /// slice's delete guard the destructive verb is refused there too — so a linked Job Work order had NO working
+    /// lifecycle verb while two separate refusals both pointed at a key that does nothing.
+    ///
+    /// <para>🔴 <b>The named surfaces are verified to carry the verb, not assumed.</b> The Day Book lists the
+    /// pure-stock aggregate (<c>DayBook</c> walks <c>company.InventoryVouchers</c> whole, Job Work orders
+    /// included) and the four Job Work registers plus the two Material registers assign
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/>, so Alt+X resolves an order from any of them. Naming a
+    /// second dead key would be the same defect wearing different words.</para>
+    ///
+    /// <para><b>Why not widen the Alt+X arm to <see cref="Screen.InventoryVoucherDetail"/> instead.</b> The same
+    /// reason <see cref="CancelRoutingFor"/> records: that arm belongs to S3, its current scope is deliberately
+    /// pinned by a test, and widening a shipped destructive verb's surface is a scope decision for its own slice
+    /// rather than a side-effect of a delete fix.</para>
+    /// </summary>
+    private string? StockCancelRouting() =>
+        IsLiveReportPage
+            ? null
+            : "Alt+X does not work on this screen — it works on the Day Book and on the Job Work and Material "
+            + "registers, so cancel it from one of those.";
 
     /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
     private bool Arm(DeletionTarget kind, Guid id, string prompt)
@@ -9752,7 +9785,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             // Shown, never swallowed — a dropped refusal is indistinguishable from a dead key, which is the
             // defect census row 9.2 names as the worst of the three.
-            RaiseLifecycleNotice(refusal);
+            //
+            // 🔴 AND A REFUSAL THAT OFFERS Alt+X MUST NOT OFFER IT WHERE Alt+X IS DEAD — the SAME defect one
+            // remove, and the reason `StockCancelRouting` exists. `ShapeThisScreenCannotServe` is static and
+            // type-free by design (it is asked before a view model exists), so it cannot know the surface; this
+            // is the nearest site that does. Appended only when the sentence actually names the key, so the
+            // refusals that do not mention it are left exactly as the rule wrote them.
+            var routing = refusal.Contains("Alt+X", System.StringComparison.Ordinal)
+                ? StockCancelRouting()
+                : null;
+            RaiseLifecycleNotice(routing is null ? refusal : $"{refusal} {routing}");
             return VoucherAlterationRequest.Refused;
         }
 

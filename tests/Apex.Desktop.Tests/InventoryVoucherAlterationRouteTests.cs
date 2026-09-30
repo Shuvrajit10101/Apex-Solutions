@@ -797,4 +797,159 @@ public sealed class InventoryVoucherAlterationRouteTests
         }
         finally { Close(window, dir); }
     }
+
+    // ============================================================ (i) review A11-1 — NO REFUSAL MAY NAME A DEAD KEY
+
+    /// <summary>
+    /// 🔴 <b>THE MISSING CASE (review A11-1): the delete refusal above is ALSO reachable from
+    /// <see cref="Screen.InventoryVoucherDetail"/>, and THERE the Alt+X it offers does nothing at all.</b> The
+    /// sibling test drives <see cref="Screen.Report"/> only — the single surface on which the engine's advice
+    /// happens to be true — so it could not see this. The window's Alt+X arm is gated on
+    /// <c>IsLiveReportPage</c>, so on the stock drill column THIS SLICE newly made reachable by Enter, a linked
+    /// Job Work order had NO working lifecycle verb: Alt+D refused it (correctly) and then pointed at a key that
+    /// is not bound on that screen.
+    ///
+    /// <para><b>Five legs, in order, and legs (4) and (5) are the ones that make this more than a string test.</b>
+    /// (1) is the negative control: where Alt+X IS live the refusal must NOT be padded. (4) presses Alt+X on the
+    /// detail column and asserts NOTHING happens — the measured premise of the fix, not filler; if that ever
+    /// starts arming, the routing sentence has gone stale and must be revisited. (5) presses the REAL Alt+X on
+    /// every surface the sentence NAMES and asserts the cancellation genuinely arms for this very order, because
+    /// pointing at a second dead key would be the same defect in different words.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_delete_refusal_on_the_stock_detail_column_names_only_surfaces_where_Alt_X_really_works()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = Seed(vm, "Dead Key Routing Co");
+            var c = vm.Company!;
+            var posting = new InventoryPostingService(c);
+
+            var jwType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.JobWorkOutOrder);
+            var order = posting.Post(InventoryVoucher.JobWork(
+                Guid.NewGuid(), jwType.Id, k.On,
+                new JobWorkOrder(
+                    JobWorkDirection.Out, "JW-ROUTE", k.ItemId, 5m,
+                    new[] { new JobWorkOrderLine(k.ItemId, JobWorkComponentTrack.PendingToIssue, 5m) })));
+
+            var outType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.MaterialOut);
+            posting.Post(InventoryVoucher.MaterialMovement(
+                Guid.NewGuid(), outType.Id, k.On,
+                source: new[] { new InventoryAllocation(k.ItemId, k.GodownId, 5m, StockDirection.Outward, Money.FromRupees(10m)) },
+                destination: new[] { new InventoryAllocation(k.ItemId, k.GodownId, 5m, StockDirection.Inward, Money.FromRupees(10m)) },
+                orderLinks: new[] { order.Id }));
+
+            // (1) NEGATIVE CONTROL — on the Order Book Alt+X IS live, so the refusal must arrive UNPADDED. A
+            // routing sentence bolted onto every refusal would be noise, and noise is how a real one stops
+            // being read.
+            vm.OpenReport(ReportKind.JobWorkOutOrderBook);
+            Pump(window);
+            vm.Reports!.SelectedRow = vm.Reports!.Rows.First(r => r.DrillInventoryVoucherId == order.Id);
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("cannot be deleted", vm.Notice!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("does not work on this screen", vm.Notice!, StringComparison.OrdinalIgnoreCase);
+
+            // (2) Enter drills to the stock detail column — the surface this slice newly made reachable.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.InventoryVoucherDetail, vm.CurrentScreen);
+            Assert.Equal(order.Id, vm.InventoryVoucherDetail!.VoucherId);
+
+            // (3) Alt+D refuses here too, and now it ROUTES. Asserted on the REALISED VISUAL TREE rather than on
+            // the view-model property: the operator's evidence is the painted sentence.
+            window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(vm.IsAcceptPromptOpen,
+                "Alt+D armed an irreversible confirmation for a deletion the engine will refuse.");
+            Assert.Contains(RenderedText(window),
+                s => s.Contains("cannot be deleted", StringComparison.OrdinalIgnoreCase)
+                  && s.Contains("Alt+X does not work on this screen", StringComparison.Ordinal)
+                  && s.Contains("Day Book", StringComparison.Ordinal));
+
+            // (4) 🔴 THE PREMISE OF (3), MEASURED: Alt+X on THIS screen really is dead. Not a "nothing happened"
+            // filler assertion — if this ever arms, the sentence (3) paints becomes false.
+            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(vm.IsAcceptPromptOpen,
+                "Alt+X now arms on Screen.InventoryVoucherDetail — the refusal's routing sentence is stale.");
+            Assert.Equal(Screen.InventoryVoucherDetail, vm.CurrentScreen);
+            Assert.False(c.FindInventoryVoucher(order.Id)!.Cancelled);
+
+            // (5) 🔴 AND THE NAMED SURFACES ARE NOT A SECOND DEAD KEY. The real Alt+X, on the real window, on
+            // each surface the sentence names in turn — it must ARM the cancellation for this very order.
+            foreach (var named in new[] { ReportKind.JobWorkOutOrderBook, ReportKind.DayBook })
+            {
+                vm.OpenReport(named);
+                Pump(window);
+                vm.Reports!.SelectedRow = vm.Reports!.Rows.First(r => r.DrillInventoryVoucherId == order.Id);
+                Pump(window);
+                window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+                Pump(window);
+
+                Assert.True(vm.IsAcceptPromptOpen,
+                    $"Alt+X is a silent no-op on {named}, which the refusal names as the remedy — the fix would "
+                    + "be pointing at a second dead key.");
+                Assert.Contains("Cancel", vm.AcceptPromptText!, StringComparison.Ordinal);
+
+                // Decline, so the next leg starts from the same state and nothing is really cancelled.
+                window.KeyPressQwerty(PhysicalKey.N, RawInputModifiers.None);
+                Pump(window);
+                Assert.False(vm.IsAcceptPromptOpen);
+                Assert.False(c.FindInventoryVoucher(order.Id)!.Cancelled);
+            }
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SECOND REFUSAL review A11-1 NAMED, one remove from the first.</b> Ctrl+Enter on a Job Work order
+    /// is refused by <c>ShapeThisScreenCannotServe</c>, and that sentence ALSO ends "Cancel it with Alt+X or
+    /// delete it with Alt+D" — on <see cref="Screen.InventoryVoucherDetail"/> neither is available: Alt+X is not
+    /// bound there and Alt+D is refused by the guard this slice added. That helper is <c>static</c> and type-free
+    /// by design (it is asked before a view model exists) so it cannot know the surface; the routing is therefore
+    /// appended at the raise site, and only to refusals that actually name the key.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_alteration_refusal_that_offers_Alt_X_routes_when_Alt_X_is_dead_on_that_screen()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = Seed(vm, "Alter Refusal Routing Co");
+            var c = vm.Company!;
+
+            var jwType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.JobWorkOutOrder);
+            var order = new InventoryPostingService(c).Post(InventoryVoucher.JobWork(
+                Guid.NewGuid(), jwType.Id, k.On,
+                new JobWorkOrder(
+                    JobWorkDirection.Out, "JW-ALTROUTE", k.ItemId, 5m,
+                    new[] { new JobWorkOrderLine(k.ItemId, JobWorkComponentTrack.PendingToIssue, 5m) })));
+
+            // NEGATIVE CONTROL on the report, where Alt+X is live: the family refusal arrives UNPADDED.
+            vm.OpenReport(ReportKind.JobWorkOutOrderBook);
+            Pump(window);
+            vm.Reports!.SelectedRow = vm.Reports!.Rows.First(r => r.DrillInventoryVoucherId == order.Id);
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Contains("Job Work order", vm.Notice!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("does not work on this screen", vm.Notice!, StringComparison.OrdinalIgnoreCase);
+
+            // On the stock detail column the same refusal must route, and it is asserted as PAINTED.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.InventoryVoucherDetail, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Contains(RenderedText(window),
+                s => s.Contains("Job Work order", StringComparison.OrdinalIgnoreCase)
+                  && s.Contains("Alt+X does not work on this screen", StringComparison.Ordinal));
+        }
+        finally { Close(window, dir); }
+    }
 }
