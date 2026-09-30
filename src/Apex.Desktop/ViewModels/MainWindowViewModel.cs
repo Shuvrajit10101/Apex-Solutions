@@ -3723,9 +3723,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// measure. That dead bare key is pre-existing and is reported rather than quietly altered.
     /// 🔴 <b>AMENDED: the no-op is no longer SILENT.</b> The guard is still <c>IsPrintablePage</c> and the key is
     /// still swallowed on all 45 such screens — that half stands — but
-    /// <see cref="OpenEmailCompose"/> / <see cref="OpenWhatsAppShare"/> now set <see cref="Message"/> instead of
-    /// returning with nothing said. See <c>ShareChannelUnavailableMessage</c> for the measurement of the 45-screen
-    /// surface and for why re-gating is still refused as unmeasured.</para>
+    /// <see cref="OpenEmailCompose"/> / <see cref="OpenWhatsAppShare"/> now raise a refusal on the window-level
+    /// <see cref="Notice"/> bar instead of returning with nothing said. See <c>ShareChannelUnavailableMessage</c>
+    /// for the 45-screen measurement, for why <see cref="Message"/> alone paints on none of them, and for why
+    /// re-gating is still refused as unmeasured.</para>
     /// </summary>
     public bool IsShareablePage =>
         !IsActionMenuColumn
@@ -5110,6 +5111,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para><b>It is on the METHOD, not on the key handler, so every caller inherits it</b> — the bare letter,
     /// <c>Ctrl</c>+letter, the Alt+M Share menu's two rows and the button-bar badges all route through these two
     /// methods. Gating the message on the key would have left the menu rows silent.</para>
+    ///
+    /// <para>🔴 <b>IT IS RAISED ON <see cref="Notice"/>, AND WRITING IT TO <see cref="Message"/> ALONE WAS THE
+    /// FIRST ATTEMPT'S DEFECT — MEASURED, NOT SUSPECTED.</b> A refusal on <see cref="Message"/> renders on NONE of
+    /// these 45 screens: the one shell-level <c>{Binding Message}</c> in <c>MainWindow.axaml</c> sits inside the
+    /// grid whose <c>IsVisible</c> is <see cref="IsMenuScreen"/>, and all 45 are cascade PAGE COLUMNS opened through
+    /// <c>OpenPageColumn</c> — so <see cref="IsMenuScreen"/> is false on 100% of the surface and the sentence
+    /// painted nowhere. Every other <c>{Binding Message}</c> in the window sits in a page <c>DataTemplate</c> and
+    /// binds THAT page's own <c>Message</c>, not this one. <see cref="Notice"/> is the window-level bar (declared
+    /// outside every template, <c>MainWindow.axaml</c> <c>Grid.Row="3"</c>, wrapping to four lines and never hidden
+    /// with the status bar) that <see cref="RaiseLifecycleNotice"/> was added for after the SAME trap swallowed the
+    /// Alt+X refusals. <see cref="Message"/> is still set alongside it, so the routes that DO render it keep
+    /// working; what changed is that the operator can now SEE the refusal.</para>
     /// </summary>
     private static string ShareChannelUnavailableMessage(string key, string channel) =>
         $"{key}: {channel} acts on an open REPORT or a drilled voucher, and this screen is neither. "
@@ -5123,8 +5136,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// byte-stable <c>.eml</c> (carrying the attachment), or a <c>mailto:</c> opens the OS mail client for a quick
     /// body — <b>nothing is sent</b>; no socket/SMTP path exists. A no-op unless a report or voucher-detail is on
     /// screen; re-pressing while the panel is open is a no-op (there is already a compose column).
-    /// 🔴 On a screen neither channel can act on it now sets <see cref="Message"/> rather than returning silently
-    /// — see <c>ShareChannelUnavailableMessage</c>.
+    /// 🔴 On a screen neither channel can act on it now raises a refusal on the window-level <see cref="Notice"/>
+    /// bar rather than returning silently — see <c>ShareChannelUnavailableMessage</c>.
     /// </summary>
     public void OpenEmailCompose()
     {
@@ -5137,9 +5150,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             panel = new EmailComposeViewModel(r);        // e-mail the open report
         else
         {
-            // 🔴 A REFUSAL, NOT A SILENT return. See ShareChannelUnavailableMessage for the measured defect and
-            // why the fix is here rather than on the key's guard.
-            Message = ShareChannelUnavailableMessage("M", "E-Mail");
+            // 🔴 A REFUSAL, NOT A SILENT return — on Notice, the WINDOW-LEVEL bar, because Message renders on none
+            // of these 45 screens. See ShareChannelUnavailableMessage for both measurements.
+            Notice = Message = ShareChannelUnavailableMessage("M", "E-Mail");
             return;
         }
 
@@ -5200,9 +5213,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             panel = new WhatsAppShareViewModel(r);       // share the open report
         else
         {
-            // 🔴 A REFUSAL, NOT A SILENT return — the same correction as OpenEmailCompose, stated once in
-            // ShareChannelUnavailableMessage so the two channels cannot come to answer differently.
-            Message = ShareChannelUnavailableMessage("W", "WhatsApp");
+            // 🔴 A REFUSAL, NOT A SILENT return — the same correction as OpenEmailCompose, on the same window-level
+            // channel, stated once in ShareChannelUnavailableMessage so the two cannot come to answer differently.
+            Notice = Message = ShareChannelUnavailableMessage("W", "WhatsApp");
             return;
         }
 
@@ -8836,9 +8849,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation. Set only by the
-    /// Phase 10.11 lifecycle verbs — S3 cancel and S4 delete (see <see cref="RaiseLifecycleNotice"/>) — and cleared
-    /// on any change of screen, because a notice belongs to the screen it was raised on.
+    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation, and cleared on any
+    /// change of screen because a notice belongs to the screen it was raised on. Raised by the Phase 10.11 lifecycle
+    /// verbs — S3 cancel and S4 delete (<see cref="RaiseLifecycleNotice"/>) — by the cheque-status / CST-form routes
+    /// above, and by the two share-channel refusals (<c>ShareChannelUnavailableMessage</c>): every one of them
+    /// speaks from a screen that cannot render <see cref="Message"/>, which is the whole reason this bar exists.
     /// </summary>
     [ObservableProperty] private string _notice = string.Empty;
 

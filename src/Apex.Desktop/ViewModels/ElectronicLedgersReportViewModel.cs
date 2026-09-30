@@ -166,17 +166,13 @@ public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase, IM
     /// the liability be discharged from credit, or is cash needed — cannot be answered from any one of them.
     /// They share one widened column set with a section label rather than being exported separately.</para>
     ///
-    /// <para>🔴 <b>A paragraph claiming an UNREADABLE-CASH-CELL GUARD was DELETED from here, not softened.</b> It
-    /// said the cash rows fall back to a placeholder constant when a cell cannot be read, and that the placeholder
-    /// rides through the <c>Closing / Balance</c> column unchanged. Both halves were false OF THIS CLASS. That
-    /// mechanism belongs to <see cref="Drc03PaymentViewModel"/>, which owns the constant, the reader seam and a
-    /// read-failure flag; this view model owns none of the three — it reads
+    /// <para>🔴 <b>THIS CLASS HAS NO UNREADABLE-CASH-CELL GUARD, and a paragraph here once said it did.</b> That
+    /// paragraph is gone: it described a placeholder constant, a reader seam and a read-failure flag that belong to
+    /// <see cref="Drc03PaymentViewModel"/> and to none of this file. This view model reads
     /// <see cref="ElectronicLedgersView.CashCells"/>, whose every value is a <see cref="Money"/> that
-    /// <c>IndianFormat.AmountAlways</c> always formats, so <b>there is no failure path here to describe</b>, and
-    /// the placeholder appeared nowhere in this file except inside that comment. The deletion is recorded rather
-    /// than done silently because a confident false comment is the mechanism that carried two defects of this wave
-    /// past review: a reader who trusted it would have believed a guard existed here. <c>FalseDocCommentTests</c>
-    /// now fails any view model that names that constant without owning the machinery.</para>
+    /// <c>IndianFormat.AmountAlways</c> always formats, so there is no failure path here to describe.
+    /// <c>FalseDocCommentTests</c> now fails any view model that names that constant without owning the
+    /// machinery.</para>
     /// </summary>
     public MasterListSnapshot ToMasterListSnapshot()
     {

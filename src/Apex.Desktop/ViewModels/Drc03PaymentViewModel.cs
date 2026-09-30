@@ -493,31 +493,35 @@ public sealed partial class Drc03PaymentViewModel : ViewModelBase, IMasterListEx
         if (Filed.Count == 0)
             rows.Add(Section("No DRC-03 payment has been filed for this company."));
 
-        // 🔴 THE CASH FOOTING IS LABEL-COLUMN PROSE, NOT GRID CELLS, AND THAT IS THE WHOLE POINT.
-        // This footing used to emit ONE row carrying the four head balances positionally —
-        // CGST/SGST/IGST/Cess under the captions Tax / Interest / Total / Demand Ref. Every caption lied about
-        // its cell, and the Cess balance landed in a TEXT column so it was not even a number. The measured harm
-        // was not cosmetic: an operator who sums the "Total" column got the filed totals PLUS the available IGST
-        // cash balance, i.e. a wrong figure in a document about a statutory payment. A caption that lies about
-        // its column is worse than a blank one, because it is believable.
+        // 🔴 THE TAX-HEAD CASH BALANCES ARE DELIBERATELY NOT IN THIS TABLE. THAT IS THE REMEDY, NOT AN OMISSION.
+        // This footing used to emit ONE row carrying the four head balances positionally — CGST / SGST / IGST /
+        // Cess under the captions Tax / Interest / Total / Demand Ref. Every caption lied about its cell, the Cess
+        // balance landed in a Text column so it was not even a number, and an operator who summed the exported
+        // "Total" column got the filed total PLUS the available IGST cash: a wrong figure in a document about a
+        // statutory payment.
         //
-        // These balances are ELECTRONIC CASH LEDGER balances, not DRC-03 amounts: they belong to a different
-        // dimension than the grid's Tax / Interest / Total, so no head of theirs has an honest column here.
-        // Writing each one into the LABEL column, head named beside its figure, means (a) every figure is
-        // head-labelled and unmistakable, and (b) NOTHING lands in a numeric column, so Tax / Interest / Total
-        // still sum to exactly the filed figures and nothing else.
+        // 🔴 THE OBVIOUS REPAIR — move each figure into this LABEL column, head named beside it — IS WORSE, and was
+        // MEASURED through the production renderer rather than argued: the label column is clipped by
+        // PdfWriter.FitToWidth (ReportPdf.DrawRowCells), and at the shipped A4-portrait default (36pt margins, 9pt
+        // body, label weight 2.4 of 7.4 in ExportViewModel.TabularToPrint) the SGST/UTGST row cut any balance of
+        // ₹1,00,000.00 or more MID-NUMBER in the printed and PDF artefact, where the positional shape printed it
+        // whole. A money figure cut mid-number is worse than a mislabelled one: it is unreadable AND believable.
         //
-        // The label column is also the only place the unreadable-cell signal survives. A cash cell that could
-        // not be read reads the constant "not read" (<see cref="CashUnreadable"/>); the projector recovers a
-        // decimal only from a parseable cell and emits TabularCell.Empty otherwise, so in a NUMBER column that
-        // warning exported as a BLANK — losing the one signal that the figure is not a real balance. In this
-        // Text column it rides across verbatim.
-        rows.Add(Section("Available cash balance at the time of this export — Electronic Cash Ledger balances, "
-                       + "NOT DRC-03 amounts, and deliberately outside the Tax / Interest / Total columns."));
-        rows.Add(Section($"Available cash — CGST {AvailableCgstText}"));
-        rows.Add(Section($"Available cash — SGST/UTGST {AvailableSgstText}"));
-        rows.Add(Section($"Available cash — IGST {AvailableIgstText}"));
-        rows.Add(Section($"Available cash — Cess {AvailableCessText}"));
+        // 🔴 NOR A COLUMN OF THEIR OWN, WHICH WOULD OTHERWISE BE THE HONEST SHAPE — THE WIDTH MATH REFUSES IT. A
+        // MasterListSnapshot carries ONE column set for every row, so a per-head cash amount column would be a
+        // SEVENTH column on the filed register too. 523.28pt of A4-portrait body width over weights 2.4 + 6x1.0
+        // gives a number column of 62.3pt, inner width 58.3pt after the 2pt cell padding — while the widest figure
+        // a money column must hold, 999999999.00 at 9pt Helvetica, measures 64.0pt. It would clip the FILED
+        // figures: the same defect one column over. At six columns the inner width is 66.7pt and that figure draws
+        // whole, which is what the print test asserts.
+        //
+        // So the balances stay where they cannot be clipped or mis-captioned — the SCREEN, which shows all five
+        // cash cells — and the artefact says so in ONE SHORT line (short deliberately: the label column draws about
+        // 36 characters at this config, so anything longer would itself be cut). Nothing numeric is lost, because
+        // an Electronic Cash Ledger balance is not a DRC-03 figure; and the register's Tax / Interest / Total now
+        // foot to the filed payments and nothing else. The read-failure banner below is untouched: when a cash cell
+        // could not be read, the artefact still says so.
+        rows.Add(Section("Available cash: on screen only."));
         if (CashReadFailed && !string.IsNullOrWhiteSpace(CashReadErrorText))
             rows.Add(Section(CashReadErrorText));
 

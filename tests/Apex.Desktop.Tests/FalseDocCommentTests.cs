@@ -100,40 +100,51 @@ public sealed class FalseDocCommentTests
     /// CONTAINS the closing tag, wherever on the line it falls, and that mutation is killed. A scanner that cannot
     /// see the defect it was written for is worse than none, because it reads as coverage.</para>
     ///
-    /// <para><b>The allow-list is DEBT, recorded rather than hidden.</b> <b>18</b> sites of this exact shape
-    /// already existed on <c>main</c> at 284f588 — the corrected detector finds six more than the first draft did,
-    /// across eight files and all three test projects. Re-homing eighteen doc comments is real work with a real
-    /// risk of attaching the wrong prose to the wrong member, and it is outside this remediation's named findings —
-    /// so it is REPORTED as a follow-up and listed here. What the allow-list buys is that no NINETEENTH site can
-    /// appear. Removing an entry is always correct; adding one needs a reason.</para>
+    /// <para><b>The baseline is DEBT, recorded rather than hidden.</b> <b>19</b> sites of this exact shape exist on
+    /// <c>main</c> at 937989e across thirteen files and all three test projects — one of them being F8 itself, which
+    /// this remediation fixed, leaving eighteen. Re-homing eighteen doc comments is real work with a real risk of
+    /// attaching the wrong prose to the wrong member, and it is outside this remediation's named findings — so it is
+    /// REPORTED as a follow-up and recorded here. What the baseline buys is that no NINETEENTH site can appear.
+    /// Lowering a count is always correct; raising one needs a reason.</para>
+    ///
+    /// <para>🔴 <b>AND IT IS KEYED BY FILE AND COUNT, NOT BY LINE NUMBER — that correction is itself a measured
+    /// finding.</b> A line-keyed allow-list in files that sixty-seven live worktrees edit goes red at merge time for
+    /// reasons unrelated to any defect, and its cheapest repair is to renumber the guard. See the comment on the
+    /// baseline for the two measurements that condemned the line-keyed shape.</para>
     /// </summary>
     [Fact]
     public void No_new_doc_comment_is_orphaned_from_its_member_by_a_doubled_summary()
     {
-        // Pre-existing on main at 284f588, outside this remediation's findings. See the remarks: this is debt.
-        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        // 🔴 KEYED BY FILE AND COUNT — NEVER BY LINE NUMBER. The first draft of this allow-list held eighteen
+        // "file:line" keys, and two measurements condemned that shape. (a) Sixty-seven worktrees are live and
+        // MainWindowViewModel.cs (13,600+ lines) is edited by nearly every one: inserting ONE comment line above
+        // the first late site turned this test red naming four sites that are not defects, and the cheapest repair
+        // was to renumber the guard — i.e. the shape TRAINED the next agent to edit the test. (b) The keys were the
+        // remediation branch's line numbers while their comment cited main's SHA; the same four sites sit at
+        // 6316 / 6459 / 6492 / 8795 on main, so a reader verifying the claim against main found none of them.
+        // A per-file BASELINE COUNT survives every line shift, still reddens on a NINETEENTH site, and lets a
+        // re-homed doc comment lower a count freely. Measured with this detector against origin/main at 937989e:
+        // main carries NINETEEN sites across thirteen files; the nineteenth is the F8 defect itself
+        // (ItcSetOffReportViewModel.cs), which this remediation fixed — so that file's baseline is ZERO and a
+        // re-introduction of F8 reddens here, which is the mutation this scanner exists to kill.
+        var baseline = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            "src/Apex.Desktop/ViewModels/GatewayColumn.cs:488",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:2190",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:2497",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:6370",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:6513",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:6546",
-            "src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:8849",
-            "src/Apex.Desktop/ViewModels/PosBillingViewModel.cs:724",
-            "src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:4699",
-            "src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:6550",
-            "src/Apex.Desktop/ViewModels/VoucherTypeMasterViewModel.cs:15",
-            "src/Apex.Ledger/Services/GroupService.cs:32",
-            "src/Apex.Ledger/Services/InventoryPostingService.cs:297",
-            "src/Apex.Ledger/Services/LedgerService.cs:516",
-            "tests/Apex.Ledger.Tests/CompanyImportRoundTripTests.cs:669",
-            "tests/Apex.Ledger.Tests/MasterVerbsW29DeletionGuardTests.cs:367",
-            "tests/Apex.Ledger.Tests/PayrollStatutoryFormsTests.cs:758",
-            "tests/Apex.Persistence.Sqlite.Tests/GstSetOffSchemaTests.cs:272",
+            ["src/Apex.Desktop/ViewModels/GatewayColumn.cs"] = 1,
+            ["src/Apex.Desktop/ViewModels/MainWindowViewModel.cs"] = 6,
+            ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 1,
+            ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 2,
+            ["src/Apex.Desktop/ViewModels/VoucherTypeMasterViewModel.cs"] = 1,
+            ["src/Apex.Ledger/Services/GroupService.cs"] = 1,
+            ["src/Apex.Ledger/Services/InventoryPostingService.cs"] = 1,
+            ["src/Apex.Ledger/Services/LedgerService.cs"] = 1,
+            ["tests/Apex.Ledger.Tests/CompanyImportRoundTripTests.cs"] = 1,
+            ["tests/Apex.Ledger.Tests/MasterVerbsW29DeletionGuardTests.cs"] = 1,
+            ["tests/Apex.Ledger.Tests/PayrollStatutoryFormsTests.cs"] = 1,
+            ["tests/Apex.Persistence.Sqlite.Tests/GstSetOffSchemaTests.cs"] = 1,
         };
 
         string root = RepoRoot();
+        var found = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var offenders = new List<string>();
 
         foreach (string area in new[] { "src", "tests" })
@@ -153,10 +164,19 @@ public sealed class FalseDocCommentTests
                     if (!OpensSummary(lines[i])) continue;
                     if (!ClosesSummary(lines[i - 1])) continue;
 
-                    string site = $"{rel}:{i + 1}";      // 1-indexed, naming the ORPHANING <summary> line
-                    if (!allowed.Contains(site)) offenders.Add(site);
+                    // 1-indexed, naming the ORPHANING <summary> line. The line number is REPORTED (a reader needs
+                    // it) but never COMPARED — the comparison is the per-file count.
+                    if (!found.TryGetValue(rel, out var sites)) found[rel] = sites = new List<string>();
+                    sites.Add($"{rel}:{i + 1}");
                 }
             }
+        }
+
+        foreach (var (rel, sites) in found)
+        {
+            baseline.TryGetValue(rel, out int allowedCount);
+            if (sites.Count > allowedCount)
+                offenders.Add($"{rel}: {sites.Count} sites, baseline {allowedCount} — {string.Join(", ", sites)}");
         }
 
         Assert.True(offenders.Count == 0,

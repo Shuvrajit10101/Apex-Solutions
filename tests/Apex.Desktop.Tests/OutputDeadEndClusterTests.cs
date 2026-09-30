@@ -10,6 +10,12 @@ using Apex.Ledger.Io;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
+using Apex.Desktop.Views;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Xunit;
 
 using DomainLedger = Apex.Ledger.Domain.Ledger;
@@ -373,20 +379,111 @@ public sealed class OutputDeadEndClusterTests : IDisposable
         Assert.Equal(0m, SumColumn(csv, interest));
         Assert.Equal(filedTotal, SumColumn(csv, total));
 
-        // And the balances are still IN the document — head-labelled in the label column, not dropped to fix the sum.
-        string labels = string.Join("\n", csv.Skip(1).Where(r => r.Count > 0).Select(r => r[0]));
-        Assert.Contains("Available cash — CGST", labels, StringComparison.Ordinal);
-        Assert.Contains("Available cash — SGST/UTGST", labels, StringComparison.Ordinal);
-        Assert.Contains("Available cash — IGST", labels, StringComparison.Ordinal);
-        Assert.Contains("Available cash — Cess", labels, StringComparison.Ordinal);
-
-        // Each label carries its own figure beside its head: IGST drew 1,000 of its 4,000, the rest are untouched.
-        Assert.Contains(csv, r => r.Count > 0 && r[0] == "Available cash — IGST 3,000.00");
-        Assert.Contains(csv, r => r.Count > 0 && r[0] == "Available cash — CGST 4,000.00");
-
         // 🔴 The old row itself must be gone, not merely supplemented — an unlabelled "Available cash" row is the
-        // defect. This is the assertion that reddens if the positional row is restored beside the new ones.
+        // defect. This is the assertion that reddens if the positional row is restored beside the pointer line.
         Assert.DoesNotContain(csv, r => r.Count > 0 && r[0] == "Available cash");
+
+        // 🔴 AND NO CASH FIGURE MAY RIDE IN THE LABEL COLUMN EITHER. The second attempt at this fix moved the four
+        // balances there, head named beside each, and the PRINTED artefact then cut the SGST/UTGST balance
+        // mid-number from ₹1,00,000.00 upward (the sibling print test measures that). So the rule this asserts is
+        // stronger than "not in a money column": no cash label carries a figure at all. The balances stay on the
+        // screen, which shows all five cells and cannot clip them, and the artefact says exactly that.
+        var labels = csv.Skip(1).Where(r => r.Count > 0).Select(r => r[0]).ToList();
+        Assert.Contains("Available cash: on screen only.", labels);
+        Assert.DoesNotContain(labels, l =>
+            l.StartsWith("Available cash", StringComparison.Ordinal) && l.Any(char.IsDigit));
+
+        // The screen still knows the balances — this test removes them from the ARTEFACT, not from the app.
+        var screen = Assert.IsType<Drc03PaymentViewModel>(vm.Columns[^1].Page);
+        Assert.Equal("3,000.00", screen.AvailableIgstText);
+        Assert.Equal("4,000.00", screen.AvailableCgstText);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F1, the half the CSV cannot see: THE PRINTED ARTEFACT CUTS NO MONEY FIGURE, AND HOLDS THE WIDEST ONE
+    /// WHOLE.</b>
+    ///
+    /// <para><b>Why this test exists at all.</b> The first attempt at F1 cured the lying caption by moving the four
+    /// cash balances into the LABEL column — and produced something worse: the label column is clipped by
+    /// <c>PdfWriter.FitToWidth</c>, so at the shipped A4-portrait default the SGST/UTGST balance was cut
+    /// <b>mid-number</b> from ₹1,00,000.00 upward in the printed and PDF document, where the shape it replaced
+    /// printed whole. The test that shipped with that attempt read only the CSV and could not see it. This one
+    /// drives <b>P</b> on the real window and reads the bytes the production renderer emitted.</para>
+    ///
+    /// <para><b>The two assertions, and the arithmetic behind the second.</b> (a) No drawn string that names the
+    /// cash footing ends in an ellipsis — the exact signature of a clipped cell — so no balance can be cut
+    /// mid-number, whatever the figures are. (b) The widest figure a money column of this register must ever hold,
+    /// <c>999999999.00</c> (₹99,99,99,999.00 as the invariant number a spreadsheet gets), is drawn COMPLETE: at six
+    /// columns the number column is 523.28 ÷ 7.4 = 70.7pt wide, 66.7pt inside its 2pt padding, and that figure
+    /// measures 64.0pt at 9pt Helvetica. A seventh column — the shape that would have given the cash heads honest
+    /// captions of their own — takes the inner width to 58.3pt and would clip the FILED figures instead, which is
+    /// why the remedy keeps six columns and states the balances on the screen only.</para>
+    /// </summary>
+    [Fact]
+    public void Row_6_20_the_printed_drc03_register_cuts_no_money_figure_and_holds_the_widest_one_whole()
+    {
+        var vm = NewRegularGstCompany("Drc03 Print Width Co");
+        var c = vm.Company!;
+        var bank = Add(c, "Bank", "Bank Accounts", true);
+        var deposit = new GstDepositService(c);
+
+        // The balance that the withheld shape cut mid-number: ₹1,00,000.00 of SGST/UTGST cash, the exact threshold.
+        deposit.PostPmt06(GstTaxHead.State, GstMinorHead.Tax, Money.FromRupees(100_000m), bank,
+            new DateOnly(2024, 4, 10), cpin: "2404070001", cin: "BANKR2404070001");
+
+        // The widest figure the money columns must hold: ₹99,99,99,999.00, bank-funded so no cash cell caps it.
+        deposit.PostDrc03(
+            cause: Drc03CauseOption.All[9].Text, period: "04-2024", date: new DateOnly(2024, 4, 20),
+            cgstPaisa: 99_999_999_900, sgstPaisa: 0, igstPaisa: 0, cessPaisa: 0, interestPaisa: 0,
+            method: GstDepositService.PaymentMethod.Bank, bank: bank);
+
+        _storage.Save(c);
+        vm.ShowGateway();
+        vm.OpenDrc03Payment();
+
+        var page = Assert.IsType<Drc03PaymentViewModel>(vm.Columns[^1].Page);
+        Assert.Equal("1,00,000.00", page.AvailableSgstText);          // the screen shows the whole balance …
+        Assert.Equal("99,99,99,999.00", page.Filed[0].Total);          // … and the register the whole filed total.
+
+        vm.OpenPrintPreview();
+        Assert.NotNull(vm.PrintPreview);
+        var drawn = DrawnStrings(vm.PrintPreview!.PdfBytes);
+
+        // (a) Nothing about the cash footing is clipped — and a clipped cell is exactly a drawn string ending "...".
+        Assert.DoesNotContain(drawn, s =>
+            s.Contains("Available cash", StringComparison.Ordinal) && s.EndsWith("...", StringComparison.Ordinal));
+
+        // (b) The widest money figure reached the page in one piece. Under the withheld shape the SGST/UTGST cash
+        // drew as "Available cash - SGST/UTGST 1,00,00..." — a money figure cut mid-number.
+        Assert.Contains(drawn, s => s.Contains("999999999.00", StringComparison.Ordinal));
+        Assert.DoesNotContain(drawn, s => s.Contains("1,00,00", StringComparison.Ordinal));
+
+        // (c) And the line that REPLACED the figures is itself drawn whole — 31 characters against the label
+        // column's ~36, checked here rather than assumed, because "it fits" is exactly what the last attempt assumed.
+        Assert.Contains("Available cash: on screen only.", drawn);
+    }
+
+    /// <summary>
+    /// The strings a PDF actually DREW, in order: <c>Apex.Ledger.Io</c> writes uncompressed content streams (no
+    /// <c>FlateDecode</c> anywhere in the project), so each <c>Tj</c> operand is the literal text of one cell —
+    /// already passed through <c>FitToWidth</c>. Asserting on these is asserting on the rendered artefact rather
+    /// than on the model that fed it, which is the only level at which a clipped cell is visible.
+    /// </summary>
+    private static List<string> DrawnStrings(byte[] pdf)
+    {
+        string text = Encoding.Latin1.GetString(pdf);
+        var drawn = new List<string>();
+        int i = 0;
+        while (true)
+        {
+            int close = text.IndexOf(") Tj", i, StringComparison.Ordinal);
+            if (close < 0) break;
+            int open = text.LastIndexOf('(', close);
+            if (open < 0) break;
+            drawn.Add(text.Substring(open + 1, close - open - 1).Replace("\\", string.Empty));
+            i = close + 4;
+        }
+        return drawn;
     }
 
     /// <summary>
@@ -422,6 +519,15 @@ public sealed class OutputDeadEndClusterTests : IDisposable
     /// <c>IsPrintablePage</c>, had already set <c>e.Handled = true</c>. On the DRC-03 panel an operator pressed M
     /// and got no panel, no refusal and no status line.</para>
     ///
+    /// <para>🔴 <b>IT ASSERTS <c>Notice</c>, AND THE FIRST VERSION OF THIS TEST ASSERTED <c>Message</c> — WHICH IS
+    /// WHY IT IS WORTH SPELLING OUT.</b> A refusal on <c>Message</c> renders on NONE of these 45 screens: the only
+    /// shell-level <c>{Binding Message}</c> sits in a grid gated on <c>IsMenuScreen</c>, which is false on every
+    /// cascade page column, and every other one binds a PAGE's own <c>Message</c>. So the first version certified a
+    /// refusal the operator could not see, and — worse — it REDDENED if you moved to the channel that works. The
+    /// window-level bar is <c>Notice</c>. The assertion is therefore on <c>Notice</c>, with <c>Message</c> checked
+    /// alongside because the routes that do render it must keep working. A test that rejects the correct fix is
+    /// worse than no test.</para>
+    ///
     /// <para><b>What this test deliberately does NOT assert.</b> It does not assert that the key falls through or
     /// that <c>IsPrintablePage</c> changed. Re-gating the bare arms onto <c>IsShareablePage</c> was REFUSED as
     /// unmeasured across the 45 screens that implement <see cref="IMasterListExportSource"/> — it would change
@@ -438,17 +544,84 @@ public sealed class OutputDeadEndClusterTests : IDisposable
         Assert.True(vm.IsPrintablePage);
         Assert.False(vm.IsShareablePage);
 
+        // 🔴 And the precondition that makes Message useless here: this is a cascade page column, so the one
+        // shell-level {Binding Message} is switched off. The refusal MUST come out on the window-level bar.
+        Assert.False(vm.IsMenuScreen);
+
+        vm.Notice = string.Empty;
         vm.Message = null;
         vm.OpenEmailCompose();
-        Assert.Null(vm.EmailCompose);                    // still no panel — that half is unchanged …
-        Assert.False(string.IsNullOrWhiteSpace(vm.Message));  // … but it is no longer SILENT.
-        Assert.Contains("E-Mail", vm.Message!, StringComparison.Ordinal);
+        Assert.Null(vm.EmailCompose);                        // still no panel — that half is unchanged …
+        Assert.False(string.IsNullOrWhiteSpace(vm.Notice));  // … but it is no longer SILENT, on the bar that paints.
+        Assert.Contains("E-Mail", vm.Notice, StringComparison.Ordinal);
+        Assert.Equal(vm.Notice, vm.Message);                 // the routes that do render Message still get it.
 
+        vm.Notice = string.Empty;
         vm.Message = null;
         vm.OpenWhatsAppShare();
         Assert.Null(vm.WhatsAppShare);
-        Assert.False(string.IsNullOrWhiteSpace(vm.Message));
-        Assert.Contains("WhatsApp", vm.Message!, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(vm.Notice));
+        Assert.Contains("WhatsApp", vm.Notice, StringComparison.Ordinal);
+        Assert.Equal(vm.Notice, vm.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F4, ASSERTED ON THE REALISED WINDOW: the refusal is a string an operator can actually READ.</b>
+    ///
+    /// <para><b>Why a headless window and not a property.</b> The previous attempt set the refusal on
+    /// <c>Message</c>, whose only shell-level binding is switched off on every cascade page column, and pinned it
+    /// with a property assertion that passed while the operator still got silence. A property assertion cannot tell
+    /// the two channels apart; a realised window can. This test opens the real <c>MainWindow</c>, walks to the
+    /// DRC-03 panel, presses the share route, lays the window out, and requires that SOME effectively-visible
+    /// <c>TextBlock</c> with non-zero bounds is showing the refusal sentence. Under the withheld shape — the
+    /// refusal on <c>Message</c> alone — no such control exists and this reddens.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Row_6_20_the_share_refusal_is_painted_on_the_realised_window_not_merely_assigned()
+    {
+        var vm = NewRegularGstCompany("Drc03 Painted Refusal Co");
+        var window = new MainWindow { DataContext = vm, Width = 1280, Height = 720 };
+        try
+        {
+            window.Show();
+            vm.OpenDrc03Payment();
+            Pump(window);
+
+            vm.OpenEmailCompose();
+            Pump(window);
+
+            // The sentence, taken from the production builder's own words rather than restated here.
+            Assert.Contains("acts on an open REPORT", vm.Notice, StringComparison.Ordinal);
+
+            var painted = Descendants(window)
+                .OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible && t.Bounds.Width > 0 && t.Bounds.Height > 0)
+                .Select(t => t.Text ?? string.Empty)
+                .ToList();
+
+            Assert.Contains(painted, s => s.Contains("acts on an open REPORT", StringComparison.Ordinal)
+                                          && s.Contains("E-Mail", StringComparison.Ordinal));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void Pump(MainWindow window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static IEnumerable<Visual> Descendants(Visual v)
+    {
+        foreach (var c in v.GetVisualChildren())
+        {
+            yield return c;
+            foreach (var g in Descendants(c)) yield return g;
+        }
     }
 
     private static List<List<string>> ParseCsv(byte[] bytes)
