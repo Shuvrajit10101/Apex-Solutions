@@ -13,8 +13,17 @@ public enum RatioUnit
     Days,
 }
 
-/// <summary>One <b>Principal Group</b> figure (left column of the reference product's Ratio Analysis): a label and a Money amount.</summary>
-public sealed record PrincipalGroupLine(string Label, Money Value);
+/// <summary>
+/// One <b>Principal Group</b> figure (left column of the reference product's Ratio Analysis): a label and a
+/// Money amount.
+/// <para>🔴 <paramref name="UnavailableReason"/> carries user ruling 27 onto a MONEY row. A non-null reason means
+/// the amount is <b>not a measurement of this book</b> and a UI must render the reason in place of the figure.
+/// <see cref="Value"/> is deliberately left as the engine computed it (so the member still reconciles with the
+/// projection it came from); it is the RENDERED cell that changes. Without this, "Sundry Debtors (due till
+/// today)" published a flat <c>0.00</c> on any book whose party money no bill accounts for — a nil-misread
+/// beside a Balance Sheet showing the money, which is exactly what the caption qualifier alone could not fix.</para>
+/// </summary>
+public sealed record PrincipalGroupLine(string Label, Money Value, string? UnavailableReason = null);
 
 /// <summary>
 /// One <b>Principal Ratio</b> (right column of the reference product's Ratio Analysis): a label, a nullable value
@@ -65,8 +74,16 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// shape the bill-wise numerator is 0, and "0 days" would state as fact that customers pay instantly while the
 /// Balance Sheet on the same report shows real debtors. The two reasons render as the two different sentences in
 /// <see cref="ReceivablesNoBillWiseDetails"/> / <see cref="ReceivablesNoBillsDueYet"/>.</para>
+/// <para>🔴 <b>WITHHOLDING APPLIES TO ALL THREE PUBLISHED FIGURES, NOT ONLY THE RATIO (user ruling 27).</b> The
+/// two Principal-Group money rows — <b>Sundry Debtors (due till today)</b> and <b>Sundry Creditors (due till
+/// today)</b> — carry the same marker via <see cref="PrincipalGroupLine.UnavailableReason"/> whenever their own
+/// side's money is not accounted for by bills. They previously published a flat <c>0.00</c> on such a book,
+/// beside a Balance Sheet showing the balance, and the "(due till today)" caption did not rescue it: a reader
+/// takes <c>0.00</c> for a measured zero. Each side is measured independently, and a genuinely covered book
+/// with nothing yet due still publishes its honest <c>0.00</c>.</para>
 /// <para>🔴 <b>AND THIS IS A DELIBERATE DIVERGENCE FROM THE REFERENCE PRODUCT, LABELLED AS OURS (R7) — NOT a
-/// vendor-verified behaviour.</b> Because <c>MaintainBillByBill</c> defaults to <c>false</c>, withholding applies
+/// vendor-verified behaviour.</b> That label covers all three figures. Because <c>MaintainBillByBill</c>
+/// defaults to <c>false</c>, withholding applies
 /// on the MAJORITY of books, both study fixtures among them, where the vendor — by the only formula its page
 /// actually states ("the balance outstanding in relation to the total sales made, multiplied by the total number
 /// of days in the period") — would render a NUMBER computed from the outstanding balance. We withhold instead
@@ -112,7 +129,10 @@ public sealed record RatioAnalysis(
     /// they are deliberately DIFFERENT sentences: an operator must be able to tell "this book records no bills"
     /// from "the bills exist but none is due yet", and both from the bare "N/A" of a zero denominator.
     /// </summary>
-    public const string ReceivablesNoBillWiseDetails = "N/A — no bill-wise details";
+    public const string NoBillWiseDetails = "N/A — no bill-wise details";
+
+    /// <inheritdoc cref="NoBillWiseDetails"/>
+    public const string ReceivablesNoBillWiseDetails = NoBillWiseDetails;
 
     /// <inheritdoc cref="ReceivablesNoBillWiseDetails"/>
     public const string ReceivablesNoBillsDueYet = "N/A — no bills due yet";
@@ -240,6 +260,15 @@ public sealed record RatioAnalysis(
         var debtorsNotCoveredByBills = Outstandings.ClosingNotCoveredByBills(
             company, asOf, "Sundry Debtors", basisScenario).Amount;
 
+        // 🔴 THE SAME MEASURE ON THE PAYABLES SIDE — RULING 27 COVERS ALL THREE PUBLISHED FIGURES, NOT ONLY THE
+        // RATIO. The two Principal-Group rows are money rows, and on a book whose party money no bill accounts
+        // for they published a flat 0.00 while the Balance Sheet on the same report showed the balance. The
+        // "(due till today)" caption does not rescue that: a reader takes 0.00 for a measured zero. Each side is
+        // measured in its OWN right — a book can be bill-wise on debtors and blind on creditors — so the
+        // creditors row cannot ride on the debtors measure.
+        var creditorsNotCoveredByBills = Outstandings.ClosingNotCoveredByBills(
+            company, asOf, "Sundry Creditors", basisScenario).Amount;
+
         var sales = SalesOf(company, asOf, options);  // net turnover: ledgers under the Sales Accounts primary
         var grossProfit = pl.GrossProfit.Amount;
         var netProfit = pl.NetProfit.Amount;
@@ -294,8 +323,17 @@ public sealed record RatioAnalysis(
             // 🔴 The vendor's own captions carry the qualifier, and the qualifier is the whole of T0-27: a bare
             // "Sundry Debtors" invites the reader to reconcile it against the Balance Sheet, which is precisely
             // what it must NOT equal. The label states the basis so the two figures can differ in plain sight.
-            new("Sundry Debtors (due till today)", new Money(sundryDebtorsDueTillToday)),
-            new("Sundry Creditors (due till today)", new Money(sundryCreditorsDueTillToday)),
+            //
+            // 🔴 AND THE FIGURE IS WITHHELD (ruling 27) WHEN THE BILLS CANNOT ACCOUNT FOR THAT SIDE'S MONEY.
+            // The condition is the coverage measure, NOT "the amount is zero": a fully bill-covered book whose
+            // invoices are all inside their credit period has a due-till-today of exactly 0, and that 0 is TRUE
+            // — nothing is due today — so it must keep publishing. Only unaccounted-for money makes the figure
+            // a non-measurement, and that is the same test the ratio cell above guards on, so the three figures
+            // now agree about what this book can and cannot answer.
+            new("Sundry Debtors (due till today)", new Money(sundryDebtorsDueTillToday),
+                debtorsNotCoveredByBills != 0m ? NoBillWiseDetails : null),
+            new("Sundry Creditors (due till today)", new Money(sundryCreditorsDueTillToday),
+                creditorsNotCoveredByBills != 0m ? NoBillWiseDetails : null),
             new("Stock-in-Hand", new Money(inventory)),
             new("Sales Accounts", new Money(sales)),
             new("Capital Account", new Money(capitalAccount)),

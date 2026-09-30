@@ -798,8 +798,28 @@
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
-                                                <!-- Single-amount mode: Amount occupies column 2 alone -->
-                                                <TextBlock Grid.Column="2" Text="{Binding Amount}"
+                                                <!-- Single-amount mode: Amount SPANS the Debit + Credit tracks.
+                                                     🔴 THE SPAN IS LOAD-BEARING, NOT COSMETIC. numCell is
+                                                     right-aligned with NO TextTrimming and NO TextWrapping —
+                                                     correct for money, which always fits 150px. But this cell
+                                                     also carries the Ratio-Analysis withheld markers (user
+                                                     ruling 27), e.g. "N/A - no bill-wise details", which is a
+                                                     SENTENCE and does not fit. With no trimming, a right-
+                                                     aligned overflow starts at a NEGATIVE x inside its cell and
+                                                     paints leftward over Particulars — the same C1 financial
+                                                     misread documented above, arriving from the amount side.
+                                                     In single-amount mode the Debit track is EMPTY (both Dr/Cr
+                                                     cells are IsVisible=False), so spanning it costs nothing and
+                                                     gives the sentence ~300px. Right alignment plus the 8px
+                                                     numCell margin keep the RIGHT edge exactly where it was, so
+                                                     every numeric amount on every accounting report is
+                                                     unmoved and still lines up under the "Amount" header.
+                                                     Locked by
+                                                     Ratio_analysis_withheld_marker_fits_its_own_amount_cell,
+                                                     which asserts both halves. Do NOT "tidy" this back to a
+                                                     single column, and do NOT add TextTrimming instead: an
+                                                     ellipsised marker is forbidden by the emitted-PDF test. -->
+                                                <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Amount}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding !IsTwoColumn}"
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"

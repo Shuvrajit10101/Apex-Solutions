@@ -175,6 +175,19 @@ public class StatementReportsTests
         // Debt/Equity = Loans ÷ (Capital + Nett Profit); Bright has no loans → 0 / 149,000 = 0.
         Assert.Equal(0m, ra.DebtEquityRatio!.Value);
 
+        // 🔴 RULING 27 ON BOTH PRINCIPAL-GROUP ROWS, ON A STUDY FIXTURE. Bright has 35,000 of debtors AND
+        // 35,000 of creditors that no bill accounts for (asserted above / below), so the two "(due till today)"
+        // figures are 0 for want of bills, not because nothing is due — and a rendered "0.00" on either row is
+        // the same nil-misread the ratio cell was fixed for. Both rows therefore carry the marker. This is the
+        // half of ruling 27 that reached only the ratio cell on the first pass.
+        var brightDebtors = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
+        var brightCreditors = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Creditors (due till today)");
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, brightDebtors.UnavailableReason);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, brightCreditors.UnavailableReason);
+        // The creditors side is measured in its own right — a debtors-only remedy would leave this at zero.
+        Assert.Equal(Money.FromRupees(35000m),
+            Outstandings.ClosingNotCoveredByBills(f.Company, f.AsOf, "Sundry Creditors"));
+
         // The two render-ready columns are populated and label-complete.
         Assert.Contains(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
         Assert.Contains(ra.PrincipalRatios, r => r.Label == "Working Capital Turnover" && r.Unit == RatioUnit.Ratio);
@@ -355,6 +368,11 @@ public class StatementReportsTests
         var creditorLine = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Creditors (due till today)");
         Assert.Equal(Money.FromRupees(85000m), debtorLine.Value);
         Assert.Equal(Money.FromRupees(50000m), creditorLine.Value);
+        // 🔴 ANTI-OVERREACH. Every rupee on both sides is carried by a bill, so both figures are real
+        // measurements and NEITHER row may carry the ruling-27 marker. A remedy that withheld whenever the
+        // figure was zero, or withheld unconditionally, would suppress these two published numbers.
+        Assert.Null(debtorLine.UnavailableReason);
+        Assert.Null(creditorLine.UnavailableReason);
 
         // And it agrees with the Outstandings report on the same book — the reuse that keeps the two
         // screens from disagreeing about one set of bills.
@@ -437,10 +455,14 @@ public class StatementReportsTests
         Assert.NotNull(ra.GrossProfitPercent);
         Assert.NotNull(ra.NetProfitPercent);
 
-        // The two Principal-Group rows still publish their "(due till today)" figures, qualifier and all: they
-        // say what they are in their caption, which a bare ratio row cannot.
+        // 🔴 AND THE GROUP ROW IS WITHHELD TOO — RULING 27 COVERS ALL THREE FIGURES. The caption qualifier was
+        // never enough: "0.00" beside a Balance Sheet showing 1,00,000 is read as a measured zero, which is the
+        // nil-misread T1-35 exists to remove. The Money member deliberately stays Zero (the engine figure is
+        // unchanged and still reconciles with Outstandings); what changes is that the row now carries the same
+        // reason the ratio cell does, and the UI renders THAT instead of a number.
         var debtorLine = Assert.Single(ra.PrincipalGroups, g => g.Label == "Sundry Debtors (due till today)");
         Assert.Equal(Money.Zero, debtorLine.Value);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, debtorLine.UnavailableReason);
     }
 
     /// <summary>

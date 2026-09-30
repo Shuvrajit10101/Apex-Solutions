@@ -468,6 +468,159 @@ public sealed class StatementReportsViewModelTests : IDisposable
         Assert.Equal(100000m, Outstandings.ClosingNotCoveredByBills(leak, asOf, "Sundry Debtors").Amount);
     }
 
+    /// <summary>
+    /// 🔴 THE THIRD BOOK SHAPE THIS GUARD HAS BEEN WRONG ABOUT, AND IT WAS THE REMEDY FOR THE SECOND THAT
+    /// OPENED IT. Making the CLOSING side of the coverage measure drop Memorandum vouchers
+    /// (<c>CountsForClosing</c>) left the COVER side still counting them: the cover comes from the bill
+    /// projection, which is fed by the looser <c>CountsUnder</c>. So a single <b>Memorandum voucher carrying a
+    /// bill allocation</b> manufactured cover that the closing balance it is compared against does not contain,
+    /// the measured shortfall collapsed from 1,00,000 to 0, and the cell published <b>"91 days"</b> over
+    /// 1,00,000 of debtor money with no real bill behind it — the exact partial-basis figure of the previous
+    /// leak, reached by the opposite route.
+    /// <para>A Memorandum is NON-POSTING by definition. Both sides of a comparison against a closing balance
+    /// must therefore drop it, and this asserts the RENDERED cell before and after the memo so the memo is
+    /// proved to be the only thing that moved. The memo bill is deliberately dated due AFTER the as-of date, so
+    /// it cannot reach the due-till-today numerator: the only thing it can move is the guard.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_a_memorandum_bill_allocation_does_not_manufacture_bill_coverage()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+
+        // Same shape as the leak book: an uncovered bill-wise OPENING balance beside a genuinely covered debtor.
+        var c = NewBook("Memo Bill Cover Co");
+        var sales = AddLedger(c, "Sales", "Sales Accounts", debit: false);
+        var carriedX = new Ledger.Domain.Ledger(Guid.NewGuid(), "Carried X",
+            c.FindGroupByName("Sundry Debtors")!.Id, Money.FromRupees(100000m), openingIsDebit: true,
+            maintainBillByBill: true);
+        c.AddLedger(carriedX);
+        var coveredY = AddLedger(c, "Covered Y", "Sundry Debtors", debit: true, billWise: true);
+        Post(c, new DateOnly(2024, 4, 20),
+            new EntryLine(coveredY.Id, Money.FromRupees(50000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-Y", Money.FromRupees(50000m),
+                    dueDate: new DateOnly(2024, 5, 1)),
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(50000m), DrCr.Credit));
+
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, RenderedReceivablesCell(c, asOf));
+        Assert.Equal(100000m, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors").Amount);
+
+        // ---- The memo. A bill allocation on a voucher that never touches the books.
+        var suspense = AddLedger(c, "Suspense", "Suspense A/c", debit: true);
+        PostAs(c, "Memorandum", new DateOnly(2024, 5, 10),
+            new EntryLine(carriedX.Id, Money.FromRupees(100000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "MEMO-INV", Money.FromRupees(100000m),
+                    dueDate: new DateOnly(2024, 8, 1)),   // NOT yet due at asOf — it cannot move the numerator
+            }),
+            new EntryLine(suspense.Id, Money.FromRupees(100000m), DrCr.Credit));
+
+        // 🔴 THE RENDERED CELL. "91 days" is the figure the un-agreed guard published here.
+        var afterMemo = RenderedReceivablesCell(c, asOf);
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, afterMemo);
+        Assert.NotEqual("91 days", afterMemo);
+
+        // And the measure itself: 1,00,000 still has no POSTING bill behind it.
+        Assert.Equal(100000m, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors").Amount);
+        // The closing balance never moved either — proof the memo is out of the books on both sides. It is the
+        // GROUP total (Carried X 1,00,000 + Covered Y 50,000), and the memo's 1,00,000 debit is absent from it.
+        Assert.Equal(150000m,
+            RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf)).SundryDebtorsClosing.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 RULING 27 COVERS ALL THREE FIGURES, NOT JUST THE RATIO. The two Principal-GROUP money rows are
+    /// "Sundry Debtors (due till today)" and "Sundry Creditors (due till today)", and on a book whose party
+    /// money no bill accounts for they published a flat <b>0.00</b> — the nil-misread T1-35 was raised to
+    /// remove, sitting on the same page as a Balance Sheet that shows the money. A caption qualifier is not a
+    /// remedy: "0.00" is read as a measured zero. Both rows now carry the same marker the ratio cell does.
+    /// <para>Asserted at the RENDERED cell on the Robert study fixture (accounts-only, no bill-wise details —
+    /// the default book shape), and the side that has money is proved to be non-zero on the Balance-Sheet
+    /// member so the marker is demonstrably standing in for real money, not for an empty group.</para>
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_principal_group_sundry_rows_carry_the_ruling_27_marker_on_robert()
+    {
+        var company = Robert();
+        var vm = new ReportsViewModel(company, ReportKind.RatioAnalysis);
+        var ra = RatioAnalysis.Build(company, vm.AsOf, ReportOptions.AsOf(vm.AsOf));
+
+        // Robert's debtors are real money that no bill accounts for — that is what makes the 0.00 a misread.
+        Assert.NotEqual(0m, ra.SundryDebtorsClosing.Amount);
+        Assert.NotEqual(0m, Outstandings.ClosingNotCoveredByBills(company, vm.AsOf, "Sundry Debtors").Amount);
+        Assert.Equal(0m, ra.SundryDebtorsDueTillToday.Amount);   // the 0 that used to render as "0.00"
+
+        var debtorRow = vm.Rows.Single(r => r.Particulars == "Sundry Debtors (due till today)");
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, debtorRow.Amount);
+        // 🔴 THE EXACT STRING THAT MUST BE GONE. IndianFormat renders a zero Money as "0.00".
+        Assert.NotEqual("0.00", debtorRow.Amount);
+    }
+
+    /// <summary>
+    /// The CREDITORS half of the same ruling, on a book built so the payables side is the uncovered one: a
+    /// supplier balance with no bill behind it must render the marker, not 0.00. Built rather than taken from a
+    /// fixture because the two sides have to be provable independently — a remedy wired to the debtors measure
+    /// alone would pass the Robert test above and still publish a nil creditors figure.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_principal_group_creditor_row_carries_the_ruling_27_marker()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+        var c = NewBook("Blind Creditor Co");
+        var purchases = AddLedger(c, "Purchases", "Purchase Accounts", debit: true);
+        var supplier = AddLedger(c, "Plain Supplier", "Sundry Creditors", debit: false);
+        Post(c, new DateOnly(2024, 4, 20),
+            new EntryLine(purchases.Id, Money.FromRupees(80000m), DrCr.Debit),
+            new EntryLine(supplier.Id, Money.FromRupees(80000m), DrCr.Credit));
+
+        var ra = RatioAnalysis.Build(c, asOf, ReportOptions.AsOf(asOf));
+        Assert.Equal(80000m, ra.SundryCreditorsClosing.Amount);
+        Assert.Equal(0m, ra.SundryCreditorsDueTillToday.Amount);
+        Assert.Equal(80000m, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Creditors").Amount);
+
+        var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        vm.SetAsOf(asOf);
+        var creditorRow = vm.Rows.Single(r => r.Particulars == "Sundry Creditors (due till today)");
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillWiseDetails, creditorRow.Amount);
+        Assert.NotEqual("0.00", creditorRow.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 THE ANTI-OVERREACH CASE. The marker stands for "this figure is not measurable", NOT for "zero". A
+    /// fully bill-covered book whose invoice is simply inside its credit period has a due-till-today of exactly
+    /// 0, and that 0 is TRUE — nothing is due today. It must still render "0.00". Without this, the natural
+    /// over-wide remedy (withhold whenever the figure is 0) would silently suppress an honest measurement, and
+    /// no other test in this family would notice.
+    /// </summary>
+    [Fact]
+    public void RatioAnalysis_principal_group_sundry_row_still_publishes_a_true_zero_when_bills_cover_it()
+    {
+        var asOf = new DateOnly(2024, 6, 30);
+        var c = NewBook("Not Due Yet Co");
+        var sales = AddLedger(c, "Sales", "Sales Accounts", debit: false);
+        var debtor = AddLedger(c, "Billed Co", "Sundry Debtors", debit: true, billWise: true);
+        Post(c, new DateOnly(2024, 6, 20),
+            new EntryLine(debtor.Id, Money.FromRupees(60000m), DrCr.Debit, new[]
+            {
+                new BillAllocation(BillRefType.NewRef, "INV-LATER", Money.FromRupees(60000m),
+                    dueDate: new DateOnly(2024, 9, 1)),   // inside its credit period at asOf
+            }),
+            new EntryLine(sales.Id, Money.FromRupees(60000m), DrCr.Credit));
+
+        // Coverage is COMPLETE, so the 0 is a real measurement, not a blind spot.
+        Assert.Equal(0m, Outstandings.ClosingNotCoveredByBills(c, asOf, "Sundry Debtors").Amount);
+
+        var vm = new ReportsViewModel(c, ReportKind.RatioAnalysis);
+        vm.SetAsOf(asOf);
+        var debtorRow = vm.Rows.Single(r => r.Particulars == "Sundry Debtors (due till today)");
+        Assert.Equal("0.00", debtorRow.Amount);
+        Assert.NotEqual(RatioAnalysis.ReceivablesNoBillWiseDetails, debtorRow.Amount);
+        // The RATIO on this same book is withheld for the OTHER reason — the two markers stay distinct.
+        Assert.Equal(RatioAnalysis.ReceivablesNoBillsDueYet,
+            vm.Rows.Single(r => r.Particulars == "Receivables Turnover (days)").Amount);
+    }
+
     [Fact]
     public void CashFlow_honours_the_slice1_period_selection()
     {

@@ -231,10 +231,20 @@ public static class Outstandings
 
         // The cover: the pending amounts the projection itself holds for these ledgers, on the same basis.
         // One accumulation for the whole candidate set, exactly as Build does.
+        //
+        // 🔴 closingRule: true — BOTH SIDES OF THIS COMPARISON MUST DROP THE SAME VOUCHERS. The closing side
+        // above uses CountsForClosing; the cover side used the looser CountsUnder, so a single Memorandum
+        // voucher CARRYING A BILL ALLOCATION manufactured cover that the closing balance it is measured against
+        // does not contain — the shortfall collapsed to 0, the guard went blind, and the rendered cell published
+        // "91 days" over 1,00,000 of debtor money with no posting bill behind it. It is wrong in the other
+        // direction too: a memo AgstRef knocking a real bill off removed cover the closing balance still held,
+        // inventing a shortfall and withholding a publishable ratio. A Memorandum is non-posting by definition,
+        // so neither side of a closing-balance comparison may see it. This does NOT change which vouchers may
+        // open a bill in the shipped Outstandings projection — Build still uses the looser rule deliberately.
         var billWise = new List<Domain.Ledger>();
         foreach (var ledger in candidates)
             if (ledger.MaintainBillByBill) billWise.Add(ledger);
-        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario);
+        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario, closingRule: true);
 
         var total = 0m;
         foreach (var ledger in candidates)
@@ -281,9 +291,15 @@ public static class Outstandings
     /// <summary>
     /// Accumulates bill state for <paramref name="ledgers"/> in a <b>single</b> pass over the voucher set.
     /// Every ledger asked for gets an entry, empty or not, so callers can index without a null check.
+    /// <para><paramref name="closingRule"/> selects the voucher rule. The default <c>false</c> is the shipped
+    /// bill projection's own rule (<see cref="CountsUnder"/>) and is what <see cref="Build"/> and
+    /// <see cref="OpenBillsFor"/> use — unchanged. <c>true</c> switches to <see cref="CountsForClosing"/> and
+    /// exists for <see cref="ClosingNotCoveredByBills"/> alone, whose result is COMPARED against a closing
+    /// balance and so must drop the same non-posting vouchers that balance drops.</para>
     /// </summary>
     private static Dictionary<Guid, LedgerBillSet> Accumulate(
-        Company company, IReadOnlyList<Domain.Ledger> ledgers, DateOnly asOf, Scenario? scenario)
+        Company company, IReadOnlyList<Domain.Ledger> ledgers, DateOnly asOf, Scenario? scenario,
+        bool closingRule = false)
     {
         var sets = new Dictionary<Guid, LedgerBillSet>();
         var byId = new Dictionary<Guid, Domain.Ledger>();
@@ -299,7 +315,9 @@ public static class Outstandings
 
         foreach (var v in company.Vouchers)
         {
-            if (!CountsUnder(company, v, asOf, scenario)) continue;
+            if (!(closingRule
+                    ? CountsForClosing(company, v, asOf, scenario)
+                    : CountsUnder(company, v, asOf, scenario))) continue;
             foreach (var line in v.Lines)
             {
                 if (!line.HasBillAllocations) continue;
