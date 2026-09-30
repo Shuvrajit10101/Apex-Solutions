@@ -2088,6 +2088,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
                 break;
 
+            // ---- Census 9.2 — THE FOUR JOB WORK REGISTERS. Enter drills to the pure-stock voucher the row
+            // stands for. These four carry ONLY DrillInventoryVoucherId (a Job Work order and a Material movement
+            // are InventoryVouchers, never accounting ones), so there is no DrillVoucherId branch to try first —
+            // and putting a pure-stock id in the accounting slot would be a dead key, which is the defect
+            // ReportRow.DrillInventoryVoucherId exists to keep apart.
+            //
+            // 🔴 WITHOUT THIS ARM Enter WAS A SILENT NO-OP on all four, even though the builders set the drill id:
+            // this switch has no default, so a kind with no case falls straight out and the keystroke does
+            // nothing. Carrying the id enabled Ctrl+Enter, Alt+X and Alt+D (which resolve it through the shell,
+            // not through this switch) but NOT Enter, and three shipped comments claimed otherwise. ----
+            case ReportKind.JobWorkInOrderBook:
+            case ReportKind.JobWorkOutOrderBook:
+            case ReportKind.MaterialInRegister:
+            case ReportKind.MaterialOutRegister:
+                if (row.DrillInventoryVoucherId != Guid.Empty)
+                    DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
+                break;
+
             // ---- W2-12 (census 11.6): a register drills month → voucher-wise → the voucher itself. ----
             case ReportKind.SalesRegister:
             case ReportKind.PurchaseRegister:
@@ -3240,12 +3258,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col3 = o.PartyName ?? string.Empty,
                 Col4 = $"{o.VoucherTypeName} No. {o.FormattedNumber} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
                 IsHeader = true,
-                // 🔴 Census 9.2 — THE ROW IS NOW REACHABLE. Until this line the Job Work Order Books showed a
-                // voucher the operator could see but could not act on: Enter did not drill and Ctrl+Enter, Alt+X
-                // and Alt+D were SILENT no-ops, because all four resolve through DrillInventoryVoucherId and this
-                // builder never set it. The id goes in the INVENTORY slot, never the accounting one — a Job Work
-                // order is an InventoryVoucher, and a pure-stock id in the accounting slot is a dead key (see
+                // 🔴 Census 9.2 — THE ROW IS REACHABLE. Until this line the Job Work Order Books showed a
+                // voucher the operator could see but could not act on: Ctrl+Enter, Alt+X and Alt+D were SILENT
+                // no-ops because all three resolve through DrillInventoryVoucherId and this builder never set it.
+                // The id goes in the INVENTORY slot, never the accounting one — a Job Work order is an
+                // InventoryVoucher, and a pure-stock id in the accounting slot is a dead key (see
                 // ReportRow.DrillInventoryVoucherId).
+                //
+                // 🔴 ENTER IS A SEPARATE WIRE AND THIS COMMENT USED TO CLAIM THE ID CLOSED IT TOO. Enter routes
+                // through Drill's switch on report kind, which has no default arm, so it stayed a no-op until
+                // that switch gained a case for these four kinds — see the census 9.2 arm in Drill.
                 DrillInventoryVoucherId = o.VoucherId,
             });
             foreach (var c in o.Components)
@@ -3295,10 +3317,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col7 = r.Rate is { } rate ? IndianFormat.Amount(rate) : string.Empty,
                 Col8 = IndianFormat.Amount(r.Value),
                 Secondary = r.BatchLabel ?? string.Empty,
-                // 🔴 Census 9.2 — same fix, same reason as the Order Books above: without this the Material
-                // In/Out registers carried rows no keyboard verb could reach. A voucher with N allocation lines
-                // shows N rows all carrying the SAME id, which is correct — the lifecycle verbs act on the
-                // voucher, not on the line.
+                // 🔴 Census 9.2 — same fix, same reason as the Order Books above, including that Enter needs its
+                // own arm in Drill and the id alone never gave it one. Without this the Material In/Out registers
+                // carried rows no keyboard verb could reach. A voucher with N allocation lines shows N rows all
+                // carrying the SAME id, which is correct — the lifecycle verbs act on the voucher, not on the
+                // line.
                 DrillInventoryVoucherId = r.VoucherId,
             });
             // Head-line value = the register's primary direction (received for In, dispatched for Out), so a
