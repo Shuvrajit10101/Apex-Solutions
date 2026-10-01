@@ -255,17 +255,19 @@ public sealed class RateReaderResolverAgreementTests
         using var doc = JsonDocument.Parse(EWayBillJson.BuildEwb01(c, sale, record));
         var items = doc.RootElement.GetProperty("itemList");
 
-        var cement = ItemWithHsn(items, "2523");
-        Assert.Equal(1800, cement.GetProperty("GstRt").GetInt32());
-        Assert.Equal(4000000L, cement.GetProperty("taxable_amt_paisa").GetInt64());
-        Assert.Equal(360000L, cement.GetProperty("cgst_amt_paisa").GetInt64());
-        Assert.Equal(360000L, cement.GetProperty("sgst_amt_paisa").GetInt64());
+        // T1-29 — the EWB-01 item block states the schema's per-head Decimal(6,3) PERCENT rates and the rupee
+        // taxableAmount; the per-item tax AMOUNTS this used to assert had no home in the NIC schema at all (the
+        // values live on the main object). The agreement under test is unchanged: the rate the e-way bill declares
+        // for a line is still the rate the e-invoice declares for it.
+        var cement = EwbItemWithHsn(items, 2523);
+        Assert.Equal(9m, cement.GetProperty("cgstRate").GetDecimal());   // 18% intra ⇒ 9 + 9
+        Assert.Equal(9m, cement.GetProperty("sgstRate").GetDecimal());
+        Assert.Equal(40_000.00m, cement.GetProperty("taxableAmount").GetDecimal());
 
-        var car = ItemWithHsn(items, "8703");
-        Assert.Equal(4000, car.GetProperty("GstRt").GetInt32());
-        Assert.Equal(6000000L, car.GetProperty("taxable_amt_paisa").GetInt64());
-        Assert.Equal(1200000L, car.GetProperty("cgst_amt_paisa").GetInt64());
-        Assert.Equal(1200000L, car.GetProperty("sgst_amt_paisa").GetInt64());
+        var car = EwbItemWithHsn(items, 8703);
+        Assert.Equal(20m, car.GetProperty("cgstRate").GetDecimal());     // 40% intra ⇒ 20 + 20
+        Assert.Equal(20m, car.GetProperty("sgstRate").GetDecimal());
+        Assert.Equal(60_000.00m, car.GetProperty("taxableAmount").GetDecimal());
     }
 
     // ============================================================ the service-invoice fixture
@@ -414,6 +416,20 @@ public sealed class RateReaderResolverAgreementTests
     }
 
     // ============================================================ helpers
+
+    /// <summary>The EWB-01 twin of <see cref="ItemWithHsn"/>. Separate because the NIC EWB-01 schema types
+    /// <c>hsnCode</c> a <b>number</b> under its own key, where INV-01 carries a string <c>HsnCd</c> — the two
+    /// statutory documents genuinely disagree, so one helper cannot read both.</summary>
+    private static JsonElement EwbItemWithHsn(JsonElement items, long hsn)
+    {
+        foreach (var item in items.EnumerateArray())
+            if (item.TryGetProperty("hsnCode", out var code)
+                && code.ValueKind == JsonValueKind.Number && code.GetInt64() == hsn)
+                return item;
+
+        Assert.Fail($"No EWB-01 item declares HSN {hsn}. Items: {items}");
+        return default;
+    }
 
     private static JsonElement ItemWithHsn(JsonElement items, string hsn)
     {

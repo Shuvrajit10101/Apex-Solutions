@@ -67,6 +67,11 @@ public sealed class ReportRow
     /// <summary>Inventory column 8.</summary>
     public string Col8 { get; init; } = string.Empty;
 
+    /// <summary>Inventory column 9. Added for the GSTR-1 Table-12 <b>Cess</b> cell, which the eight columns above
+    /// had no room for — the HSN row occupied all of them, so the statutory cess column could not be shown at all
+    /// (see <c>Gstr1HsnRow.Cess</c>).</summary>
+    public string Col9 { get; init; } = string.Empty;
+
     /// <summary>
     /// True for a past-expiry batch row (Batch Age Analysis, RQ-8): the row is flagged <b>distinctly</b> (a red
     /// foreground) so an already-expired batch reads apart from a merely near-expiry one. False on every other

@@ -2090,4 +2090,48 @@ public static class GstReportSupport
             }
         }
     }
+
+    /// <summary>
+    /// 🔴 <b>Whether a stock line is EXPLICITLY non-taxable — the per-line taxability discriminator, and the one
+    /// thing the <c>singleRate</c> collapse had no way to ask.</b> The item mirror of
+    /// <c>Gstr1.IsNonTaxableServiceLedger</c>, which already existed for ledger legs while the GOODS side had none.
+    ///
+    /// <para><b>The defect it closes (root cause of T1-59, and of the same collapse in the EWB-01 and INV-01
+    /// emitters).</b> Every item consumer shortcut the per-line rate resolution whenever a voucher posted exactly ONE
+    /// GST rate group — <c>groups.Count == 1 ? groups[0].Rate : null</c> — on the reasoning that a single-rate
+    /// invoice's lines all belong to that one group. That reasoning is false the moment the invoice MIXES taxable and
+    /// exempt goods: the exempt line posted no tax and contributed nothing to the group's taxable value, yet the
+    /// collapse stamped the group's rate on it anyway. Measured on a Widget ₹50,000 @ 18% + exempt Fresh Milk
+    /// ₹20,000 invoice: GSTR-1 Table 12 filed ₹1,285.71 of CGST and ₹1,285.71 of SGST against the EXEMPT HSN 040110,
+    /// understated taxed HSN 847130 by the same amount per head, and dropped the ₹20,000 of exempt turnover out of
+    /// the exempt bucket entirely; the EWB-01 declared <c>cgstRate</c> 9 / <c>sgstRate</c> 9 on the milk; the INV-01
+    /// declared <c>GstRt</c> 1800 with real rupee tax on it.
+    ///
+    /// <para><b>Why the answer is NOT <see cref="BucketingRateOf"/> returning 0.</b> That method deliberately
+    /// collapses BOTH "explicitly non-taxable" and the ER-5 "unresolved" sentinel to <c>0</c>, so it cannot tell them
+    /// apart — and the difference is the whole question. <b>ER-5: silence is not an exemption.</b> An unresolved line
+    /// is NOT reported non-taxable here; it keeps the collapse's shipped behaviour rather than being newly declared
+    /// exempt on a filed return. This is exactly the discrimination <see cref="IsWhollyExemptItemSupply"/> makes.</para>
+    ///
+    /// <para><b>It agrees with the POSTING by construction.</b> <c>VoucherEntryViewModel.ComputeItemInvoiceGst</c>
+    /// builds the tax base with the same two steps in the same order — <c>IsUnresolved</c> ⇒ fail fast, then
+    /// <c>if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST ⇒ no tax</c> — so a line this returns <c>true</c> for is
+    /// precisely a line that contributed nothing to the posted tax, and therefore may never receive a share of it
+    /// back.</para>
+    /// </summary>
+    /// <param name="valueLedger">The per-VOUCHER value ledger from <see cref="BucketingValueLedger"/>. Passed in
+    /// rather than resolved here because the ancestry climb behind it is the only costly part of the walk, and every
+    /// caller already hoists it out of its per-line loop.</param>
+    public static bool IsNonTaxableStockLine(
+        Company company, Voucher voucher, Domain.Ledger? valueLedger, VoucherInventoryLine line)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        ArgumentNullException.ThrowIfNull(line);
+
+        var res = new GstService(company).ResolveRate(
+            company.FindStockItem(line.StockItemId), valueLedger, voucher.Date);
+        if (GstService.IsUnresolved(res)) return false;  // ER-5: silence is not an exemption
+        return !res.IsTaxable;                           // Exempt / Nil-rated / Non-GST
+    }
 }

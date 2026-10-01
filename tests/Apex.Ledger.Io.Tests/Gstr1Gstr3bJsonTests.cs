@@ -149,6 +149,39 @@ public sealed class Gstr1Gstr3bJsonTests
         Assert.Equal(9000L, hsn[0].GetProperty("samt_paisa").GetInt64());
     }
 
+    /// <summary>
+    /// 🔴 <b>THE SECOND BLANK TABLE-12 CELL.</b> Table 12 states <b>Total Value</b> as a column of its own beside
+    /// Taxable Value — the GST portal's HSN tile reports "Total Value, Total Taxable Value and Total Tax Liability"
+    /// (https://tutorial.gst.gov.in/userguide/returns/Creation_of_Outward_Supplies_Return_in_GSTR-1.htm) — and this
+    /// payload carried no such key at all, so the cell was FILED BLANK on every return.
+    ///
+    /// <para>This asserts on the <b>emitted file</b>, and it fails on today's main by absence: <c>totval_paisa</c>
+    /// does not exist there, so the lookup throws rather than merely disagreeing.</para>
+    /// </summary>
+    [Fact]
+    public void Gstr1_hsn_row_states_Table12_total_value_beside_the_taxable_value()
+    {
+        var c = BuildRegular();
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr1(c, AprFrom, AprTo));
+        var hsn = doc.RootElement.GetProperty("hsn")[0];
+
+        // ₹1,000.00 taxable + ₹90.00 CGST + ₹90.00 SGST = ₹1,180.00 — the value of the supply, not of the tax.
+        Assert.Equal(118000L, hsn.GetProperty("totval_paisa").GetInt64());
+
+        // ...and it is stated BESIDE the taxable value, never instead of it: both cells remain distinct.
+        Assert.Equal(100000L, hsn.GetProperty("txval_paisa").GetInt64());
+        Assert.NotEqual(hsn.GetProperty("txval_paisa").GetInt64(), hsn.GetProperty("totval_paisa").GetInt64());
+
+        // Total Value reconciles to the row's own parts, so it cannot drift from the cells filed beside it.
+        Assert.Equal(
+            hsn.GetProperty("txval_paisa").GetInt64()
+                + hsn.GetProperty("camt_paisa").GetInt64()
+                + hsn.GetProperty("samt_paisa").GetInt64()
+                + hsn.GetProperty("iamt_paisa").GetInt64()
+                + hsn.GetProperty("csamt_paisa").GetInt64(),
+            hsn.GetProperty("totval_paisa").GetInt64());
+    }
+
     // ===================================================================================== GSTR-3B
 
     [Fact]

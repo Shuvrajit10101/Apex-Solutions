@@ -69,6 +69,8 @@ public static class ReportColumnBands
     private static readonly Func<ReportRow, string> C6 = r => r.Col6;
     private static readonly Func<ReportRow, string> C7 = r => r.Col7;
     private static readonly Func<ReportRow, string> C8 = r => r.Col8;
+    /// <summary>The ninth slot, added with <see cref="ReportRow.Col9"/> for the GSTR-1 Table-12 Cess cell.</summary>
+    private static readonly Func<ReportRow, string> C9 = r => r.Col9;
 
     /// <summary>The cell three inventory reports park their last money column in. Named, because reading
     /// <see cref="ReportRow.Secondary"/> from a column band is surprising unless you know why.</summary>
@@ -242,10 +244,23 @@ public static class ReportColumnBands
                 Num("IGST", C4), Num("Taxable", C5), Num("Tax", C6),
             },
 
+            // 🔴 THE GSTR-3B DEFECT RECORDED BELOW JUST HAPPENED AGAIN, ON GSTR-1. The Table-12 Cess column was
+            // added to the grid (ReportRow.Col9) and to the filed JSON, and this band was not extended — so the
+            // operator who PRINTED or EXPORTED GSTR-1 got eight headings and no Cess at all, while the screen beside
+            // it showed nine. Caught by ReportBandOnScreenAgreementTests, which compares the two bands for exact
+            // equality; it was not caught by the branch's own gate because that lock arrived with origin/main after
+            // the Cess column was written.
+            //
+            // The two labels are deliberately the SHORT screen wordings, not the longer ones this band used to
+            // carry: the lock is an exact SequenceEqual against what the grid draws, and the grid shortened
+            // "GSTIN / Description" to "GSTIN / Desc." and "POS / Qty" to "POS/Qty" because the Cess track took
+            // 90px out of a fixed budget that was already exactly spent (MainWindow.axaml:1817-1831 records the
+            // arithmetic). Lengthening them here would re-break the agreement in the other direction.
             ReportKind.Gstr1 => new[]
             {
-                Text("Party / HSN", C1), Text("GSTIN / Description", C2), Text("Invoice / UQC", C3),
-                Text("POS / Qty", C4), Num("Taxable", C5), Num("CGST", C6), Num("SGST", C7), Num("IGST", C8),
+                Text("Party / HSN", C1), Text("GSTIN / Desc.", C2), Text("Invoice / UQC", C3),
+                Text("POS/Qty", C4), Num("Taxable", C5), Num("CGST", C6), Num("SGST", C7), Num("IGST", C8),
+                Num("Cess", C9),
             },
 
             // Census 6.9 — Cess is a real column of the form (Table 3.1(d) and Table 4(B)). It was once missing

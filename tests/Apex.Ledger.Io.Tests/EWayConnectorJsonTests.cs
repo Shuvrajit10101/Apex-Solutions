@@ -129,14 +129,19 @@ public sealed class EWayConnectorJsonTests
         var root = doc.RootElement;
         Assert.Equal(sale.Number.ToString(System.Globalization.CultureInfo.InvariantCulture),
             root.GetProperty("docNo").GetString());
-        Assert.Equal(5_900_000L, root.GetProperty("totInvValue_paisa").GetInt64()); // ₹59,000 consignment
-        Assert.Equal(250, root.GetProperty("transDistance").GetInt32());
-        Assert.Equal(1, root.GetProperty("transMode").GetInt32());                   // Road
+        // T1-29 — the payload is the NIC EWB-01 v1.03 shape, so money is the schema's RUPEE Decimal(18,2) and the
+        // item block states RATES while the main object states VALUES. The old integer-paisa keys asserted here
+        // (totInvValue_paisa, cgst_amt_paisa, ces_amt_paisa) and the old item keys (HsnCd, GstRt) were OUR OWN
+        // invention with no home in the schema — the portal would have rejected every file that carried them.
+        Assert.Equal(59_000.00m, root.GetProperty("totInvValue").GetDecimal()); // ₹59,000 consignment
+        Assert.Equal("250", root.GetProperty("transDistance").GetString());     // schema types this a STRING
+        Assert.Equal("1", root.GetProperty("transMode").GetString());           // Road, schema enum "1".."4"
+        Assert.Equal(0m, root.GetProperty("cessValue").GetDecimal());           // post-22-Sep cess trends to 0
         var item0 = root.GetProperty("itemList")[0];
-        Assert.Equal("847130", item0.GetProperty("HsnCd").GetString());
-        Assert.Equal(1800, item0.GetProperty("GstRt").GetInt32());
-        Assert.Equal(450_000L, item0.GetProperty("cgst_amt_paisa").GetInt64());
-        Assert.Equal(0L, item0.GetProperty("ces_amt_paisa").GetInt64());             // post-22-Sep cess trends to 0
+        Assert.Equal(847130L, item0.GetProperty("hsnCode").GetInt64());         // schema types hsnCode a NUMBER
+        Assert.Equal(9m, item0.GetProperty("cgstRate").GetDecimal());           // intra-state 18% ⇒ 9 + 9
+        Assert.Equal(9m, item0.GetProperty("sgstRate").GetDecimal());
+        Assert.Equal(0m, item0.GetProperty("igstRate").GetDecimal());
         // The EWB number is NEVER in the request payload (ER-5 twin).
         Assert.DoesNotContain("231000000123", Encoding.UTF8.GetString(first));
     }
@@ -164,8 +169,10 @@ public sealed class EWayConnectorJsonTests
         // W0-8 (review finding #1) — the CONSIGNOR/CONSIGNEE ends, which the mapping constrains alongside the codes:
         // an Outward row is From = Self, To = Other GSTIN/URP.
         Assert.Equal(GstinMaharashtra, root.GetProperty("fromGstin").GetString());
-        Assert.Equal("27", root.GetProperty("fromStateCode").GetString());
-        Assert.Equal("27", root.GetProperty("toStateCode").GetString());
+        // T1-29 — the schema types every State code an INTEGER ("type": "integer", maximum 99), not the string our
+        // own shape emitted.
+        Assert.Equal(27, root.GetProperty("fromStateCode").GetInt32());
+        Assert.Equal(27, root.GetProperty("toStateCode").GetInt32());
     }
 
     /// <summary>
@@ -194,7 +201,11 @@ public sealed class EWayConnectorJsonTests
         var (company, sale, service) = BuildMovement(rateBasisPoints: 4000);
         var record = Generate(service, sale);
         using var doc = JsonDocument.Parse(EWayBillJson.BuildEwb01(company, sale, record));
-        Assert.Equal(4000, doc.RootElement.GetProperty("itemList")[0].GetProperty("GstRt").GetInt32());
+        // T1-29 — the schema states the item's rate as a Decimal(6,3) PERCENT per head, so the 40% slab reads as
+        // 20 + 20 on an intra-state movement rather than as our own 4000-basis-point "GstRt".
+        var item0 = doc.RootElement.GetProperty("itemList")[0];
+        Assert.Equal(20m, item0.GetProperty("cgstRate").GetDecimal());
+        Assert.Equal(20m, item0.GetProperty("sgstRate").GetDecimal());
     }
 
     [Fact]
