@@ -63,6 +63,52 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>True for a menu column (a list of rows); false for a page column.</summary>
     public bool IsMenu => Page is null;
 
+    /// <summary>
+    /// 🔴 <b>The screen id this column represents, recorded automatically while it is the ACTIVE column, so the
+    /// shell can restore it after a rehydrate instead of guessing.</b> Null until the column has been active
+    /// once (a column that is never activated cannot be the one whose id is restored).
+    ///
+    /// <para><b>The defect it closes.</b> <c>MainWindowViewModel.RehydratePageFromRightmostColumn</c> re-derives
+    /// <c>CurrentScreen</c> from the ACTIVE column by switching on its <see cref="Page"/> type in
+    /// <c>BindPageColumn</c>. That switch has an arm per page type and a <c>default:</c> arm returning
+    /// <see cref="Screen.Gateway"/> — so ANY column whose type has no arm silently reports the Gateway while
+    /// still being the rightmost pane drawn.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS PROVEN, AND WHAT IS ONLY DEFENCE IN DEPTH — stated apart, because they are not the
+    /// same grade of claim.</b>
+    /// <list type="bullet">
+    /// <item><b>MENU columns: measured, reproduced and tested.</b> They have no <see cref="Page"/> at all, so
+    /// they always fell through. The four action menus (Ctrl+H, Alt+P, Alt+E, Alt+M) are pushed over a page
+    /// WITHOUT clearing it, and a page column opened on top of one is appended rather than trimmed (the trim in
+    /// <c>OpenPageColumn</c> cuts after the LAST MENU column, and the menu column IS that column). Popping it
+    /// then landed the shell on the Gateway with the menu and the report still drawn.
+    /// <c>ReportChordFidelityTests.A_column_popped_over_an_action_menu_restores_the_menu_not_the_gateway</c>
+    /// reproduces it on the realised window with real keystrokes.</item>
+    /// <item><b>PAGE columns whose type has no arm: NOT proven reachable, and kept only because this mechanism
+    /// covers them for free.</b> 34 page columns are pushed by hand rather than through <c>OpenPageColumn</c>
+    /// and most of their types have no arm. The obvious candidate — the Dashboard's Alt+C tile-configuration
+    /// column — was tested and turned out NOT to be reachable: <c>OpenPageColumn</c> TRIMS every page column
+    /// after the last menu column, so opening any page from a dashboard REPLACES the tile-config column instead
+    /// of stacking over it, and the Gateway the shell then reports is correct. No reachable page-column
+    /// instance was found. Do not cite one as measured without building the route first.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Why a wrong id is not cosmetic.</b> The shell's guards are written on <c>CurrentScreen</c>.
+    /// <c>IsActionMenuColumn</c> — the clause that makes the bare-letter arms inert under an action menu, and
+    /// that closed a confidentiality defect — is one of them, so losing the id re-armed every predicate it
+    /// protects. And the Gateway's own bare letters are gated on <c>CurrentScreen == Screen.Gateway</c> alone,
+    /// so <b>Y</b> (Export Data over the whole company) and <b>O</b> (Import) went live over a live report
+    /// cascade. That is the blank-shell-that-owns-the-keyboard state <c>HasLiveCompanyShell</c> exists to
+    /// prevent.</para>
+    ///
+    /// <para>🔴 <b>It is written in ONE place — <c>SyncActiveColumn</c> — and that is deliberate.</b> Every one
+    /// of the ~55 paths that pushes, pops or re-focuses a column already calls that method after setting
+    /// <c>CurrentScreen</c>, so recording it there costs no per-site edit and, more importantly, cannot be
+    /// forgotten by the next column someone adds. Adding a missing <c>BindPageColumn</c> arm would have fixed
+    /// the one column the test caught and left the other thirty-three exactly as they were.</para>
+    /// </summary>
+    public Screen? ColumnScreen { get; set; }
+
     /// <summary>True for a page column (hosts a single page sub-view-model).</summary>
     public bool IsPage => Page is not null;
 
@@ -448,6 +494,28 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <para>
     /// E / P / M are deliberately NOT reserved: their arms are gated on <c>IsExportablePage</c> /
     /// <c>IsPrintablePage</c>, both false while a menu column is on top, so they are free here.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>THAT SENTENCE ABOVE WAS ONCE A COMMENT ASSERTING AN INVARIANT THE CODE DID NOT HOLD, AND IT COST A
+    /// CONFIDENTIALITY DEFECT. IT IS NOW ENFORCED — DO NOT UNDO THE THING THAT ENFORCES IT.</b> It was written
+    /// when every menu column came from <c>OpenCompanyMenu</c>, which calls <c>ClearSubScreens</c> and so nulls
+    /// <c>Reports</c>, making both predicates false as a side effect. The four ACTION menus (Ctrl+H, Alt+P,
+    /// Alt+E, Alt+M) arrive by <c>MainWindowViewModel.PushMenuColumn</c>, which deliberately does NOT clear —
+    /// every one of their rows acts on the page beneath. So for a while both predicates stayed TRUE under a
+    /// menu column, the bare-letter arms stayed live, and since those arms sit far earlier in the window's
+    /// first-match-wins chain than <c>HandleMenuLetter</c>, they swallowed the menu's own painted hotkeys.
+    /// Measured result: on a drilled voucher, Alt+M then <b>W</b> — the letter painted on the Share menu's own
+    /// WhatsApp row — shared a document titled <i>"Day Book"</i> instead of the invoice.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>What makes it true now is <c>MainWindowViewModel.IsActionMenuColumn</c></b>, a clause on all four
+    /// of <c>IsReportContext</c> / <c>IsPrintablePage</c> / <c>IsExportablePage</c> / <c>IsShareablePage</c>
+    /// (the fourth is newer than the fix and carries the clause for the same reason). Read that property's
+    /// remarks before changing anything here. The fix was put THERE rather than by extending this array because
+    /// reserving a letter only stops it being PAINTED — the arm would stay live and still fire the wrong verb —
+    /// and because the list would have to be re-derived from the row labels of every menu forever (nobody
+    /// reserving "E, P and M" would have thought to add <b>W</b>).
+    /// <b>Adding letters to this array is therefore NOT the fix if this returns.</b>
     /// </para>
     /// </summary>
     private static readonly char[] ReservedLetters = { 'O', 'Y' };

@@ -11,6 +11,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 // Aliased rather than importing Apex.Ledger.Services wholesale: this file deliberately fully-qualifies engine
 // services (ManufacturingJournalService, …) so that namespace cannot start shadowing Apex.Desktop.Services.
 using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
+// User ruling 26 — the on-open warning for a book whose closing stock value moved at schema v65. Aliased rather
+// than importing the namespace, matching the other Services types pulled in below.
+using ValuationRemediationNotice = Apex.Ledger.Services.ValuationRemediationNotice;
 // Phase 10.11 S4 — the Delete guards. Aliased for the reason above, not imported.
 using MasterDeletionRules = Apex.Ledger.Services.MasterDeletionRules;
 // Census row 5.5 — Insert Voucher's number-series planner. Aliased for the reason above, not imported.
@@ -61,6 +64,15 @@ public enum Screen
     AutoColumns,
     SaveView,
     SavedViews,
+
+    // 🔴 THE FOUR REPORT MENUS THE VENDOR PUTS ON A REPORT (Ctrl+H / Alt+P / Alt+E / Alt+M). All four are MENU
+    // columns, not page columns, so none of them needs a panel view model — the screen id exists so the shell can
+    // tell "the print menu is the active pane" from "the report is", and so each opener can refuse to stack a
+    // second copy of itself. See ReportChordMenus.cs for the vendor quotes and for what each menu withholds.
+    ChangeViewMenu,
+    PrintMenu,
+    ExportMenu,
+    ShareMenu,
 
     // 14.2 — Switch To (Ctrl+G): the jump-anywhere destination list. Its own screen id (not a mode on the
     // Gateway) because it owns the keyboard while it is up: bare letters TYPE INTO ITS PREFIX FILTER rather
@@ -1438,7 +1450,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StatusCompany = company.Name;
         StatusDate = ApexDate.Format(company.FinancialYearStart);
         ShowGateway();
+
+        // 🔴 USER RULING 26 — the on-open warning for a book whose CLOSING STOCK VALUE MOVED on upgrade to
+        // schema v65 (census 3.4, defect T0-2). It is raised AFTER ShowGateway deliberately: ShowGateway clears
+        // `Message`, and `Notice` is an 11px status line wiped on the next change of screen — neither survives
+        // long enough, and neither is loud enough, for a change that moves the Balance Sheet. This gets its own
+        // persistent banner that the operator must dismiss. Empty for every book the migration never touched,
+        // which is the whole point: see ValuationRemediationNotice.
+        ValuationRemediationWarning = ValuationRemediationNotice.For(company);
     }
+
+    /// <summary>
+    /// 🔴 <b>The ruling-26 upgrade warning currently on screen</b> — non-empty only for a book whose stock items
+    /// were migrated off the retired Last-Sale-Cost basis at schema v65, and therefore whose closing stock,
+    /// Profit &amp; Loss and Balance Sheet figures moved. Rendered as a dismissible banner across the top of the
+    /// Gateway, not in the status bar. Set by <see cref="OpenCompany"/>; cleared only by the operator.
+    /// </summary>
+    [ObservableProperty] private string _valuationRemediationWarning = string.Empty;
+
+    /// <summary>
+    /// Dismisses the ruling-26 upgrade warning for this session.
+    ///
+    /// <para>🔴 <b>Dismissal is SESSION-LOCAL and does not clear the
+    /// <see cref="StockItem.ValuationRemediatedFrom"/> marker</b>, so the warning returns on the next open. That
+    /// is a deliberately conservative choice, stated rather than hidden: clearing the marker would destroy the
+    /// only record that a book's figures were restated, and this build will not silently discard evidence of a
+    /// movement in reported profit. Whether acknowledgement should persist is a user decision, recorded as owed.</para>
+    /// </summary>
+    public void DismissValuationRemediationWarning() => ValuationRemediationWarning = string.Empty;
 
     /// <summary>
     /// Shows the cascading Gateway of Apex Solutions for the open company: column 1 is the root menu
@@ -1530,7 +1569,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
         // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
         // so a company that never enables Payroll is byte-identical to the pre-slice Reports menu.
-        if (Company is { PayrollEnabled: true })
+        if (PayrollFeatureOn)
             col.Add(new MenuItemViewModel("Payroll Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
@@ -1546,8 +1585,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // missing for exactly the companies census area 15 exists to serve, and the three VAT reports below it
         // were unreachable through the real cascade. That is the same omission that once made all ten Phase-9
         // UI-1 screens unreachable by leaving IsRegularGstDealer out of this line.
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true }
-                or { VatEnabled: true }
+        if (TdsFeatureOn || TcsFeatureOn || PayrollStatutoryFeatureOn || VatFeatureOn
             || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
@@ -1867,7 +1905,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // F11 → Accounting → "Enable Cost Centres" (census row 1.7). The whole Cost Masters SECTION goes with
         // the flag — the header too, because a section heading standing over nothing is the kind of empty
         // scaffolding this cascade is not allowed to show.
-        if (Company?.EnableCostCentres != false)
+        if (CostCentresFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Cost Masters"));
             col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -1963,7 +2001,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Outstandings", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // F11 → Accounting → "Enable Cost Centres" / "Enable Interest Calculation" (census row 1.7): the two
         // report entries the vendor gates on those company features leave the hub with them.
-        if (Company?.EnableCostCentres != false)
+        if (CostCentresFeatureOn)
             col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         if (Company?.EnableInterestCalculation != false)
@@ -2028,6 +2066,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Centres"));
         col.Add(new MenuItemViewModel("Category Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // 🔴 W-V2 — THE THIRD COST REPORT, WHICH HAS EXISTED ALL ALONG WITH NO WAY IN.
+        // CostReports.BuildLedgerBreakup has been implemented, documented and unit-tested since Phase 2 and had
+        // ZERO production callers; seven source comments across this repository cite it by name as the example
+        // of careful, correct-looking, unreachable code counted as delivered. Nothing was wrong with it. This
+        // row is the door. Do not remove it without removing the engine.
+        col.Add(new MenuItemViewModel("Ledger Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2062,12 +2106,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Reorder Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Batch reports (Phase 6 Cluster 1; RQ-8/RQ-54) nest under a Batch sub-group — surfaced only when the
         // company flag "Maintain Batch-wise details" is on (RQ-52).
-        if (Company is { MaintainBatchwiseDetails: true })
+        if (BatchwiseFeatureOn)
             col.Add(new MenuItemViewModel("Batch", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Price List report (Phase 6 slice 5; RQ-31/RQ-54) nests beside the analysis reports — surfaced only when
         // the F11 flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
-        if (Company is { EnableMultiplePriceLevels: true })
+        if (PriceLevelsFeatureOn)
             col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Registers"));
@@ -2078,13 +2122,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Order Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // POS Register (Phase 6 slice 7; RQ-44): the day-close tender view of POS bills — surfaced only when a
         // POS-flagged Sales type exists (mirrors the batch/price-list conditional surfacing).
-        if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
+        if (PosSalesFeatureOn)
             col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         // W-K1 (census 9.8): the two Bills Pending reports — the unreconciled ends of the Tracking Number
         // mechanism — nest under their own sub-section, surfaced only when the F11 feature "Use tracking numbers"
         // is on. With the flag off there is no way to key a tracking number, so the reports would always be empty.
-        if (Company is { UseTrackingNumbers: true })
+        if (TrackingNumbersFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Bills Pending"));
             col.Add(new MenuItemViewModel("Purchase Bills Pending", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2094,7 +2138,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // W-K1 (census 9.7): the vendor's three Item Cost Analysis reports, surfaced only when F11 "Enable Cost
         // Tracking" is on. The vendor groups them under Statements of Inventory → Item Cost Analysis; this
         // product's equivalent home is the Inventory Reports column, and they keep the vendor's own heading.
-        if (Company is { EnableCostTracking: true })
+        if (CostTrackingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Item Cost Analysis"));
             col.Add(new MenuItemViewModel("Stock Item Cost Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2106,7 +2150,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // 🔴 It sits BESIDE the Job WORK ORDER reports below, not inside them: job COSTING (a cost dimension over
         // projects) and job WORK ORDER PROCESSING (sending material to a sub-contractor) are different features
         // with different F11 gates, and folding them into one section would imply one switch drives both.
-        if (Company is { EnableJobCosting: true })
+        if (JobCostingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Job Costing"));
             col.Add(new MenuItemViewModel("Job Work Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2114,7 +2158,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Job Work reports (Phase 6 slice 8; RQ-51/RQ-54) nest under their own sub-section — surfaced only when the
         // F11 feature "Enable Job Order Processing" is on (RQ-52), so a non-job-work company is byte-identical (ER-13).
-        if (Company is { EnableJobOrderProcessing: true })
+        if (JobOrderProcessingFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("Job Work Reports"));
             col.Add(new MenuItemViewModel("Job Work In Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2197,7 +2241,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Challan Reconciliation (Phase 7 slice 3; catalog §13) — deposits vs deductions per section. Surfaced
         // under its own TDS header only when the F11 feature "Enable TDS" is on (ER-13), reached by Alt+R too.
-        if (Company is { TdsEnabled: true })
+        if (TdsFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
@@ -2210,7 +2254,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // TCS Challan Reconciliation + Form 27EQ (Phase 7 slice 6; catalog §13) — the collector's mirror of the TDS
         // pair. Surfaced under their own TCS header only when the F11 feature "Enable TCS" is on (ER-13). No global
         // open accelerator (Alt+R stays the TDS recon even when both taxes are on — no colliding/dead key).
-        if (Company is { TcsEnabled: true })
+        if (TcsFeatureOn)
         {
             col.Add(MenuItemViewModel.Header("TCS"));
             col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2626,13 +2670,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var col = new GatewayColumn("Statutory Reports");
         col.Add(MenuItemViewModel.Header("Statutory Reports"));
-        if (Company is { TdsEnabled: true })
+        if (TdsFeatureOn)
             col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        if (Company is { TcsEnabled: true })
+        if (TcsFeatureOn)
             col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // Payroll statutory reports (Phase 8 slice 4/5; RQ-9/RQ-10) nest under their own Payroll sub-group, surfaced
         // only when the F11 feature "Enable Payroll Statutory" is on (ER-13).
-        if (Company is { PayrollStatutoryEnabled: true })
+        if (PayrollStatutoryFeatureOn)
             col.Add(new MenuItemViewModel("Payroll", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // Composition Returns (Phase 9 slice 3; RQ-16) nest under their own sub-group, surfaced only for a Composition
         // dealer (ER-13). A Regular company never sees CMP-08 / GSTR-4.
@@ -2659,11 +2703,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // F11 VAT switch, so a company that never enabled VAT is byte-identical to the pre-slice menu (ER-13).
         // A dealer in ordinary GST goods must never meet a VAT menu row: it would invite them to compute a tax
         // abolished for their trade, which is the harm this whole area is gated against.
-        if (Company is { VatEnabled: true })
+        if (VatFeatureOn)
             col.Add(new MenuItemViewModel("VAT Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        if (TdsFeatureOn || TcsFeatureOn)
             col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -2754,14 +2798,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
         // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
-        // byte-identical to the pre-slice Payroll submenu (ER-13).
-        if (Company is { GratuityConfig: not null })
+        // byte-identical to the pre-slice Payroll submenu (ER-13). NAMED PROPERTIES, for the same reason as the
+        // §192 rows below: these two were the last report rows in this file still testing the company inline, and
+        // the inline test is one condition SHORT of the gate the table evaluates (which also asks for the statute
+        // switch). No live drift — EnableGratuity/EnableStatutoryBonus turn the statute on — but a row and its
+        // gate written as two different expressions is exactly how the Income Tax Computation hole opened.
+        if (GratuityRegisterFeatureOn)
             col.Add(new MenuItemViewModel("Gratuity Provision", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-        if (Company is { BonusConfig: not null })
+        if (BonusRegisterFeatureOn)
             col.Add(new MenuItemViewModel("Bonus Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // §192 salary-TDS return + certificate (Phase 8 slice 7; RQ-13) — surfaced only when the F11 feature
         // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
-        if (Company is { SalaryTdsEnabled: true })
+        // 🔴 NAMED PROPERTY, NOT AN INLINE PATTERN. This row is the one the gate table got wrong: it was mapped
+        // to the Payroll-Statutory GROUP gate while the row carries a second condition, so Alt+K opened the
+        // Income Tax Computation on a company whose menu row had gone. Both sides now read SalaryTdsFeatureOn.
+        if (SalaryTdsFeatureOn)
         {
             col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2999,7 +3050,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void ShowPayrollReportsMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
-        if (Company is not { PayrollEnabled: true }) return;   // group hidden when Payroll is off (ER-13)
+        if (!PayrollFeatureOn) return;   // group hidden when Payroll is off (ER-13)
         SelectRootItem("Payroll Reports");
         OpenSubmenuColumn(BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
             "Gateway of Apex Solutions — Payroll Reports");
@@ -3102,13 +3153,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens one of the eight W7-D2 <b>payroll statutory forms</b> (PF Forms 3A / 5 / 6A / 10 / 12A — census 7.20;
-    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page. Gated on <see cref="Company.PayrollStatutoryEnabled"/>
-    /// exactly as the PF ECR and ESI monthly-contribution pages are, so a company that is not enrolled for payroll
-    /// statutory never reaches one (ER-13) and its menu is byte-identical to the pre-slice column.
+    /// ESI Forms 3 / 5 / 6 — census 7.21) as a report page, plus the payroll kinds the same dispatch routes
+    /// (the statutory summary, the attendance sheet, the two pay-head breakups and the income-tax computation).
+    ///
+    /// <para>🔴 <b>IT ASKS THE KIND'S OWN GATE, NOT ONE FIXED FLAG.</b> It used to test
+    /// <c>PayrollStatutoryFeatureOn</c> for every kind it is handed, which is the right question for the eight
+    /// forms and the wrong one for the rest: the Income Tax Computation's menu row carries a further
+    /// <c>Enable Salary TDS</c> test, so a company with the statute on and §192 off lost the row from the menu
+    /// and from Go To while this opener still let the dispatch through. <see cref="ReportKindIsPermitted"/> is the
+    /// one question every other report door asks, and it resolves through the SAME named properties the menu
+    /// builders branch on — so the menu row, Go To, the saved view and this opener cannot drift apart.</para>
     /// </summary>
     public void OpenPayrollStatutoryForm(ReportKind kind)
     {
-        if (Company is not { PayrollStatutoryEnabled: true }) return;
+        if (!ReportKindIsPermitted(kind)) return;
         OpenReport(kind);
     }
 
@@ -3386,9 +3444,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (<see cref="ReportsViewModel.SupportsScaleFactor"/>). A panel that opens on a report it cannot change is
     /// the dead-control defect this project has caught before; the button-bar row dims in the same condition so
     /// the key and the badge agree.</para>
+    ///
+    /// <para>🔴 <b>AND REFUSED WHILE A COLUMN IS DRAWN OVER THE REPORT — the half that was missing, and the
+    /// door is where it belongs.</b> The key arm in <c>MainWindow.OnKeyDown</c> has always required
+    /// <see cref="IsReportContext"/> (so it is inert under an action menu, which is what
+    /// <see cref="IsActionMenuColumn"/> makes false); the BADGE was gated on <c>SupportsScaleFactor</c> alone
+    /// and this door on nothing else at all. So with an Alt+P / Alt+E / Alt+M / Ctrl+H menu up, the key
+    /// correctly refused while the badge stayed LIT, and clicking it stacked a Basis-of-Values column on top of
+    /// the modal menu. Three gates, two of them wrong, and the button-bar row's own comment claimed "the key arm
+    /// carries the identical guard" while it did not — the same species as the two share badges fixed last pass.
+    /// Putting the clause HERE means the key, the badge and any future caller cannot disagree again: the badge
+    /// now mirrors this door, rather than the two being written out twice and drifting.</para>
     /// </summary>
     public void OpenBasisOfValues()
     {
+        if (!IsReportContext) return;                 // a column is drawn over the report — see IsActionMenuColumn
         if (Reports is not { SupportsScaleFactor: true }) return;
         if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
 
@@ -3466,9 +3536,64 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// beneath it: those shortcuts must be inert there so they never re-parameterise or re-open config on the
     /// underlying report the user has drilled away from (RQ-7). Enter (drill) and Esc/Back still work in the
     /// drill columns via their own handling.
+    ///
+    /// <para>🔴 <b>IT IS ALSO FALSE UNDER AN ACTION-MENU COLUMN, AND THAT CLAUSE CLOSED A CONFIDENTIALITY
+    /// DEFECT.</b> See <see cref="IsActionMenuColumn"/> for the whole account of it. In one line: the four
+    /// action menus deliberately leave <see cref="Reports"/> bound, so without that clause this property went
+    /// TRUE the instant the menu's own screen id replaced <see cref="Screen.VoucherDetail"/> — and the bare-W
+    /// arm, reached from the Share menu's own painted W, then handed a third party the whole Day Book in place
+    /// of the one invoice the operator had drilled into.</para>
     /// </summary>
     public bool IsReportContext => Reports is not null
-        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail)
+        && !IsActionMenuColumn;
+
+    /// <summary>
+    /// True while one of the four ACTION-MENU columns (Ctrl+H Change View, Alt+P Print, Alt+E Export, Alt+M
+    /// Share) is the pane the operator is standing in.
+    ///
+    /// <para>🔴 <b>WHY THIS PROPERTY EXISTS: IT MAKES A COMMENTED INVARIANT TRUE THAT THE CODE WAS
+    /// VIOLATING.</b> <c>GatewayColumn.ReservedLetters</c> reserves only <b>O</b> and <b>Y</b>, and states in
+    /// its own remarks that <b>E / P / M</b> need no reservation "because <see cref="IsExportablePage"/> /
+    /// <see cref="IsPrintablePage"/> are both false while a menu column is on top". That sentence was true of
+    /// <see cref="OpenCompanyMenu"/>, which calls <c>ClearSubScreens</c> and so nulls <see cref="Reports"/>. It
+    /// was NOT true of <see cref="PushMenuColumn"/>, which deliberately does not — clearing would make every
+    /// row of an action menu a no-op on the very thing it acts upon. So the four action menus left both
+    /// predicates TRUE, every bare-letter arm gated on them stayed live, and because those arms sit far earlier
+    /// in the window's first-match-wins chain than the menu-letter dispatch, they swallowed the menu's own
+    /// painted hotkeys before the row could ever run.
+    /// </para>
+    ///
+    /// <para>🔴 <b>THE MEASURED CONSEQUENCE WAS A CONFIDENTIALITY BREACH, NOT A ROUTING NUISANCE.</b> On a
+    /// drilled voucher: Alt+M opens Share, whose WhatsApp row is painted with <b>W</b>. Pressing W matched the
+    /// bare-W arm instead, which calls <c>OpenWhatsAppShare()</c> with the menu column STILL ON TOP — so
+    /// <c>CurrentScreen</c> was <see cref="Screen.ShareMenu"/>, the voucher branch missed, <c>IsReportContext</c>
+    /// went true, and the panel was built from the REPORT. The operator asking to share one invoice was handed a
+    /// document titled "Day Book": every voucher of every party for the period, to a third party.
+    /// <c>PopMenuColumn</c> could not save it, because the row that calls it never ran.
+    /// </para>
+    ///
+    /// <para>🔴 <b>WHY THE FIX IS HERE AND NOT IN <c>ReservedLetters</c>.</b> Reserving E/P/M/W in the hotkey
+    /// assigner would only stop those letters being PAINTED — the arms would stay live, so the letters would
+    /// still fire the wrong verb, and the menu would additionally lose the accelerators the vendor's own menus
+    /// have. Worse, "which letters to reserve" would have to be re-derived every time a row label changes, and
+    /// the list would silently rot; the Share menu's second row is <i>WhatsApp</i> today, and W is not a letter
+    /// anyone reserving "E, P and M" would have thought to add. Making the predicates false instead kills the
+    /// whole class at its root: while an action menu is up, NOTHING outside that menu can claim a bare letter,
+    /// so the only thing that can answer the operator's keystroke is the row the product painted it on. The
+    /// invariant <c>ReservedLetters</c> asserts is now enforced by code rather than assumed by a comment.
+    /// </para>
+    ///
+    /// <para><b>Scope, and why this cannot regress a shipped behaviour.</b> All four screen ids are new with
+    /// this slice, so no keystroke that had a meaning before reaches a different verb because of this clause.
+    /// The menu ROWS are unaffected: each pops its own column through <see cref="PopMenuColumn"/> and only then
+    /// runs its verb, by which time the screen id and the predicates are back to the page underneath. One
+    /// behaviour does change by design — a second menu's chord pressed while a menu is already up is now inert
+    /// rather than swapping menus. That is the correct reading of a modal menu column: Escape pops it, and the
+    /// vendor documents no menu-to-menu route.</para>
+    /// </summary>
+    public bool IsActionMenuColumn =>
+        CurrentScreen is Screen.ChangeViewMenu or Screen.PrintMenu or Screen.ExportMenu or Screen.ShareMenu;
 
     /// <summary>
     /// True only while the report page is the <b>ACTIVE COLUMN</b> — the operator is standing ON the report, not
@@ -3514,10 +3639,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
-    /// 🔴 <b>True while a MENU COLUMN is stacked on top of the live Day Book</b> — the Alt+A / Alt+I voucher-type
-    /// picker, or the Ctrl+J Exception Reports picker. Every Day-Book verb that acts on
-    /// <c>Reports.SelectedRow</c> must refuse while this is true, because the highlighted row is BEHIND the
-    /// column the operator is standing in and they cannot see which row the verb would take.
+    /// 🔴 <b>True while ANY column is drawn on top of the live Day Book</b>, so the highlighted row is BEHIND
+    /// the pane the operator is standing in. Every Day-Book verb that acts on <c>Reports.SelectedRow</c> must
+    /// refuse while this is true, because the operator cannot see which row the verb would take.
     ///
     /// <para><b>ONE PREDICATE RATHER THAN A SCREEN-NAME EXCLUSION LIST PER VERB, AND THAT IS THE WHOLE POINT.</b>
     /// <see cref="RequestInsertVoucherAtHighlight"/> and <see cref="OpenAddVoucherFromReport"/> each carried their
@@ -3525,15 +3649,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Screen.ExceptionReportsPicker"/> — which also leaves <see cref="Reports"/> bound, so
     /// <see cref="IsDayBookReport"/> stays TRUE beneath it — neither list was extended, and Alt+I fired on a
     /// hidden Day Book row: an INSERT renumbers everything after the anchor, so the operator could renumber the
-    /// series off a row they never saw. A per-verb list has now been missed once; the next picker added would
-    /// have to remember three call sites instead of one. It is a single member so it cannot be missed again,
-    /// and <c>ExceptionReportsRegisterTests</c> asserts every verb against it.</para>
+    /// series off a row they never saw. That was hoisted into this single member so it could not be missed
+    /// again, and <c>ExceptionReportsRegisterTests</c> asserts every verb against it.</para>
+    ///
+    /// <para>🔴 <b>IT WAS MISSED AGAIN ANYWAY, AND THAT IS WHY IT IS NO LONGER A LIST.</b> Hoisting the
+    /// exclusion into one member fixed the "three call sites" half of the problem and left the other half
+    /// untouched: the member still named SCREENS, so every new column screen had to remember to join the list.
+    /// The report-chord slice then added four more — <see cref="Screen.ChangeViewMenu"/>,
+    /// <see cref="Screen.PrintMenu"/>, <see cref="Screen.ExportMenu"/>, <see cref="Screen.ShareMenu"/> — each of
+    /// which deliberately leaves <see cref="Reports"/> bound beneath it (see <see cref="PushMenuColumn"/>), and
+    /// the list was not extended. Alt+I, Alt+A and Ctrl+J all fired through a modal menu onto the hidden row
+    /// again, badges lit, exactly as before. A NAMED LIST CANNOT CLOSE THIS CLASS; it can only ever record the
+    /// columns someone remembered.
+    ///
+    /// <para>So the test is now STRUCTURAL and mentions no screen at all. The live Day Book is its own column,
+    /// and a column that is active reports <see cref="Screen.Report"/> through <see cref="BindPageColumn"/>.
+    /// Therefore "something is drawn over it" is exactly "the active screen is not the report" — true for every
+    /// column that exists today, every column added tomorrow, and (deliberately) for the F12 config and
+    /// Alt+F12 sort/filter panels, which hide the row just as completely and used to be missed by the list.
+    /// The only way back to false is to pop the column, which is the behaviour the operator expects.</para></para>
     ///
     /// <para>It is deliberately NOT folded into <see cref="IsDayBookReport"/> itself: that property must stay
-    /// true under a picker, because the picker is appended BESIDE the live book and Esc pops back to it.</para>
+    /// true under a column, because the column is appended BESIDE the live book and Esc pops back to it.</para>
+    ///
+    /// <para><b>The name changed with the meaning.</b> It was <c>IsDayBookPickerOpen</c> while it named two
+    /// pickers; a reader checking whether a new MENU column needed adding could reasonably read that name and
+    /// conclude it did not apply, which is one of the two reasons this recurred.</para>
     /// </summary>
-    public bool IsDayBookPickerOpen =>
-        CurrentScreen is Screen.AddVoucherPicker or Screen.ExceptionReportsPicker;
+    public bool IsDayBookRowHidden => CurrentScreen != Screen.Report;
 
     /// <summary>
     /// True while the LIVE report is the <b>Memorandum Register</b> (census 4.17) — the single context the
@@ -3567,11 +3710,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     ///
     /// <para>This widens Print to every master list too (Groups, Cost Centres, Godowns, Units, Currencies, …),
     /// which is the vendor's behaviour and was already true of Export.</para>
+    ///
+    /// <para>🔴 <b>The leading <c>!IsActionMenuColumn</c> is belt AND braces, deliberately.</b> With
+    /// <see cref="IsReportContext"/> now carrying the same clause, and a menu column having no
+    /// <c>Page</c> for <c>TopMasterExportSource()</c> to find, this property is already false under an action
+    /// menu — today. The guard is stated anyway because BOTH of those are incidental: a future menu column
+    /// built with a page view model would silently restore the hole through the third arm, and that hole is a
+    /// confidentiality defect (see <see cref="IsActionMenuColumn"/>), not a cosmetic one. This is the property
+    /// the bare <b>M</b>, <b>W</b> and <b>P</b> arms are gated on; it says so here rather than relying on two
+    /// other files staying shaped as they are.</para>
     /// </summary>
     public bool IsPrintablePage =>
-        IsReportContext
-        || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
-        || TopMasterExportSource() is not null;
+        !IsActionMenuColumn
+        && (IsReportContext
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || TopMasterExportSource() is not null);
+
+    /// <summary>
+    /// True on a page either SHARE channel can actually build a document from — a drilled voucher, or a live
+    /// report. It is deliberately the EXACT disjunction <see cref="OpenEmailCompose"/> and
+    /// <see cref="OpenWhatsAppShare"/> test internally before they will construct a panel, restated once here
+    /// so a caller can ask the question before it opens a door.
+    ///
+    /// <para>🔴 <b>IT IS NARROWER THAN <see cref="IsPrintablePage"/>, AND THE DIFFERENCE IS A MENU OF DEAD
+    /// ROWS.</b> <c>IsPrintablePage</c> carries a third arm — <c>TopMasterExportSource()</c> — so it is TRUE on
+    /// every master list (Chart of Accounts, Groups, Godowns, Units, …). Neither share channel can act on a
+    /// master list: both fall through their two branches and <c>return</c>. Gating <c>OpenShareMenu</c> on
+    /// printability therefore DREW THE SHARE MENU over a master list with <b>both</b> of its rows inert — E-Mail
+    /// and WhatsApp each popped the column and did nothing. That fails this project's own completeness bar
+    /// ("every row reachable by a user from the keyboard") in the worst way: the row is on screen, painted with
+    /// its letter, and answers nothing. A menu that opens and cannot act is the same species of defect as the
+    /// dead chord census 14.4 was graded ABSENT for.</para>
+    ///
+    /// <para><b>The leading <c>!IsActionMenuColumn</c> is kept for the reason <see cref="IsPrintablePage"/>
+    /// states.</b> It is already implied — <see cref="IsReportContext"/> carries the clause and an action-menu
+    /// screen id is never <see cref="Screen.VoucherDetail"/> — but the confidentiality invariant is stated
+    /// where it is relied on rather than inherited from the shape of two other properties.</para>
+    ///
+    /// <para><b>The bare M / W arms are deliberately NOT re-gated onto this.</b> They are shipped doors; on a
+    /// master list they already match, swallow the key and no-op, so moving them would change what an unclaimed
+    /// letter falls through to (type-ahead on a data-driven column) — a behaviour change this slice did not
+    /// measure. That dead bare key is pre-existing and is reported rather than quietly altered.
+    /// 🔴 <b>AMENDED: the no-op is no longer SILENT.</b> The guard is still <c>IsPrintablePage</c> and the key is
+    /// still swallowed on all 45 such screens — that half stands — but
+    /// <see cref="OpenEmailCompose"/> / <see cref="OpenWhatsAppShare"/> now raise a refusal on the window-level
+    /// <see cref="Notice"/> bar instead of returning with nothing said. See <c>ShareChannelUnavailableMessage</c>
+    /// for the 45-screen measurement, for why <see cref="Message"/> alone paints on none of them, and for why
+    /// re-gating is still refused as unmeasured.</para>
+    /// </summary>
+    public bool IsShareablePage =>
+        !IsActionMenuColumn
+        && ((CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || (IsReportContext && Reports is not null));
 
     /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
@@ -3890,19 +4080,60 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Alt+K — opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
+    /// Opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
     /// of the open report (keyboard-first, never a flat dump). Lists this company's saved views; the user opens
-    /// (applies) or deletes one. A no-op unless a company is open; re-pressing Alt+K while the panel is open is a
+    /// (applies) or deletes one. A no-op unless a company is open; re-pressing while the panel is open is a
     /// no-op. Unlike the other report panels it does not require a report to be open — it is reachable over any
     /// report page and lists the company's views regardless.
+    ///
+    /// <para>🔴 <b>ITS DOOR IS NO LONGER Alt+K, AND THAT IS THE FIDELITY FIX THIS SLICE EXISTS FOR.</b> This
+    /// method was bound to <c>Alt+K</c> in report context, which did two wrong things at once: it put an
+    /// APEX-INVENTED chord on a key the vendor documents as the COMPANY MENU
+    /// (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/ — <c>Alt+K</c>: "To open the company menu
+    /// with the list of actions related to managing your company"), and it therefore made that company menu
+    /// UNREACHABLE on every one of this build's 82 report kinds. The vendor recalls a saved view through
+    /// <c>Ctrl+H</c> (Change View) instead
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "press Ctrl+H (Change View), and select the
+    /// view"), so that is the door now — see <see cref="OpenChangeViewMenu"/> — and
+    /// <see cref="ShellChordTable"/> has handed Alt+K back to the company menu on reports.</para>
     /// </summary>
-    public void OpenSavedViews()
+    /// <param name="forDeletion">True when the operator arrived by the Change View menu's <b>Delete Saved
+    /// Views</b> row rather than its <b>Saved Views</b> row. The vendor's two rows reach one list; this only
+    /// changes the status line so the panel says which verb was asked for.</param>
+    public void OpenSavedViews(bool forDeletion = false)
     {
         if (Company is null) return;      // needs a company to scope the views to
-        if (SavedViews is not null) return; // panel already open — don't stack a second
+
+        // 🔴 THE PANEL IS ALREADY OPEN — DO NOT STACK A SECOND, AND DO NOT SILENTLY DO NOTHING EITHER.
+        //
+        // The guard used to be a bare `return`, and it was BLIND: this method is reached through
+        // `PopMenuColumn(Screen.ChangeViewMenu)` → BackFromPage → ClearSubScreens, which has nulled `SavedViews`
+        // one statement earlier. `RehydratePageFromRightmostColumn` now re-binds the surviving panel column
+        // before this line runs (see BindPageColumn's SavedViewsViewModel arm), which is what makes the guard
+        // able to see the panel on screen at all — measured: Ctrl+H over an open Saved Views panel used to draw a
+        // SECOND identical column, the first a dead ghost, with `Reports` unbound beneath both.
+        //
+        // And it answers the row instead of swallowing it: the vendor reaches ONE list by two rows, so arriving by
+        // "Delete Saved Views" over an already-open panel arms the delete verb on the panel that is up and focuses
+        // it, rather than leaving a documented menu row inert whenever the list happens to be open already.
+        //
+        // 🔴 ARM ONLY WHAT IT CAN ALSO SHOW, AND THAT ORDER IS THE FIX FOR A SILENT MIS-ARM.
+        // `FocusRightmostPageColumn` reports FALSE when the panel is BURIED — the operator opened the panel,
+        // then opened something over it (report → Ctrl+H → Saved Views → Alt+P → Current → Ctrl+H → Delete
+        // Saved Views reaches exactly that). `EnterDeleteMode()` used to run FIRST and unconditionally, so on
+        // that route the documented menu row did nothing the operator could SEE while quietly switching the
+        // off-screen panel into delete mode — and their next Enter on it, which they would press expecting to
+        // open the highlighted view, armed a DELETE of it instead. Arming a pane that is not on screen is the
+        // hidden-row defect this file guards everywhere else; it has no business being reachable from a menu.
+        if (SavedViews is { } open)
+        {
+            if (FocusRightmostPageColumn(open) && forDeletion) open.EnterDeleteMode();
+            return;
+        }
 
         var panel = new SavedViewsViewModel(Company, _storage);
         panel.OpenRequested += ApplySavedView;
+        if (forDeletion) panel.EnterDeleteMode();
         SavedViews = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -3912,12 +4143,240 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    /// <summary>
+    /// Makes the RIGHTMOST column the active pane again when it is the one projecting <paramref name="page"/>,
+    /// without pushing anything. Used by a panel opener that finds its own panel already up: the operator asked
+    /// for that panel, so the honest answer is to put them back on it rather than to no-op or stack a duplicate.
+    ///
+    /// <para><b>Deliberately the rightmost only.</b> Moving <see cref="ActiveColumnIndex"/> to a column with other
+    /// columns still drawn to its right would invent a cascade state this shell does not otherwise produce (the
+    /// active pane is always the last one), and the alternative — trimming those columns away — would discard a
+    /// panel the operator never asked to close. When the panel is buried, this reports false and the caller leaves
+    /// the cascade exactly as it is.</para>
+    /// </summary>
+    private bool FocusRightmostPageColumn(object page)
+    {
+        if (Columns.Count == 0 || !ReferenceEquals(Columns[^1].Page, page)) return false;
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = BindPageColumn(Columns[^1]);
+        ScreenTitle = Columns[^1].Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+        return true;
+    }
+
     /// <summary>The Open action on the Saved-Views panel: apply the highlighted saved view (delegates to the
     /// panel, which raises the open request the shell services via <see cref="ApplySavedView"/>).</summary>
     public void OpenSelectedSavedView() => SavedViews?.Open();
 
-    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
+    /// <summary>
+    /// The Saved-Views panel's <b>Enter</b>, which means different things by the menu row the operator arrived
+    /// through — and this method exists because one of those two rows previously led to a verb with NO KEYBOARD
+    /// DOOR AT ALL.
+    ///
+    /// <para>Arriving by <c>Ctrl+H &gt; Saved Views</c>, Enter OPENS (applies) the highlighted view, exactly as
+    /// before. Arriving by <c>Ctrl+H &gt; Delete Saved Views</c>, Enter arms and then confirms the delete —
+    /// the vendor's own two-press flow (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: choose the
+    /// view and press <b>Enter</b>, then <i>"Press Enter or Y to confirm deletion"</i>). Before this, the only
+    /// route to <see cref="DeleteSelectedSavedView"/> in the entire product was a mouse Click handler on the
+    /// panel's button, so the <i>Delete Saved Views</i> menu row was keyboard-reachable and its verb was not.
+    /// See <see cref="SavedViewsViewModel.TakeDeleteStep"/>.</para>
+    /// </summary>
+    public void TakeSavedViewsRow()
+    {
+        if (SavedViews is not { } panel) return;
+        if (panel.TakeDeleteStep()) return;
+        panel.Open();
+    }
+
+    /// <summary>
+    /// True only while the Saved-Views panel is the active pane AND its delete is ARMED on the highlighted row —
+    /// the one state in which the vendor's <c>Y</c> confirmation key means anything. The key arm that reads this is
+    /// scoped by it rather than by the screen, so a bare <b>Y</b> on that panel is claimed only where it acts and
+    /// falls through untouched everywhere else.
+    /// </summary>
+    public bool IsSavedViewDeleteArmed =>
+        CurrentScreen == Screen.SavedViews
+        && SavedViews is { IsDeleteMode: true, PendingDeleteName: not null };
+
+    /// <summary>
+    /// The vendor's second confirmation key for a saved-view delete: <i>"Press Enter or Y to confirm deletion"</i>
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/). Confirms an already-armed delete and never
+    /// arms one — see <see cref="SavedViewsViewModel.ConfirmDeleteWithY"/>. Returns true when it consumed the key.
+    /// </summary>
+    public bool ConfirmSavedViewDeleteWithY() => SavedViews?.ConfirmDeleteWithY() ?? false;
+
+    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.
+    /// Kept as the direct verb for the panel's mouse button; the keyboard reaches it through
+    /// <see cref="TakeSavedViewsRow"/>, which carries the vendor's confirmation step.</summary>
     public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    // ============================= the four report menus: Ctrl+H / Alt+P / Alt+E / Alt+M (11.16, 12.1, 12.6, 13.5)
+    //
+    // 🔴 WHY THESE FOUR ARE ONE SLICE. The vendor's shortcut table pairs a "current object" chord with a "MENU"
+    // chord six times over (help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/, Across TallyPrime).
+    // This build shipped three of the current-object halves and NONE of the menu halves, so measured before this
+    // slice: Alt+P inert, Alt+M inert, Alt+E silently doing Ctrl+E's job, Ctrl+E unreachable on a report, and the
+    // vendor's Ctrl+L / Ctrl+H view chords consumed or unbound. The row labels and the withheld capabilities live
+    // in ReportChordMenus.cs beside their vendor quotes.
+
+    /// <summary>
+    /// Pushes a MENU column (items, no page view model) and makes it the active pane — the
+    /// <see cref="OpenCompanyMenu"/> shape, minus its <c>ClearSubScreens</c>.
+    ///
+    /// <para>🔴 <b>NOT calling <c>ClearSubScreens</c> is the whole reason this helper exists.</b> The company
+    /// menu is a NAVIGATION menu: it replaces what you were doing, so nulling <see cref="Reports"/> on the way in
+    /// is correct there. These four are ACTION menus over the thing you are standing on — every row acts on the
+    /// live report or drilled voucher beneath — so clearing it would make every row a no-op. The report stays
+    /// bound and the menu is simply a column on top of it, exactly as the Saved Views panel already is.</para>
+    /// </summary>
+    private void PushMenuColumn(GatewayColumn column, Screen screen)
+    {
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = column.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Pops the menu column named by <paramref name="menuScreen"/> before its chosen row runs its verb.
+    ///
+    /// <para>🔴 <b>THIS IS LOAD-BEARING, NOT TIDYING, AND THE DEFECT IT PREVENTS IS A WRONG ATTACHMENT.</b>
+    /// <see cref="OpenEmailCompose"/> and <see cref="OpenWhatsAppShare"/> both branch on
+    /// <c>CurrentScreen == Screen.VoucherDetail</c> to decide whether they are sharing the drilled voucher or the
+    /// report. With the menu column still on top, <c>CurrentScreen</c> is <see cref="Screen.ShareMenu"/>, that
+    /// branch misses, and <see cref="IsReportContext"/> — which excludes VoucherDetail BY SCREEN ID and so goes
+    /// TRUE the moment the screen id is something else — sends the operator the report underneath instead of the
+    /// invoice they were looking at. <see cref="OpenExport"/> has the same shape through
+    /// <c>TopMasterExportSource()</c>, which reads the TOP column: with the menu on top a master list would
+    /// export as whatever report was last bound. Popping first restores both, through the same
+    /// <see cref="BackFromPage"/> path an F12 config column already uses (it re-binds the surviving page column
+    /// and its screen id via <c>RehydratePageFromRightmostColumn</c>).</para>
+    /// </summary>
+    private void PopMenuColumn(Screen menuScreen)
+    {
+        if (CurrentScreen == menuScreen && Columns.Count > 1)
+            BackFromPage();
+    }
+
+    /// <summary>
+    /// <b>Ctrl+H — Change View</b> (census row 11.16). Vendor, verbatim
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/): a saved view is recalled by "press Ctrl+H
+    /// (Change View), and select the view", and the same menu carries "Ctrl+H (Change View) &gt; Delete Saved
+    /// Views" and "Ctrl+H (Change View) &gt; Show Original View".
+    ///
+    /// <para>🔴 <b>IT DOES NOT DISPLACE THE SHIPPED Ctrl+H.</b> <see cref="ChangeMode"/> owns Ctrl+H on a
+    /// voucher (the vendor's one mode-change key, and ruling 17 re-homed the item-invoice toggle onto it). That
+    /// arm is gated <c>IsChangeModeEntry</c> — a VOUCHER predicate — and this one on
+    /// <see cref="IsReportContext"/>, which requires a non-null <see cref="Reports"/>. The two cannot both hold:
+    /// opening a voucher runs <c>ClearSubScreens</c>, which nulls <c>Reports</c>. The window's handler tests the
+    /// voucher arm FIRST regardless, so even if that ever changed the shipped chord wins.</para>
+    /// </summary>
+    public void OpenChangeViewMenu()
+    {
+        if (!IsReportContext) return;                        // only over a live report
+        if (Company is null) return;                         // saved views are scoped to a company
+        if (CurrentScreen == Screen.ChangeViewMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ChangeViewMenu.BuildColumn(
+                savedViews: () => { PopMenuColumn(Screen.ChangeViewMenu); OpenSavedViews(); },
+                deleteSavedViews: () => { PopMenuColumn(Screen.ChangeViewMenu); OpenSavedViews(forDeletion: true); },
+                showOriginalView: () => { PopMenuColumn(Screen.ChangeViewMenu); ShowOriginalReportView(); }),
+            Screen.ChangeViewMenu);
+    }
+
+    /// <summary>
+    /// <b>Ctrl+H &gt; Show Original View</b> — reverts the open report to its default configuration. Vendor,
+    /// verbatim: "Ctrl+H (Change View) &gt; Show Original View".
+    ///
+    /// <para><b>It re-opens the same report kind rather than un-picking each knob</b>, which is exactly what
+    /// <see cref="ApplySavedView"/> already does in reverse: that method calls <c>OpenReport(kind)</c> for a
+    /// FRESH report and then applies a saved config on top. Show Original View is that first half alone — a fresh
+    /// report of the same kind, at the configuration a report opens with — so "original" means the same thing in
+    /// both directions and no second definition of "default" can drift away from the first.</para>
+    /// </summary>
+    public void ShowOriginalReportView()
+    {
+        if (Reports is not { } report) return;
+        OpenReport(report.Kind);
+    }
+
+    /// <summary>
+    /// <b>Alt+P — the print menu</b> (census rows 12.1 / 12.6). Vendor, verbatim: <c>Alt+P</c> — "To open the
+    /// print menu for printing transactions or reports."
+    ///
+    /// <para>🔴 <b>Alt+P WAS INERT ON EVERY SCREEN IN THIS BUILD.</b> The window's bare-P arm reads
+    /// <c>!e.KeyModifiers.HasFlag(KeyModifiers.Alt)</c> and the menu quick-jump at the bottom of that handler
+    /// requires <c>KeyModifiers == None</c>, so nothing matched Alt+P at all — a documented vendor chord that
+    /// did nothing anywhere. Nothing is displaced by taking it.</para>
+    /// </summary>
+    public void OpenPrintMenu()
+    {
+        if (!IsPrintablePage) return;                   // same gate the Ctrl+P "Current" row will meet
+        if (CurrentScreen == Screen.PrintMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportPrintMenu.BuildColumn(
+                current: () => { PopMenuColumn(Screen.PrintMenu); OpenPrintPreview(); },
+                others: () => { PopMenuColumn(Screen.PrintMenu); OpenMultiAccountPrint(); }),
+            Screen.PrintMenu);
+    }
+
+    /// <summary>
+    /// <b>Alt+E — the export menu</b> (census row 13.5). Vendor, verbatim: <c>Alt+E</c> — "To open the export
+    /// menu for exporting masters, transactions, or reports."
+    ///
+    /// <para>🔴 <b>THIS CHORD WAS DOING Ctrl+E's JOB.</b> The window's E arm guarded only <c>!Control</c>, so the
+    /// bare E and Alt+E both opened the CURRENT-object export panel directly, while Ctrl+E — the chord the vendor
+    /// gives that verb — was bound on <see cref="Screen.RestoreCompany"/> alone and was inert on every report.
+    /// Both halves move to where the vendor documents them in the same edit, because moving one without the
+    /// other would leave the operator with no export chord at all on some screen.</para>
+    ///
+    /// <para><b>The bare E is untouched.</b> It is this application's own quick key, it is advertised on the
+    /// header hint as "E: Export", and it is not a vendor chord to get wrong.</para>
+    /// </summary>
+    public void OpenExportMenu()
+    {
+        if (!IsExportablePage) return;
+        if (CurrentScreen == Screen.ExportMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportExportMenu.BuildColumn(
+                current: () => { PopMenuColumn(Screen.ExportMenu); OpenExport(); }),
+            Screen.ExportMenu);
+    }
+
+    /// <summary>
+    /// <b>Alt+M — the Share menu</b> (census rows 13.7 / 14.10). Vendor, verbatim: <c>Alt+M</c> — "To open the
+    /// Share menu for sharing transactions or reports through e-mail or WhatsApp."
+    ///
+    /// <para>🔴 <b>IT ALSO CLOSES IV-64.</b> <c>docs/invented-vs-cloned.md</c> IV-64 records that WhatsApp was
+    /// put on an invented <c>W</c> chord while the vendor nests it under exactly this Alt+M beside e-mail, and
+    /// names that nesting as the route to build. Both channels now hang off the vendor's chord. The W chord is
+    /// deliberately NOT removed — it is a shipped door, deleting it would regress an operator who uses it, and
+    /// IV-64 asks for the vendor route to exist rather than for the extra one to go.</para>
+    /// </summary>
+    public void OpenShareMenu()
+    {
+        // 🔴 IsShareablePage, NOT IsPrintablePage — CORRECTED AFTER MEASUREMENT. This line read
+        // `if (!IsPrintablePage) return;` with the comment "the gate both channels already carry". That comment
+        // was false in the same way the E/P/M invariant next door was false: printability includes every MASTER
+        // LIST through TopMasterExportSource(), and NEITHER share channel can build a panel from one — both
+        // OpenEmailCompose and OpenWhatsAppShare fall through their branches and return. So on the Chart of
+        // Accounts, Alt+M drew a Share menu whose E-Mail and WhatsApp rows were BOTH inert. See IsShareablePage.
+        if (!IsShareablePage) return;                   // the gate both channels really do carry
+        if (CurrentScreen == Screen.ShareMenu) return;  // re-press must not stack a second
+
+        PushMenuColumn(
+            ReportShareMenu.BuildColumn(
+                email: () => { PopMenuColumn(Screen.ShareMenu); OpenEmailCompose(); },
+                whatsApp: () => { PopMenuColumn(Screen.ShareMenu); OpenWhatsAppShare(); }),
+            Screen.ShareMenu);
+    }
 
     // =============================================================== the navigation shell (census 14.2 / 14.9)
     //
@@ -4293,9 +4752,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (view is null || Company is null) return;
         if (ReportsViewModel.KindFor(view.ReportKind) is not { } kind) return; // token this build cannot map
 
+        // 🔴🔴 A SAVED VIEW IS A SECOND DOOR TO EVERY REPORT KIND. A saved view stores a kind TOKEN, and this
+        // method opened that kind directly — so Alt+K on a company whose Payroll Statutory had been switched off
+        // still rendered every employee's wage base and accrued gratuity liability, and the register's own Ctrl+A
+        // still posted a real Journal voucher into the books. MEASURED on the realised window, twice:
+        // "opened=True, rows=2, vouchers 0 -> 1" through this door, while OpenGratuityProvisionReport refused
+        // correctly in the same fixture seconds earlier. A gate a second door walks around is not a gate.
+        //
+        // 🔴 AND THE FIRST ATTEMPT AT THIS GUARD DID NOT CLOSE THE CLASS, WHICH IS WHY THE PREDICATE IS SHAPED
+        // THE WAY IT IS NOW. That attempt enumerated the kinds whose OPENERS already carried a guard — FIFTEEN
+        // of ninety-three, counted from its own arms, not the eighteen the review's prose said — and permitted
+        // everything else, and a comment here claimed the door was shut on every
+        // company-feature gate in the product. It was not: the product gates most report kinds on the MENU ROW,
+        // not on an opener, so a review then measured a saved view opening the PAY SHEET (every employee's gross,
+        // deductions and net pay) on a company with F11 Payroll switched OFF, screen=Report kind=PaySheet
+        // payrollEnabled=False Message empty. ReportKindIsPermitted now DENIES a kind that carries no explicit
+        // gate decision, and the decision table is total over ReportKind with a test that fails when a new kind
+        // is added without one — see MainWindowViewModel.ReportFeatureGates.cs.
+        if (!ReportKindIsPermitted(kind))
+        {
+            Message = "That saved view is for a report this company has switched off. "
+                    + "Enable it under F11 (Features) to open it again.";
+            return;
+        }
+
         OpenReport(kind);
         Reports?.ApplySavedView(view);
     }
+
+    // ReportKindIsPermitted and the total ReportKind → ReportFeatureGate decision table now live in
+    // MainWindowViewModel.ReportFeatureGates.cs, alongside the named menu-gate properties the menu builders
+    // branch on. They were moved out of this file BECAUSE the predicate that used to sit here permitted every
+    // kind it did not name, and reading it here made that look like a complete gate.
 
     // =============================================================== screen: Print Preview (RQ-9 / DP-8)
 
@@ -4515,10 +5003,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (Chart of Accounts, the ledger-creation list, the stock-item-creation list; RQ-14/16, slice 13). Master
     /// lists project through <see cref="MasterListTabularProjector"/>; reports through
     /// <see cref="ReportTabularProjector"/>.
+    ///
+    /// <para>🔴 <b><c>!IsActionMenuColumn</c> for the same reason <see cref="IsPrintablePage"/> carries it.</b>
+    /// This is the predicate the bare <b>E</b> arm is gated on, and the Export menu's own first row is painted
+    /// with <b>E</b>. Without the clause that letter would be swallowed by the bare arm and run
+    /// <c>OpenExport()</c> with the menu column still on top — where <c>TopMasterExportSource()</c> reads the
+    /// MENU as the top column and a master list would export as whatever report was last bound. See
+    /// <see cref="IsActionMenuColumn"/>.</para>
     /// </summary>
     public bool IsExportablePage =>
-        IsReportContext
-        || TopMasterExportSource() is not null;
+        !IsActionMenuColumn
+        && (IsReportContext || TopMasterExportSource() is not null);
 
     /// <summary>
     /// The master-list export source on top of the cascade, if any: the currently-displayed master-list page
@@ -4615,6 +5110,55 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== screen: e-mail compose (RQ-25/26)
 
     /// <summary>
+    /// 🔴 <b>The sentence a share channel says instead of doing nothing at all.</b> Both channels can build a
+    /// panel from exactly two things — a drilled voucher and a live report — and returned SILENTLY from anything
+    /// else. The keys that reach them are gated on <see cref="IsPrintablePage"/>, which carries a third arm
+    /// (<c>TopMasterExportSource()</c>), so on every screen in that gap the handler matched, set
+    /// <c>e.Handled = true</c>, called one of these two methods and returned: <b>no panel, no refusal, no status
+    /// line.</b> An operator pressing <b>M</b> on the DRC-03 panel or the ITC Gate got nothing and could not
+    /// learn why.
+    ///
+    /// <para><b>THE SURFACE, MEASURED RATHER THAN ESTIMATED.</b> The gap is exactly the set of screens on which
+    /// <c>IsPrintablePage</c> is true and <see cref="IsShareablePage"/> is false — i.e. pages that are printable
+    /// only through the third arm. That arm tests the top cascade column's page for
+    /// <see cref="IMasterListExportSource"/>, and <b>45</b> view models in this assembly implement it (counted by
+    /// grep over <c>src/Apex.Desktop/ViewModels/</c> for <c>MasterListSnapshot ToMasterListSnapshot</c>, excluding
+    /// the interface's own declaration). None of them is a <c>Screen.Report</c>, so <c>IsReportContext</c> is
+    /// false on all 45 and every one of them could reach the silent no-op. The ten screens this wave's cluster
+    /// fix added are members of that 45, not a new class: the hole is pre-existing and was WIDENED, not created.
+    /// </para>
+    ///
+    /// <para>🔴 <b>WHY THE FIX IS HERE AND NOT ON THE KEY'S GUARD — AND WHAT IS DELIBERATELY NOT DONE.</b> The
+    /// obvious repair is to re-gate the bare <b>M</b> / <b>W</b> arms onto <see cref="IsShareablePage"/>. That is
+    /// REFUSED, for the reason <see cref="IsShareablePage"/> already records: those are shipped doors, and moving
+    /// the guard changes what an unclaimed letter falls through to — type-ahead on a data-driven column — on all
+    /// 45 screens. The letter <c>M</c> is a plausible first character of a ledger, a stock item, a godown and an
+    /// employee, so that is a live behaviour change across 45 grids, and NOTHING in this project has measured it.
+    /// Half-fixing a key route is worse than leaving it. This fix changes no guard and no fall-through: the key is
+    /// swallowed exactly where it was swallowed before, and the only difference is that the operator is now TOLD.
+    /// Re-gating remains the right end state and is reported as a follow-up, not smuggled in here.</para>
+    ///
+    /// <para><b>It is on the METHOD, not on the key handler, so every caller inherits it</b> — the bare letter,
+    /// <c>Ctrl</c>+letter, the Alt+M Share menu's two rows and the button-bar badges all route through these two
+    /// methods. Gating the message on the key would have left the menu rows silent.</para>
+    ///
+    /// <para>🔴 <b>IT IS RAISED ON <see cref="Notice"/>, AND WRITING IT TO <see cref="Message"/> ALONE WAS THE
+    /// FIRST ATTEMPT'S DEFECT — MEASURED, NOT SUSPECTED.</b> A refusal on <see cref="Message"/> renders on NONE of
+    /// these 45 screens: the one shell-level <c>{Binding Message}</c> in <c>MainWindow.axaml</c> sits inside the
+    /// grid whose <c>IsVisible</c> is <see cref="IsMenuScreen"/>, and all 45 are cascade PAGE COLUMNS opened through
+    /// <c>OpenPageColumn</c> — so <see cref="IsMenuScreen"/> is false on 100% of the surface and the sentence
+    /// painted nowhere. Every other <c>{Binding Message}</c> in the window sits in a page <c>DataTemplate</c> and
+    /// binds THAT page's own <c>Message</c>, not this one. <see cref="Notice"/> is the window-level bar (declared
+    /// outside every template, <c>MainWindow.axaml</c> <c>Grid.Row="3"</c>, wrapping to four lines and never hidden
+    /// with the status bar) that <see cref="RaiseLifecycleNotice"/> was added for after the SAME trap swallowed the
+    /// Alt+X refusals. <see cref="Message"/> is still set alongside it, so the routes that DO render it keep
+    /// working; what changed is that the operator can now SEE the refusal.</para>
+    /// </summary>
+    private static string ShareChannelUnavailableMessage(string key, string channel) =>
+        $"{key}: {channel} acts on an open REPORT or a drilled voucher, and this screen is neither. "
+        + "Press E to export this screen, or P to print it.";
+
+    /// <summary>
     /// M / Ctrl+M — opens the "E-Mail" compose panel for the CURRENT report (RQ-25) or a drilled voucher / tax
     /// invoice (RQ-11 attachment), as its own cascading column to the RIGHT of the page, never a stacked overlay,
     /// mirroring <see cref="OpenExport"/>. The report/invoice stays live beneath; the attachment defaults to its
@@ -4622,6 +5166,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// byte-stable <c>.eml</c> (carrying the attachment), or a <c>mailto:</c> opens the OS mail client for a quick
     /// body — <b>nothing is sent</b>; no socket/SMTP path exists. A no-op unless a report or voucher-detail is on
     /// screen; re-pressing while the panel is open is a no-op (there is already a compose column).
+    /// 🔴 On a screen neither channel can act on it now raises a refusal on the window-level <see cref="Notice"/>
+    /// bar rather than returning silently — see <c>ShareChannelUnavailableMessage</c>.
     /// </summary>
     public void OpenEmailCompose()
     {
@@ -4633,7 +5179,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (IsReportContext && Reports is { } r)
             panel = new EmailComposeViewModel(r);        // e-mail the open report
         else
-            return;                                      // nothing to e-mail
+        {
+            // 🔴 A REFUSAL, NOT A SILENT return — on Notice, the WINDOW-LEVEL bar, because Message renders on none
+            // of these 45 screens. See ShareChannelUnavailableMessage for both measurements.
+            Notice = Message = ShareChannelUnavailableMessage("M", "E-Mail");
+            return;
+        }
 
         panel.Launcher = Launcher;      // the OS hand-off seam (a test substitutes a recording double)
         EmailCompose = panel;
@@ -4691,7 +5242,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (IsReportContext && Reports is { } r)
             panel = new WhatsAppShareViewModel(r);       // share the open report
         else
-            return;                                      // nothing to share
+        {
+            // 🔴 A REFUSAL, NOT A SILENT return — the same correction as OpenEmailCompose, on the same window-level
+            // channel, stated once in ShareChannelUnavailableMessage so the two cannot come to answer differently.
+            Notice = Message = ShareChannelUnavailableMessage("W", "WhatsApp");
+            return;
+        }
 
         panel.Launcher = Launcher;
         WhatsAppShare = panel;
@@ -5398,9 +5954,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenAddVoucherFromReport()
     {
         if (Company is null || !IsDayBookReport) return;
-        // Refuses under ANY Day-Book picker column, not just its own (see IsDayBookPickerOpen): with the Ctrl+J
-        // Exception Reports column on top, the seed date would be read off a row the operator cannot see.
-        if (IsDayBookPickerOpen) return;
+        // Refuses under ANY column drawn over the Day Book, not just its own (see IsDayBookRowHidden): with the
+        // Ctrl+J Exception Reports column — or an Alt+P / Alt+E / Alt+M / Ctrl+H action menu, or the F12 config
+        // panel — on top, the seed date would be read off a row the operator cannot see.
+        if (IsDayBookRowHidden) return;
 
         // Seed the new voucher's date from the highlighted Day-Book row (its own voucher's date); resolve it NOW
         // while the report is still bound, before the picker column takes focus.
@@ -5459,9 +6016,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenExceptionReportsPicker()
     {
         if (Company is null || !IsDayBookReport) return;
-        // Refuses under ANY Day-Book picker column (see IsDayBookPickerOpen) — its own, so a second one is never
-        // stacked, and the Alt+A/Alt+I one, so Ctrl+J cannot bury a half-made voucher choice under a report menu.
-        if (IsDayBookPickerOpen) return;
+        // Refuses under ANY column drawn over the Day Book (see IsDayBookRowHidden) — its own, so a second one is
+        // never stacked; the Alt+A/Alt+I one; and the four action menus, over which this used to fire on a row
+        // hidden behind a modal column.
+        if (IsDayBookRowHidden) return;
 
         // The report's OWN period, resolved while the Day Book is still bound, so each register covers exactly
         // the window the operator was looking at. Re-deriving it after the picker takes focus would read the
@@ -5624,11 +6182,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public VoucherAlterationRequest RequestInsertVoucherAtHighlight()
     {
         if (Company is null || !IsDayBookReport) return VoucherAlterationRequest.NoVoucherHere;
-        // 🔴 ANY Day-Book picker column, not just this verb's own (see IsDayBookPickerOpen). This exclusion used to
-        // name Screen.AddVoucherPicker alone; the Ctrl+J Exception Reports column also leaves Reports bound, so
-        // Alt+I under it opened an Insert picker anchored on a row hidden BEHIND the column — and an insert
-        // renumbers every voucher after its anchor.
-        if (IsDayBookPickerOpen) return VoucherAlterationRequest.NoVoucherHere;
+        // 🔴 ANY column drawn over the Day Book, not just this verb's own (see IsDayBookRowHidden). This
+        // exclusion used to name Screen.AddVoucherPicker alone; the Ctrl+J Exception Reports column also leaves
+        // Reports bound, so Alt+I under it opened an Insert picker anchored on a row hidden BEHIND the column —
+        // and an insert renumbers every voucher after its anchor. It then named two screens and was missed a
+        // SECOND time by the four action menus, which is why it now names none: see IsDayBookRowHidden.
+        if (IsDayBookRowHidden) return VoucherAlterationRequest.NoVoucherHere;
 
         // The armed-confirmation gate, copied in effect from the Alt+2 door: an armed Alt+X / Alt+D question
         // names a voucher and is answered by a bare Y, and opening a picker over it would carry the arming into
@@ -7065,6 +7624,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <b>Post Provision</b> action (Ctrl+A) that posts the delta voucher. A no-op unless the establishment is enrolled
     /// for gratuity (the menu item + the open path are gated on <see cref="Company.GratuityConfig"/>), so a non-gratuity
     /// company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 7.13 was re-homed onto <see cref="ReportKind.GratuityProvisionRegister"/>
+    /// (<see cref="OpenGratuityProvisionReport"/>), and the Ctrl+A Post Provision action went with it
+    /// (<see cref="PostGratuityProvisionFromReport"/>). The "Gratuity Provision" menu row now calls the report
+    /// opener and nothing else ever called this. See the banner on <see cref="OpenCostReport"/>.</para>
     /// </summary>
     public void OpenGratuityProvisionRegister()
     {
@@ -7092,6 +7657,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// actual Basic + DA, capped base, rate, annual bonus) + the total bonus. A no-op unless the establishment is
     /// enrolled for statutory bonus (the menu item + the open path are gated on <see cref="Company.BonusConfig"/>), so a
     /// non-bonus company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 7.14 was re-homed onto <see cref="ReportKind.BonusRegister"/>
+    /// (<see cref="OpenBonusRegisterReport"/>); the "Bonus Register" menu row now calls that and nothing else
+    /// ever called this. See the banner on <see cref="OpenCostReport"/>.</para>
     /// </summary>
     public void OpenBonusRegister()
     {
@@ -7104,6 +7674,153 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True while the Bonus register page is the active screen.</summary>
     public bool IsBonusRegisterScreen => CurrentScreen == Screen.BonusRegister && BonusRegister is not null;
+
+    // ---------------------------------------------------------- W-V2: the two payroll registers, re-homed
+    //
+    // Census rows 7.13 and 7.14. Both shipped as dedicated page Screens with correct arithmetic and — measured,
+    // not assumed — ZERO Export/Print/Pdf hits in either view model, because a page Screen leaves the report
+    // context null and that single fact switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once.
+    // The two openers below route the SAME projections through the report surface instead. The gates are
+    // unchanged and are still two-part (PayrollStatutoryEnabled AND the establishment's own enrolment), so a
+    // company enrolled for neither statute reaches neither report (ER-13).
+
+    /// <summary>
+    /// Opens the re-homed <b>Gratuity Provision</b> register (census 7.13) as a report. Gated exactly as
+    /// <see cref="OpenGratuityProvisionRegister"/> is; the Ctrl+A <b>Post Provision</b> action travels with it
+    /// (<see cref="PostGratuityProvisionFromReport"/>) rather than being left behind on the old page.
+    /// </summary>
+    public void OpenGratuityProvisionReport()
+    {
+        if (!GratuityRegisterFeatureOn) return;
+        OpenReport(ReportKind.GratuityProvisionRegister);
+    }
+
+    /// <summary>Opens the re-homed <b>Statutory Bonus</b> register (census 7.14) as a report. Read-only — the
+    /// register has no action of its own, which is why nothing had to be carried across with it.</summary>
+    public void OpenBonusRegisterReport()
+    {
+        if (!BonusRegisterFeatureOn) return;
+        OpenReport(ReportKind.BonusRegister);
+    }
+
+    /// <summary>
+    /// <b>Ctrl+A on the re-homed Gratuity Provision report</b> — posts the period-end provision voucher for the
+    /// delta over the prior posted balance (Dr Gratuity Expense / Cr Gratuity Provision, or the reverse
+    /// write-back for a fall) and persists the company, then refreshes the report so the movement band shows the
+    /// new prior balance and a ₹0 delta.
+    ///
+    /// <para>🔴 <b>THE POST LIVES HERE, NOT ON <see cref="ReportsViewModel"/>, AND THAT IS DELIBERATE.</b> That
+    /// class's whole contract is that it is a pure projection holding no storage and writing nothing — the same
+    /// contract the Outstandings page had to be rewritten to honour after a Ctrl+B on it silently posted a
+    /// settlement voucher through a hard-coded ledger. The shell owns <c>_storage</c>; the report stays
+    /// read-only and simply displays what the shell reports back.</para>
+    ///
+    /// <para>The duplicate-post refusal is carried across verbatim in intent from the page: the engine's prior
+    /// balance is strictly-before the as-on date, so an INCLUSIVE prior (as-on + 1 day) is what makes a second
+    /// Ctrl+A on an already-provisioned date a friendly no-op instead of a double posting.</para>
+    /// </summary>
+    public void PostGratuityProvisionFromReport()
+    {
+        if (Company is null || Reports is not { Kind: ReportKind.GratuityProvisionRegister } reports) return;
+
+        // 🔴 THE WRITE GUARD MUST MATCH ITS OWN OPENER'S GUARD, AND FOR ONE WAVE IT DID NOT.
+        // OpenGratuityProvisionReport refuses unless BOTH halves of the ER-13 gate hold
+        // (PayrollStatutoryEnabled AND GratuityConfig); this method checked only the second half. That is not a
+        // theoretical mismatch: ApplySavedView opens a report kind directly, so a saved view restored the
+        // register on a company whose Payroll Statutory had since been switched OFF, and this method then posted
+        // a real Journal voucher into its books — measured, vouchers 0 -> 1. OnPayrollStatutoryEnabledChanged
+        // clears the flag and LEAVES GratuityConfig in place, so that state is one F11 tick away on any company
+        // that ever enrolled. The saved-view door is now gated as well (see ReportKindIsPermitted), and this
+        // guard is the second lock: a write path is the wrong place to rely on the reachability of its opener.
+        // The two halves are checked SEPARATELY rather than through GratuityRegisterFeatureOn so each can name
+        // the switch the operator has to go and change; the opener asks the composite question.
+        if (!PayrollStatutoryFeatureOn)
+        {
+            reports.ReportActionStatus =
+                "Payroll Statutory is not enabled for this company (F11 → Payroll Statutory) — nothing was posted.";
+            return;
+        }
+        if (Company.GratuityConfig is null)
+        {
+            reports.ReportActionStatus = "Gratuity is not enabled for this company.";
+            return;
+        }
+
+        var asOn = reports.AsOf;
+        var employeeIds = Company.Employees.Select(e => e.Id).ToList();
+        var service = new Apex.Ledger.Services.PayrollVoucherService(Company);
+
+        var accrued = Apex.Ledger.Services.GratuityProvision.TotalLiability(Company, employeeIds, asOn);
+        var inclusivePrior = service.PriorGratuityProvisionBalance(asOn.AddDays(1));
+        if (accrued.Amount - inclusivePrior.Amount == 0m)
+        {
+            reports.ReportActionStatus =
+                "The gratuity provision is unchanged from the posted balance — nothing to post.";
+            return;
+        }
+
+        Voucher posted;
+        try
+        {
+            posted = service.PostGratuityProvision(asOn, employeeIds, voucherDate: asOn);
+            _storage.Save(Company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            reports.ReportActionStatus = $"Could not post the gratuity provision: {ex.Message}";
+            return;
+        }
+
+        BuildButtonBar();
+        // Refresh FIRST, then set the message: Show() clears ReportActionStatus, so the other order would
+        // post the voucher correctly and then silently throw away the only confirmation the operator gets.
+        reports.Show(ReportKind.GratuityProvisionRegister);
+        reports.ReportActionStatus =
+            $"Posted gratuity provision as-on {ApexDate.Format(asOn)}: "
+            + $"Dr {IndianFormat.AmountAlways(posted.TotalDebit)} = Cr {IndianFormat.AmountAlways(posted.TotalCredit)}.";
+    }
+
+    /// <summary>
+    /// <b>Alt+A on the re-homed Outstandings report</b> (census 11.9) — opens the bill-settlement helper for the
+    /// side being viewed.
+    ///
+    /// <para>🔴 <b>THIS IS WHAT KEEPS THE SETTLE WORKFLOW REACHABLE AFTER THE RE-HOME.</b> Re-homing moved
+    /// Bills Receivable / Bills Payable onto the report surface so they gain print, export and the report
+    /// parameters. Alt+A is the door to the settlement page, on the same keystroke it already had, which is why
+    /// routing the menu rows to the reports does not strand it.</para>
+    ///
+    /// <para>🔴🔴 <b>SETTLEMENT SHIPS IN THE REFERENCE PRODUCT. WHAT DIVERGES IS THE CHORD AND THE SURFACE, NOT
+    /// THE CAPABILITY — AND AN EARLIER DRAFT OF THIS VERY COMMENT SAID OTHERWISE, WHICH IS WHY THE CORRECTION IS
+    /// WRITTEN OUT IN FULL RATHER THAN QUIETLY APPLIED.</b> ~~"the vendor's Bills Outstanding carries no
+    /// settlement action at all"~~ is FALSE. Verified by content on the page this feature already cites,
+    /// help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/, which lists among that
+    /// report's own buttons, verbatim: <i>"Alt+B (Settle Bills): to settle the bills in your account once your
+    /// party has made the due payment."</i> <c>docs/full-clone-census.md</c> row 11.9 had already caught and
+    /// corrected this exact sentence once ("It is a chord divergence, not a missing capability"), so the claim
+    /// was a REGRESSION of a recorded correction, not a fresh mistake.</para>
+    ///
+    /// <para>The two divergences that are real, stated as divergences: (1) <b>the chord</b> — the vendor settles
+    /// on <c>Alt+B</c> and we settle on <c>Alt+A</c>, because Alt+B is not free on our report surface; that
+    /// belongs to the single chord-map ruling <b>U-6</b> and must not be resolved one report at a time.
+    /// (2) <b>the surface</b> — the vendor settles ON the outstandings report, and ours opens a separate
+    /// settlement page, because the matrix surface these eight kinds render through has no row-selection model
+    /// to hang a spacebar multi-select on. Both are ours to close; neither is a missing vendor feature.</para>
+    /// </summary>
+    public void OpenSettlementPageFromOutstandingsReport()
+    {
+        if (Company is null || Reports is not { } reports) return;
+        switch (reports.Kind)
+        {
+            case ReportKind.ReceivablesOutstanding: OpenOutstandings(OutstandingsKind.Receivables); break;
+            case ReportKind.PayablesOutstanding: OpenOutstandings(OutstandingsKind.Payables); break;
+        }
+        // 🔴 NO `default:` ARM, DELIBERATELY. This switch is the SECOND of the two guards that keep Alt+A from
+        // navigating off an unrelated report, and measurement showed it is the one actually load-bearing: with
+        // the window's own Kind guard widened to `Reports is not null`, the negative chord test stayed GREEN
+        // because this switch still fell through to nothing. Only removing BOTH reddened it. Adding a default
+        // here would make Alt+A open the settlement page from every report in the app and steal the key from the
+        // Day Book's "Add voucher in a report".
+    }
 
     // =============================================================== §192 salary TDS (Phase 8 slice 7)
 
@@ -7350,6 +8067,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens a cost-centre report (Reports → Statements of Accounts → Cost Centres → Category Summary /
     /// Cost Centre Break-up) as a page column on the right of the cascade.
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 11.10 was re-homed onto <see cref="ReportKind.CostCategorySummary"/> /
+    /// <see cref="ReportKind.CostCentreBreakup"/> / <see cref="ReportKind.CostCentreLedgerBreakup"/>, and BOTH
+    /// doors that used to land here — the "Cost Centres" menu column and the "C" quick-button — now call
+    /// <c>OpenReport</c>. This method, <see cref="CostReportsViewModel"/>, <see cref="CostReportKind"/> and
+    /// <see cref="Screen.CostReport"/> therefore have <b>zero production callers</b>.</para>
+    ///
+    /// <para>They are left standing for exactly one wave, under this banner, because the wave that re-homed
+    /// them was told not to delete a screen until its replacement route was proven — and the proof is the test
+    /// suite that ships with the re-home, not this method. The banner is the whole point: unreachable code with
+    /// NO notice on it is this repository's own filed defect (<c>CostReports.BuildLedgerBreakup</c> sat that way
+    /// for months, which is the reason its route is in the list above). Removing these is a named follow-up.</para>
     /// </summary>
     public void OpenCostReport(CostReportKind kind)
     {
@@ -7396,6 +8126,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the Budget Variance report (Reports → Statements of Accounts → Budgets → Budget Variance) as a
     /// page column: for the chosen budget, each target's Budget / Actual / Variance over the budget period.
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-V2 AND CURRENTLY UNREACHABLE — DELETE IT, DO NOT WIRE IT BACK UP.</b>
+    /// Census row 11.11 was re-homed onto <see cref="ReportKind.BudgetVariance"/>; the "Budget Variance" menu
+    /// row now calls <c>OpenReport</c> and nothing else ever called this. See the identical banner on
+    /// <see cref="OpenCostReport"/> for why it is left standing for one wave rather than deleted in the same
+    /// change that stopped calling it.</para>
     /// </summary>
     public void OpenBudgetVariance()
     {
@@ -8143,9 +8879,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation. Set only by the
-    /// Phase 10.11 lifecycle verbs — S3 cancel and S4 delete (see <see cref="RaiseLifecycleNotice"/>) — and cleared
-    /// on any change of screen, because a notice belongs to the screen it was raised on.
+    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation, and cleared on any
+    /// change of screen because a notice belongs to the screen it was raised on. Raised by the Phase 10.11 lifecycle
+    /// verbs — S3 cancel and S4 delete (<see cref="RaiseLifecycleNotice"/>) — by the cheque-status / CST-form routes
+    /// above, and by the two share-channel refusals (<c>ShareChannelUnavailableMessage</c>): every one of them
+    /// speaks from a screen that cannot render <see cref="Message"/>, which is the whole reason this bar exists.
     /// </summary>
     [ObservableProperty] private string _notice = string.Empty;
 
@@ -8363,6 +9101,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 or Screen.StockCategoryMaster or Screen.CostCategoryMaster or Screen.CostCentreMaster
                 => RequestDeleteMasterListRow(),
 
+            // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the eight residual masters, through
+            // that same shared arm. Every one of these screens was CREATE-ONLY: a mistyped batch, BOM, currency,
+            // budget, scenario, price level, price list version or reorder definition could be added and never
+            // removed by any sequence of keys. Five of the eight delete services already existed in Apex.Ledger
+            // with ZERO callers in Apex.Desktop, one of them (BomService.DeleteBom) missing the very guard that
+            // stops a delete making the open company unsavable — see MasterListScreen above for the per-master
+            // refusal and for why three of the eight owe no guard at all.
+            Screen.BatchMaster or Screen.BomMaster or Screen.CurrencyMaster or Screen.BudgetMaster
+                or Screen.ScenarioMaster or Screen.PriceLevelsMaster or Screen.PriceListsMaster
+                or Screen.ReorderLevelsMaster
+                => RequestDeleteMasterListRow(),
+
             _ => false,
         };
     }
@@ -8431,7 +9181,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <see cref="Apex.Ledger.Domain.Voucher"/> and every refusal it raises is about the ACCOUNTING aggregate —
     /// a bill-wise settlement, a filed statutory document (IRN/e-Way Bill), a numbering consequence. A
     /// pure-stock voucher participates in none of those: it posts no entry, settles no bill and carries no IRN.
-    /// Inventing a guard here to look symmetrical would be a refusal with no rule behind it. What deletion CAN
+    /// Inventing a <c>MasterDeletionRules</c> guard here to look symmetrical would be a refusal with no rule
+    /// behind it.
+    ///
+    /// <para>🔴 <b>THAT REASONING HOLDS FOR <c>MasterDeletionRules</c> AND WAS OVER-READ AS "no guard at all",
+    /// WHICH WAS WRONG.</b> This aggregate does have one referential rule, and it is the engine's own: a Job Work
+    /// order that posted Material movements still link to cannot be deleted, because doing so leaves those
+    /// movements holding a dangling <c>OrderLinks</c> Guid — a state <c>InventoryPostingService.Post</c> refuses
+    /// by name, and which under <c>PRAGMA foreign_keys = ON</c> plus delete-all-and-reinsert persistence can make
+    /// the open company unsavable. It lives in <c>InventoryPostingService.EnsureDeletable</c> / <c>Delete</c>
+    /// rather than in <c>MasterDeletionRules</c> precisely BECAUSE the argument above is right about what that
+    /// class is for; it is pre-asked here and re-asked by the engine at the act.</para>
+    ///
+    /// <para>What deletion CAN also
     /// do is drive a later movement's on-hand negative, and the engine's own doc is explicit that this is no
     /// longer blocked (NS-3, call site 3 of 4) — it is reported afterwards by
     /// <c>InventoryPostingService.DetectNegativeStock</c>, which this route surfaces on the notice bar so the
@@ -8446,6 +9208,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (voucherId is not { } id) return false;
         if (id == Guid.Empty) return false;
         if (Company!.FindInventoryVoucher(id) is not { } voucher) return false;
+
+        // The ONE referential rule this aggregate has, pre-asked so a refusal arrives INSTEAD of the irreversible
+        // confirmation rather than after the operator has answered it. The engine re-asks it at the act itself.
+        if (!GuardsAllowDeletion(
+                () => new Apex.Ledger.Services.InventoryPostingService(Company).EnsureDeletable(id),
+                StockCancelRouting())) return false;
 
         return Arm(DeletionTarget.InventoryVoucher, id,
             $"Delete {InventoryVoucherLabel(voucher)}? The entry and every stock line on it are removed from "
@@ -8559,6 +9327,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             : "Alt+X works on the Day Book — open it there to cancel this voucher.";
     }
 
+    /// <summary>
+    /// 🔴 <b>The PURE-STOCK analogue of <see cref="CancelRoutingFor"/>, and it exists because the refusal it
+    /// appends to named a DEAD KEY on the one screen this slice newly made reachable.</b> Returns the extra
+    /// sentence to append, or <c>null</c> when Alt+X is genuinely live where the operator is standing.
+    ///
+    /// <para><b>Measured, not reasoned.</b> Exactly two surfaces reach a pure-stock lifecycle refusal
+    /// (<see cref="RequestDeleteHighlighted"/>'s switch and <see cref="ResolveInventoryVoucherForAlteration"/>
+    /// agree on the pair): <see cref="Screen.Report"/>, where the window's Alt+X arm is live because it is gated
+    /// on <see cref="IsLiveReportPage"/> and <see cref="RequestCancelHighlightedVoucher"/> routes a row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> to <c>RequestCancelInventoryVoucher</c>; and
+    /// <see cref="Screen.InventoryVoucherDetail"/>, where that arm does not fire at all. On the second surface
+    /// the engine's own remedy sentence ("cancel this order with Alt+X instead") was unreachable, and after this
+    /// slice's delete guard the destructive verb is refused there too — so a linked Job Work order had NO working
+    /// lifecycle verb while two separate refusals both pointed at a key that does nothing.
+    ///
+    /// <para>🔴 <b>The named surfaces are verified to carry the verb, not assumed.</b> The Day Book lists the
+    /// pure-stock aggregate (<c>DayBook</c> walks <c>company.InventoryVouchers</c> whole, Job Work orders
+    /// included) and the four Job Work registers plus the two Material registers assign
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/>, so Alt+X resolves an order from any of them. Naming a
+    /// second dead key would be the same defect wearing different words.</para>
+    ///
+    /// <para><b>Why not widen the Alt+X arm to <see cref="Screen.InventoryVoucherDetail"/> instead.</b> The same
+    /// reason <see cref="CancelRoutingFor"/> records: that arm belongs to S3, its current scope is deliberately
+    /// pinned by a test, and widening a shipped destructive verb's surface is a scope decision for its own slice
+    /// rather than a side-effect of a delete fix.</para>
+    /// </summary>
+    private string? StockCancelRouting() =>
+        IsLiveReportPage
+            ? null
+            : "Alt+X does not work on this screen — it works on the Day Book and on the Job Work and Material "
+            + "registers, so cancel it from one of those.";
+
     /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
     private bool Arm(DeletionTarget kind, Guid id, string prompt)
     {
@@ -8633,10 +9433,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     new Apex.Ledger.Services.LedgerService(Company).Delete(id);
                     break;
 
-                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask: there is no guard
-                // for this aggregate to re-ask (see RequestDeleteInventoryVoucher for why inventing one would be
-                // a refusal with no rule behind it). The engine's Delete appends the edit-log entry, so the
-                // deletion leaves the same audit evidence an accounting deletion does.
+                // Census 4.9–4.16 — the pure-stock aggregate. No MasterDeletionRules re-ask, because this
+                // aggregate's one referential rule lives in the ENGINE rather than in MasterDeletionRules:
+                // InventoryPostingService.Delete refuses to delete a Job Work order that posted Material
+                // movements still link to (the mirror of its own EnsureReferencesResolve), and it re-asks that
+                // rule itself, immediately before the irreversible act, on every caller rather than only on this
+                // one. Its InvalidOperationException is reportable, so the catch below turns it into a notice.
+                // The engine's Delete appends the edit-log entry, so the deletion leaves the same audit evidence
+                // an accounting deletion does.
                 case DeletionTarget.InventoryVoucher:
                 {
                     if (Company.FindInventoryVoucher(id) is not { } stockVoucher) return;
@@ -8859,7 +9663,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company is not null
         && (IsLiveReportPage
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
-            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null));
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // 🔴 Census 4.9–4.16 — the pure-stock drill column, added with the alteration verb itself. It is the
+            // FOURTH arm and it went in here rather than being special-cased in the key handler for the reason
+            // this property exists: Alt+D already reaches Screen.InventoryVoucherDetail
+            // (RequestDeleteHighlighted's own switch has that arm), so leaving Ctrl+Enter out would have left the
+            // two lifecycle verbs reachable from different sets of screens — the drift IsDeleteTargetPage and
+            // this property are a matched pair to prevent.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null));
 
     /// <summary>
     /// 🔴 <b>Census 4.9–4.16 — the verb the operator just pressed has NO pure-stock implementation, so SAY SO
@@ -8874,11 +9685,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// every other voucher, and NOTHING HAPPENS AND NOTHING IS SAID. "Honestly unavailable" is not a property a
     /// silent key can have — it is the exact defect class this project has filed three times.</para>
     ///
-    /// <para><b>Alteration really is unavailable, and the message is the truth rather than a placeholder.</b>
-    /// <c>VoucherEntryViewModel.ForAlter</c> refuses every inventory-aggregate voucher by design
-    /// (<c>VoucherAlterRefusalTests</c> pins that for all twelve base kinds) because no
-    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice;
-    /// naming the limit costs nothing and is owed now. The sentence points at the two routes that DO work.</para>
+    /// <para>🔴 <b>THE ALTERATION HALF OF THIS IS NOW FALSE AND IS STRUCK RATHER THAN DELETED, so a reader can
+    /// see what changed.</b> It used to read: <i>"Alteration really is unavailable … because no
+    /// <c>InventoryPostingService</c> counterpart of <c>Replace</c> exists. Building one is a separate slice."</i>
+    /// That slice is this one. <c>InventoryPostingService.Replace</c> and
+    /// <see cref="InventoryVoucherEntryViewModel.ForAlter"/> now exist, and Ctrl+Enter on a stock row OPENS the
+    /// alteration through <see cref="ShowInventoryVoucherAlteration"/> instead of arriving here. <b>This method's
+    /// one surviving caller is Alt+2 (duplicate)</b>, whose gap is real and unchanged: <c>DetachAsDuplicate</c>
+    /// is a <c>VoucherEntryViewModel</c> method and has no pure-stock counterpart.</para>
     ///
     /// <para>Scoped to <see cref="Screen.Report"/> alone, which is the only surface that can carry such a row:
     /// <see cref="IsVoucherAlterTargetPage"/>'s other two arms are the register drill and the ACCOUNTING
@@ -8893,8 +9707,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return false;
 
         RaiseLifecycleNotice(
-            $"{verb} is not available for a stock voucher. Cancel it with Alt+X or delete it with Alt+D, "
-            + "then re-enter it from the inventory voucher screen.");
+            $"{verb} is not available for a stock voucher. Alter it with Ctrl+Enter, cancel it with Alt+X or "
+            + "delete it with Alt+D — or enter a fresh one from the inventory voucher screen.");
         return true;
     }
 
@@ -8986,17 +9800,113 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             _ => null,
         };
 
-        // Census 4.9–4.16 — asked BEFORE the fall-through so a pure-stock row gets a sentence instead of a dead
-        // key. Refused (not NoVoucherHere) so the keystroke is CONSUMED: falling through to the drill below would
-        // change screens, and OnCurrentScreenChanged wipes the notice bar on the way past — the operator would
-        // watch the explanation they were just given disappear.
+        // 🔴 Census 4.9–4.16 — THE PURE-STOCK ARM, and it is asked BEFORE the accounting fall-through because a
+        // stock row carries Guid.Empty in the accounting slot by design (see ReportRow.DrillInventoryVoucherId).
+        // This used to be RefuseVoucherVerbOnStockRow — a sentence saying the verb did not exist. It exists now:
+        // InventoryPostingService.Replace and InventoryVoucherEntryViewModel.ForAlter shipped together, so the
+        // row OPENS instead of explaining why it cannot.
+        if (ResolveInventoryVoucherForAlteration() is { } stock)
+            return ShowInventoryVoucherAlteration(stock);
+
+        // A row that resolves to no accounting voucher and no stock voucher is a header, a total or an
+        // empty-state note — a quiet no-op the caller must fall through on so the row still drills.
         if (voucherId is not { } id || id == Guid.Empty || Company.FindVoucher(id) is null)
-            return RefuseVoucherVerbOnStockRow("Alteration (Ctrl+Enter)")
-                ? VoucherAlterationRequest.Refused
-                : VoucherAlterationRequest.NoVoucherHere;
+            return VoucherAlterationRequest.NoVoucherHere;
 
         var voucher = Company.FindVoucher(id)!;
         return ShowVoucherAlteration(voucher);
+    }
+
+    /// <summary>
+    /// The posted <see cref="InventoryVoucher"/> the highlight stands on, or <c>null</c>. Resolved from the two
+    /// surfaces a pure-stock voucher can be reached from — a report row carrying
+    /// <see cref="ReportRow.DrillInventoryVoucherId"/> (the Day Book and, since this slice, the four Job Work
+    /// registers) and the <see cref="Screen.InventoryVoucherDetail"/> drill column itself.
+    ///
+    /// <para>🔴 It resolves through <c>FindInventoryVoucher</c> rather than trusting the id on the row: the row
+    /// was built when the report was drawn, and the voucher may have been deleted since (Alt+D on another
+    /// column). A stale id would otherwise reach <c>ForAlter</c> and be refused there with a less specific
+    /// sentence.</para>
+    /// </summary>
+    private InventoryVoucher? ResolveInventoryVoucherForAlteration()
+    {
+        if (Company is null) return null;
+
+        var id = CurrentScreen switch
+        {
+            Screen.Report => Reports?.SelectedRow?.DrillInventoryVoucherId,
+            Screen.InventoryVoucherDetail => InventoryVoucherDetail?.VoucherId,
+            _ => null,
+        };
+
+        return id is { } stockId && stockId != Guid.Empty ? Company.FindInventoryVoucher(stockId) : null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Opens a posted PURE-STOCK voucher's alteration screen, or puts its named refusal on the notice
+    /// bar</b> — the pure-stock twin of <see cref="ShowVoucherAlteration"/>, census rows 4.9–4.16 and 9.2.
+    ///
+    /// <para><b>Fidelity (R7; RULING 14).</b> The chord and the save key are the ones the accounting alteration
+    /// already uses, and their provenance is recorded in full on
+    /// <see cref="RequestAlterHighlightedVoucher"/> — Ctrl+Enter as a deliberate widening of an attested
+    /// alteration gesture, Ctrl+A as the attested save. <b>OURS — no source speaks:</b> that a PURE-STOCK
+    /// voucher is reachable by that chord from the Day Book, from a Job Work register and from the stock drill
+    /// column. Nothing is claimed for it beyond consistency with the accounting door.</para>
+    ///
+    /// <para><b>Why it opens as a DRILL column.</b> Same reason <see cref="ShowVoucherAlteration"/> gives:
+    /// <see cref="OpenPageColumn"/> trims every column after the last MENU column, which would delete the report
+    /// the operator drilled from, so Esc would return to the Gateway instead of to the row they were standing
+    /// on.</para>
+    /// </summary>
+    private VoucherAlterationRequest ShowInventoryVoucherAlteration(InventoryVoucher voucher)
+    {
+        // Captured as INSTANCES, not as closures over the properties: OpenDrillColumn does not clear the sub
+        // screens but a later pop rebinds them, and a `() => Reports?.Show(...)` read at save time could see a
+        // different report. The same trap ShowVoucherAlteration records.
+        var report = Reports;
+        var detail = InventoryVoucherDetail;
+
+        var open = InventoryVoucherEntryViewModel.ForAlter(
+            Company!, voucher.Id, _storage,
+            onSaved: () =>
+            {
+                BackFromPage();
+                report?.Show(report.Kind);
+                // 🔴 The stock drill column is the pane that ISSUES DOCUMENTS from this family, so leaving it
+                // unrefreshed would re-print the SUPERSEDED movement under the live voucher number — the exact
+                // defect the accounting arm's `detail?.Refresh()` was added for. Refresh returns false when the
+                // voucher is gone, which cannot happen on a successful alteration.
+                detail?.Refresh();
+            },
+            onCancelled: BackFromPage);
+
+        if (open.Refusal is { } refusal)
+        {
+            // Shown, never swallowed — a dropped refusal is indistinguishable from a dead key, which is the
+            // defect census row 9.2 names as the worst of the three.
+            //
+            // 🔴 AND A REFUSAL THAT OFFERS Alt+X MUST NOT OFFER IT WHERE Alt+X IS DEAD — the SAME defect one
+            // remove, and the reason `StockCancelRouting` exists. `ShapeThisScreenCannotServe` is static and
+            // type-free by design (it is asked before a view model exists), so it cannot know the surface; this
+            // is the nearest site that does. Appended only when the sentence actually names the key, so the
+            // refusals that do not mention it are left exactly as the rule wrote them.
+            var routing = refusal.Contains("Alt+X", System.StringComparison.Ordinal)
+                ? StockCancelRouting()
+                : null;
+            RaiseLifecycleNotice(routing is null ? refusal : $"{refusal} {routing}");
+            return VoucherAlterationRequest.Refused;
+        }
+
+        var entry = open.Entry!;
+        // The batch-allocation cascade wiring OpenInventoryVoucher does. Without it a batch-tracked line on an
+        // altering screen raises an event nobody handles — the shell owns the cascade, not the entry VM.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+
+        var title = $"Inventory Voucher Alteration — {entry.Type.Name}";
+        OpenDrillColumn(new GatewayColumn(entry.Type.Name + " Voucher — Alteration", entry),
+            Screen.InventoryVoucherEntry, title, () => InventoryVoucherEntry = entry);
+        return VoucherAlterationRequest.Opened;
     }
 
     /// <summary>
@@ -10403,18 +11313,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.CostCategoryMaster => CostCategoryMaster,
         Screen.CostCentreMaster => CostCentreMaster,
 
+        // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+        // W33 C3 (census 2.9, 2.10, 2.11, 3.8, 3.9, 3.10, 3.11, 3.12) — the EIGHT residual masters join the same
+        // arm, continuing what PR #108 started.
+        //
+        // 🔴 AN EARLIER DRAFT OF THIS COMMENT CLAIMED THAT AFTER THIS LINE "every master screen in the product
+        // that owns an existing-list is on ONE arrow arm and ONE Alt+D arm". THAT IS FALSE AND IS CORRECTED HERE
+        // RATHER THAN DELETED, because an overstated closure claim in a comment is how a census row drifts to
+        // COMPLETE without anyone building anything. Counted from the source, what is still OFF the arm:
+        //   • the SALARY STRUCTURE and TAX DECLARATION masters — PayrollMasterScreen's own remarks below carry the
+        //     detail (PayrollService has no alter or delete for a salary structure at all), row 7.16 stays open;
+        //   • the RATES OF EXCHANGE grid on the Currency screen — IMasterListScreen exposes exactly one
+        //     highlighted row per screen, so the second grid on that page is deliberately unreachable by Alt+D and
+        //     Company.RemoveExchangeRate still has no Desktop caller (see CurrencyMasterViewModel).
+        // What IS true after this line: every master screen listed in this switch is on one arrow arm and one
+        // Alt+D arm, and no screen in it is half-wired.
+        //
+        // 🔴 EIGHT WORDS, EIGHT CAPABILITIES, AND NOT ONE OF THEM IS A NEW MECHANISM. Appearing here is what
+        // grants a screen the arrows, the Alt+D confirmation, the guarded engine call, the save and the
+        // post-delete refresh — IsDeleteTargetPage and RequestDeleteHighlighted both ask THIS property rather
+        // than keeping their own list, which is the whole reason a master cannot arrive half-wired.
+        //
+        // 🔴 WHAT EACH ONE'S REFUSAL IS, because "it joined the arm" is not evidence that it is SAFE to delete:
+        //   · Batch      — BatchService.DeleteBatch: refuses a batch whose number appears on any opening
+        //                  balance, allocation, invoice line or physical-count line for the same item.
+        //   · BOM        — BomService.DeleteBom: refuses a BOM a job-work order was filled from. 🔴 THAT GUARD
+        //                  DID NOT EXIST BEFORE THIS SLICE. The service shipped without it and with zero
+        //                  production callers; this line is what would have made the omission reachable, and
+        //                  the consequence was an open company that could never be saved again.
+        //   · Currency   — MasterDeletionRules.EnsureCurrencyDeletable (NEW): base currency refused outright;
+        //                  posted forex lines, denominated ledgers and rate quotes each counted by name.
+        //   · Price Level— PriceListService.DeleteLevel: price lists, or a party default, refuse it.
+        //   · Budget / Scenario / Price List / Reorder — NO referential guard, and that is DERIVED FROM THE DDL
+        //                  rather than assumed: each one's only inbound foreign key is a child row written from
+        //                  the parent's own object graph (budget_lines, scenario_voucher_types, price_list_lines)
+        //                  or there is none at all (reorder_definitions). The full derivation is written out in
+        //                  MasterDeletionRules' W33 block so a later reader can falsify it against the schema
+        //                  instead of trusting this comment.
+        Screen.BatchMaster => BatchMaster,
+        Screen.BomMaster => BomMaster,
+        Screen.CurrencyMaster => CurrencyMaster,
+        Screen.BudgetMaster => BudgetMaster,
+        Screen.ScenarioMaster => ScenarioMaster,
+        Screen.PriceLevelsMaster => PriceLevels,
+        Screen.PriceListsMaster => PriceLists,
+        Screen.ReorderLevelsMaster => ReorderLevels,
+
         _ => PayrollMasterScreen,
     };
 
     /// <summary>
-    /// <b>Ctrl+Enter on one of the six W29 master lists — open the highlighted master for ALTERATION.</b> Returns
-    /// false (a quiet no-op) on every other screen, and while the screen is already mid-alteration, so the chord
-    /// stays free elsewhere.
+    /// <b>Ctrl+Enter on one of the SEVEN master lists this switch resolves — open the highlighted master for
+    /// ALTERATION.</b> Returns false (a quiet no-op) on every other screen, and while the screen is already
+    /// mid-alteration, so the chord stays free elsewhere.
+    ///
+    /// <para>🔴 <b>COUNTED FROM THE CASES BELOW, NOT FROM THE LAST REPORT.</b> This sentence read "one of the six
+    /// W29 master lists" until W33 C3 added the <b>price level</b> (census 3.10) and the <b>currency</b> (census
+    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. The list
+    /// is: Godown, Unit, Stock Category, Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3).
+    /// <c>IPayrollMasterList</c>'s own remarks record what a stale count in a doc comment like this one costs.</para>
     ///
     /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
     /// <see cref="AlterHighlightedPayrollMasterRow"/>'s remarks give: <c>ForAlter</c> is a static factory per type
     /// that builds a whole screen with its own pickers, so alteration is the one verb that cannot be shared
-    /// through the interface. Every OTHER verb these six gained IS shared, through the switch above.</para>
+    /// through the interface. Every OTHER verb these screens gained IS shared, through the switch above.</para>
     ///
     /// <para>🔴 <b><see cref="Screen.StockGroupMaster"/> is DELIBERATELY ABSENT from this switch and that is not an
     /// oversight.</b> Census 3.13 already gave the Stock Group master an identical, already-tested Ctrl+Enter arm
@@ -10472,6 +11434,48 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     () => CostCentreMaster = m);
                 return true;
             }
+
+            // ───────────────────────────────────────────────────────────── W33 C3: the ALTER half of the cluster
+            //
+            // 🔴 TWO OF THE EIGHT RESIDUAL MASTERS, NOT EIGHT, AND THE SPLIT IS BY EVIDENCE. Alteration needs a
+            // `ForAlter` factory, and building one is only honest where a VENDOR PAGE says what altering that
+            // master means. Two do: the price level ("Change the names of the Price Levels and press Ctrl+A to
+            // save" — help.tallysolutions.com/selling-buying-prices/) and the currency ("Alt+G > Alter Master >
+            // Currency", altering symbol / formal name / ISO code / decimal places —
+            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. The other six
+            // (batch, BOM, budget, scenario, price list, reorder) keep create+delete only and their census rows
+            // stay PARTIAL. Inventing an alter shape for a master no source describes is how this project has
+            // previously shipped a verb nobody asked for.
+            case Screen.PriceLevelsMaster:
+            {
+                if (PriceLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceLevelsMaster, m.Caption,
+                    () => PriceLevels = m);
+                return true;
+            }
+            case Screen.CurrencyMaster:
+            {
+                // 🔴 THE BASE CURRENCY IS REFUSED WITH A NOTICE, NOT WITH SILENCE. ForAlter returns null for it —
+                // its row is a projection of the company profile's own base-currency fields and nothing re-syncs
+                // the two — and a bare `return false` would make Ctrl+Enter on that one row do nothing whatsoever
+                // with no statement why: the same shape a sibling review caught as an empty notice bar on a
+                // refused delete. Returning TRUE also stops the chord falling through to another arm.
+                if (Company.FindCurrency(id) is { IsBaseCurrency: true })
+                {
+                    RaiseLifecycleNotice(
+                        "The base currency cannot be altered here — its symbol, formal name and decimal places "
+                        + "belong to the company itself. Change them on Alter Company (F3) instead.");
+                    return true;
+                }
+
+                if (CurrencyMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CurrencyMaster, m.Caption,
+                    () => CurrencyMaster = m);
+                return true;
+            }
+
             default:
                 return false;
         }
@@ -10858,8 +11862,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Enter / Right / Ctrl+A: on a form page runs its accept action; on a menu column drills into the
     /// highlighted item — a Group opens its submenu column, a Page opens its page column, an Action runs.
+    ///
+    /// <para>🔴 <b><paramref name="viaAcceptChord"/> EXISTS BECAUSE ENTER AND CTRL+A ARRIVE HERE AS THE SAME
+    /// CALL, AND ON THE REPORT SURFACE THEY DO NOT MEAN THE SAME THING.</b> Enter on a report means DRILL — on
+    /// ~90 report kinds that is all it means. The window's Enter arm tries <c>DrillSelectedRow</c> first and
+    /// falls through to this method when it returns false, which it always does on a matrix report because
+    /// <c>Rows</c> is empty. So any <c>case Screen.Report when …</c> arm below that WRITES is reachable by a
+    /// bare Enter aimed at a drill. Measured on the realised window before this parameter existed: one Enter on
+    /// the re-homed Gratuity Provision register took the voucher count 0 -> 1 with no confirmation. The
+    /// re-home created that by moving a destructive-on-Enter action onto the drill surface; the fix is that a
+    /// report action which POSTS belongs to the accept chord alone. Enter says so and does nothing.</para>
     /// </summary>
-    public void ActivateSelected()
+    /// <param name="viaAcceptChord">
+    /// True for the accept chord and everything that is deliberately identical to it — Ctrl+A,
+    /// <see cref="AcceptCurrent"/>, and the "Y" answer to the WI-11 <i>Accept? (Y/N)</i> confirmation. FALSE
+    /// only for a bare Enter, which is a navigation key here. Defaulted to true so every existing caller keeps
+    /// its meaning and only the one Enter call site has to opt out.
+    /// </param>
+    public void ActivateSelected(bool viaAcceptChord = true)
     {
         // 🔴 Phase 10.11 S4 — CTRL+A IS INERT OVER AN ARMED LIFECYCLE QUESTION, AND SAYS SO.
         // The Ctrl+A arm sits ABOVE the WI-11 confirmation arm in the window's tunnel chain, deliberately, so the
@@ -10900,8 +11920,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.VoucherEntry:
                 AcceptVoucherEntryOrAlteration();
                 return;
+            // Census 4.9–4.16 — the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was
+            // opened for, exactly as the accounting arm above and the master screens below do. 🔴 Branching here
+            // rather than inside Accept is not cosmetic: Accept builds with a FRESH Guid and number 0, so running
+            // it on an altering screen would post a SECOND stock movement and leave the original standing —
+            // closing stock double-counted. Accept ALSO hard-refuses, so this is a belt-and-braces pair and the
+            // refusal is what a test can red.
             case Screen.InventoryVoucherEntry:
-                InventoryVoucherEntry?.Accept();
+                if (InventoryVoucherEntry is { IsAltering: true } altering) altering.AcceptAlteration();
+                else InventoryVoucherEntry?.Accept();
                 return;
             // WI-3: the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was opened for.
             // Branching on IsAltering (not on a separate screen id) is what lets the alteration form be literally
@@ -10972,8 +11999,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BomMaster:
                 BomMaster?.Create();
                 return;
+            // W33 C3: the same screen now serves Create and Alter, so Ctrl+A must run whichever verb it was
+            // opened for — the WI-3 branch shape. Without it, a Price Level Alteration screen's Ctrl+A would run
+            // Create() and fail on the duplicate name, leaving the rename unsaved behind an "already exists".
             case Screen.PriceLevelsMaster:
-                PriceLevels?.Create();
+                if (PriceLevels is { IsAltering: true }) PriceLevels.Alter();
+                else PriceLevels?.Create();
                 return;
             case Screen.PriceListsMaster:
                 PriceLists?.Save();
@@ -11029,8 +12060,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ScenarioMaster:
                 ScenarioMaster?.Create();
                 return;
+            // W33 C3: the currency form now serves Create and Alter through the one screen, so Ctrl+A branches.
+            // 🔴 The RATE form on the same page is untouched: it has its own accept (CreateRate) and adds a dated
+            // quote whether or not the currency half is mid-alteration, which is what the vendor page describes as
+            // available alongside an alteration ("Modify the Rates of Exchange, if required").
             case Screen.CurrencyMaster:
-                CurrencyMaster?.CreateCurrency();
+                if (CurrencyMaster is { IsAltering: true }) CurrencyMaster.AlterCurrency();
+                else CurrencyMaster?.CreateCurrency();
                 return;
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();
@@ -11159,8 +12195,51 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Census 8.10 — Ctrl+A on the e-Payments report writes the payment-instruction file. `when`-guarded
             // deliberately: an unguarded `case Screen.Report:` would swallow Ctrl+A on EVERY report and silence
             // the fall-through the rest of them rely on.
+            //
+            // 🔴 AND IT IS GESTURE-GUARDED FOR THE SAME REASON THE GRATUITY ARM BELOW IS — this arm is the OTHER
+            // half of the class `viaAcceptChord` exists to close, and an earlier pass guarded one of the two and
+            // said in a comment that it had closed the class. Measured on a shown MainWindow with a real Enter
+            // press before this guard: EPaymentsExportStatus went from empty to "Nothing is ready to send. …",
+            // i.e. the arm RAN and only a nothing-ready early return stopped the file being written. On a
+            // populated e-Payments report the same Enter writes PaymentInstructions-<from>-<to>.csv to the export
+            // folder — a bank payment-instruction file produced by an operator pressing the DRILL key. Enter now
+            // says which key exports and exports nothing; Ctrl+A is unchanged.
             case Screen.Report when Reports?.Kind == ReportKind.EPayments:
-                Reports.ExportPaymentInstructions();
+                if (viaAcceptChord) Reports.ExportPaymentInstructions();
+                else Reports.EPaymentsExportStatus =
+                    "Press Ctrl+A to export the payment instruction file. Enter does not export it.";
+                return;
+
+            // W-V2 census 7.13 — Ctrl+A on the re-homed Gratuity Provision register posts the period-end
+            // provision voucher, the action that came across with it from Screen.GratuityProvisionRegister.
+            // `when`-guarded for the same reason the arm above is: a bare `case Screen.Report:` would swallow
+            // Ctrl+A on all ninety report kinds and silence the fall-through every other one relies on.
+            //
+            // 🔴 AND IT IS GUARDED ON THE GESTURE, WHICH IS THE WHOLE POINT OF `viaAcceptChord`. Enter reaches
+            // this method too (MainWindow.axaml.cs's `case Key.Enter when !IsPickerOpen(e)` arm, after
+            // DrillSelectedRow returns false — as it always does on a matrix report, whose Rows are empty). On
+            // the other ~90 report kinds Enter means DRILL and nothing else, so a bare Enter posting a
+            // period-end provision is an operator pressing the drill key and silently booking a voucher.
+            // Measured on the realised window before this guard: vouchers 0 -> 1, "Posted gratuity provision
+            // as-on 30-Apr-2026: Dr 1,50,000.00 = Cr 1,50,000.00". Enter now says which key posts and posts
+            // nothing. Ctrl+A is unchanged and still posts outright, exactly as it did on the page Screen this
+            // register was re-homed from — no gesture LOST a capability here, one gesture stopped having a
+            // capability it was never meant to have.
+            case Screen.Report when Reports?.Kind == ReportKind.GratuityProvisionRegister:
+                if (viaAcceptChord) PostGratuityProvisionFromReport();
+                else Reports.ReportActionStatus =
+                    "Press Ctrl+A to post the gratuity provision. Enter does not post it.";
+                return;
+
+            // 🔴 THE SAVED-VIEWS PANEL HAD NO CASE HERE AT ALL, SO ITS **ENTER DID NOTHING** — and the vendor's
+            // flow is built on Enter: "choose the view to delete … and press Enter", then "Press Enter or Y to
+            // confirm deletion" (help.tallysolutions.com/use-save-view-feature-in-tallyprime/, re-opened by
+            // content 2026-09-23). Open had a keyboard door only through this method's Ctrl+A caller, and Delete
+            // had NO keyboard door in the product — a mouse Click handler was its only route — which left the
+            // Ctrl+H > "Delete Saved Views" row leading somewhere a keyboard user could not follow.
+            // TakeSavedViewsRow decides by the row the operator arrived through; see its remarks.
+            case Screen.SavedViews:
+                TakeSavedViewsRow();
                 return;
         }
 
@@ -11625,11 +12704,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Form 27D" or "Form 133" or "Form 27D / 133": OpenForm27D(); break;
             case "Form 27A (TDS)": OpenForm27A("26Q"); break;
             case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
-            case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
-            case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
-            case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
-            case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
-            case "Budget Variance": OpenBudgetVariance(); break;
+            // W-V2 (census 11.9 / 11.10 / 11.11) — RE-HOMED off dedicated page Screens onto ReportKind. Each of
+            // these five menu rows used to open a bespoke page, and a page Screen leaves the report context null,
+            // which switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K all at once. Routing the SAME
+            // projections through OpenReport is the whole fix — no figure below changed.
+            case "Receivables": OpenReport(ReportKind.ReceivablesOutstanding); break;
+            case "Payables": OpenReport(ReportKind.PayablesOutstanding); break;
+            case "Category Summary": OpenReport(ReportKind.CostCategorySummary); break;
+            case "Cost Centre Break-up": OpenReport(ReportKind.CostCentreBreakup); break;
+            // 🔴 The first menu row CostReports.BuildLedgerBreakup has ever had. The engine shipped, tested and
+            // documented with zero production callers and is cited by name in seven source comments as this
+            // project's canonical unreachable-delivered-code example.
+            case "Ledger Break-up": OpenReport(ReportKind.CostCentreLedgerBreakup); break;
+            case "Budget Variance": OpenReport(ReportKind.BudgetVariance); break;
             case "Interest Calculation": OpenInterestReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
             case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
@@ -11710,8 +12797,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payroll Statutory Summary": OpenPayrollStatutoryForm(ReportKind.PayrollStatutorySummary); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
-            case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
-            case "Bonus Register": OpenBonusRegister(); break;
+            // W-V2 (census 7.13 / 7.14) — RE-HOMED onto ReportKind. Both used to open a bespoke page Screen with
+            // measured ZERO Export/Print/Pdf reachability; the report surface gives them both plus F2/Alt+F2,
+            // F12, Alt+F12 and Alt+K. Gratuity's Ctrl+A Post Provision travelled with it.
+            case "Gratuity Provision": OpenGratuityProvisionReport(); break;
+            case "Bonus Register": OpenBonusRegisterReport(); break;
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
             case "Form 24Q" or "Form 138" or "Form 24Q / 138": OpenForm24Q(); break;
             case "Form 16" or "Form 130" or "Form 16 / 130": OpenForm16(); break;
@@ -11840,30 +12930,96 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// After a column pop, re-binds the surviving rightmost column's page view model to its shell property
-    /// and restores <see cref="CurrentScreen"/> so a page that sat to the LEFT of a just-closed column (e.g.
-    /// a report under its F12 config panel) is not left orphaned. When the rightmost column is a menu, the
-    /// shell returns to the Gateway. Only the page kinds that can sit beneath another page column need be
-    /// handled here; the rest fall through to the Gateway (unchanged behaviour).
+    /// After a column pop, re-binds EVERY surviving page column's view model to its shell property and restores
+    /// <see cref="CurrentScreen"/> from the rightmost one, so no page that is still drawn in the cascade is left
+    /// orphaned. When the rightmost column is a menu, the shell returns to the Gateway.
+    ///
+    /// <para>🔴 <b>IT BINDS ALL OF THEM, NOT ONLY THE RIGHTMOST, AND THAT IS THE FIX FOR A WHOLE DEFECT CLASS
+    /// RATHER THAN ONE MORE INSTANCE OF IT.</b> <c>BackFromPage</c> calls <c>ClearSubScreens</c>, which nulls
+    /// EVERY page property unconditionally; the markup, however, binds each column's own
+    /// <see cref="GatewayColumn"/> projection, so a column whose shell property has been nulled keeps rendering,
+    /// keeps its enabled buttons and keeps its highlight — and every verb that reaches for the shell property
+    /// finds <c>null</c> and silently does nothing. The invariant is therefore simple and was being applied one
+    /// column at a time: <b>a column still in <see cref="Columns"/> must be bound.</b> Binding only the rightmost
+    /// satisfied it for depth 1 and left depth 2+ broken, which is why this method already carried a
+    /// create-on-the-fly special case (WI-1 DEPTH 2, below) — the general rule with one caller's name on it.</para>
+    ///
+    /// <para>🔴 <b>THE MEASURED DEFECT THAT FORCED THE GENERALISATION.</b> The four action menus (Ctrl+H Change
+    /// View, Alt+P Print, Alt+E Export, Alt+M Share) are built on "pop my own column, THEN run the verb against
+    /// the page beneath" — see <see cref="PopMenuColumn"/>. Over the <b>Saved Views</b> panel that page is two
+    /// deep: the panel sits on the report it was opened from. With rightmost-only binding, choosing any row of any
+    /// of those four menus from that panel re-bound the panel and left <see cref="Reports"/> null, so Alt+P
+    /// Current printed nothing, Alt+E Current exported nothing, Alt+M's two rows composed nothing and Ctrl+H Show
+    /// Original View reverted nothing — four dead rows, no message. Worse, before the
+    /// <see cref="SavedViewsViewModel"/> arm existed in <see cref="BindPageColumn"/> the panel itself fell to
+    /// <c>default</c>, so the shell was left at <see cref="Screen.Gateway"/> with a page column still drawn: the
+    /// Gateway's own bare letters (Y = Export Data, O = Import) went live over a report cascade, which is the
+    /// blank-shell-that-owns-the-keyboard state <see cref="HasLiveCompanyShell"/> exists to prevent.</para>
+    ///
+    /// <para><b>Why binding a deeper page cannot re-arm a report shortcut it should not.</b> Every predicate that
+    /// gates the report-parameter and print/export/share verbs is written on <see cref="CurrentScreen"/> as well
+    /// as on null-ness — <see cref="IsReportContext"/> excludes the drill screens by id,
+    /// <see cref="IsLiveReportPage"/> is <see cref="Screen.Report"/> and nothing else — and only the RIGHTMOST
+    /// column sets <c>CurrentScreen</c> here. So a report re-bound beneath a drill column is reachable by the
+    /// shell (which is the point) and is still not re-parameterisable from on top of it (which is RQ-7).</para>
     /// </summary>
     private void RehydratePageFromRightmostColumn()
     {
-        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex]);
+        // The columns BENEATH the active one first, so the rightmost binds LAST and wins both its shell property
+        // and CurrentScreen when two columns project the same page kind.
+        //
+        // (WI-1 DEPTH 2 recorded the create-on-the-fly half of this: while a create column is still open the page
+        // columns beneath it must stay bound too, or the in-progress voucher is unreachable from the shell —
+        // VoucherEntry null — even though its column and all its data are still there, and the write-back that
+        // follows a nested create silently skips it. That is this loop, no longer conditional on the caller.)
+        for (var i = 0; i < ActiveColumnIndex; i++)
+            if (Columns[i].IsPage) BindPageColumn(Columns[i], isActiveColumn: false);
 
-        // WI-1 DEPTH 2 — while a create column is STILL open, the page columns BENEATH it must stay bound too.
-        // BackFromPage's ClearSubScreens nulls every page property, and binding only the rightmost would leave
-        // the in-progress voucher unreachable from the shell (VoucherEntry null) even though its column, and all
-        // its data, are still there — so the write-back that follows a nested create would silently skip it.
-        if (IsCreateOnTheFlyOpen)
-            for (var i = 0; i < ActiveColumnIndex; i++)
-                if (Columns[i].IsPage) BindPageColumn(Columns[i]);
+        // 🔴 THE ACTIVE COLUMN MAY BE A MENU COLUMN, AND BindPageColumn CANNOT SPEAK FOR ONE. It switches on
+        // `col.Page`, which a menu column does not have, so every menu column fell to its `default:` arm and
+        // reported Screen.Gateway. The loop above is guarded `if (Columns[i].IsPage)` precisely because of that;
+        // this line was not, and the asymmetry was the defect. A menu column that knows its own id restores it
+        // (GatewayColumn.MenuScreen); a Gateway/navigation menu has none and keeps the Gateway default it wants.
+        //
+        // WHAT IT COST: the four action menus are pushed OVER a live page without clearing it, so any column
+        // opened on top of one and then popped — and the window's tunnel has several arms with no screen guard
+        // at all (Alt+G, Alt+R, Ctrl+F, Ctrl+R, Ctrl+T) that push a page column from anywhere — landed the shell
+        // on Screen.Gateway with the menu and the report still drawn beneath it. IsActionMenuColumn is written
+        // on the screen id, so it went false, every predicate its clause protects was re-armed, and the
+        // Gateway's bare Y (whole-company Export Data) and O (Import) went live over the cascade. That is the
+        // blank-shell-that-owns-the-keyboard state HasLiveCompanyShell exists to prevent.
+        // 🔴 THE ACTIVE COLUMN MAY BE ONE BindPageColumn CANNOT SPEAK FOR, AND ITS `default:` ARM SAYS
+        // "Screen.Gateway" RATHER THAN "I DO NOT KNOW". The loop above is guarded `if (Columns[i].IsPage)`
+        // precisely because a menu column has no Page to switch on; this line was not, and that asymmetry was
+        // the defect. 34 page columns are ALSO pushed by hand rather than through OpenPageColumn and most of
+        // their types have no arm, so they fall through the same hole — but no REACHABLE page-column instance
+        // was found (OpenPageColumn trims page columns after the last menu column rather than stacking, which
+        // is what keeps the Dashboard's Alt+C tile-config column out of this state). The menu half below is the
+        // measured one; the page half is covered for free and is not claimed as proven. See ColumnScreen.
+        //
+        // WHAT IT COST: a column opened over such a column and then popped left the shell on Screen.Gateway
+        // with the whole cascade still drawn — and the window's tunnel has several arms with NO screen guard at
+        // all (Alt+G, Alt+R, Ctrl+F, Ctrl+R, Ctrl+T) that push a page column from anywhere, so the state is
+        // reachable by ordinary keys. IsActionMenuColumn is written on the screen id, so it went false and
+        // re-armed every predicate its clause protects; the Gateway's bare Y (whole-company Export Data) and O
+        // (Import) answered over a live report.
+        //
+        // Screen.Gateway coming out of BindPageColumn therefore means "no arm" and never a real answer — every
+        // arm returns a specific screen — so it is safe to prefer the id the column recorded while it was last
+        // active (GatewayColumn.ColumnScreen). A genuine Gateway menu column recorded Gateway and is unchanged.
+        var active = Columns[ActiveColumnIndex];
+        var derived = active.IsPage ? BindPageColumn(active, isActiveColumn: true) : Screen.Gateway;
+        CurrentScreen = derived == Screen.Gateway && active.ColumnScreen is { } recorded ? recorded : derived;
     }
 
     /// <summary>
     /// Re-binds ONE surviving column's page view model to its shell property and reports the screen it
     /// represents (Gateway for a menu column or a page kind that never sits beneath another).
     /// </summary>
-    private Screen BindPageColumn(GatewayColumn col)
+    /// <param name="isActiveColumn">True when <paramref name="col"/> is the rightmost (active) column. Only the
+    /// active column's returned screen is used, and one arm's side effect is scoped to it — see the Dashboard
+    /// arm, which must not close a tile-configuration panel whose own column is still open above it.</param>
+    private Screen BindPageColumn(GatewayColumn col, bool isActiveColumn = true)
     {
         switch (col.Page)
         {
@@ -11894,9 +13050,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // `Dashboard.TileConfig` and rendered as a stacked overlay ON the dashboard column. That defect is
             // fixed — MainWindow.axaml now binds `DashboardTileConfig`, the pushed column's own projection — so
             // the reopen guard is the only thing this call now protects. It still must be called.)
+            // 🔴 SCOPED TO THE ACTIVE COLUMN, and that clause arrived with the all-columns rehydrate above. The
+            // reopen guard must be released only when the dashboard is the column the operator is standing on,
+            // i.e. when the panel above it really is gone. A dashboard bound as a column BENEATH something still
+            // open may have its own Alt+C tile-configuration column sitting right there; closing the panel then
+            // would null `dash.TileConfig` while that column is still drawn — the exact enabled-but-inert survivor
+            // this method exists to prevent, arriving from the fix for it.
             case DashboardViewModel d:
                 Dashboard = d;
-                d.CloseTileConfig();
+                if (isActiveColumn) d.CloseTileConfig();
                 return Screen.Dashboard;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
@@ -11990,6 +13152,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ChartOfAccountsViewModel coa:
                 ChartOfAccounts = coa;
                 return Screen.ChartOfAccounts;
+            // 🔴 THE SAVED VIEWS PANEL, AND WITHOUT THIS ARM THE FOUR ACTION MENUS ARE ALL DEAD ON IT.
+            //
+            // The panel is a page column pushed OVER a live report (<see cref="OpenSavedViews"/> deliberately does
+            // not ClearSubScreens, so the report stays bound beneath it and the report chords keep working). Every
+            // row of Ctrl+H / Alt+P / Alt+E / Alt+M pops its own menu column through <see cref="PopMenuColumn"/>
+            // before running its verb, and that pop lands here. With no arm the panel fell to `default`:
+            // CurrentScreen became <see cref="Screen.Gateway"/> while the panel's column was still the rightmost
+            // pane drawn, `SavedViews` stayed null — so the re-entrancy guard in <see cref="OpenSavedViews"/>
+            // ("panel already open — don't stack a second") could not see the panel that was on screen and Ctrl+H
+            // STACKED A DUPLICATE, and the Gateway's own bare letters went live over a report cascade.
+            //
+            // It is the same missed arm the Printer and Chart-of-Accounts notes above record, and it is listed
+            // here for the same reason: this column can carry another column above it.
+            case SavedViewsViewModel sv:
+                SavedViews = sv;
+                return Screen.SavedViews;
             default:
                 return Screen.Gateway;
         }
@@ -12119,6 +13297,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             foreach (var item in col.Items)
                 Menu.Add(item);
         _menuSelectedIndex = col?.SelectedIndex ?? -1;
+
+        // 🔴 THE ACTIVE COLUMN RECORDS THE SCREEN ID IT IS BEING SHOWN AS, AND THIS ONE LINE CLOSES A WHOLE
+        // DEFECT CLASS. `RehydratePageFromRightmostColumn` re-derives CurrentScreen from the active column
+        // through BindPageColumn, whose `default:` arm answers Screen.Gateway for any column type it has no arm
+        // for — menu columns (no Page at all) and the 34 page columns pushed by hand, most of which were never
+        // given one. The shell then claimed to be the Gateway with that column still the rightmost pane drawn,
+        // which re-arms every guard written on CurrentScreen (IsActionMenuColumn) and makes the Gateway's bare
+        // Y / O live over a live cascade. See GatewayColumn.ColumnScreen.
+        //
+        // IT IS HERE, AND NOT AT THE ~55 PUSH SITES, BECAUSE EVERY ONE OF THEM ALREADY CALLS THIS METHOD after
+        // setting CurrentScreen. Recording it per-site would have to be remembered by the next column added;
+        // recording it here cannot be forgotten. Writing only the ACTIVE column's id is what keeps a column's
+        // own id intact while something else is stacked above it.
+        if (ActiveColumnIndex >= 0 && ActiveColumnIndex < Columns.Count)
+            Columns[ActiveColumnIndex].ColumnScreen = CurrentScreen;
     }
 
     private void SetMenuSelected(int index)
@@ -12364,7 +13557,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // badge is dimmed there too rather than advertising a verb that now returns NoVoucherHere.
         if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Insert Vch",
-                () => RequestInsertVoucherAtHighlight(), !IsDayBookPickerOpen));
+                () => RequestInsertVoucherAtHighlight(), !IsDayBookRowHidden));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
         // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
@@ -12376,7 +13569,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Settle Bills", OpenSettlementVoucherFromOutstandings, true));
         else if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport,
-                !IsDayBookPickerOpen));   // same IV-31 rule as Alt+I above — the door refuses under a picker
+                !IsDayBookRowHidden));   // same IV-31 rule as Alt+I above — the door refuses under a picker
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
@@ -12441,9 +13634,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // and the chord was left free precisely because in the reference product it is Basis of Values
         // (OutstandingsViewModel records that in its own remarks). It is now that, and nothing else.
         // ENABLED only where the open report can actually be re-scaled, and DIMMED everywhere else, because an
-        // enabled badge that fires nothing is register defect IV-31 — the key arm carries the identical guard.
+        // enabled badge that fires nothing is register defect IV-31.
+        //
+        // 🔴 `IsReportContext &&` IS THE HALF THIS ROW WAS MISSING, AND THE COMMENT HERE USED TO ASSERT IT WAS
+        // NOT. It read "the key arm carries the identical guard" while the key arm required IsReportContext and
+        // this row did not, so with an action menu up the key refused and the badge stayed LIT — clicking it
+        // stacked a Basis-of-Values column over the modal menu. The predicate is now literally the one
+        // OpenBasisOfValues enforces on its first two lines, which is the rule the Alt+I / Alt+A / Ctrl+J rows
+        // below already follow: a badge is enabled on exactly what its own door accepts, never on more.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
-            Reports is { SupportsScaleFactor: true }));
+            IsReportContext && Reports is { SupportsScaleFactor: true }));
 
         // Ctrl+J EXCEPTION REPORTS — CONTEXT-SENSITIVE, and exactly ONE row is emitted.
         //
@@ -12465,7 +13665,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // for the IV-31 reason the Ctrl+B row above spells out: an enabled badge that fires nothing is a defect.
         if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReportsPicker,
-                !IsDayBookPickerOpen));   // same IV-31 rule — the door refuses while a picker column is on top
+                !IsDayBookRowHidden));   // same IV-31 rule — the door refuses while a picker column is on top
         else
             ButtonBar.Add(new ButtonBarItem("Ctrl+J", "Exception Reports", OpenExceptionReports,
                 IsChartOfAccountsScreen));
@@ -12477,15 +13677,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.
-        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
+        // W-V2 (census 11.9): routed to the REPORT, not to the old page, so the bar and the menu row land an
+        // operator on the same surface. Two doors to two different surfaces for one report is how a product ends
+        // up with a printable copy and an unprintable copy of the same figures.
+        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenReport(ReportKind.ReceivablesOutstanding), hasCompany));
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         // Census 1.7 — these two quick-buttons are DOORS to the same two features the F11 → Accounting group
         // gates, so they close with it. Leaving them enabled would have made the gate cosmetic: the menu row
         // would vanish and one click on the bar would still open the report the company had switched off.
         // The F11 page calls BuildButtonBar through its onChanged hook, so the bar follows the tick live.
-        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup),
-            hasCompany && Company?.EnableCostCentres != false));
+        // W-V2 (census 11.10): routed to the REPORT for the same reason "Outs" above is. The F11 Cost Centres
+        // gate on the button is unchanged — it must stay, or the gate becomes cosmetic (the menu row vanishes
+        // and one click on the bar still opens the report the company switched off).
+        ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenReport(ReportKind.CostCentreBreakup),
+            hasCompany && CostCentresFeatureOn));
         ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport,
             hasCompany && Company?.EnableInterestCalculation != false));
         ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));
@@ -12494,16 +13700,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));
         ButtonBar.Add(new ButtonBarItem("D", "Day Book", () => OpenReport(ReportKind.DayBook), hasCompany));
 
+        // 🔴 BOTH SHARE BADGES ARE GATED ON IsShareablePage, NOT IsPrintablePage, AND THAT IS A CORRECTION.
+        //
+        // Both rows read `IsPrintablePage` — the same wrong predicate `OpenShareMenu` was corrected off (see
+        // IsShareablePage). Printability carries a third arm, TopMasterExportSource(), so it is TRUE on every
+        // master list (Chart of Accounts, Groups, Godowns, Units, …) and NEITHER share channel can build a
+        // document from one: OpenEmailCompose and OpenWhatsAppShare each fall through their two branches and
+        // return. So on a master list both badges rendered ENABLED, in their normal colour, and clicking either
+        // did nothing at all — the dead-affordance class ruling 21 and IV-31 both settle against ("an enabled
+        // badge that fires nothing is a defect"), left live three lines from the new predicate.
+        //
+        // The measured argument that protects the BARE M / W KEY arms does not reach here, and the difference is
+        // worth stating because it is why this is not a one-line copy of that decision: a key arm that matches and
+        // no-ops changes what an unclaimed letter would otherwise fall through to (type-ahead on a data-driven
+        // column), so re-gating it is a behaviour change on a keystroke. A badge has no fall-through — its gate IS
+        // its IsEnabled — so narrowing it removes an affordance that lies and takes nothing away.
+        //
         // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
-        // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
-        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
-        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, with the
-        // same printable-page gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
+        // Nothing is sent.
+        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsShareablePage));
+        // W — Share via WhatsApp (census row 14.10): the SECOND CHANNEL on the same share seam as M, on the same
+        // gate. Nothing is sent: the document is saved and a prepared wa.me link is handed
         // to the OS. 🔴 The W chord is INVENTED (the vendor nests WhatsApp under its own Alt+M share point) —
         // recorded in docs/invented-vs-cloned.md as IV-64. This note used to add "and our M is already spent";
         // that was false — the vendor's chord is Alt+M and Alt+M is unclaimed here (the M arm in the key tunnel
         // excludes Alt), so W was chosen, not forced. See the corrected IV-64 row.
-        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsPrintablePage));
+        ButtonBar.Add(new ButtonBarItem("W", "WhatsApp", OpenWhatsAppShare, IsShareablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
 

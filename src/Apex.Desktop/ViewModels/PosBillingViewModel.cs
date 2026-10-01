@@ -1374,6 +1374,21 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             try
             {
                 _service.Replace(existing.Id, existing, out _);
+
+                // 🔴 DISCARD BOTH EDIT-LOG ENTRIES, NEWEST FIRST — the half this arm was missing. The failed
+                // alteration appended one Alter entry and the rollback Replace immediately above appended a
+                // second; neither describes anything that reached disk, so leaving them would make the next
+                // successful save on ANY screen persist a pair of fictitious alterations of a bill nobody
+                // altered. The whole-window rollback above unwinds the LEDGERS an engine created but knows
+                // nothing about the log, so the log has to be unwound here.
+                //
+                // `DiscardUncommittedEditLogEntry` refuses anything but the most recent entry, so this LIFO order
+                // is the only order it accepts. Identical to VoucherEntryViewModel.CommitAlteration's arm, which
+                // is the point: three alteration doors, one audit-log story.
+                for (var i = 0; i < 2; i++)
+                    if (_company.LastVoucherEditLogEntry is { } appended)
+                        _service.DiscardUncommittedEditLogEntry(appended);
+
                 Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
                         + "changed.";
             }

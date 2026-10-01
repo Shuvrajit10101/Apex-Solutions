@@ -428,6 +428,78 @@ public sealed class JobWorkPostingTests
         Assert.Contains("Job Work order", ex.Message);
     }
 
+    // ---------------------------------------------------------------- Delete's referential guard (review F6)
+
+    /// <summary>
+    /// 🔴 <b>DELETING A JOB WORK ORDER THAT POSTED MATERIAL MOVEMENTS STILL LINK TO IS REFUSED BY NAME.</b>
+    /// <c>Post</c> refuses a Material movement whose <c>OrderLinks</c> do not resolve to a posted order
+    /// (<c>EnsureReferencesResolve</c>), so <c>Delete</c> must not be a back door into the very state <c>Post</c>
+    /// declares invalid: without this guard every linked movement is left holding a dangling Guid, and under
+    /// <c>PRAGMA foreign_keys = ON</c> plus this product's delete-all-and-reinsert save that can make the open
+    /// company unsavable.
+    ///
+    /// <para><b>Fails without the guard</b> by reaching the final assertion with the order gone and the movement
+    /// still pointing at it.</para>
+    /// </summary>
+    [Fact]
+    public void Deleting_a_Job_Work_order_that_movements_still_link_to_is_refused_by_name()
+    {
+        var f = Build();
+        var order = PostOutOrder(f);
+        PostMaterialOut(f, order);                       // links to `order`
+        var before = f.Company.InventoryVouchers.Count;
+        var logBefore = f.Company.VoucherEditLog.Count;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => f.Posting.Delete(order.Id));
+
+        // Named, not merely refused: the operator is told WHICH movement blocks them and what to do instead.
+        Assert.Contains("cannot be deleted", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Material Out", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Alt+X", ex.Message, StringComparison.Ordinal);
+
+        // Nothing moved, and the refusal left NO edit-log entry — a refusal is not an edit.
+        Assert.Equal(before, f.Company.InventoryVouchers.Count);
+        Assert.Equal(logBefore, f.Company.VoucherEditLog.Count);
+        Assert.NotNull(f.Company.FindInventoryVoucher(order.Id));
+
+        // 🔴 THE INVARIANT THE GUARD PROTECTS, asserted directly rather than implied: every posted OrderLinks
+        // Guid still resolves to a live Job Work order.
+        foreach (var v in f.Company.InventoryVouchers)
+            foreach (var link in v.OrderLinks)
+                Assert.NotNull(f.Company.FindInventoryVoucher(link)?.JobWorkOrder);
+    }
+
+    /// <summary>The guard is about REFERENCES, not about the type: an order nothing links to deletes normally, so
+    /// the guard cannot be passing the test above by refusing every Job Work order.</summary>
+    [Fact]
+    public void An_unreferenced_Job_Work_order_still_deletes()
+    {
+        var f = Build();
+        var order = PostOutOrder(f);                     // no material movement posted against it
+
+        var entry = f.Posting.Delete(order.Id);
+
+        Assert.Equal(VoucherEditVerb.Delete, entry.Verb);
+        Assert.Null(f.Company.FindInventoryVoucher(order.Id));
+    }
+
+    /// <summary>Cancel is the offered alternative, so it must actually work while the links stand — otherwise the
+    /// refusal above names a remedy the operator cannot reach.</summary>
+    [Fact]
+    public void Cancelling_a_linked_Job_Work_order_is_allowed_because_the_link_still_resolves()
+    {
+        var f = Build();
+        var order = PostOutOrder(f);
+        PostMaterialOut(f, order);
+
+        var entry = f.Posting.Cancel(order.Id);
+
+        Assert.Equal(VoucherEditVerb.Cancel, entry.Verb);
+        Assert.True(f.Company.FindInventoryVoucher(order.Id)!.Cancelled);
+        // The link still resolves — which is exactly why Cancel is safe where Delete is not.
+        Assert.NotNull(f.Company.FindInventoryVoucher(order.Id)?.JobWorkOrder);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static InventoryVoucher PostOutOrder(Fixture f) => f.Posting.Post(InventoryVoucher.JobWork(

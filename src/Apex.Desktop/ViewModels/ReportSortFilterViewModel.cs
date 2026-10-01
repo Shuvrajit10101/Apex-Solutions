@@ -35,6 +35,25 @@ public sealed partial class ReportSortFilterViewModel : ViewModelBase
     /// <summary>True when the current report kind actually honours the sort/filter view (else the panel is inert).</summary>
     public bool SupportsSortFilter => _report.SupportsSortFilter;
 
+    /// <summary>
+    /// The inverse of <see cref="SupportsSortFilter"/>, in positive sense so the panel can bind a banner's
+    /// <c>IsVisible</c> to it without a converter.
+    ///
+    /// <para>🔴 <b>THIS PROPERTY EXISTS BECAUSE THE PANEL USED TO CLAIM SUCCESS ON REPORTS IT CANNOT TOUCH.</b>
+    /// <see cref="SupportsSortFilter"/> shipped on this class and was never bound anywhere in
+    /// <c>MainWindow.axaml</c>, so Alt+F12 rendered its full control set on every report kind and
+    /// <see cref="Apply"/> answered "Applied — view updated" unconditionally. An operator on Bills Receivable
+    /// could type a name filter, apply it, be told it worked, and see the report unchanged — which is worse
+    /// than the feature being absent, because the operator now believes the list in front of them is filtered.
+    /// The banner says so, and <see cref="Apply"/> below refuses instead of lying.</para>
+    /// </summary>
+    public bool CannotSortOrFilter => !SupportsSortFilter;
+
+    /// <summary>The banner text shown when this report cannot be sorted or filtered.</summary>
+    public string CannotSortOrFilterNote =>
+        "Sort & filter does not act on this report — its rows are not a sortable list. "
+      + "Use F2 / Alt+F2 to change the period, or Ctrl+E to export and sort there.";
+
     // ---- sort ----
 
     /// <summary>The sort-key options offered by the panel (None / Name / Amount).</summary>
@@ -96,6 +115,15 @@ public sealed partial class ReportSortFilterViewModel : ViewModelBase
     /// </summary>
     public void Apply()
     {
+        // 🔴 REFUSE BEFORE PARSING, NOT AFTER APPLYING. On a report kind the view does not act on, every line
+        // below runs, ApplySortFilter passes the rows through unchanged, and the operator is told "Applied —
+        // view updated". Saying nothing happened is the whole fix; see CannotSortOrFilter.
+        if (!SupportsSortFilter)
+        {
+            Status = CannotSortOrFilterNote;
+            return;
+        }
+
         if (!TryParseRupees(MinText, out var min))
         {
             Status = "Unrecognized minimum amount. Enter rupees (e.g. 1000 or 1000.50), or leave it blank.";

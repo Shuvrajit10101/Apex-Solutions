@@ -562,6 +562,20 @@
                                      HorizontalAlignment="Center" Margin="12,4,12,0"
                                      TextWrapping="Wrap"
                                      ToolTip.Tip="{Binding EPaymentsExportStatus}"/>
+
+                          <!-- W-V2 — what a report's own primary ACTION just did. Today that is Ctrl+A on the
+                               re-homed Gratuity Provision register (census 7.13), which posts the period-end
+                               provision voucher. Stacked in the same panel for the reason stated above: two
+                               children sharing one Auto grid row draw on top of each other, and this line
+                               wraps. Invisible (and zero-height) on every report that sets no status. -->
+                          <TextBlock Text="{Binding ReportActionStatus}"
+                                     IsVisible="{Binding ReportActionStatus,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     HorizontalAlignment="Center" Margin="12,4,12,0"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding ReportActionStatus}"/>
                         </StackPanel>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
@@ -784,8 +798,28 @@
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
-                                                <!-- Single-amount mode: Amount occupies column 2 alone -->
-                                                <TextBlock Grid.Column="2" Text="{Binding Amount}"
+                                                <!-- Single-amount mode: Amount SPANS the Debit + Credit tracks.
+                                                     🔴 THE SPAN IS LOAD-BEARING, NOT COSMETIC. numCell is
+                                                     right-aligned with NO TextTrimming and NO TextWrapping —
+                                                     correct for money, which always fits 150px. But this cell
+                                                     also carries the Ratio-Analysis withheld markers (user
+                                                     ruling 27), e.g. "N/A - no bill-wise details", which is a
+                                                     SENTENCE and does not fit. With no trimming, a right-
+                                                     aligned overflow starts at a NEGATIVE x inside its cell and
+                                                     paints leftward over Particulars — the same C1 financial
+                                                     misread documented above, arriving from the amount side.
+                                                     In single-amount mode the Debit track is EMPTY (both Dr/Cr
+                                                     cells are IsVisible=False), so spanning it costs nothing and
+                                                     gives the sentence ~300px. Right alignment plus the 8px
+                                                     numCell margin keep the RIGHT edge exactly where it was, so
+                                                     every numeric amount on every accounting report is
+                                                     unmoved and still lines up under the "Amount" header.
+                                                     Locked by
+                                                     Ratio_analysis_withheld_marker_fits_its_own_amount_cell,
+                                                     which asserts both halves. Do NOT "tidy" this back to a
+                                                     single column, and do NOT add TextTrimming instead: an
+                                                     ellipsised marker is forbidden by the emitted-PDF test. -->
+                                                <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Amount}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding !IsTwoColumn}"
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
@@ -6782,6 +6816,11 @@
                                   <DataTemplate x:DataType="vm:BudgetListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,240,120" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.9). A destructive verb may not
+                                             run on an invisible cursor: Alt+D deletes the row the arrows are on,
+                                             so the operator has to be able to SEE which row that is. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Period}"
@@ -6895,6 +6934,9 @@
                                   <DataTemplate x:DataType="vm:ScenarioListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,90,*" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Actuals}"
@@ -7041,6 +7083,12 @@
                                     <DataTemplate x:DataType="vm:CurrencyListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*,90,90" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 2.11). This is the CURRENCIES
+                                               grid; the Rates of Exchange grid below it is deliberately NOT on
+                                               the shared arm and carries no highlight, because the arm exposes
+                                               one highlighted row per screen. See CurrencyMasterViewModel. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Symbol}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FormalName}"
@@ -8500,6 +8548,36 @@
                                                Foreground="{StaticResource Ink}" Opacity="0.65"/>
                                   </Grid>
 
+                                  <!-- census 3.4 / USER RULING 26 — THE MARKET VALUATION DIMENSION. The second of
+                                       the reference product's two stock-valuation fields, and the half this build
+                                       shipped without. It auto-fills a SELLING price on a sales line and never
+                                       values closing stock; "Valuation" above is the COSTING field and is the only
+                                       one that reaches the Balance Sheet. Keeping them as two visibly separate
+                                       rows is the point — "Last Sale Price" used to sit in the costing picker and
+                                       valued stock at our own sale rate. Same fixed-140px entry + trimmed star
+                                       hint as Std rate above, so neither can be pushed out of view. -->
+                                  <Grid ColumnDefinitions="90,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Market val." FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" Name="StockItemMarketValuationPicker"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding MarketValuationMethods}"
+                                              SelectedItem="{Binding SelectedMarketValuation, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MarketValuationMethodOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Std price" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding StandardPriceText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="₹ / unit (selling)"/>
+                                  </Grid>
+
                                   <!-- GST details (shown when GST is enabled; catalog §12) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -8922,6 +9000,9 @@
                                   <DataTemplate x:DataType="vm:BatchListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="118,*,96,92,124,96" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.8) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding BatchNumber}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9215,6 +9296,9 @@
                                   <DataTemplate x:DataType="vm:BomListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="140,150,70,*,*" Height="26">
+                                        <!-- W33 C3 keyboard highlight (census 3.9) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9831,6 +9915,9 @@
                                   <DataTemplate x:DataType="vm:PriceLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,140" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Lists}"
@@ -9957,6 +10044,9 @@
                                     <DataTemplate x:DataType="vm:PriceListVersionRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 3.11) — see the Budget list. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding ApplicableFrom}" Margin="8,0"
                                                      VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
                                           <TextBlock Grid.Column="1" Text="{Binding Slabs}" Margin="0,0,8,0"
@@ -10121,6 +10211,9 @@
                                   <DataTemplate x:DataType="vm:ReorderLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="90,*,120,120,120,100" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.12) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Scope}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Target}" Margin="0,0,8,0"
@@ -18905,16 +18998,26 @@
                                           IsVisible="{Binding SupportsDetailToggle}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-6: display config -->
+                                <!-- RQ-6: display config. EACH KNOB IS GATED ON ITS OWN PREDICATE, and the
+                                     section heading on "at least one of the three". A previous pass gated all
+                                     four on one flag (!IsPayrollMatrix), which was wrong in BOTH directions:
+                                     it still showed all three on ~80 non-matrix kinds that ignore them (Day
+                                     Book, every register, GSTR-1/3B, Statistics — measured), and it HID
+                                     hide-zero on the Attendance Sheet, whose builder passes it straight into
+                                     the engine. A live control that changes nothing and then answers "Applied —
+                                     view updated" is the panel lying about what it did. -->
                                 <TextBlock Text="Display" FontWeight="Bold"
+                                           IsVisible="{Binding SupportsDisplayOptions}"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                 <CheckBox Content="Hide zero balances"
                                           IsChecked="{Binding HideZeroBalances, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsHideZeroBalances}"
                                           Foreground="{StaticResource BrandNavy}"/>
                                 <CheckBox Content="Show percentages (of section/column total)"
                                           IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsPercentages}"
                                           Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="130,*">
+                                <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -20828,7 +20931,21 @@
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
 
-                                <!-- Sort -->
+                                <!-- The panel says so when it cannot act on this report, instead of accepting a
+                                     filter and answering "Applied — view updated" over unchanged rows.
+                                     SupportsSortFilter has existed on this view model since RQ-3 and was bound
+                                     NOWHERE until now. -->
+                                <TextBlock Text="{Binding CannotSortOrFilterNote}"
+                                           IsVisible="{Binding CannotSortOrFilter}"
+                                           FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Sort. IsEnabled="{Binding SupportsSortFilter}" on every editable control
+                                     and on Apply: the banner above plus a refusal in Apply() was only half the
+                                     fix — an operator could still type a filter into a LIVE box, press a LIVE
+                                     Apply, and learn only afterwards that the panel does not act here. A
+                                     control that cannot do anything must not accept input. Clear stays enabled:
+                                     it is not a claim, and resetting to the identity view is always valid. -->
                                 <TextBlock Text="Sort" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
                                 <Grid>
@@ -20839,6 +20956,7 @@
                                   <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            IsEnabled="{Binding SupportsSortFilter}"
                                             ItemsSource="{Binding SortKeys}"
                                             SelectedItem="{Binding SelectedSortKey, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
@@ -20850,6 +20968,7 @@
                                 </Grid>
                                 <CheckBox Content="Ascending (unchecked = descending)"
                                           IsChecked="{Binding Ascending, Mode=TwoWay}"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- Filter: amount range + name -->
@@ -20863,6 +20982,7 @@
                                   <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MinText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no lower bound)"/>
                                 </Grid>
@@ -20874,6 +20994,7 @@
                                   <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MaxText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no upper bound)"/>
                                 </Grid>
@@ -20885,6 +21006,7 @@
                                   <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding NameContains, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            PlaceholderText="substring (blank = all)"/>
                                 </Grid>
 
@@ -20896,6 +21018,7 @@
                                   <Button Grid.Column="1" Content="Clear" Padding="14,6" Margin="0,0,8,0"
                                           Click="OnClearReportSortFilterClick"/>
                                   <Button Grid.Column="2" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnApplyReportSortFilterClick"/>
                                 </Grid>
@@ -22094,6 +22217,44 @@
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- ============ USER RULING 26: THE UPGRADE WARNING BANNER ============
+                         🔴 A book whose CLOSING STOCK VALUE MOVED when it was upgraded to schema v65 must tell
+                         its operator so, on open. Schema v65 migrates every stock item off the retired
+                         "Last Sale Price" costing basis (which valued closing stock at our own SELLING rate and
+                         overstated Stock-in-Hand and profit by the unrealised margin) onto Last Purchase Cost.
+                         The ruling accepted that the figures change; it required that the change be announced.
+
+                         WHY IT LIVES HERE, as the last child of the screens Panel and not in the status bar:
+                         the Panel overlays its children, so a top-aligned banner floats above WHATEVER screen is
+                         showing and survives the Gateway's own rebuilds — `Message` is cleared by ShowGateway and
+                         `Notice` is an 11px grey line wiped on the next change of screen. Neither is loud enough
+                         nor long-lived enough for a movement in reported profit.
+
+                         IT IS TARGETED: the bound string is empty for every book the migration never touched, so
+                         an unaffected operator sees nothing at all. A banner everyone sees is one nobody reads. -->
+                    <Border IsVisible="{Binding ValuationRemediationWarning,
+                                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                            VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                            Margin="12,8" Padding="14,10"
+                            Background="#FFF4E5" BorderBrush="#C8811A" BorderThickness="2"
+                            BoxShadow="0 2 8 0 #33000000">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                          <TextBlock Text="Your closing stock figures have changed"
+                                     FontWeight="Bold" FontSize="13" TextWrapping="Wrap"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <TextBlock Name="ValuationRemediationWarningText"
+                                     Text="{Binding ValuationRemediationWarning}"
+                                     FontSize="12" TextWrapping="Wrap"
+                                     Foreground="{StaticResource Ink}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Dismiss"
+                                VerticalAlignment="Top" Margin="12,0,0,0" Padding="14,6"
+                                Click="OnDismissValuationRemediationWarningClick"
+                                Background="{StaticResource BrandNavy}" Foreground="White"/>
+                      </Grid>
+                    </Border>
                 </Panel>
             </Border>
 

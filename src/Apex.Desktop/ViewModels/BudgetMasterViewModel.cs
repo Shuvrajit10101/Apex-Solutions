@@ -11,11 +11,20 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A row of the existing-budgets list on the Budget master screen.</summary>
-public sealed class BudgetListRow
+public sealed partial class BudgetListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Period { get; init; } = string.Empty;
     public string Lines { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <inheritdoc/>
+    public string MasterName => Name;
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -49,7 +58,7 @@ public sealed class PendingBudgetLineRow
 /// whole budget to the company's <c>.db</c> via <see cref="CompanyStorage.Save"/>. Existing budgets are
 /// listed below. Mirrors <see cref="CostCentreMasterViewModel"/>; no Avalonia types ⇒ headlessly testable.
 /// </summary>
-public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     // WI-5: rendering goes through the shared canonical formatter; this alias keeps the display call sites terse.
     private const string DateFormat = ApexDate.Canonical;
@@ -57,6 +66,54 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 2.9): the shared master-list arm
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "budget";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a budget — so it is never
+    /// mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>🔴 <b>NO REFERENTIAL GUARD, AND THAT IS A MEASURED ABSENCE RATHER THAN AN OMISSION — the reason is
+    /// written out in <c>MasterDeletionRules</c>'s W33 block.</b> The only foreign key in the schema into
+    /// <c>budgets(id)</c> is <c>budget_lines.budget_id</c>, and a budget line is written from
+    /// <c>Budget.Lines</c> — the parent's own object graph — so a deleted budget is simply not enumerated and no
+    /// orphan row is ever written. Nothing else in the book points at a budget: the Budget Variance report
+    /// recomputes from the budgets that exist. Inventing a refusal with no rule behind it is the defect this
+    /// product's own delete doctrine names.</para>
+    /// <para>Engine-only — the shell saves and reloads after this returns. A budget has no service of its own
+    /// (its create path goes straight to <c>Company.AddBudget</c>), so this is the matching direct call rather
+    /// than a service invented for symmetry. The unknown-id throw is what the shared arm turns into a notice
+    /// instead of a silent no-op.</para></remarks>
+    public void DeleteMaster(Guid id)
+    {
+        var budget = _company.Budgets.FirstOrDefault(b => b.Id == id)
+            ?? throw new InvalidOperationException($"Budget {id} not found.");
+        _company.RemoveBudget(budget);
+    }
+
+    private PayrollMasterHighlight<BudgetListRow>? _highlight;
+
+    private PayrollMasterHighlight<BudgetListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<BudgetListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing budget, or null.</summary>
+    public BudgetListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -234,15 +291,21 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
     private void RefreshList()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var b in _company.Budgets.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
             Existing.Add(new BudgetListRow
             {
+                MasterId = b.Id,
                 Name = b.Name,
                 Period = $"{b.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture)} to " +
                          $"{b.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture)}",
                 Lines = $"{b.Lines.Count} line(s)",
             });
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 
     /// <summary>The human label for a budget-line measure type (shared with the variance report).</summary>

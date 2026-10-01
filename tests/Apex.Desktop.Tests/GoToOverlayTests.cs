@@ -188,8 +188,11 @@ public sealed class GoToOverlayTests : IDisposable
         Highlight(g, "Receivables");
         Assert.True(vm.ActivateGoTo());
 
-        Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
-        Assert.NotNull(vm.Outstandings);
+        // W-V2 (census 11.9): "Receivables" was re-homed onto ReportKind, so the jump lands on Screen.Report.
+        // What this test guards — that Go To rebuilds the whole cascade down to a THREE-deep destination rather
+        // than dropping the operator on a bare page — is unchanged and is asserted below.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.ReceivablesOutstanding, vm.Reports!.Kind);
         Assert.False(vm.IsGoToOpen);                                // the overlay closes behind the jump
 
         // The cascade really was rebuilt down the path — the operator can walk back up it.
