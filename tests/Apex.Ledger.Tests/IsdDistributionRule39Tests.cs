@@ -453,6 +453,46 @@ public class IsdDistributionRule39Tests
         Assert.Contains("ISD credit note", ex.Message);
     }
 
+    /// <summary>
+    /// Rule 39(1)(b) — "<i>the amount of the credit distributed shall not exceed the amount of credit available for
+    /// distribution</i>" — against a <b>repeated recipient registration</b>.
+    ///
+    /// <para>🔴 <b>THIS IS A MEASURED DEFECT, NOT A HYPOTHETICAL.</b> Before the guard, three recipients of equal
+    /// turnover whose FIRST registration id was repeated shared a ₹900.00 pool and the engine distributed
+    /// <b>₹1,500.00</b> — lines of 60000/60000/30000 paisa against 90000 available. No exception, no diagnostic,
+    /// and <c>IsComplete</c> still true. On GSTR-6 that is a 66% overstatement of input tax credit against real
+    /// GSTINs on a return that gets filed with the government.</para>
+    ///
+    /// <para>The pro-rata Split takes a share for every OCCURRENCE in the target list and both shares land under
+    /// one accumulator key; the emit loop then walks the recipient list and writes that accumulated figure once per
+    /// occurrence. So the duplicate is both double-counted in and double-emitted out. Every other input error here
+    /// is refused up front — the ISD State code, a negative t1, a negative head — and this one was not, which left
+    /// the engine's own footing promise conditional on a well-behaved caller.</para>
+    ///
+    /// <para><b>Why refused rather than deduplicated.</b> Dropping the repeat would silently change the Rule
+    /// 39(1)(f) denominator T, which is a different wrong answer on the same filed return. Rule 39 attaches no
+    /// meaning to one recipient of credit appearing twice, so the input is rejected instead of guessed at.</para>
+    /// </summary>
+    [Fact]
+    public void A_repeated_recipient_registration_is_refused_because_it_would_distribute_more_than_was_available()
+    {
+        // The id repeated is the FIRST one, so the repeat is NOT the remainder-absorbing last target — the
+        // overstatement comes from the pro-rata shares themselves, not from the rounding convention.
+        var recipients = new[]
+        {
+            new IsdRecipient(Mumbai, "Mumbai", Maharashtra, null, 100_00),
+            new IsdRecipient(Mumbai, "Mumbai (again)", Maharashtra, null, 100_00),
+            new IsdRecipient(Jabalpur, "Jabalpur", Maharashtra, null, 100_00),
+        };
+        var pools = new[] { new IsdCreditPool("common audit fee", 900_00, 0, 0, 0) };
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => IsdDistribution.Distribute(Maharashtra, recipients, pools));
+
+        Assert.Contains("more than once", ex.Message);
+        Assert.Contains("39(1)(b)", ex.Message);
+    }
+
     [Fact]
     public void A_negative_turnover_is_refused_because_t1_cannot_be_negative()
     {

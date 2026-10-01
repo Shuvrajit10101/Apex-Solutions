@@ -174,7 +174,9 @@ public static class IsdDistribution
     /// </summary>
     /// <exception cref="ArgumentNullException">A required argument is null.</exception>
     /// <exception cref="ArgumentException">The ISD State code is not a valid Indian State/UT code, a recipient has
-    /// a negative turnover, or a pool carries a negative head. A negative head is refused rather than netted: a
+    /// a negative turnover, <b>a recipient registration appears more than once</b> (it would take a pro-rata share
+    /// per occurrence and be emitted per occurrence, distributing more than was available — Rule 39(1)(b)), or a
+    /// pool carries a negative head. A negative head is refused rather than netted: a
     /// reduction of already-distributed credit is an ISD credit note under Rule 39(1)(l)/(n), which is a different
     /// document with its own apportionment rule and is not built here.</exception>
     public static IsdDistributionResult Distribute(
@@ -191,11 +193,37 @@ public static class IsdDistribution
                 $"The Input Service Distributor's State code '{isdStateCode}' is not a valid Indian State/UT code.",
                 nameof(isdStateCode));
 
+        var seen = new HashSet<Guid>();
         foreach (var r in recipients)
         {
             if (r.TurnoverPaisa < 0)
                 throw new ArgumentException(
                     $"Recipient '{r.Name}' has a negative turnover; t1 in Rule 39(1)(f) cannot be negative.",
+                    nameof(recipients));
+
+            // 🔴 A REPEATED RegistrationId BREAKS THE ONE CAP RULE 39(1)(b) STATES IN SO MANY WORDS, AND IT BREAKS
+            // IT SILENTLY. Measured witness: three recipients of equal turnover where the FIRST id is repeated,
+            // sharing ₹900.00, distributed ₹1,500.00 — a 66% overstatement of ITC against real GSTINs on a filed
+            // return, with no diagnostic and no exception.
+            //
+            // The mechanism is the shape of this method, not a rounding artefact. The pro-rata Split runs over
+            // `targets`, so a repeated id takes a share TWICE and both land in `acc` under the SAME key; the emit
+            // loop below then walks `recipients` and writes that one accumulated figure once per OCCURRENCE. So
+            // the duplicate's credit is counted twice into the accumulator and emitted twice out of it.
+            // Deduplicating either side would silently change the denominator T instead, which is a different
+            // wrong answer; a repeated recipient of credit is not a shape Rule 39 has a meaning for.
+            //
+            // This is the one input error the method did not already refuse — it validates the ISD State code, a
+            // negative t1 and a negative head on the way in, and every one of those guards exists so the footing
+            // promise in the type remarks ("the distributed total equals the available total to the paisa") is
+            // TOTAL rather than conditional on a well-behaved caller. `Distribute` is public and reachable from
+            // anywhere in the app, so the guard belongs here next to its siblings rather than in one caller.
+            if (!seen.Add(r.RegistrationId))
+                throw new ArgumentException(
+                    $"Recipient registration '{r.RegistrationId}' ('{r.Name}') appears more than once. Each "
+                    + "recipient of credit must appear exactly once: a repeated registration takes a pro-rata share "
+                    + "for every occurrence and is emitted once per occurrence, so the distributed total would "
+                    + "exceed the credit available, which Rule 39(1)(b) forbids.",
                     nameof(recipients));
         }
 
