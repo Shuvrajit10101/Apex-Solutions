@@ -156,8 +156,8 @@ namespace Apex.Persistence.Sqlite;
 /// goods GST never absorbed: seven <c>companies</c> columns, five <c>ledgers</c> columns, two
 /// <c>stock_items</c> columns and four <c>vouchers</c> columns. Purely additive; every default is 0/NULL. See
 /// <see cref="MigrateV58ToV59"/>.
-/// <b><see cref="CurrentVersion"/> = 65</b> (v65 = Market Valuation + ruling 26, see below); a fresh DB is always
-/// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
+/// 🔴 <b>THE CURRENT VERSION IS THE CONSTANT <see cref="CurrentVersion"/> AND NOTHING ELSE — READ IT, NEVER THIS
+/// SENTENCE</b> — a digit restated here once read 59 against a constant of 64 and misled two agents, so it is gone.
 /// </summary>
 public static class Schema
 {
@@ -5371,7 +5371,7 @@ public static class Schema
     /// ("Last Sales Price"), where it auto-fills a selling price and reaches no asset value.</para>
     ///
     /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
-    /// ("Costing Methods and Market Valuation Methods | Stock Valuation Methods"), retrieved and read 2026-09-21.
+    /// ("How to Apply Stock Valuation Methods in TallyPrime | TallyHelp"), read 2026-09-21, re-verified 2026-10-01.
     /// It presents two separate fields: costing methods "<i>enable you to identify the worth of your business
     /// inventory</i>", market valuation methods "<i>help you to auto-fill the selling price of the items while
     /// recording sales</i>", and it lists Last Sales Price under the latter.</para>

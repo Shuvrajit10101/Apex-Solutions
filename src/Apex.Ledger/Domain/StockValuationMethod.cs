@@ -9,7 +9,8 @@ namespace Apex.Ledger.Domain;
 /// them is user ruling 26. See <see cref="LastSaleCost"/> for the defect that forced it.</para>
 ///
 /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
-/// ("Costing Methods and Market Valuation Methods | Stock Valuation Methods"), retrieved and read 2026-09-21,
+/// ("How to Apply Stock Valuation Methods in TallyPrime | TallyHelp"), retrieved and read 2026-09-21,
+/// re-opened and re-verified by content 2026-10-01,
 /// documents <b>nine</b> costing methods: At Zero Cost, Average Cost, FIFO (First In, First Out), FIFO
 /// Perpetual, Last Purchase Cost, LIFO Annual (Last In, First Out), LIFO Perpetual, Standard Cost, Monthly
 /// Average Cost. This build offers <b>six</b> of the nine. The three it does not ship, and the reason, are

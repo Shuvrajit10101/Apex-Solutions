@@ -11,8 +11,8 @@ namespace Apex.Ledger.Domain;
 /// precisely the defect ruling 26 exists to close — see <see cref="StockValuationMethod"/>'s retired ordinal 5.</para>
 ///
 /// <para><b>R7 — ATTESTED, and the page was opened and read rather than recalled.</b>
-/// <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c> ("Costing Methods and Market
-/// Valuation Methods | Stock Valuation Methods"), retrieved 2026-09-21. It presents <b>two separate fields</b>
+/// <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c> ("How to Apply Stock Valuation
+/// Methods in TallyPrime | TallyHelp"), retrieved 2026-09-21, re-opened and re-verified by content 2026-10-01. It presents <b>two separate fields</b>
 /// and states the distinction in its own words: costing methods "<i>enable you to identify the worth of your
 /// business inventory</i>", while market valuation methods "<i>help you to auto-fill the selling price of the
 /// items while recording sales</i>". The four members below are that page's Market Valuation list, complete and

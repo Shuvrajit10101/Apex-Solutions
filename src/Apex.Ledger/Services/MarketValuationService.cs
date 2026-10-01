@@ -12,7 +12,8 @@ namespace Apex.Ledger.Services;
 /// merely promised here: the defect this closes (T0-2) was exactly a selling price leaking into an asset value.</para>
 ///
 /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
-/// ("Costing Methods and Market Valuation Methods | Stock Valuation Methods"), retrieved and read 2026-09-21:
+/// ("How to Apply Stock Valuation Methods in TallyPrime | TallyHelp"), retrieved and read 2026-09-21,
+/// re-opened and re-verified by content 2026-10-01:
 /// market valuation methods "<i>help you to auto-fill the selling price of the items while recording sales</i>".
 /// Each method below implements that page's own definition, quoted at its call site in
 /// <see cref="MarketValuationMethod"/>.</para>
