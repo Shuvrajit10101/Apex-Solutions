@@ -5145,6 +5145,88 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
+    /// True when the item's own <b>Market Valuation Method</b> is allowed to auto-fill a line Rate on this
+    /// screen: a <b>Sales</b> item invoice that is being <b>entered</b>, never altered.
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
+    /// ("How to Apply Stock Valuation Methods in TallyPrime | TallyHelp"), opened and read by content 2026-10-01:
+    /// "<i>Market Valuation Methods help you to auto-fill the selling price of the items while recording
+    /// sales.</i>" That sentence is the whole scope of this gate, and the three exclusions below each come out of
+    /// it rather than out of taste.</para>
+    ///
+    /// <list type="bullet">
+    ///   <item><b>The Sales base type by name, not <c>!IsPurchaseInvoice</c>.</b> Credit and Debit Notes carry
+    ///   item lines too (census 4.7/4.8), and a <b>return is priced at what was actually invoiced</b> — exactly
+    ///   the reasoning <see cref="ShowPriceLevelSelector"/> already records. A sales return re-priced off today's
+    ///   average selling price would post a credit note for a figure the customer was never charged.</item>
+    ///   <item><b>Purchases are excluded because the figure is a SELLING price.</b> Auto-filling it onto a
+    ///   purchase line would book the stock inward at our own margin — the T0-2 defect (ruling 26) running in the
+    ///   opposite direction, and it would land in closing stock, not just on a screen.</item>
+    ///   <item>🔴 <b><see cref="IsAltering"/> is excluded, and this is the load-bearing one.</b> Re-opening a
+    ///   saved invoice rehydrates lines whose <c>IsRateUserDirty</c> is false, so an auto-fill pass would
+    ///   OVERWRITE the rate the invoice was actually raised at with today's market figure — silent, retrospective
+    ///   money loss on a posted document. The rehydration's own <c>_rehydrating</c> suppression does not cover
+    ///   this: one pass runs when the screen is whole, and that pass would be the clobbering one.</item>
+    /// </list>
+    /// </summary>
+    private bool AllowsMarketValuationAutoFill =>
+        IsItemInvoice && _type.BaseType == VoucherBaseType.Sales && !IsAltering;
+
+    /// <summary>
+    /// 🔴 <b>THE MARKET VALUATION AUTO-FILL — the route that makes <see cref="MarketValuationService"/> reachable
+    /// by an operator (census 3.4, user ruling 26).</b> Menu path <b>Gateway → Vouchers → Sales (F8) → item
+    /// invoice (Ctrl+V)</b>: pick an item whose Market Valuation Method is set, and its Rate arrives filled.
+    ///
+    /// <para><b>Precedence, stated because it is a judgement.</b> A resolved <b>Price-List slab wins</b>: a price
+    /// list is an explicit per-level, per-quantity, dated agreement, while a market valuation method is the item's
+    /// own standing basis. So this pass skips any line for which <see cref="PriceResolver"/> resolves a slab, and
+    /// fills only where the price list is silent (feature off, "Not Applicable", or no slab for this
+    /// quantity/date). Running after <see cref="RefreshPriceLevelDefaults"/> is what makes that ordering real.</para>
+    ///
+    /// <para><b>It can only ever ADD a figure, never clear one.</b> <c>null</c> from the service is the expected
+    /// answer for <see cref="MarketValuationMethod.AtZeroPrice"/> and for an item with nothing to compute from,
+    /// and the line is then left exactly as it was. That is what keeps an existing book byte-identical (ER-13):
+    /// <c>AtZeroPrice</c> is ordinal 0 and therefore every pre-v65 item's stored method, so no book that existed
+    /// before this change sees a single rate move. A non-positive rate is also ignored rather than stamped —
+    /// auto-filling ₹0 would give the goods away.</para>
+    ///
+    /// <para>Operator edits still win: <c>ApplyPriceAutoFill</c> writes only into a line that is not
+    /// rate-dirty. Re-entrancy is guarded by the same <c>_refreshingPrices</c> flag the price-level pass uses.</para>
+    /// </summary>
+    private void RefreshMarketValuationDefaults()
+    {
+        if (_refreshingPrices) return;
+        if (!AllowsMarketValuationAutoFill) return;
+
+        _refreshingPrices = true;
+        try
+        {
+            var market = new MarketValuationService(_company);
+            var level = ShowPriceLevelSelector ? SelectedPriceLevel?.Level : null;
+
+            foreach (var l in InventoryLines)
+            {
+                if (l.SelectedItem is not { } item) continue;
+                if (l.IsRateUserDirty) continue;
+
+                // A resolved price-list slab is the stronger signal and has already been stamped — leave it.
+                if (level is not null
+                    && PriceResolver.Resolve(_company, level.Id, item.Id, l.ParsedActualQuantity, Date) is not null)
+                    continue;
+
+                if (market.SellingRate(item.Id, Date) is not { } rate) continue;
+                if (rate.Amount <= 0m) continue;
+
+                l.ApplyPriceAutoFill(IndianFormat.AmountAlways(rate.Amount), discount: null);
+            }
+        }
+        finally
+        {
+            _refreshingPrices = false;
+        }
+    }
+
+    /// <summary>
     /// Whether a ledger is a valid value-leg target for this voucher's nature — purchase SIDE (Purchase, Debit
     /// Note): under Purchase Accounts (primary ancestor) or under Stock-in-Hand; sales side (Sales, Credit Note):
     /// under Sales Accounts (primary ancestor).
@@ -6292,9 +6374,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // 🔴 MUTATION RESULT: deleting this line reddens NOTHING, and the reason is worth stating rather than
         // leaving for someone to rediscover. Every field a mid-flight pass could write - the bill-wise rows, the
         // landed-rate columns, the totals - is overwritten by the single pass that runs when the rehydration
-        // finishes, and the one pass that could do real damage (RefreshPriceLevelDefaults, which stamps a Rate onto
-        // an un-dirtied line) self-gates on ShowPriceLevelSelector, which is false on every screen that can reach
-        // this method. It is kept as a suppression, not claimed as a live safeguard.
+        // finishes, and the two passes that could do real damage both self-gate: RefreshPriceLevelDefaults (which
+        // stamps a Rate onto an un-dirtied line) on ShowPriceLevelSelector, false on every screen that can reach
+        // this method, and RefreshMarketValuationDefaults on !IsAltering - rehydration only happens on an
+        // alteration, which is precisely the case that pass refuses. It is kept as a suppression, not claimed as a
+        // live safeguard.
         if (_rehydrating) return;
 
         // Price Levels (slice 5; RQ-30): keep the per-line Discount column gate in sync, then auto-fill each
@@ -6302,6 +6386,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // stamped values). Both are no-ops when the feature is off, so a non-price-level screen is unchanged.
         SyncPriceLevelOnLines();
         RefreshPriceLevelDefaults();
+
+        // 🔴 Market Valuation (census 3.4, ruling 26) — the item's own selling-price basis fills the Rate where the
+        // price list is silent. It runs AFTER the price-level pass on purpose: that ordering IS the precedence rule
+        // (a resolved slab wins). It can only add a figure, never clear one, so a book whose items all carry the
+        // ordinal-0 AtZeroPrice — i.e. every book that existed before v65 — is unchanged (ER-13).
+        RefreshMarketValuationDefaults();
 
         // G-5: keep each line's "⧉ Allocate batches" affordance in sync with the full four-layer gate, so it is
         // shown only where it actually does something (the RQ-52 UI-leak discipline the stock screens already use).
