@@ -113,9 +113,16 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
     /// <c>DecimalPlaces</c> — <c>SeedCurrencies.BuildBaseCurrency</c> builds it from exactly those three fields and
     /// nothing re-syncs it afterwards. Renaming the row alone would leave the company profile saying ₹/INR while
     /// the currency master said something else, and the two are printed by different screens. The company profile
-    /// (F3 &gt; Alter Company) is the one place that owns those fields and already edits them, which is also how
-    /// the vendor separates it — a distinct "Change Base Currency" procedure rather than an Alter Master. The
-    /// shell turns this <c>null</c> into a NOTICE naming that route, so the refusal is not a silent no-op.</para>
+    /// (F3 &gt; Alter Company) is the one place that owns those fields and already edits them, so that is where we
+    /// send the user. <b>THIS IS A DIVERGENCE FROM THE VENDOR AND IT IS OURS, NOT ATTESTED.</b> Read again
+    /// 2026-09-25, help.tallysolutions.com/create-alter-or-delete-currencies/ ALLOWS the base currency to be
+    /// altered through that same Alter Master screen ("The screen for altering it is similar to the Currency
+    /// Creation screen"); it withholds only the <i>Rates of Exchange</i> option ("You will not see this option if
+    /// you are altering the Base currency"). An earlier revision of this comment claimed the vendor separates base
+    /// alteration into a distinct procedure — IT DOES NOT, and that sentence was corrected rather than softened.
+    /// We refuse it anyway, for the projection reason above, and the divergence is logged for a later slice that
+    /// can alter the base currency by writing through to the company profile. The shell turns this <c>null</c>
+    /// into a NOTICE naming that route, so the refusal is not a silent no-op.</para>
     ///
     /// <para><b>Altering DecimalPlaces cannot move a figure.</b> Measured, not assumed:
     /// <c>Currency.DecimalPlaces</c> has exactly one reader in the whole product —
