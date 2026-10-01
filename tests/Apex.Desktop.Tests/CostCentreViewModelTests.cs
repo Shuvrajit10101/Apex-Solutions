@@ -395,33 +395,44 @@ public sealed class CostCentreViewModelTests : IDisposable
             },
             hubLabels);
 
-        // Statements of Accounts → Cost Centres lists the two cost reports.
+        // Statements of Accounts → Cost Centres lists the cost reports.
+        //
+        // 🔴 W-V2 (census 11.10): THREE rows now, not two. "Ledger Break-up" is the first menu row
+        // CostReports.BuildLedgerBreakup has ever had — the engine shipped, documented and unit-tested, with
+        // ZERO production callers, and is cited by name in seven source comments as this repository's canonical
+        // example of unreachable delivered code. Adding it here is the fix; this exact ORDERED list is what
+        // stops it quietly disappearing again.
         vm.ShowCostCentresMenu();
         Assert.Equal(GatewayMenu.CostCentres, vm.CurrentGatewayMenu);
         var costLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Category Summary", "Cost Centre Break-up" }, costLabels);
+        Assert.Equal(new[] { "Category Summary", "Cost Centre Break-up", "Ledger Break-up" }, costLabels);
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
 
         // Drilling into "Category Summary" (the highlighted first item) adds exactly ONE page column.
+        // All three rows now open REPORTS rather than the bespoke cost page, which is what gives them Ctrl+P,
+        // Ctrl+E, F2/Alt+F2 and Alt+K — six gestures were off while they lived on their own Screen.
         vm.DrillIn();
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
         Assert.True(vm.Columns[^1].IsPage);
-        Assert.NotNull(vm.CostReports);
-        Assert.Same(vm.CostReports, vm.Columns[^1].CostReport);
-        Assert.Equal(CostReportKind.CategorySummary, vm.CostReports!.Kind);
+        Assert.NotNull(vm.Reports);
+        Assert.Equal(ReportKind.CostCategorySummary, vm.Reports!.Kind);
 
         // Opening the Break-up REPLACES it — still exactly one page column.
-        vm.OpenCostReport(CostReportKind.CostCentreBreakup);
+        vm.OpenReport(ReportKind.CostCentreBreakup);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Equal(CostReportKind.CostCentreBreakup, vm.CostReports!.Kind);
+        Assert.Equal(ReportKind.CostCentreBreakup, vm.Reports!.Kind);
+
+        // …and so does the Ledger Break-up.
+        vm.OpenReport(ReportKind.CostCentreLedgerBreakup);
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
+        Assert.Equal(ReportKind.CostCentreLedgerBreakup, vm.Reports!.Kind);
 
         // Opening a plain report (Balance Sheet) then a cost report keeps exactly one page column.
         vm.OpenReport(ReportKind.BalanceSheet);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.CostReports);
-        vm.OpenCostReport(CostReportKind.CategorySummary);
+        vm.OpenReport(ReportKind.CostCategorySummary);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.Reports);
+        Assert.Equal(ReportKind.CostCategorySummary, vm.Reports!.Kind);
     }
 
     [Fact]
@@ -431,8 +442,11 @@ public sealed class CostCentreViewModelTests : IDisposable
         vm.ShowCostCentresMenu();                                    // [root, Cost Centres]
         Assert.Equal(GatewayMenu.CostCentres, vm.CurrentGatewayMenu);
 
-        vm.DrillIn();                                                // open Category Summary page column
-        Assert.Equal(Screen.CostReport, vm.CurrentScreen);
+        vm.DrillIn();                                                // open the Category Summary REPORT column
+        // W-V2: Screen.Report, not Screen.CostReport — census 11.10 was re-homed onto ReportKind. The Esc
+        // unwind this test guards is identical for either page kind.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.CostCategorySummary, vm.Reports!.Kind);
 
         vm.Back();                                                   // back to the Cost Centres submenu
         Assert.Equal(GatewayMenu.CostCentres, vm.CurrentGatewayMenu);

@@ -263,20 +263,26 @@ public sealed class BillWiseViewModelTests : IDisposable
 
         // Drilling into Receivables adds exactly ONE page column beside the menu columns.
         // (highlight Receivables — it's the first selectable — then drill in)
+        //
+        // 🔴 W-V2 (census 11.9): this row now opens a REPORT, not the bespoke Outstandings page. The page
+        // Screen it used to open left the shell's report context null, which switched off Ctrl+P, Ctrl+E,
+        // F2/Alt+F2, F12, Alt+F12 and Alt+K simultaneously — six gestures off on a report an operator is
+        // expected to print and send. The single-page-column invariant this test exists to protect is
+        // UNCHANGED and is still asserted below; only the identity of the page changed.
         vm.DrillIn();
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
         Assert.True(vm.Columns[^1].IsPage);
-        Assert.NotNull(vm.Outstandings);
-        Assert.Same(vm.Outstandings, vm.Columns[^1].Outstanding);
-        Assert.Equal(OutstandingsKind.Receivables, vm.Outstandings!.Kind);
+        Assert.NotNull(vm.Reports);
+        Assert.Equal(ReportKind.ReceivablesOutstanding, vm.Reports!.Kind);
 
-        // Opening another page (Balance Sheet) REPLACES the Outstandings page — still one page column.
+        // Opening another page (Balance Sheet) REPLACES it — still one page column.
         vm.OpenReport(ReportKind.BalanceSheet);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.Outstandings);
-        Assert.NotNull(vm.Reports);
+        Assert.Equal(ReportKind.BalanceSheet, vm.Reports!.Kind);
 
-        // And opening Outstandings again replaces the report page — still exactly one page column.
+        // And the settlement page — still reached by Alt+A from the Outstandings report (the spacebar
+        // multi-select and the settlement preload live there and nowhere else) — replaces the report page in
+        // its turn, still exactly one page column.
         vm.OpenOutstandings(OutstandingsKind.Payables);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
         Assert.Null(vm.Reports);

@@ -138,17 +138,48 @@ public class StockValuationTests
         Assert.Equal(Money.FromRupees(840m), v.Value);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE T0-2 REGRESSION — this test asserted the DEFECT until user ruling 26, and its old expectation
+    /// (₹1,400) is exactly the wrong-money bug.</b>
+    ///
+    /// <para>The retired <see cref="StockValuationMethod.LastSaleCost"/> ordinal valued closing stock at the most
+    /// recent <i>sale</i> rate — our own selling price — so buying 100 @ ₹10 and selling 30 @ ₹20 reported
+    /// Stock-in-Hand of 70 × ₹20 = <b>₹1,400</b> against an actual cost of 70 × ₹10 = <b>₹700</b>. The Balance
+    /// Sheet was overstated by the whole ₹700 unrealised margin and that margin was booked as profit.</para>
+    ///
+    /// <para>Ordinal 5 is now mapped explicitly onto <see cref="StockValuationMethod.LastPurchaseCost"/>, so a
+    /// book that escaped the v65 migration (restored from an external archive, hand-edited) still cannot value
+    /// stock at a selling price. <b>This assertion fails on main</b>, where the old arm returns ₹1,400.</para>
+    /// </summary>
     [Fact]
-    public void Last_sale_cost_uses_the_most_recent_outward_rate()
+    public void Retired_last_sale_cost_ordinal_values_at_purchase_cost_never_at_the_sale_rate()
     {
-        // Closing 70 × most-recent sale rate ₹20 = ₹1400.
         var k = NewKit(StockValuationMethod.LastSaleCost);
         Receive(k, D1, 100m, Money.FromRupees(10m));
         Deliver(k, D2, 30m, Money.FromRupees(20m));
 
         var v = k.Valuation.ClosingValue(k.ItemId, D4);
         Assert.Equal(70m, v.Quantity);
-        Assert.Equal(Money.FromRupees(1400m), v.Value);
+        // The cost we actually paid — NOT 70 × ₹20 = ₹1,400, which is what the defect reported.
+        Assert.Equal(Money.FromRupees(700m), v.Value);
+        Assert.NotEqual(Money.FromRupees(1400m), v.Value);
+    }
+
+    /// <summary>
+    /// The vendor's <b>At Zero Cost</b>: "the value of stock items will always be zero, irrespective of the cost
+    /// incurred" (help.tallysolutions.com/stock-valuation-methods-tallyprime/). Exact, with no fallback chain —
+    /// the one method whose definition leaves nothing to interpret. Fails on main, where the member is absent.
+    /// </summary>
+    [Fact]
+    public void At_zero_cost_values_real_stock_at_exactly_zero_with_no_fallback()
+    {
+        var k = NewKit(StockValuationMethod.AtZeroCost, standardCost: Money.FromRupees(11m));
+        Receive(k, D1, 100m, Money.FromRupees(10m));
+        Deliver(k, D2, 30m, Money.FromRupees(20m));
+
+        var v = k.Valuation.ClosingValue(k.ItemId, D4);
+        Assert.Equal(70m, v.Quantity);   // the QUANTITY is real and unaffected
+        Assert.Equal(Money.Zero, v.Value);
     }
 
     [Fact]

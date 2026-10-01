@@ -229,7 +229,9 @@ public sealed class AdditionalCostSchemaTests
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, group_id TEXT NOT NULL REFERENCES groups(id));
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
-            name TEXT NOT NULL);
+            -- valuation_method: the v65 (census 3.4 / ruling 26) remediating UPDATE reads it, so this minimal
+            -- hand-written fixture declares it for that UPDATE to land on.
+            name TEXT NOT NULL, valuation_method INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL,
             use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0);

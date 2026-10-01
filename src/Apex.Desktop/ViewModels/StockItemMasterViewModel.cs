@@ -60,6 +60,17 @@ public sealed class ValuationMethodOption
     public string Display { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// A <b>market valuation</b> method option for the picker (label + the enum value) — census 3.4, user ruling 26.
+/// Deliberately a separate type from <see cref="ValuationMethodOption"/> so the two dimensions cannot be bound
+/// to the same control or compared to one another; conflating them is the defect this row exists to close.
+/// </summary>
+public sealed class MarketValuationMethodOption
+{
+    public MarketValuationMethod Method { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
 /// <summary>A GST taxability option for the picker (label + the enum value).</summary>
 public sealed class GstTaxabilityOption
 {
@@ -158,6 +169,13 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// <summary>The valuation methods offered (Average Cost first / default, DP-1).</summary>
     public ObservableCollection<ValuationMethodOption> ValuationMethods { get; } = new();
 
+    /// <summary>
+    /// The <b>market valuation</b> methods offered (census 3.4, user ruling 26) — the selling-price dimension,
+    /// At Zero Price first because it auto-fills nothing and so can state no wrong number. Deliberately a
+    /// separate collection from <see cref="ValuationMethods"/>: they are two vendor fields, not one list.
+    /// </summary>
+    public ObservableCollection<MarketValuationMethodOption> MarketValuationMethods { get; } = new();
+
     /// <summary>The existing stock items, refreshed after each create.</summary>
     public ObservableCollection<StockItemListRow> Existing { get; } = new();
 
@@ -168,6 +186,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     [ObservableProperty] private OptionalStockCategoryOption? _selectedCategory;
     [ObservableProperty] private Unit? _selectedUnit;
     [ObservableProperty] private ValuationMethodOption? _selectedValuation;
+    // census 3.4 / user ruling 26 — the SELLING-price basis, and the standard PRICE it can draw on. The price
+    // box is a different field from the standard-COST box above it; folding them would rebuild the conflation
+    // ruling 26 undoes. Empty text ⇒ no standard price ⇒ Standard Price auto-fills nothing (never a cost).
+    [ObservableProperty] private MarketValuationMethodOption? _selectedMarketValuation;
+    [ObservableProperty] private string _standardPriceText = string.Empty;
     [ObservableProperty] private string _hsnSacCode = string.Empty;
     [ObservableProperty] private bool _isTaxable;
     [ObservableProperty] private string _reorderLevelText = string.Empty;
@@ -431,6 +454,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         SelectedUnit = Units.FirstOrDefault(u => u.Id == item.BaseUnitId) ?? SelectedUnit;
         SelectedCategory = CategoryOptions.FirstOrDefault(c => c.Category?.Id == item.CategoryId) ?? SelectedCategory;
         SelectedValuation = ValuationMethods.FirstOrDefault(v => v.Method == item.ValuationMethod) ?? SelectedValuation;
+        // census 3.4 / user ruling 26 — load the market-valuation basis and the standard PRICE, so an alter that
+        // changes something else writes them back unchanged rather than silently resetting the item to
+        // At Zero Price. SaveMaster always writes both.
+        SelectedMarketValuation =
+            MarketValuationMethods.FirstOrDefault(m => m.Method == item.MarketValuationMethod)
+            ?? SelectedMarketValuation;
+        StandardPriceText = item.StandardPrice is { } sprice
+            ? sprice.Amount.ToString("0.00", CultureInfo.InvariantCulture)
+            : string.Empty;
         HsnSacCode = item.HsnSacCode ?? string.Empty;
         IsTaxable = item.IsTaxable;
         ReorderLevelText = item.ReorderLevel?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
@@ -492,15 +524,26 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.Lifo, Display = "LIFO" });
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.StandardCost, Display = "Standard Cost" });
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastPurchaseCost, Display = "Last Purchase Cost" });
-        // 🔴 Census 3.4 / defect T0-2 — THE LABEL IS THE HALF THAT NEEDS NO COLUMN. The vendor files "Last Sales
-        // Price" under MARKET VALUATION, a selling-price default, and never among the costing methods; we offer it
-        // in the costing slot because no Market Valuation field exists to hold it yet. Until that field is built
-        // (it needs storage and a user ruling for books that already chose this), the picker at least stops
-        // CALLING it a cost: an operator choosing it can now see it is a selling-price basis, which is exactly the
-        // fact that made T0-2 land on real books — closing stock at our own sale rate, profit overstated by the
-        // unrealised margin. Keep this string and ValuationLabel identical; they are the same option twice.
-        ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastSaleCost, Display = "Last Sale Price (market valuation)" });
+        // 🔴 Census 3.4 / defect T0-2 / USER RULING 26 — "Last Sale Price" IS GONE FROM THIS LIST, and the
+        // selling-price basis it named now lives in MarketValuationMethods below, where it belongs. It valued
+        // closing stock at our own sale rate and put the whole unrealised margin on the Balance Sheet. Schema v65
+        // migrates every book that had chosen it onto Last Purchase Cost and warns its operator on open. DO NOT
+        // re-add StockValuationMethod.LastSaleCost here: it is a RETIRED ordinal kept only so a stray value 5 can
+        // be mapped explicitly onto a real cost basis rather than falling through a default arm.
+        ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.AtZeroCost, Display = "At Zero Cost" });
         SelectedValuation = ValuationMethods.First();
+
+        // 🔴 THE MARKET VALUATION DIMENSION (census 3.4, user ruling 26) — the vendor's second, separate field.
+        // It auto-fills a SELLING price and never values stock. All four of the cited page's methods, in its order.
+        MarketValuationMethods.Add(new MarketValuationMethodOption
+            { Method = MarketValuationMethod.AtZeroPrice, Display = "At Zero Price" });
+        MarketValuationMethods.Add(new MarketValuationMethodOption
+            { Method = MarketValuationMethod.AveragePrice, Display = "Average Price" });
+        MarketValuationMethods.Add(new MarketValuationMethodOption
+            { Method = MarketValuationMethod.LastSalesPrice, Display = "Last Sales Price" });
+        MarketValuationMethods.Add(new MarketValuationMethodOption
+            { Method = MarketValuationMethod.StandardPrice, Display = "Standard Price" });
+        SelectedMarketValuation = MarketValuationMethods.First();
 
         Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.Taxable, Display = "Taxable" });
         Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.Exempt, Display = "Exempt" });
@@ -615,6 +658,35 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         else if (wantsStandardCost)
         {
             Message = "Standard Cost valuation needs a standard rate — type one, or pick another valuation method.";
+            return false;
+        }
+
+        // 🔴 Census 3.4 / user ruling 26 — the standard PRICE, validated exactly like the standard COST above and
+        // kept rigorously separate from it. Required when the item's MARKET valuation is Standard Price, for the
+        // same reason T0-3 made the cost required: without it the method auto-fills nothing and the operator is
+        // left wondering why the sales line stayed blank. 🔴 It deliberately does NOT fall back to standardCost —
+        // auto-filling an invoice at cost sells at zero margin, a worse failure than auto-filling nothing.
+        Money? standardPrice = null;
+        var wantsStandardPrice = (SelectedMarketValuation?.Method ?? MarketValuationMethod.AtZeroPrice)
+            == MarketValuationMethod.StandardPrice;
+        if (!string.IsNullOrWhiteSpace(StandardPriceText))
+        {
+            if (!TryParseRate(StandardPriceText, out var sp) || sp < 0m)
+            {
+                Message = "Standard price must be a number ≥ 0 (₹ per unit).";
+                return false;
+            }
+            var spMoney = Money.FromRupees(sp);
+            if (!spMoney.IsPaisaExact)
+            {
+                Message = $"Standard price {sp} must be to the paisa (2 decimal places).";
+                return false;
+            }
+            standardPrice = spMoney;
+        }
+        else if (wantsStandardPrice)
+        {
+            Message = "Standard Price market valuation needs a standard price — type one, or pick another market valuation method.";
             return false;
         }
 
@@ -801,6 +873,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                     valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty, standardCost);
             }
 
+            // 🔴 Census 3.4 / user ruling 26 — the MARKET VALUATION dimension, written on BOTH paths so create and
+            // alter cannot diverge (the same reason the alter branch above restates CreateStockItem's field set).
+            // 🔴 item.ValuationRemediatedFrom is deliberately NOT touched here: it is a historical record of a
+            // migration that moved real money, and SqliteCompanyStore round-trips it verbatim so that saving an
+            // item cannot silence an upgraded book's on-open warning.
+            item.MarketValuationMethod = SelectedMarketValuation?.Method ?? MarketValuationMethod.AtZeroPrice;
+            item.StandardPrice = standardPrice;
+
             if (gstBlock is not null)
             {
                 gstBlock.EnsureValid();  // backstop; already pre-validated above
@@ -915,6 +995,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         ReorderLevelText = string.Empty;
         MinimumOrderQtyText = string.Empty;
         StandardCostText = string.Empty;
+        // census 3.4 / user ruling 26 — clear the market-valuation basis AND its standard price together, so the
+        // next item does not silently inherit the previous one's SELLING rate (which would auto-fill a wrong
+        // price on its invoices). Back to At Zero Price, the basis that auto-fills nothing.
+        SelectedMarketValuation = MarketValuationMethods.FirstOrDefault() ?? SelectedMarketValuation;
+        StandardPriceText = string.Empty;
         // census 3.6 — clear the alternate unit AND its factor together, so the next item does not inherit the
         // previous one's conversion (which would be a wrong quantity on every display of it).
         SelectedAlternateUnit = AlternateUnitOptions.FirstOrDefault(o => o.IsNone) ?? SelectedAlternateUnit;
@@ -1136,9 +1221,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         StockValuationMethod.Lifo => "LIFO",
         StockValuationMethod.StandardCost => "Standard Cost",
         StockValuationMethod.LastPurchaseCost => "Last Purchase Cost",
-        // Census 3.4 / T0-2 — must read identically to the picker entry above; two spellings of one option is how
-        // an operator comes to believe the list and the display are different settings.
-        StockValuationMethod.LastSaleCost => "Last Sale Price (market valuation)",
+        // Census 3.4 — must read identically to the picker entry above; two spellings of one option is how an
+        // operator comes to believe the list and the display are different settings.
+        StockValuationMethod.AtZeroCost => "At Zero Cost",
+        // 🔴 THE RETIRED ORDINAL (user ruling 26). It is in NO picker, so this arm can only be reached by an item
+        // that escaped the v65 migration — restored from an external archive, or hand-edited. The label says so
+        // outright rather than naming a basis the engine no longer honours: StockValuationService maps this
+        // ordinal onto Last Purchase Cost, so that is what the row is actually valued at, and a label reading
+        // "Last Sale Price" would now be a lie about the operator's own Balance Sheet.
+        StockValuationMethod.LastSaleCost => "Last Purchase Cost (migrated from a retired method)",
         _ => method.ToString(),
     };
 }

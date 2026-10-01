@@ -269,19 +269,26 @@ public sealed class BudgetViewModelTests : IDisposable
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
 
         // Drilling into "Budget Variance" (the highlighted first item) adds exactly ONE page column.
+        //
+        // 🔴 W-V2 (census 11.11): this row now opens a REPORT, not the bespoke Budget Variance page. The page
+        // Screen left the report context null, which switched off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and
+        // Alt+K at once. (The SURFACE remains a documented divergence either way — the vendor has no dedicated
+        // Budget Variance screen at all, only Alt+B taken on Trial Balance / Group Summary. The re-home buys
+        // print and export; it does not make the surface vendor-shaped.) The one-page-column invariant this
+        // test protects is unchanged.
         vm.DrillIn();
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
         Assert.True(vm.Columns[^1].IsPage);
-        Assert.NotNull(vm.BudgetVariance);
-        Assert.Same(vm.BudgetVariance, vm.Columns[^1].BudgetVariance);
+        Assert.NotNull(vm.Reports);
+        Assert.Equal(ReportKind.BudgetVariance, vm.Reports!.Kind);
 
         // Opening a plain report (Balance Sheet) then the budget report keeps exactly one page column.
         vm.OpenReport(ReportKind.BalanceSheet);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.BudgetVariance);
-        vm.OpenBudgetVariance();
+        Assert.Equal(ReportKind.BalanceSheet, vm.Reports!.Kind);
+        vm.OpenReport(ReportKind.BudgetVariance);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.Reports);
+        Assert.Equal(ReportKind.BudgetVariance, vm.Reports!.Kind);
     }
 
     [Fact]
@@ -291,8 +298,11 @@ public sealed class BudgetViewModelTests : IDisposable
         vm.ShowBudgetsMenu();                                         // [root, Budgets]
         Assert.Equal(GatewayMenu.Budgets, vm.CurrentGatewayMenu);
 
-        vm.DrillIn();                                                 // open Budget Variance page column
-        Assert.Equal(Screen.BudgetVariance, vm.CurrentScreen);
+        vm.DrillIn();                                                 // open the Budget Variance REPORT column
+        // W-V2: Screen.Report, not Screen.BudgetVariance — the row was re-homed onto ReportKind (census 11.11).
+        // What this test actually guards is the Esc unwind, which is identical for either page kind.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.BudgetVariance, vm.Reports!.Kind);
 
         vm.Back();                                                    // back to the Budgets submenu
         Assert.Equal(GatewayMenu.Budgets, vm.CurrentGatewayMenu);

@@ -576,6 +576,83 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ---
 
+### D19 · Bare `M` / `W` key arms are still gated on `IsPrintablePage`, so the badge is narrower than the key
+**LOW** · Area **SHELL** · *Filed 2026-09-24 by A12 (wave 33). Deferred from the `apex-v1-report-chords`
+review as **F-A11-5**, refused there with a reason rather than fixed.*
+
+| | |
+|---|---|
+| **What the operator experiences** | Nothing wrong reaches a document: on a page where the badge is dark, the bare letter is swallowed and does nothing. The defect is that the key arm claims a wider set of screens than the badge advertises, so the two can drift apart in a later edit — the exact shape of F-A11-3 (Ctrl+B), which *was* fixed this wave. |
+| **What we do** | The bare `M` and `W` arms are predicated on `IsPrintablePage`. Reviewer line references `MainWindowViewModel.cs:1700` / `:1721` were confirmed correct by the builder; the earlier pass's `:1677` / `:1698` were stale and should not be re-used. |
+| **Why it was NOT fixed in wave 33** | Re-gating changes what an **unclaimed letter falls through to** — type-ahead for `M`- and `W`-initial names — on roughly **40 master screens that this pass did not measure**. Swapping a harmless swallowed key for a silently broken type-ahead on 40 screens is a worse trade, made blind. |
+| **Fix** | Its own measured pass: enumerate the master lists where `M`/`W` type-ahead is live, then narrow the key arm to match the badge. Do not take this as a one-line change. |
+
+---
+
+### D20 · 🔴 A saved view can be deleted by ONE mouse click, with no confirm — **USER DECISION OWED (R12)**
+**LOW (behaviour) · BLOCKING (decision)** · Area **SHELL** · *Filed 2026-09-24 by A12 (wave 33). Deferred from
+the `apex-v1-report-chords` review as **F-A11-7**.*
+
+| | |
+|---|---|
+| **What the operator experiences** | The keyboard path to delete a saved view is a **two-step armed confirm**. The mouse path is a single click with no confirmation. A mis-click destroys a saved view outright. |
+| **What we do** | Pre-existing, and commented as deliberate — it is not an oversight that crept in. |
+| **What Tally does** | 🔴 **Genuinely unknown, and that is the point.** `help.tallysolutions.com/use-save-view-feature-in-tallyprime/` documents the **keyboard** confirm only (*"Press Enter or Y to confirm"*). The page is silent on the mouse path. **Silence is not permission and it is not prohibition** — nothing here may be asserted from memory (R7). |
+| **Why it is a decision, not a defect** | Whether the mouse path must mirror the keyboard confirm is a **product call**, not a fidelity one, precisely because the vendor documentation does not speak. R12 sends it to the user rather than letting an agent pick. |
+| **Options for the user** | (a) require the same two-step confirm on the mouse path — safest, diverges from nothing we can cite; (b) leave it — fastest, but one mis-click is destructive; (c) soften to an undo. **Recommendation: (a)**, because the cost of a wrong guess is destroyed operator work and the cost of the confirm is one click. |
+
+---
+
+### D21 · Two files are LF-only against `.editorconfig`'s `end_of_line = crlf`
+**LOW / HYGIENE** · Area **BUILD** · *Filed 2026-09-24 by A12 (wave 33). Deferred from the
+`apex-v1-report-chords` review as **F-A11-8**.*
+
+| | |
+|---|---|
+| **What it is** | Two files added by the report-chord slice are internally uniform **LF**, while `.editorconfig` declares `[*] end_of_line = crlf`. |
+| **Why it was NOT fixed in wave 33** | `.gitattributes` on main is `* text=auto` **deliberately** (user ruling, 2026-08-21 — it is *not* `eol=lf`, which would contradict `.editorconfig`), so the repo blob is normalised either way and nothing is broken today. Converting two whole files inside the fix commit would have produced a diff in which the pass's **real** changes could not be read. |
+| **Fix** | A separate, purely mechanical commit that touches nothing else. 🔴 **Do it with an editor, never with `sed` or mingw `awk`** — on Windows those run in text mode and silently strip every CR; one conflict resolution on this project stripped **9014 CRs from 17 files** that way. |
+
+---
+
+### D22 · `DashboardViewModel.CloseTileConfig` — the `isActiveColumn` scoping is an UNTESTED guard
+**LOW** · Area **SHELL** · *Filed 2026-09-24 by A12 (wave 33). Carried from the `apex-v1-report-chords` pass as
+**M-A11-1**: attempted, **not** closed, and reported rather than faked.*
+
+| | |
+|---|---|
+| **What it is** | The guard is plausibly correct and has **no test**. |
+| **What was attempted** | The builder wrote a test for it, and then found **its own test was wrong rather than the code**: the route it assumed does not exist, because `OpenPageColumn` *trims* page columns after the last menu column instead of stacking, so opening any page from a dashboard **replaces** the tile-config column. No reachable state could be constructed. The bad test was deleted, the file restored byte-identically, and two source comments that had already written the false claim up as measured were corrected. |
+| **Status** | 🔴 **Do not cite this guard as measured, and do not re-file it as a fresh finding.** Either build a genuinely reachable route first, or record it as unreachable-by-construction and delete the guard. |
+
+---
+
+### D23 · Four report openers have FIFTEEN test callers and ZERO production callers
+**LOW / DEAD CODE** · Area **RPT** · *Filed 2026-09-24 by A12 (wave 33). Deferred from the
+`apex-v2-rehome-reports` review as **A3**; re-measured and independently re-confirmed by A12.*
+
+| | |
+|---|---|
+| **What it is** | `OpenCostReport`, `OpenBudgetVariance`, `OpenGratuityProvisionRegister` and `OpenBonusRegister` are reached **only from tests**. Every `src/` hit is the declaration itself or an XML cross-reference. |
+| **The measurement** | Over `src/` **and** `tests/`, excluding `bin`/`obj`: **8 + 2 + 3 + 2 = FIFTEEN** test callers. 🔴 **The review's own figure of fourteen was one short** — `HeadlessMainWindowTests.cs:372` is the eighth `OpenCostReport` caller. A12 re-ran the counts first-hand and got the same fifteen. |
+| **Why it was NOT fixed in wave 33** | Deleting a method with fifteen test callers is a reviewed slice of its own, not a tidy-up ridden along with a defect fix. The risk is that a test asserting real behaviour is deleted with it. |
+| **Fix** | For each opener decide **delete** (and delete the tests that only exist to call it) or **wire it to a real door**. Take them one at a time. |
+
+---
+
+### D24 · The Budget chord on Trial Balance is recorded as Alt+B in the wave-28 gap analysis — that is the ERP 9 button
+**LOW / SPEC** · Area **RPT** · *Filed 2026-09-24 by A12 (wave 33). Surfaced by the `apex-v2-rehome-reports`
+pass while verifying an unrelated citation.*
+
+| | |
+|---|---|
+| **What it is** | The wave-28 gap analysis names the budget-column chord **Alt+B**. `help.tallysolutions.com/budgets-tally/` ("Create, Alter, and Delete Budgets in TallyPrime") says **F10**. **Alt+B is the Tally.ERP 9-era button, superseded in TallyPrime.** |
+| **Why it matters now** | Nothing ships wrong today — the chord is not built. The hazard is that the eventual F10-on-Trial-Balance slice **inherits the wrong chord from the planning document** and ships it, which is how a stale spec becomes a shipped defect. |
+| **Also recorded** | A previously-withheld citation on this topic pointed at `.../accounting-masters/budgets-controls-tally/`, which **does not resolve**. Do not restore it. Cite `budgets-tally/`, and open it by content first (R7 / ruling 14). |
+| **Fix** | Build the chord as **F10** when the slice is scheduled; do not copy Alt+B out of the gap analysis. |
+
+---
+
 ## 3. Honest scale — this register is a sample, not a census
 
 The request was a sweep of "such minute mistakes all over the app", and the number that matters for deciding

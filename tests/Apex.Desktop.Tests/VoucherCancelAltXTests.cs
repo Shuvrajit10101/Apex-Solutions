@@ -369,18 +369,40 @@ public sealed class VoucherCancelAltXTests
     [AvaloniaFact]
     public void AltX_from_a_column_stacked_over_a_live_report_cancels_nothing()
     {
-        var columns = new (string Name, Action<MainWindowViewModel> Open)[]
+        // 🔴 ActionMenu MARKS THE FOUR COLUMNS THAT ARE NOW SAFE TWICE OVER, AND THE DISTINCTION IS REAL.
+        // For the first five, IsReportContext is still TRUE while the column is stacked — that is what this test
+        // was built to record: the OLD gate WOULD have been reached, and the only thing stopping Alt+X is
+        // IsLiveReportPage. For the four action menus that is no longer so. MainWindowViewModel.IsActionMenuColumn
+        // — added to close the Alt+M/W confidentiality defect — makes IsReportContext FALSE under them, so the old
+        // gate is not reached either, for a second and independent reason.
+        //
+        // 🔴 THIS IS A STRENGTHENING, AND IT IS ASSERTED AS ONE RATHER THAN RELAXED INTO "don't care". The four
+        // rows now assert IsReportContext is FALSE and IsActionMenuColumn is TRUE — flip the fix off and those go
+        // red here too, so this test still fails if the menus stop being safe. What must NOT happen is this
+        // assertion being softened to `Assert.True(... || ...)`, which would stop distinguishing "safe because of
+        // the fix" from "safe because nothing fires at all".
+        var columns = new (string Name, Action<MainWindowViewModel> Open, bool ActionMenu)[]
         {
-            ("F12 report config",      vm => vm.OpenReportConfig()),
-            ("Alt+F12 sort/filter",    vm => vm.OpenReportSortFilter()),
-            ("Alt+A add-voucher",      vm => vm.OpenAddVoucherFromReport()),
-            ("Alt+K saved views",      vm => vm.OpenSavedViews()),
-            ("P print preview",        vm => vm.OpenPrintPreview()),
+            ("F12 report config",      vm => vm.OpenReportConfig(),          false),
+            ("Alt+F12 sort/filter",    vm => vm.OpenReportSortFilter(),      false),
+            ("Alt+A add-voucher",      vm => vm.OpenAddVoucherFromReport(),  false),
+            // 🔴 The label used to read "Alt+K saved views". Saved Views is no longer on Alt+K — it hangs off the
+            // vendor's Ctrl+H (Change View) menu — so the label is corrected; the column it opens is the same one.
+            ("Saved Views column",     vm => vm.OpenSavedViews(),            false),
+            ("P print preview",        vm => vm.OpenPrintPreview(),          false),
+            // 🔴 THE FOUR REPORT MENUS JOIN THIS LIST THE DAY THEY SHIP, not after they are found to have
+            // re-opened the hole. Each is a column stacked over a live report — exactly the shape that let Alt+X
+            // void the voucher BEHIND the column — and each sets its own screen id, so IsLiveReportPage goes
+            // false and the destructive arm is inert. This asserts that rather than assuming it.
+            ("Ctrl+H change view",     vm => vm.OpenChangeViewMenu(),        true),
+            ("Alt+P print menu",       vm => vm.OpenPrintMenu(),             true),
+            ("Alt+E export menu",      vm => vm.OpenExportMenu(),            true),
+            ("Alt+M share menu",       vm => vm.OpenShareMenu(),             true),
         };
 
         for (var i = 0; i < columns.Length; i++)
         {
-            var (name, open) = columns[i];
+            var (name, open, actionMenu) = columns[i];
             var (window, vm, dir) = NewWindow();
             try
             {
@@ -390,7 +412,15 @@ public sealed class VoucherCancelAltXTests
                 Pump(window);
 
                 Assert.NotEqual(Screen.Report, vm.CurrentScreen);
-                Assert.True(vm.IsReportContext, $"{name}: the old gate would not even have been reached");
+                if (actionMenu)
+                {
+                    Assert.True(vm.IsActionMenuColumn, $"{name}: should be an action-menu column");
+                    Assert.False(vm.IsReportContext, $"{name}: the action-menu clause should have closed the gate");
+                }
+                else
+                {
+                    Assert.True(vm.IsReportContext, $"{name}: the old gate would not even have been reached");
+                }
                 Assert.False(vm.IsLiveReportPage, $"{name}: the report is not the active column here");
                 Assert.Equal(k.Receipt.Id, vm.Reports!.SelectedRow!.DrillVoucherId);   // still highlighted beneath
 
@@ -426,7 +456,7 @@ public sealed class VoucherCancelAltXTests
     }
 
     /// <summary>
-    /// The F12 config column with a DROPDOWN UP is refused, and popping the column makes the same keystroke work.
+    /// A report-parameter column with a DROPDOWN UP is refused, and popping the column makes the same keystroke work.
     ///
     /// <para><b>What this test used to claim and no longer does.</b> It was written as the pin for
     /// <c>!IsPickerOpen</c>, with a positive control that shut the dropdown and expected the prompt to appear
@@ -435,6 +465,15 @@ public sealed class VoucherCancelAltXTests
     /// re-enables the verb. <c>!IsPickerOpen</c> is no longer independently pinnable (every picker that sits over a
     /// report lives in a column the screen gate refuses) and the arm's comment says so rather than pretending
     /// otherwise.</para>
+    ///
+    /// <para>🔴 <b>THE PICKER IS NOW THE ALT+F12 SORT COMBO RATHER THAN F12's CLOSING-STOCK COMBO, AND THE
+    /// SWAP IS ITSELF A FINDING.</b> This test used to open F12 over the Day Book and grab the first visible
+    /// <c>ComboBox</c>, which was the closing-stock basis picker — a control the Day Book's builder never reads.
+    /// When that dead knob was correctly hidden, this test's own <c>Assert.NotNull(picker)</c> fired, which is
+    /// exactly the guard it carries the comment "otherwise this test proves nothing" for. The Alt+F12 sort combo
+    /// IS live on the Day Book (<c>SupportsSortFilter</c> lists it), so the test now drives a picker that the
+    /// product actually offers there, and the screen gate it pins is unchanged: Alt+F12 leaves
+    /// <c>CurrentScreen</c> on its own column exactly as F12 did.</para>
     /// </summary>
     [AvaloniaFact]
     public void AltX_with_a_picker_open_over_a_report_raises_nothing()
@@ -444,7 +483,7 @@ public sealed class VoucherCancelAltXTests
         {
             var k = SeedOneReceipt(window, vm, "Cancel Picker Co");
             OpenDayBookOn(window, vm, k.Receipt.Id);
-            vm.OpenReportConfig();
+            vm.OpenReportSortFilter();
             Pump(window);
 
             var picker = Descendants(window).OfType<ComboBox>().FirstOrDefault(cb => cb.IsEffectivelyVisible);
@@ -847,9 +886,17 @@ public sealed class VoucherCancelAltXTests
 
             Assert.True(rows.Count >= 2, $"only {rows.Count} Day-Book rows realised — this test proves nothing");
 
+            // 🔴 MATCHED ON THE LAST OCCUPIED COLUMN, NOT Grid.GetColumn. The single-amount cell SPANS the
+            // (empty, IsVisible=False) Debit track so a Ratio-Analysis withheld marker is legible instead of
+            // painting over Particulars — see Ratio_analysis_withheld_marker_fits_its_own_amount_cell. That moved
+            // its Grid.Column from 2 to 1, and a bare `GetColumn(c) == 2` then matched nothing and threw
+            // "Sequence contains no matching element" here. The span-aware predicate is index-independent and
+            // keeps this test's ENTIRE bite: still the Amount cell (its last column is the final one), still
+            // required to be a visible TextBlock, still required to carry a different brush.
             static TextBlock CellAt(Grid g, int column) =>
                 Assert.IsType<TextBlock>(g.Children
-                    .First(c => Grid.GetColumn(c) == column && c.IsEffectivelyVisible));
+                    .First(c => Grid.GetColumn(c) + Grid.GetColumnSpan(c) - 1 == column
+                                && c.IsEffectivelyVisible));
 
             var cancelledGrid = rows.Single(x => x.Row!.DrillVoucherId == k.Receipt.Id).Grid;
             var liveGrid = rows.Single(x => x.Row!.DrillVoucherId == second.Id).Grid;

@@ -62,9 +62,11 @@ public static class ShellChordTable
     /// The chords, in match order.
     ///
     /// <para>🔴 <b>Each entry's <c>CanFire</c> is the whole of its arbitration.</b> A chord that another
-    /// feature already owns in some context (today: <c>Alt+K</c>, held by Saved Views inside a report) is
-    /// scoped OUT here rather than the incumbent being deleted, so no shipped feature loses its only door.
-    /// Handing such a chord over completely is then a one-line edit to that predicate.</para>
+    /// feature already owns in some context is scoped OUT here rather than the incumbent being deleted, so no
+    /// shipped feature loses its only door. Handing such a chord over completely is then a one-line edit to that
+    /// predicate — and <c>Alt+K</c> is the worked example of the whole cycle: it carried
+    /// <c>&amp;&amp; !vm.IsReportContext</c> while Saved Views had no other door, and that clause was deleted
+    /// once Saved Views moved onto the vendor's Ctrl+H menu. The mechanism works; use it, and then finish it.</para>
     /// </summary>
     public static IReadOnlyList<ShellChord> Table { get; } = new List<ShellChord>
     {
@@ -80,22 +82,48 @@ public static class ShellChordTable
         // company stays LOADED while ShowCompanySelect's LeaveCascade() empties and hides the cascade region.
         // `Company is not null` is true there, so Ctrl+G pushed this panel into a region nothing draws and set
         // CurrentScreen to it: two keystrokes from the Gateway to a blank window that owned the keyboard.
+        //
+        // 🔴 `!vm.IsActionMenuColumn` FOR THE REASON WRITTEN OUT AT Alt+K BELOW, and it is here because that
+        // reasoning is a CLASS, not one chord: a shell NAVIGATION chord that pushes or replaces columns must be
+        // inert while one of the four modal ACTION-MENU columns is up, or it stacks a navigation surface over a
+        // menu that is still drawn and whose rows act on the page beneath. Both entries in this table that can
+        // fire over an action menu carry the clause; nothing shipped is narrowed, because all four of those screen
+        // ids are new with the report-chord slice.
         new("Ctrl+G", Key.G, KeyModifiers.Control,
-            vm => vm.HasLiveCompanyShell,
+            vm => vm.HasLiveCompanyShell && !vm.IsActionMenuColumn,
             vm => vm.OpenSwitchTo()),
 
         // ── Alt+K — Company menu ──────────────────────────────────────────────────────────────────────────
         // Vendor, verbatim: "To open the company menu with the list of actions related to managing your
         // company."
-        // 🔴 SCOPED OUT OF REPORT CONTEXT ON PURPOSE. Saved Views (census 14.7) is bound to Alt+K on a report
-        // and has no menu row anywhere, so Alt+K is its ONLY door: claiming the chord there would delete a
-        // shipped feature rather than move it. Outside report context the chord is unbound on main and the
-        // vendor takes it. Handing it over entirely, once Saved Views has a menu row, is deleting
-        // "&& !vm.IsReportContext" from this line.
+        // 🔴 THE REPORT-CONTEXT CARVE-OUT IS GONE, AND THIS CHORD IS NOW WHOLE. This entry used to read
+        // `vm.HasLiveCompanyShell && !vm.IsReportContext`, with the note that Saved Views (census 14.7) held
+        // Alt+K on a report and had no other door, so claiming the chord there would have deleted a shipped
+        // feature rather than moved it. That note ended with the exact condition for undoing it — "handing it
+        // over entirely, once Saved Views has a menu row, is deleting `&& !vm.IsReportContext` from this line" —
+        // and that condition is now MET: Saved Views hangs off the vendor's own Ctrl+H (Change View) menu, which
+        // is where help.tallysolutions.com/use-save-view-feature-in-tallyprime/ documents it ("press Ctrl+H
+        // (Change View), and select the view"). So the predicate is deleted, exactly as written.
+        //
+        // 🔴 WHAT THIS FIXES IS BIGGER THAN ONE PANEL: the carve-out made the COMPANY MENU unreachable on every
+        // one of this build's 82 report kinds — Create, Alter, Select, Shut, Users and Passwords, Password
+        // Policy and the Data Vault all had no keyboard door from a report, because an Apex-invented feature was
+        // sitting on a documented vendor chord.
         // 🔴 And the same `HasLiveCompanyShell` narrowing as Ctrl+G above, for the same measured reason: Alt+F3
         // then Alt+K put this MENU COLUMN into the hidden cascade region and left the shell blank.
+        //
+        // 🔴 `!vm.IsActionMenuColumn` IS THE SECOND HALF OF THAT SAME NARROWING, ADDED AFTER MEASUREMENT.
+        // `HasLiveCompanyShell` is TRUE on Screen.ChangeViewMenu / PrintMenu / ExportMenu / ShareMenu — it excludes
+        // only the company-select screens — so Alt+K pressed with one of the four ACTION MENUS up ran
+        // OpenCompanyMenu, whose ClearSubScreens unbinds the report the menu was standing on and whose column then
+        // lands ON TOP of that menu: a NAVIGATION menu stacked over an ACTION menu, with the action menu still
+        // drawn beneath it and every row of it now pointing at a null page. That is the state the "re-press must
+        // not stack a second" rule in each opener exists against, reached by a different key. An action menu is a
+        // modal column — Escape pops it, and the vendor documents no route out of one except choosing a row — so
+        // the chord is inert there and the operator presses Esc first, exactly as for the other three menu chords
+        // (IsActionMenuColumn already makes each of those inert while a sibling menu is up).
         new("Alt+K", Key.K, KeyModifiers.Alt,
-            vm => vm.HasLiveCompanyShell && !vm.IsReportContext,
+            vm => vm.HasLiveCompanyShell && !vm.IsActionMenuColumn,
             vm => vm.OpenCompanyMenu()),
 
         // ── Alt+F3 — Select Company ───────────────────────────────────────────────────────────────────────
@@ -258,13 +286,13 @@ public static class ShellChordTable
         // answer that; it removes the contested overlap, so the answer is no longer blocking a build. The row
         // ships scoped, and the census cell says so.
         //
-        // 🔴 `!IsDayBookPickerOpen` IS PART OF THE PREDICATE, NOT A TIDY-UP. A Day-Book picker column (Alt+A /
+        // 🔴 `!IsDayBookRowHidden` IS PART OF THE PREDICATE, NOT A TIDY-UP. A Day-Book picker column (Alt+A /
         // Alt+I voucher types, or the Ctrl+J Exception Reports menu) leaves Reports BOUND beneath it, so
         // IsDayBookReport stays true while the highlighted row is hidden behind the column. Claiming the chord
         // there would swallow Alt+I to fire nothing (the door itself now refuses) — the swallowed-key defect
         // IV-31, and the reason every other entry in this table is scoped to what its door actually accepts.
         new("Alt+I", Key.I, KeyModifiers.Alt,
-            vm => vm.Company is not null && vm.IsDayBookReport && !vm.IsDayBookPickerOpen,
+            vm => vm.Company is not null && vm.IsDayBookReport && !vm.IsDayBookRowHidden,
             vm => vm.RequestInsertVoucherAtHighlight()),
     };
 
