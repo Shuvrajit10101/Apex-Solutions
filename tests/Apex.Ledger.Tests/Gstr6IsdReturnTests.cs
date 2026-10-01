@@ -32,7 +32,7 @@ public class Gstr6IsdReturnTests
 {
     private static readonly DateOnly FyStart = new(2024, 4, 1);
 
-    // The preceding financial year for a May-2025 distribution: Rule 39 Explanation (a), first limb.
+    // The preceding financial year for a May-2025 distribution: Rule 39 Explanation (i)(a).
     private static readonly DateOnly PrevFyFrom = new(2024, 4, 1);
     private static readonly DateOnly PrevFySale = new(2024, 6, 10);
 
@@ -419,7 +419,7 @@ public class Gstr6IsdReturnTests
     [Fact]
     public void The_isd_is_not_a_recipient_of_its_own_distribution()
     {
-        // Rule 39 Explanation (b) makes a recipient a SUPPLIER with the same PAN; the distributor is not one of them,
+        // Rule 39 Explanation (ii) makes a recipient a SUPPLIER with the same PAN; the distributor is not one of them,
         // and an ISD cannot receive distributed credit at all.
         var f = Build();
         var recipients = f.Company.Gst!.IsdRecipientRegistrations(f.Isd.Id);

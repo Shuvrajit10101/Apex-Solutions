@@ -147,6 +147,89 @@ public sealed class Gstr6IsdJsonTests
     // ==============================================================================================================
 
     /// <summary>
+    /// 🔴 <b>THE MEASURED MONEY DEFECT, ON THE FILE THAT IS ACTUALLY SUBMITTED.</b> A purchase-return Debit Note
+    /// REDUCES the credit available for distribution; before the fix it was ADDED, because
+    /// <c>GstReportSupport.DirectionOf</c> correctly put a Debit-Note base type on the inward side and nothing asked
+    /// which WAY it pushed the figure (see <c>GstReportSupport.SignOf</c>).
+    ///
+    /// <para><b>The arithmetic, by hand.</b> The ISD buys the fixture's ₹50,000 input service at 18% intra-State ⇒
+    /// CGST 4,500.00 + SGST 4,500.00 = ₹9,000.00 received. It returns ₹20,000 of that service ⇒ CGST 1,800.00 +
+    /// SGST 1,800.00 = ₹3,600.00. Net credit available = 18% of the ₹30,000 retained = <b>₹5,400.00</b>
+    /// (540,000 paisa), i.e. CGST 2,700.00 + SGST 2,700.00. The emitted file said <b>₹12,600.00</b> (9,000 + 3,600)
+    /// — 233% of the right figure, <b>133% overstated</b> — and distributed every paisa of it across the two real
+    /// recipient GSTINs: Karnataka 3,780.00 + 3,780.00 and Tamil Nadu IGST 5,040.00, against a true 1,620.00 +
+    /// 1,620.00 and IGST 2,160.00.</para>
+    ///
+    /// <para>🔴 <b>WHY THE EXISTING FOOTING TESTS COULD NOT CATCH IT, AND WHY THIS ONE IS NOT A DUPLICATE.</b> The
+    /// footing identity below held PERFECTLY throughout the defect, because the return inflated <b>received</b> and
+    /// <b>distributed</b> by the very same ₹3,600 and left <c>undistributed_credit_paisa</c> at 0. A return can only
+    /// be caught by an ABSOLUTE figure computed outside the app, which is what this test asserts — the footing
+    /// identity is necessary and is nowhere near sufficient.</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_return_reduces_the_credit_the_emitted_file_distributes()
+    {
+        var (c, isdId) = Build();
+
+        // The ₹20,000 purchase return, posted the way the voucher-entry screen posts a return note: `reverseSides`
+        // puts every tax leg on the opposite side, so the input-tax legs are CREDITS and the party leg the Debit.
+        var gst = new GstService(c);
+        var creditor = c.Ledgers.First(l => l.Name == "Service Supplier");
+        var services = c.Ledgers.First(l => l.Name.Contains("Software Licence"));
+        var debitNoteTypeId = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DebitNote).Id;
+
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(20_000m), 1800) }, false, GstTaxDirection.Input,
+            reverseSides: true);
+        var gross = 20_000m + tax.TaxLines.Sum(l => l.Amount.Amount);
+        var lines = new List<EntryLine>
+        {
+            new(creditor.Id, Money.FromRupees(gross), DrCr.Debit),
+            new(services.Id, Money.FromRupees(20_000m), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        new LedgerService(c).Post(
+            new Voucher(Guid.NewGuid(), debitNoteTypeId, new DateOnly(2025, 5, 20), lines, partyId: creditor.Id)
+            {
+                GstRegistrationId = isdId,
+            });
+
+        var root = Emit(c, isdId);
+
+        // ---- Table 3: the credit received is the NET figure, per head. 540,000 paisa, not 1,260,000.
+        Assert.Equal(270_000L, root.GetProperty("tbl3_received_camt_paisa").GetInt64());
+        Assert.Equal(270_000L, root.GetProperty("tbl3_received_samt_paisa").GetInt64());
+        Assert.Equal(0L, root.GetProperty("tbl3_received_iamt_paisa").GetInt64());
+        Assert.Equal(540_000L, root.GetProperty("total_received_paisa").GetInt64());
+
+        // ---- Tables 5 & 8: and the netted figure is what each real GSTIN is told to claim (Rule 39(1)(f), 60/40,
+        //      with Rule 39(1)(j) converting the out-of-State share to integrated tax).
+        var rows = root.GetProperty("tbl5_8_distribution").EnumerateArray().ToList();
+        var home = rows.Single(r => r.GetProperty("state_cd").GetString() == Karnataka);
+        Assert.Equal(162_000L, home.GetProperty("camt_paisa").GetInt64());
+        Assert.Equal(162_000L, home.GetProperty("samt_paisa").GetInt64());
+        Assert.Equal(0L, home.GetProperty("iamt_paisa").GetInt64());
+
+        var away = rows.Single(r => r.GetProperty("state_cd").GetString() == TamilNadu);
+        Assert.Equal(0L, away.GetProperty("camt_paisa").GetInt64());
+        Assert.Equal(0L, away.GetProperty("samt_paisa").GetInt64());
+        Assert.Equal(216_000L, away.GetProperty("iamt_paisa").GetInt64());
+
+        // ---- Rule 39(1)(b) still foots on the file, as it did (uselessly) all through the defect.
+        Assert.Equal(540_000L, root.GetProperty("total_distributed_paisa").GetInt64());
+        Assert.Equal(0L, root.GetProperty("undistributed_credit_paisa").GetInt64());
+
+        // ---- The old, overstated figures must appear NOWHERE in the bytes.
+        Assert.Equal(
+            root.GetProperty("total_received_paisa").GetInt64(),
+            rows.Sum(r => r.GetProperty("camt_paisa").GetInt64()
+                        + r.GetProperty("samt_paisa").GetInt64()
+                        + r.GetProperty("iamt_paisa").GetInt64()
+                        + r.GetProperty("csamt_paisa").GetInt64()));
+        Assert.NotEqual(1_260_000L, root.GetProperty("total_received_paisa").GetInt64());
+    }
+
+    /// <summary>
     /// Rule 39(1)(b): "<i>the amount of the credit distributed shall not exceed the amount of credit available for
     /// distribution</i>". On the emitted file that becomes an identity a reader can check without the app:
     /// distributed + undistributed = received, exactly, in integer paisa. If this ever fails, the file either

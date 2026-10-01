@@ -427,12 +427,34 @@ public sealed record Gstr3b(
     {
         var cgst = 0m; var sgst = 0m; var igst = 0m; var taxable = 0m; var exempt = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
+        foreach (var (voucher, type) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
         {
             // Phase 9 slice 2b: a formalised §34 credit/debit note is projected — signed — into 3.1(a) by ReadCdn; exclude
             // it from BOTH the ordinary outward and the "all other ITC" sweeps so it is never double-counted (risk #4). A
             // §34 debit note's base type maps to Input, so this exclusion also keeps it out of ITC. No CDN ⇒ no exclusion.
             if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+
+            // 🔴 THE RETURN DOCUMENT OF THIS SIDE REDUCES IT. This sweep summed every posted voucher POSITIVELY, so an
+            // UNLINKED return — the ordinary case, since a §34 link is optional — was added instead of subtracted. On
+            // the inward side that inflated Table 4(A)(5) "all other ITC": measured, a ₹50,000 input service at 18%
+            // (₹9,000) with ₹20,000 returned (₹3,600) reported ITC of CGST 6,300.00 + SGST 6,300.00 where
+            // 2,700.00 + 2,700.00 is the net — ₹12,600.00 claimed against ₹5,400.00 available, 133% overstated. The
+            // §34-linked case was already right (excluded above, projected signed by ReadCdn); it was only the
+            // unlinked one that was wrong, which is why no CDN test caught it.
+            //
+            // 🔴 INWARD ONLY THIS WAVE, AND THAT RESTRICTION IS DELIBERATE — DO NOT WIDEN IT WITHOUT GSTR-1.
+            // The OUTWARD side has the exact mirror defect: an unlinked sales-return credit note is added to 3.1(a)
+            // instead of subtracted. I measured it — a ₹50,000 sale at 18% with ₹20,000 returned reports
+            // CGST 6,300.00 + SGST 6,300.00 against a true 2,700.00 + 2,700.00, and GSTR-1's Table 12 rate row shows
+            // taxable 70,000 / tax 12,600 against a true 30,000 / 5,400. But signing it HERE alone would make
+            // GSTR-3B 3.1(a) disagree with GSTR-1, which the portal cross-checks, so the cure would be worse than
+            // the disease. The outward fix must land as ONE unit with GSTR-1, and it carries a question this wave
+            // cannot answer: GSTR-1's B2B section emits one ROW PER INVOICE, so an unlinked credit note there is a
+            // document-CLASSIFICATION defect (it has no Table 9B record to be projected into), not merely a sign
+            // one. Filed as its own item rather than half-fixed.
+            var sign = direction == GstTaxDirection.Input
+                ? GstReportSupport.SignOf(company, voucher, type.BaseType)
+                : 1;
 
             var hasTax = false;
             foreach (var line in voucher.Lines)
@@ -444,13 +466,13 @@ public sealed record Gstr3b(
                 hasTax = true;
                 switch (g.TaxHead)
                 {
-                    case GstTaxHead.Central: cgst += line.Amount.Amount; break;
-                    case GstTaxHead.State: sgst += line.Amount.Amount; break;
-                    case GstTaxHead.Integrated: igst += line.Amount.Amount; break;
+                    case GstTaxHead.Central: cgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.State: sgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.Integrated: igst += sign * line.Amount.Amount; break;
                 }
             }
             if (hasTax)
-                taxable += GstReportSupport.InvoiceTaxableValue(voucher).Amount;
+                taxable += sign * GstReportSupport.InvoiceTaxableValue(voucher).Amount;
         }
 
         // Exempt/nil/non-GST outward value: outward vouchers with a stock/sales leg but NO tax line. These are
@@ -488,6 +510,10 @@ public sealed record Gstr3b(
             // so a zero-tax (exempt) §34 note must NOT also land in the exempt/nil/non-GST bucket, else GSTR-3B over-states
             // exempt outward and diverges from the GSTR-1 main sweep (which already skips CDN-linked vouchers). Finding #6.
             if (GstReportSupport.CdnLinkFor(company, v) is not null) continue;
+            // 🔴 UNSIGNED ON PURPOSE, pending the outward fix. This is the OUTWARD exempt bucket and it has the same
+            // mirror defect as 3.1(a): an unlinked exempt sales return ADDS to the exempt/nil/non-GST value (a
+            // ₹10,000 exempt supply with ₹4,000 returned reports ₹14,000). It is left alone so the whole outward
+            // side moves together with GSTR-1 in one change — see the long note in ReadSide.
             exempt += v.InventoryLinesValue.Amount;
         }
         return exempt;

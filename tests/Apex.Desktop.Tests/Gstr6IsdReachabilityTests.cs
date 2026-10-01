@@ -187,7 +187,7 @@ public sealed class Gstr6IsdReachabilityTests
             Assert.True(ScreenShows(w, "Form GSTR-6"), "The GSTR-6 title is not on screen.");
             Assert.True(ScreenShows(w, "Input Service Distributor"), "The distributor block is not on screen.");
             Assert.True(ScreenShows(w, "Relevant period for the turnover ratio"),
-                "The Rule 39 Explanation (a) relevant period is not shown, so the basis of the pro rata is invisible.");
+                "The Rule 39 Explanation (i) relevant period is not shown, so the basis of the pro rata is invisible.");
             Assert.True(ScreenShows(w, "Distribution of input tax credit (Rule 39)"),
                 "The distribution table heading is not on screen.");
 
@@ -369,6 +369,195 @@ public sealed class Gstr6IsdReachabilityTests
             Assert.DoesNotContain("Tally", text, StringComparison.OrdinalIgnoreCase);
 
             Assert.Contains("Exported", page.ExportStatus, StringComparison.Ordinal);
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    // ================================================================ the statutory text ON THE SCREEN
+
+    /// <summary>
+    /// 🔴 <b>THE CAPTIONS, NOT THE NUMBERS.</b> Nothing in the suite asserted any heading or label on this page,
+    /// which is how a WRONG TABLE NUMBER and a WRONG STATUTORY CLAUSE LETTER — twice — survived a 3,500-test Desktop
+    /// leg. Both reach a filer's eyes on a return that is submitted to the government, and the table number
+    /// contradicted the branch's own emitted file (<c>tbl5_8_distribution</c>).
+    ///
+    /// <para><b>Verified by content, by me, at the sources:</b> GSTR-6's distribution of ITC is <b>Tables 5 and 8</b>
+    /// — "<i>Table 5, 8: To enter details of distribution of input tax credit for ISD invoices and ISD Credit
+    /// notes</i>" — while Table 6 is the note/amendment family, "<i>Table 6B: To enter details of debit or credit
+    /// notes received</i>" (<c>tutorial.gst.gov.in/userguide/returns/GSTR-6_faq.htm</c>). The eligible/ineligible
+    /// separation is <b>Rule 39(1)(g)</b> — "<i>the Input Service Distributor shall, in accordance with the
+    /// provisions of clause (d) and (e), separately distribute the amount of ineligible input tax credit and the
+    /// amount of eligible input tax credit</i>" — whereas Rule 39(1)(b) is the footing cap, "<i>the amount of the
+    /// credit distributed shall not exceed the amount of credit available for distribution</i>"
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>).</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_gstr6_screen_states_the_right_table_numbers_and_the_right_rule_39_clause_letters()
+    {
+        var (w, vm, dir) = NewWindow("Gstr6Captions");
+        try
+        {
+            SeedCompany(vm, "ISD Caption Co", withIsd: true);
+            Pump(w);
+
+            KeyboardInto(w, vm, "Statutory Reports");
+            KeyboardInto(w, vm, "GST Returns (Advanced)");
+            KeyboardInto(w, vm, "GSTR-6 (ISD)");
+            Assert.Equal(Screen.Gstr6Report, vm.CurrentScreen);
+
+            // The distribution block is Tables 5 AND 8.
+            Assert.True(ScreenShows(w, "Tables 5 & 8"),
+                "The distribution block must be captioned Tables 5 & 8. Visible headings: "
+                + string.Join(" | ", VisibleTextBlocks(w).Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t))));
+            Assert.False(ScreenShows(w, "Tables 5 & 6"),
+                "'Tables 5 & 6' is the WRONG table number on a filed return — Table 6 is the note/amendment family "
+                + "(6A/6B/6C) — and it contradicts this branch's own emitted tbl5_8_distribution key.");
+
+            // The eligible/ineligible split is Rule 39(1)(g), and (1)(b) must not be used for it.
+            //
+            // 🔴 SCOPED TO THE TWO LABELS, DELIBERATELY — NOT A WHOLE-SCREEN "Rule 39(1)(b)" ABSENCE. Rule 39(1)(b)
+            // IS the right citation for the footing cap, and it legitimately appears in this page's own
+            // diagnostics (Gstr6.cs emits it for the purchase-return netting and for an unabsorbed excess). A
+            // whole-screen negative would therefore pass today only because this fixture posts no return, and
+            // would fail for entirely the wrong reason the moment any fixture did. The defect was two specific
+            // LABELS, so the assertion is on those labels.
+            var splitLabels = VisibleTextBlocks(w)
+                .Select(t => t.Text ?? string.Empty)
+                .Where(t => t.StartsWith("of which eligible", StringComparison.Ordinal)
+                         || t.StartsWith("of which ineligible", StringComparison.Ordinal))
+                .ToList();
+
+            Assert.Equal(2, splitLabels.Count);
+            Assert.All(splitLabels, label =>
+            {
+                Assert.Contains("Rule 39(1)(g)", label, StringComparison.Ordinal);
+                Assert.DoesNotContain("Rule 39(1)(b)", label, StringComparison.Ordinal);
+            });
+
+            // The relevant-period basis is the Explanation's clause (i), not the pre-substitution (a).
+            var page = Assert.IsType<Gstr6ReportViewModel>(vm.Gstr6Report);
+            Assert.Contains("Explanation (i)", page.RelevantPeriodText, StringComparison.Ordinal);
+            Assert.DoesNotContain("Explanation (a)", page.RelevantPeriodText, StringComparison.Ordinal);
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    // ================================================================ the export must SPEAK
+
+    /// <summary>
+    /// 🔴 <b>Ctrl+A FILED A STATUTORY RETURN SILENTLY AND SWALLOWED EVERY FAILURE.</b> The view model set
+    /// <c>ExportStatus</c> on both the success and the catch, but it was bound NOWHERE in the GSTR-6 template, and
+    /// <c>ExportFolder</c> had no control at all — so the export took the empty-folder arm and wrote into the process
+    /// working directory while telling the operator nothing.
+    ///
+    /// <para>This test asserts the <b>RENDERED WINDOW</b>, not the view-model member. The pre-existing export test
+    /// asserted <c>page.ExportStatus</c> — an engine member — for the one thing that has to be on screen, which is
+    /// precisely why a dead binding was invisible to it.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_A_tells_the_operator_on_the_rendered_window_both_when_it_writes_and_when_it_cannot()
+    {
+        var (w, vm, dir) = NewWindow("Gstr6Feedback");
+        try
+        {
+            SeedCompany(vm, "ISD Feedback Co", withIsd: true);
+            Pump(w);
+
+            KeyboardInto(w, vm, "Statutory Reports");
+            KeyboardInto(w, vm, "GST Returns (Advanced)");
+            KeyboardInto(w, vm, "GSTR-6 (ISD)");
+            var page = Assert.IsType<Gstr6ReportViewModel>(vm.Gstr6Report);
+
+            // The destination must be settable FROM THE SCREEN — a path no UI control offers is not a feature.
+            var folderBoxes = VisibleControls<TextBox>(w);
+            Assert.Contains(folderBoxes, b => b.GetValue(TextBox.TextProperty) is null or "");
+            Assert.True(ScreenShows(w, "Export folder"),
+                "The export destination has no control on this page, so Ctrl+A writes into the process working "
+                + "directory and the filer cannot say where the return went.");
+
+            // ---- The SUCCESS path says so, on screen.
+            var outDir = Path.Combine(dir, "export");
+            Directory.CreateDirectory(outDir);
+            page.ExportFolder = outDir;
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+
+            Assert.Single(Directory.GetFiles(outDir, "*.json"));
+            Assert.True(ScreenShows(w, "Exported"),
+                "Ctrl+A wrote the return and the window said nothing. Visible text: "
+                + string.Join(" | ", VisibleTextBlocks(w).Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t))));
+            Assert.True(ScreenShows(w, outDir) || ScreenShows(w, page.ExportFileName),
+                "The operator must be told WHERE the filed return was written.");
+
+            // ---- The FAILURE path says so too, instead of being swallowed by the catch.
+            page.ExportFolder = Path.Combine(dir, "no-such-dir-" + Guid.NewGuid().ToString("N"));
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+
+            Assert.True(ScreenShows(w, "Could not write the return file"),
+                "A return that silently FAILED to write is worse than one that refused. The catch set ExportStatus "
+                + "and nothing rendered it.");
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    // ================================================================ the ISD registration gate
+
+    /// <summary>
+    /// A company that is not a Regular dealer must not be offered an Input Service Distributor registration: the
+    /// GSTR-6 menu row lives under <c>IsRegularGstDealer</c>, so creating one produced a persisted registration with
+    /// NO route to the return it exists to file. An ISD distributes input tax credit (CGST Act §20(1)–(2)) and a
+    /// composition taxpayer avails none, so refusing is the right answer rather than ungating the menu.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_composition_company_is_not_offered_an_input_service_distributor_registration()
+    {
+        var (w, vm, dir) = NewWindow("IsdGate");
+        try
+        {
+            vm.NewCompanyName = "Composition Co";
+            vm.CreateCompany();
+            var c = vm.Company!;
+            c.FinancialYearStart = FyStart;
+            c.BooksBeginFrom = FyStart;
+            new GstService(c).EnableGst(new GstConfig
+            {
+                HomeStateCode = Karnataka,
+                Gstin = GstinFor(Karnataka, "AAPFU0939F"),
+                RegistrationType = GstRegistrationType.Composition,
+                CompositionSubType = CompositionSubType.Trader,
+                ApplicableFrom = FyStart,
+                Periodicity = GstReturnPeriodicity.Monthly,
+            });
+            vm.ShowGateway();
+            Pump(w);
+
+            var master = new GstRegistrationsMasterViewModel(
+                c, new CompanyStorage(Path.Combine(dir, "store")), () => { });
+
+            Assert.False(master.IsdAllowed);
+            Assert.DoesNotContain(GstRegistrationsMasterViewModel.IsdOptionText, master.RegistrationTypeOptions);
+
+            // And the refusal holds even when the type is set past the picker.
+            master.Name = "Head Office (ISD)";
+            master.SelectedState = Karnataka + " — Karnataka";
+            master.Gstin = GstinFor(Karnataka, "AAACC1206D");
+            master.SelectedRegistrationType = GstRegistrationsMasterViewModel.IsdOptionText;
+            Assert.False(master.Create());
+            Assert.Contains("Regular dealer", master.Message ?? string.Empty, StringComparison.Ordinal);
+            Assert.Empty(c.Gst!.IsdRegistrations);
+
+            // The control: a Regular company IS offered it.
+            var regular = NewWindow("IsdGateRegular");
+            try
+            {
+                SeedCompany(regular.Vm, "Regular Co", withIsd: false);
+                var ok = new GstRegistrationsMasterViewModel(
+                    regular.Vm.Company!, new CompanyStorage(Path.Combine(regular.Dir, "store")), () => { });
+                Assert.True(ok.IsdAllowed);
+                Assert.Contains(GstRegistrationsMasterViewModel.IsdOptionText, ok.RegistrationTypeOptions);
+            }
+            finally { Cleanup(regular.Window, regular.Dir); }
         }
         finally { Cleanup(w, dir); }
     }

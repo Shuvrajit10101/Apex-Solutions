@@ -4,7 +4,7 @@ namespace Apex.Ledger.Services;
 
 /// <summary>
 /// A <b>recipient of credit</b> in an ISD distribution — one of the distributor's sibling registrations.
-/// <para>The <b>Explanation to Rule 39</b> of the CGST Rules, clause (b), defines it: "<i>the expression 'recipient
+/// <para>The <b>Explanation to Rule 39</b> of the CGST Rules, clause (ii), defines it: "<i>the expression 'recipient
 /// of credit' means the supplier of goods or services or both having the same Permanent Account Number as that of
 /// the Input Service Distributor</i>" (<see cref="IsdDistribution"/> carries the source and the in-force note).</para>
 /// </summary>
@@ -266,7 +266,7 @@ public static class IsdDistribution
                     $"'{pool.Description}': the aggregate turnover T of the attributable recipients is zero for the "
                     + $"relevant period, so Rule 39(1)(f)'s C1 = (t1 ÷ T) × C has no value and "
                     + $"{Rupees(pool.TotalPaisa)} was NOT distributed. Record the recipients' turnover for the "
-                    + "relevant period (Explanation (a) to Rule 39) and rebuild.");
+                    + "relevant period (Explanation (i) to Rule 39) and rebuild.");
                 continue;
             }
 

@@ -49,7 +49,7 @@ public sealed record Gstr6DistributionRow(
 /// <see cref="IsdDistribution"/> carries the full in-force note and the CBIC source URLs; this file cites the
 /// substituted lettering throughout.</para>
 ///
-/// <para><b>THE RELEVANT PERIOD IS DERIVED, NOT ASSUMED.</b> The <b>Explanation to Rule 39</b>, clause (a): the
+/// <para><b>THE RELEVANT PERIOD IS DERIVED, NOT ASSUMED.</b> The <b>Explanation to Rule 39</b>, clause (i): the
 /// relevant period is "<i>if the recipients of credit have turnover in their States or Union territories in the
 /// financial year preceding the year during which credit is to be distributed, the said financial year</i>";
 /// otherwise "<i>the last quarter for which details of such turnover of all the recipients are available, previous
@@ -143,9 +143,34 @@ public sealed record Gstr6(
         decimal rcmReceived = 0m;
         var rcmVouchers = new List<string>();
 
-        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(
+        // 🔴 PURCHASE RETURNS. A purchase-return Debit Note REDUCES the credit available for distribution — Rule
+        // 39(1)(b)'s cap moves DOWN — and before this it was ADDED. Measured: a ₹50,000 input service at 18%
+        // (₹9,000) with ₹20,000 returned (₹3,600) reported received ₹12,600.00 and DISTRIBUTED ₹12,600.00 across
+        // real GSTINs against ₹5,400.00 available, with UndistributedCredit showing 0.00 because BOTH sides were
+        // inflated by the same ₹3,600 — so the Rule 39(1)(b) footing row, which exists to catch exactly this, read
+        // perfectly. 133% overstated on a filed return.
+        //
+        // The return is accumulated here rather than pushed through as a negative pool because IsdDistribution
+        // REFUSES a negative head, and rightly: reducing credit already distributed is an ISD credit note under
+        // Rule 39(1)(l)/(n), a separate document this build does not issue. So the reduction is netted against the
+        // pools BEFORE distribution, per eligibility, and anything it cannot absorb is reported rather than hidden.
+        // 🔴 PER HEAD, NOT AS A LUMP. A first cut accumulated one total and consumed it from the pool head by head,
+        // which got TotalReceived right and the HEADS wrong: an intra-State return of CGST 1,800 + SGST 1,800 ate
+        // ₹3,600 out of CGST alone, leaving CGST 900.00 / SGST 4,500.00 where 2,700.00 / 2,700.00 is correct. The
+        // per-head figure is what the return actually reports and what the recipient claims, so a right total with a
+        // wrong head mix is still wrong money on a filed document — and CGST and SGST must stay equal on an
+        // intra-State credit.
+        long retEligC = 0, retEligS = 0, retEligI = 0, retEligX = 0;
+        long retIneligC = 0, retIneligS = 0, retIneligI = 0, retIneligX = 0;
+        var returnVouchers = new List<string>();
+
+        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(
                      company, from, to, GstTaxDirection.Input, isdRegistrationId))
         {
+            // +1 a purchase, -1 a purchase return, 0 a §34 note on an OUTWARD supply (not inward credit at all).
+            var sign = GstReportSupport.SignOf(company, voucher, type.BaseType);
+            if (sign == 0) continue;
+
             long cgst = 0, sgst = 0, igst = 0, cess = 0;
             long rcm = 0, rcmC = 0, rcmS = 0, rcmI = 0, rcmX = 0;
             foreach (var line in voucher.Lines)
@@ -229,14 +254,18 @@ public sealed record Gstr6(
             // the diagnostic can name the vouchers rather than just an amount.
             if (rcm > 0)
             {
-                recCgst += rcmC / 100m; recSgst += rcmS / 100m; recIgst += rcmI / 100m; recCess += rcmX / 100m;
-                rcmReceived += rcm / 100m;
+                // Signed: a return of a reverse-charge input service reduces both the received figure and the
+                // withheld RCM figure, so the diagnostic's amount stays truthful.
+                recCgst += sign * rcmC / 100m; recSgst += sign * rcmS / 100m;
+                recIgst += sign * rcmI / 100m; recCess += sign * rcmX / 100m;
+                rcmReceived += sign * rcm / 100m;
                 rcmVouchers.Add($"{voucher.Number} dated {voucher.Date:dd-MMM-yyyy}");
             }
 
             if (cgst == 0 && sgst == 0 && igst == 0 && cess == 0) continue;
 
-            recCgst += cgst / 100m; recSgst += sgst / 100m; recIgst += igst / 100m; recCess += cess / 100m;
+            recCgst += sign * cgst / 100m; recSgst += sign * sgst / 100m;
+            recIgst += sign * igst / 100m; recCess += sign * cess / 100m;
 
             // Rule 39(1)(g): split the voucher's credit into its eligible and ineligible halves and distribute the
             // two as separate pools, so they can never be merged into one statement row. The classifier is the ITC
@@ -247,6 +276,36 @@ public sealed record Gstr6(
             var totalBase = eligBase + ineligibleBase;
 
             var label = $"{voucher.Number} dated {voucher.Date:dd-MMM-yyyy}";
+
+            // A RETURN creates no pool. It is classified by its OWN lines — a returned blocked item reduces the
+            // ineligible side, a returned eligible item the eligible side — and netted against the pools after the
+            // loop, so the eligible/ineligible split of Rule 39(1)(g) survives the netting.
+            if (sign < 0)
+            {
+                if (ineligibleBase <= 0m || totalBase <= 0m)
+                {
+                    retEligC += cgst; retEligS += sgst; retEligI += igst; retEligX += cess;
+                    eligibleTotal -= (cgst + sgst + igst + cess) / 100m;
+                }
+                else
+                {
+                    // Same per-head eligible/ineligible split the purchase path uses, so a returned mixed bill nets
+                    // off the two Rule 39(1)(g) sides in the proportion it was received in.
+                    var eC = ProRata.Paisa(cgst, ToBase(eligBase), ToBase(totalBase));
+                    var eS = ProRata.Paisa(sgst, ToBase(eligBase), ToBase(totalBase));
+                    var eI = ProRata.Paisa(igst, ToBase(eligBase), ToBase(totalBase));
+                    var eX = ProRata.Paisa(cess, ToBase(eligBase), ToBase(totalBase));
+
+                    retEligC += eC; retEligS += eS; retEligI += eI; retEligX += eX;
+                    retIneligC += cgst - eC; retIneligS += sgst - eS;
+                    retIneligI += igst - eI; retIneligX += cess - eX;
+
+                    eligibleTotal -= (eC + eS + eI + eX) / 100m;
+                    ineligibleTotal -= ((cgst - eC) + (sgst - eS) + (igst - eI) + (cess - eX)) / 100m;
+                }
+                returnVouchers.Add(label);
+                continue;
+            }
 
             if (ineligibleBase <= 0m || totalBase <= 0m)
             {
@@ -273,6 +332,11 @@ public sealed record Gstr6(
             }
         }
 
+        // ---- Net the month's purchase returns against the pools, per eligibility (Rule 39(1)(b)). ----
+        var unabsorbed =
+            NetReturnsAgainstPools(pools, retEligC, retEligS, retEligI, retEligX, IsEligible: true)
+          + NetReturnsAgainstPools(pools, retIneligC, retIneligS, retIneligI, retIneligX, IsEligible: false);
+
         // ---- The recipients of credit and their turnover in the relevant period. ----
         var recipientRegs = gst.IsdRecipientRegistrations(isdRegistrationId);
         var (rpFrom, rpTo, rpBasis) = RelevantPeriod(company, recipientRegs, from);
@@ -288,7 +352,7 @@ public sealed record Gstr6(
         if (recipients.Count == 0)
         {
             diagnostics.Add(
-                "This company holds no recipient of credit for the distributor — clause (b) of the Explanation to "
+                "This company holds no recipient of credit for the distributor — clause (ii) of the Explanation to "
                 + "Rule 39 defines one as a supplier having the same PAN as the Input Service Distributor, which "
                 + "here means another GST "
                 + "registration on this company. Create the branch registrations before filing GSTR-6.");
@@ -315,6 +379,31 @@ public sealed record Gstr6(
                 + "a distinct person registered in the same State as the said Input Service Distributor\", and this "
                 + "build records no cross-charge, so it cannot confirm that condition. Confirm the treatment before "
                 + $"filing. Voucher(s): {string.Join("; ", rcmVouchers)}.");
+        }
+
+        var returnedTotal = retEligC + retEligS + retEligI + retEligX
+                          + retIneligC + retIneligS + retIneligI + retIneligX;
+        if (returnedTotal > 0)
+        {
+            diagnostics.Add(
+                $"₹{IndianMoneyFormat.Amount(returnedTotal / 100m)} of input tax credit was RETURNED in this "
+                + "period on a purchase-return debit note and has been netted off the credit available for "
+                + "distribution: Rule 39(1)(b) caps the distribution at \"the amount of credit available for "
+                + "distribution\", and a return moves that amount down. The eligible and ineligible halves are "
+                + $"netted separately so the Rule 39(1)(g) split survives. Voucher(s): {string.Join("; ", returnVouchers)}.");
+        }
+
+        if (unabsorbed > 0)
+        {
+            // Reported, never floored: a return bigger than the month's credit is a real condition the filer must
+            // resolve, and silently clamping it to zero would hand them a plausible-looking return instead.
+            diagnostics.Add(
+                $"₹{IndianMoneyFormat.Amount(unabsorbed / 100m)} of the period's purchase returns could NOT be netted "
+                + "against the credit received, because the returns exceed it. Nothing was distributed for that "
+                + "excess and it is left visible in the Rule 39(1)(b) row as a negative figure. Either the original "
+                + "invoice falls in an earlier period — in which case the reduction belongs to an ISD credit note "
+                + "under Rule 39(1)(l)/(n), which this build does not issue — or the return is mis-dated. Resolve it "
+                + "before filing.");
         }
 
         var result = IsdDistribution.Distribute(isd.StateCode, recipients, pools);
@@ -347,11 +436,19 @@ public sealed record Gstr6(
     }
 
     /// <summary>
-    /// Clause (a) of the Explanation to Rule 39: the relevant period whose turnover drives <c>t1</c> and <c>T</c>. The preceding
+    /// 🔴 <b>Clause (i) of the Explanation to Rule 39 — NOT clause (a).</b> The Explanation is lettered
+    /// (i)/(ii)/(iii), and "relevant period" is (i), whose two limbs are (i)(a) and (i)(b). Retrieved verbatim from
+    /// the CBIC rule-39 page: "<i>Explanation. – For the purpose of this rule, – (i) the term "relevant period" shall
+    /// be— (a) … or (b) …; (ii) the expression "recipient of credit" means the supplier … having the same Permanent
+    /// Account Number as that of the Input Service Distributor; (iii) the term "turnover" …</i>". The pre-substitution
+    /// (a)/(b) lettering was used at ten sites here, five of which reached the SCREEN and the EMITTED FILE via
+    /// <c>RelevantPeriodBasis</c> / <c>relevant_period_basis</c> — a wrong clause citation on a filed return is the
+    /// same class of defect as a wrong figure.
+    /// <para>The relevant period whose turnover drives <c>t1</c> and <c>T</c>. The preceding
     /// financial year when every recipient has turnover in it; otherwise the last quarter, walking backwards from
     /// the month of distribution, in which details are available for ALL recipients. Falls back to the preceding
     /// financial year (with a turnover of zero, which <see cref="IsdDistribution"/> then refuses loudly) when no
-    /// such quarter exists — never to a silently invented split.
+    /// such quarter exists — never to a silently invented split.</para>
     /// </summary>
     private static (DateOnly From, DateOnly To, string Basis) RelevantPeriod(
         Company company, IReadOnlyList<GstRegistration> recipients, DateOnly distributionMonth)
@@ -370,7 +467,7 @@ public sealed record Gstr6(
         var prevTo = new DateOnly(currentFyStartYear, fyStartMonth, fyStartDay).AddDays(-1);
 
         if (recipients.Count > 0 && recipients.All(r => TurnoverOf(company, r.Id, prevFrom, prevTo).Amount > 0m))
-            return (prevFrom, prevTo, "Preceding financial year — Rule 39 Explanation (a), first limb.");
+            return (prevFrom, prevTo, "Preceding financial year — Rule 39 Explanation (i)(a).");
 
         // Second limb: the last quarter, previous to the month of distribution, for which turnover details of ALL the
         // recipients are available. Walk backwards a bounded number of quarters (three years) so the search always
@@ -380,12 +477,12 @@ public sealed record Gstr6(
         {
             var qFrom = FirstOfQuarter(quarterEnd);
             if (recipients.Count > 0 && recipients.All(r => TurnoverOf(company, r.Id, qFrom, quarterEnd).Amount > 0m))
-                return (qFrom, quarterEnd, "Last quarter with turnover for every recipient — Rule 39 Explanation (a), second limb.");
+                return (qFrom, quarterEnd, "Last quarter with turnover for every recipient — Rule 39 Explanation (i)(b).");
             quarterEnd = qFrom.AddDays(-1);
         }
 
         return (prevFrom, prevTo,
-            "Preceding financial year — Rule 39 Explanation (a), first limb; no earlier quarter has turnover for every recipient.");
+            "Preceding financial year — Rule 39 Explanation (i)(a); no earlier quarter has turnover for every recipient.");
     }
 
     /// <summary>The first day of the calendar quarter containing <paramref name="date"/>.</summary>
@@ -404,10 +501,81 @@ public sealed record Gstr6(
         foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(
                      company, from, to, GstTaxDirection.Output, registrationId))
         {
-            var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;
+            // Routed through the one helper that answers this for both sides. On an Output sweep this is the same
+            // answer the hand-rolled `BaseType == CreditNote ? -1 : 1` gave — which is exactly why the identical
+            // expression copied onto an INPUT sweep looked right and was a silent no-op. See GstReportSupport.SignOf.
+            var sign = GstReportSupport.SignOf(company, voucher, type.BaseType);
             total += sign * GstReportSupport.OutwardSupplyValue(company, voucher, type.BaseType).Total.Amount;
         }
         return new Money(Math.Max(0m, total));
+    }
+
+    /// <summary>
+    /// Nets <paramref name="returnPaisa"/> of purchase-return credit off the pools of the matching
+    /// <paramref name="IsEligible"/> side, and returns whatever could NOT be absorbed (0 when it all was).
+    ///
+    /// <para><b>Why the pools and not the distribution.</b> Rule 39(1)(b) caps the distribution at "<i>the amount of
+    /// credit available for distribution</i>"; a purchase return moves that amount down, so the reduction belongs
+    /// before the split, not after it. Pushing it through as a negative pool is not an option —
+    /// <see cref="IsdDistribution.Distribute"/> refuses a negative head, and the refusal is correct: reducing credit
+    /// already distributed is an ISD credit note under Rule 39(1)(l)/(n), a separate document this build does not
+    /// issue.</para>
+    ///
+    /// <para>🔴 <b>EACH HEAD IS NETTED AGAINST ITS OWN HEAD.</b> CGST comes off CGST, SGST off SGST, IGST off IGST,
+    /// cess off cess — never off whichever head happens to have a balance. A first cut consumed one lump total head
+    /// by head and produced the right <c>TotalReceived</c> with a WRONG head mix (an intra-State return of
+    /// CGST 1,800 + SGST 1,800 left CGST 900.00 / SGST 4,500.00 instead of 2,700.00 / 2,700.00). The per-head figure
+    /// is what the recipient claims, and CGST and SGST must stay equal on an intra-State credit, so a right total
+    /// over a wrong mix is still wrong money. Cess stays ring-fenced (ER-2) by the same rule.</para>
+    ///
+    /// <para><b>The absorption ORDER is OURS (ruling 9) and it is money-neutral.</b> No source prescribes which
+    /// invoice's credit a return consumes when the return names no invoice. The order is therefore ours: largest
+    /// pool first, then by description, so it is deterministic. It cannot move any recipient's figure, because every
+    /// pool of a side is split by the SAME Rule 39(1)(f) turnover ratio over the same attributable recipients — only
+    /// the sub-paisa remainder of the largest-remainder split can differ. It is NOT invented law: the total netted
+    /// is exact, and only the bookkeeping of which pool shrank is a convention.</para>
+    ///
+    /// <para><b>Clamped at zero, and the remainder is REPORTED.</b> A return larger than the credit received cannot
+    /// be absorbed, and silently flooring it would turn an impossible month into a plausible-looking return. The
+    /// excess is returned here so <c>Build</c> can name it in a diagnostic and leave it visible in the
+    /// Rule 39(1)(b) row.</para>
+    /// </summary>
+    private static long NetReturnsAgainstPools(
+        List<IsdCreditPool> pools, long cgst, long sgst, long igst, long cess, bool IsEligible)
+    {
+        if (cgst <= 0 && sgst <= 0 && igst <= 0 && cess <= 0) return 0;
+
+        long remC = Math.Max(0, cgst), remS = Math.Max(0, sgst);
+        long remI = Math.Max(0, igst), remX = Math.Max(0, cess);
+
+        var ordered = pools
+            .Select((p, i) => (Pool: p, Index: i))
+            .Where(x => x.Pool.IsEligible == IsEligible && x.Pool.TotalPaisa > 0)
+            .OrderByDescending(x => x.Pool.TotalPaisa)
+            .ThenBy(x => x.Pool.Description, StringComparer.Ordinal)
+            .ToList();
+
+        foreach (var (_, index) in ordered)
+        {
+            if (remC <= 0 && remS <= 0 && remI <= 0 && remX <= 0) break;
+
+            var pool = pools[index];
+            // Head against its own head, never below zero (the guard IsdDistribution enforces on the way in).
+            var takeC = Math.Min(pool.CgstPaisa, remC); remC -= takeC;
+            var takeS = Math.Min(pool.SgstPaisa, remS); remS -= takeS;
+            var takeI = Math.Min(pool.IgstPaisa, remI); remI -= takeI;
+            var takeX = Math.Min(pool.CessPaisa, remX); remX -= takeX;
+
+            pools[index] = pool with
+            {
+                CgstPaisa = pool.CgstPaisa - takeC,
+                SgstPaisa = pool.SgstPaisa - takeS,
+                IgstPaisa = pool.IgstPaisa - takeI,
+                CessPaisa = pool.CessPaisa - takeX,
+            };
+        }
+
+        return remC + remS + remI + remX;
     }
 
     /// <summary>Rupee base values as whole paisa, for the integer <see cref="ProRata.Paisa"/> split.</summary>

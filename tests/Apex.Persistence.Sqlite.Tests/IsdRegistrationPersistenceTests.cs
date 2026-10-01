@@ -13,7 +13,8 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// modelled as a registration whose <see cref="GstRegistrationType"/> is
 /// <see cref="GstRegistrationType.InputServiceDistributor"/>, persisted as the enum <b>ordinal</b> into the
 /// <c>gst_registrations.registration_type</c> and <c>companies.gst_reg_type</c> INTEGER columns that already
-/// exist at v63. Two things therefore have to be true and neither is obvious from reading the domain code:
+/// exist well before the current version (they predate this slice; the asserted number below is main's, and it is
+/// the number that matters). Two things therefore have to be true and neither is obvious from reading the domain code:
 /// the new value has to survive a save/reload, and <see cref="Schema.CurrentVersion"/> has to be unchanged.
 /// If the second ever stopped being true this file would say so, rather than a reviewer having to notice.</para>
 ///
@@ -48,7 +49,18 @@ public sealed class IsdRegistrationPersistenceTests
         // "somebody else did". Re-baselined to 64 = origin/main at merge time. A future track that legitimately
         // takes v65 will trip this again; the response is to re-baseline after confirming this file's own diff
         // still touches no DDL — NOT to weaken the assertion, which is the only tripwire on the no-migration claim.
-        Assert.Equal(64, Schema.CurrentVersion);
+        //
+        // 🔴 RE-BASELINED 64 -> 65. It tripped again, exactly as predicted above, when the market-valuation track
+        // landed v65 on main. Confirmed before changing the number, and this is the check to repeat next time:
+        // `git diff origin/main...HEAD -- src/Apex.Persistence.Sqlite/Schema.cs` is EMPTY and `git status` shows no
+        // change under src/Apex.Persistence.Sqlite/, so this branch still takes no migration and adds no DDL. The
+        // ISD continues to round-trip through the registration_type / gst_reg_type INTEGER columns that already
+        // exist, which the round-trip test below proves independently of this number.
+        //
+        // 🔴 Find the const BY GREP (`public const int CurrentVersion`), never by line number: it reads :289 on
+        // some trees and :266 on others, which is filed as T1-63, and the prose near Schema.cs:159 (which says 59)
+        // and :5409 (which says 61) has already misled agents twice.
+        Assert.Equal(65, Schema.CurrentVersion);
     }
 
     [Fact]

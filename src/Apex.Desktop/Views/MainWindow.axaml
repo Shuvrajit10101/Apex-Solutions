@@ -13298,7 +13298,14 @@
                                 </Border>
 
                                 <!-- Tables 3/4 — input tax credit received for distribution -->
-                                <TextBlock Text="Tables 3 &amp; 4 — Input tax credit received for distribution"
+                                <!-- Names BOTH tables it actually shows. The old wording described only Table 3's
+                                     receipts while the box also carries Table 4's split, so it read as if the receipts
+                                     themselves were Tables 3 and 4. Per the GSTN user guide (checked by content):
+                                     "Table 3: To enter details of input tax credit received for distribution" and
+                                     "Table 4: To view details of ITC available and eligible and ineligible ITC
+                                     distributed" — which is the eligible/ineligible split below, matching the
+                                     emitter's tbl3_received_* keys and its separate eligible/ineligible pair. -->
+                                <TextBlock Text="Tables 3 &amp; 4 — Credit received for distribution, and its eligible / ineligible split"
                                            FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
                                   <StackPanel Spacing="3">
@@ -13308,13 +13315,33 @@
                                     <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Compensation Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding ReceivedCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
                                     <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total credit received" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalReceivedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which eligible (Rule 39(1)(b))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding EligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
-                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which ineligible (Rule 39(1)(b))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding IneligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <!-- 🔴 RULE 39(1)(g), NOT (1)(b). These two labels cited the WRONG CLAUSE LETTER,
+                                         twice, on the only lines a filer reads for the eligible/ineligible split.
+                                         Rule 39(1)(g) is the separation: "the Input Service Distributor shall, in
+                                         accordance with the provisions of clause (d) and (e), separately distribute
+                                         the amount of ineligible input tax credit and the amount of eligible input tax
+                                         credit" — retrieved and read by content at taxinformation.cbic.gov.in
+                                         /content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html.
+                                         Rule 39(1)(b) is the FOOTING CAP ("the amount of the credit distributed shall
+                                         not exceed the amount of credit available for distribution"), which this same
+                                         file cites correctly over the Undistributed box below. Every C# comment in the
+                                         branch had this right; only the user-visible labels were wrong. -->
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which eligible (Rule 39(1)(g))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding EligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which ineligible (Rule 39(1)(g))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding IneligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
                                   </StackPanel>
                                 </Border>
 
-                                <!-- Tables 5/6 — distribution of input tax credit -->
-                                <TextBlock Text="Tables 5 &amp; 6 — Distribution of input tax credit (Rule 39)"
+                                <!-- 🔴 TABLES 5 AND 8, NOT 5 AND 6. This caption read "Tables 5 & 6" and was WRONG on
+                                     the face of a filed return — and it CONTRADICTED this branch's own emitted file,
+                                     whose key is tbl5_8_distribution (GstReturnJson.cs) with a comment saying exactly
+                                     this. GSTR-6 Table 6 is the note/amendment family (6A ITC received (B2BA), 6B
+                                     debit/credit notes received, 6C CDNA); the DISTRIBUTION of ITC is Tables 5 and 8.
+                                     Verified by content at tutorial.gst.gov.in/userguide/returns/GSTR-6_faq.htm —
+                                     "Table 5, 8: To enter details of distribution of input tax credit for ISD invoices
+                                     and ISD Credit notes" and "Table 6B: To enter details of debit or credit notes
+                                     received". Same class as the tbl4-to-tbl3 defect the emitter self-caught; this one
+                                     survived because NO test asserted any caption on this page. -->
+                                <TextBlock Text="Tables 5 &amp; 8 — Distribution of input tax credit (Rule 39)"
                                            FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
                                 <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="4,3">
                                   <!-- 🔴 SIX columns, not eight. The first shape of this grid declared
@@ -13382,6 +13409,29 @@
                                     </DataTemplate>
                                   </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- 🔴 Ctrl+A FILES A STATUTORY RETURN. IT USED TO DO SO SILENTLY.
+                                     Gstr6ReportViewModel sets ExportStatus on success ("Exported N bytes to <path>")
+                                     AND on failure (the catch), but NEITHER was bound anywhere on this page, so the
+                                     filer pressed the primary-action chord on a return that goes to the government
+                                     and was told nothing at all — not the path, not the error. Every other export
+                                     page in this app binds ExportStatus. ExportFolder had no control either, so the
+                                     export silently took the IsNullOrEmpty(folder) arm and wrote into the PROCESS
+                                     WORKING DIRECTORY. A return that silently failed to write is worse than one that
+                                     refused. Pattern copied from the offline-returns page below. -->
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,8,0,0">
+                                  <TextBlock Grid.Column="0" Text="Export folder" FontWeight="SemiBold" FontSize="12"
+                                             VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ExportFolder, Mode=TwoWay}"
+                                           PlaceholderText="{Binding ExportFileName}" FontSize="12" Margin="0,0,8,0"/>
+                                  <TextBlock Grid.Column="2" Text="{Binding ExportStatus}"
+                                             IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                             VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                  <Button Grid.Column="3" Content="Export JSON (Ctrl+A)" Padding="12,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnExportGstr6JsonClick"/>
+                                </Grid>
 
                                 <TextBlock Text="{Binding Message}"
                                            IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"

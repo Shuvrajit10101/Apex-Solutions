@@ -61,7 +61,15 @@ public sealed record ItcGateView(
         ArgumentNullException.ThrowIfNull(snapshot);
 
         var tolerance = company.Gst?.ReconTolerance ?? ReconTolerance.Exact;
-        var report = Gstr2bReconciler.Reconcile(company, snapshot, from, to, tolerance);
+        // 🔴 THE REGISTRATION SCOPE MUST TRAVEL. This call dropped `registrationId`, which did two things. For a
+        // SINGLE-registration book it silently reconciled the whole book — harmless, because that is the same set.
+        // For a MULTI-registration book it made the gate UNREACHABLE: the unscoped sweep hits
+        // GstReportSupport.EnsureRegistrationScoped and throws "a GST return must name the registration it is filed
+        // for", so a company with a branch — or any ISD company, which has at least two registrations by
+        // construction — could not open the ITC gate at all. Found by the purchase-return measurement, which needed
+        // a two-registration book to measure anything (census 6.23's scoping rule, same family as the GSTR-1/3B
+        // registration filters).
+        var report = Gstr2bReconciler.Reconcile(company, snapshot, from, to, tolerance, registrationId);
 
         // A voucher is "in 2B" (claimable) iff the reconciler matched it (Matched or PartialMismatch); its eligible ITC is
         // §16(2)(aa)-ineligible this period iff the reconciler surfaced it as InBooksOnly (a booked purchase no 2B line
@@ -78,8 +86,24 @@ public sealed record ItcGateView(
         decimal npCgst = 0m, npSgst = 0m, npIgst = 0m;   // eligible not-in-portal (§16(2)(aa))
         var candidates = new List<ItcReversalCandidate>();
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
+        foreach (var (voucher, type) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
+            // 🔴 T1-64, MEASURED. A PURCHASE-RETURN DEBIT NOTE REDUCES THE CLAIM; this loop added it. Measured on a
+            // ₹50,000 input service at 18% (₹9,000 ITC) with ₹20,000 returned (₹3,600): the gate reported
+            // BooksEligible CGST 6,300.00 + SGST 6,300.00 = ₹12,600.00 where ₹5,400.00 was available — 133%
+            // overstated, on the screen an operator reads to decide what to claim in GSTR-3B §4.
+            //
+            // 🔴 THE SIGN IS APPLIED TO THE ACCUMULATORS, NOT TO THE HEAD TOTALS, AND THAT IS DELIBERATE. The head
+            // figures below feed SplitHeadTax, a largest-remainder paisa split that assumes a NON-NEGATIVE amount;
+            // handing it a negative would have been a new defect in the apportionment engine rather than a fix to
+            // this one. Keeping hCgst..hCess positive also keeps the `<= 0m` no-forward-ITC guard meaning what it
+            // says — negating the heads instead would have made all three negative, tripped that guard, and SKIPPED
+            // the return entirely, leaving the overstatement exactly where it was while looking fixed.
+            //
+            // A §34 note on an outward supply returns 0 and contributes nothing here (it is not ITC at all).
+            var sign = GstReportSupport.SignOf(company, voucher, type.BaseType);
+            if (sign == 0) continue;
+
             // Per-head forward (non-RCM) input tax posted on this voucher — RCM ITC is its own 3B bucket (excluded here).
             // Cess is ring-fenced OUT of the CGST/SGST/IGST triple (ER-2) but IS accumulated here so a blocked / ineligible
             // item's cess ITC can be reversed as its own ring-fenced cess leg (S7b), never bled into a GST head.
@@ -116,14 +140,24 @@ public sealed record ItcGateView(
             var notInPortal = inBooksOnlyIds.Contains(voucher.Id)
                 || (!inPortal && !HasSupplierGstin(company, voucher));
 
+            // Every pool carries the sign: a purchase return nets the claim DOWN in whichever pool its own lines
+            // classify into, so a returned blocked item reduces the blocked pool and a returned eligible item reduces
+            // the eligible pool. Netting per pool rather than against the eligible total is what keeps
+            // BooksEligible = Claimable + NotInPortal true after a return.
             // §17(5)-blocked pool (Table 4(B)(1)).
-            blCgst += blC.Amount; blSgst += blS.Amount; blIgst += blI.Amount;
+            blCgst += sign * blC.Amount; blSgst += sign * blS.Amount; blIgst += sign * blI.Amount;
             // Table-4(D) ineligible pool.
-            ieCgst += ieC.Amount; ieSgst += ieS.Amount; ieIgst += ieI.Amount;
+            ieCgst += sign * ieC.Amount; ieSgst += sign * ieS.Amount; ieIgst += sign * ieI.Amount;
             // Eligible pool + its §16(2)(aa) claimable / not-in-portal split.
-            bkCgst += eC.Amount; bkSgst += eS.Amount; bkIgst += eI.Amount;
-            if (inPortal) { clCgst += eC.Amount; clSgst += eS.Amount; clIgst += eI.Amount; }
-            else if (notInPortal) { npCgst += eC.Amount; npSgst += eS.Amount; npIgst += eI.Amount; }
+            bkCgst += sign * eC.Amount; bkSgst += sign * eS.Amount; bkIgst += sign * eI.Amount;
+            if (inPortal) { clCgst += sign * eC.Amount; clSgst += sign * eS.Amount; clIgst += sign * eI.Amount; }
+            else if (notInPortal) { npCgst += sign * eC.Amount; npSgst += sign * eS.Amount; npIgst += sign * eI.Amount; }
+
+            // 🔴 A RETURN IS NOT A REVERSAL CANDIDATE. The candidates below are advice to reverse ITC that was
+            // availed and should not have been; a purchase return is a reduction of the claim itself, already netted
+            // above. Surfacing it as a candidate too would advise reversing the same money twice — and because the
+            // candidate list is what S7 posts from, that would be a double reduction in the books.
+            if (sign < 0) continue;
 
             // Reversal candidates — no longer mutually exclusive: a mixed bill surfaces a blocked AND an ineligible AND
             // (for its eligible-not-in-portal share) a §16(2)(aa) candidate. S7 decides the actual reversal.
@@ -197,7 +231,11 @@ public sealed record ItcGateView(
                 cgstRev, sgstRev, igstRev, cessRev));
         }
 
-        var g3b = Gstr3b.Build(company, from, to);
+        // 🔴 SECOND DROPPED SCOPE, same defect as the Reconcile call above: the "Claimed in 3B" column is the figure
+        // the gate compares its own books sweep against, so reading an UNSCOPED 3B would have compared one
+        // registration's books with every registration's claim. On a multi-registration book it threw before it could
+        // — which is how both drops stayed invisible.
+        var g3b = Gstr3b.Build(company, from, to, registrationId);
 
         return new ItcGateView(from, to,
             new ItcTriple(new Money(bkCgst), new Money(bkSgst), new Money(bkIgst)),
