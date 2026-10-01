@@ -270,13 +270,25 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
         // to learn that only on upload. Name the gaps here, beside the file that has them, so they are fixable at the
         // keyboard. Nothing is fabricated to fill them (see EWayBillJson.MissingMandatory).
         var missing = EWayBillJson.MissingMandatory(_company, voucher, record);
+        // 🔴 Presence is not conformance. MissingMandatory only asks whether a value EXISTS, so a payload whose nine
+        // checked members were all present was reported as upload-ready however malformed — a six-character vehicle
+        // number fails the schema's own minLength 7 and the operator was still told to upload it. The format
+        // pre-flight is checked beside it so this banner cannot reassure without validating.
+        var malformed = EWayBillJson.SchemaFormatProblems(_company, voucher, record);
         Message = $"EWB-01 written for {record.DocumentNumberUpper} ({json.Length:#,0} bytes) → {path}. " +
                   (missing.Count == 0
-                      ? "Upload it to the portal, then record the EWB number it returns."
+                      ? ""
                       : $"⚠ The portal will reject it: {string.Join(", ", missing)} " +
                         (missing.Count == 1 ? "has" : "have") +
                         " no value in this book. Fill them in (company PIN code / party mailing PIN code / " +
-                        "party GST details / item HSN), then write the EWB-01 again.");
+                        "party GST details / item HSN), then write the EWB-01 again. ") +
+                  (malformed.Count == 0
+                      ? ""
+                      : $"⚠ The portal will reject it: {string.Join("; ", malformed)}. Correct "
+                        + (malformed.Count == 1 ? "it" : "them") + ", then write the EWB-01 again. ") +
+                  (missing.Count == 0 && malformed.Count == 0
+                      ? "Upload it to the portal, then record the EWB number it returns."
+                      : "");
         _onChanged();
         return true;
     }

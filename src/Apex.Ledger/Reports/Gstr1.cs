@@ -606,6 +606,19 @@ public sealed record Gstr1(
     /// tax) adds only its value to the exempt bucket and its HSN row. Reads only posted amounts — it never
     /// recomputes tax from a rate; the per-line RATE is read from the item's GST master purely to bucket the line
     /// into the matching posted rate group.
+    ///
+    /// <para>🔴 <b>T1-59 — a NON-TAXABLE stock line is NEVER a member of a posted rate group</b>, and that holds on a
+    /// MIXED invoice, not only on a wholly-exempt one. The whole-invoice exempt branch below fires only when the
+    /// invoice posted no tax at all; an invoice carrying one taxable and one exempt line falls through it, and the
+    /// <c>singleRate</c> collapse then forced the exempt line into the one posted group and apportioned real tax
+    /// across it by value. Measured: Widget ₹50,000 @ 18% (HSN 847130) + EXEMPT Fresh Milk ₹20,000 (HSN 040110),
+    /// posted CGST ₹4,500 / SGST ₹4,500, filed <c>040110 taxable=20,000 cgst=1,285.71 sgst=1,285.71</c> and
+    /// <c>847130 cgst=3,214.29 sgst=3,214.29</c> with an EMPTY exempt bucket — three misstatements on one filed
+    /// return: an exempt supply declared as taxed, the taxed HSN understated by ₹1,285.71 per head, and ₹20,000 of
+    /// exempt turnover vanished. Identical in kind to the two defects <see cref="AccumulateServiceHsn"/> already
+    /// fixed for ledger legs; the discriminator the GOODS side lacked is
+    /// <see cref="GstReportSupport.IsNonTaxableStockLine"/>. Every non-taxable line is now split out BEFORE the rate
+    /// machinery, into the exempt bucket + a zero-tax HSN row.</para>
     /// </summary>
     private static void AccumulateHsn(
         Company company, Voucher voucher, (decimal Cgst, decimal Sgst, decimal Igst) invoice,
@@ -653,14 +666,36 @@ public sealed record Gstr1(
         // The posted per-(integrated rate) tax groups for this invoice (from its tax lines).
         var rateGroups = ReadInvoiceRateGroups(voucher);
 
-        // Bucket the stock lines by their integrated rate so each line's tax comes from its OWN rate group.
-        // When the invoice is single-rate, every taxable line falls in that one group regardless of where the
-        // rate resolved; for a multi-rate invoice a line's rate is read from the item's GST master.
-        var singleRate = rateGroups.Count == 1 ? rateGroups[0].Rate : (int?)null;
-        // Per-VOUCHER, so it is resolved once rather than per line (see BucketingValueLedger).
-        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
-        var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
+        // Per-VOUCHER, so it is resolved once rather than per line (see BucketingValueLedger). 🔴 T1-59: this is now
+        // resolved UNCONDITIONALLY, not only on the multi-rate path — the per-line taxability discriminator below
+        // needs it on every invoice, and it is one ancestry climb per voucher.
+        var valueLedger = GstReportSupport.BucketingValueLedger(company, voucher);
+
+        // 🔴 T1-59 — SPLIT FIRST: a NON-TAXABLE stock line is never a member of a posted rate group. It posted no tax
+        // and contributed no taxable value to the tax the screen computed (ComputeItemInvoiceGst skips it), so it must
+        // not receive a share of that tax back here. This is the identical split AccumulateServiceHsn already makes
+        // for ledger legs, on the GOODS side where it was missing — see GstReportSupport.IsNonTaxableStockLine for
+        // the measured money. Every non-taxable line goes to the EXEMPT bucket + a zero-tax HSN row, mirroring the
+        // whole-invoice exempt branch above, and the posted tax is apportioned across the TAXABLE lines only.
+        var taxableLines = new List<VoucherInventoryLine>();
         foreach (var il in voucher.InventoryLines)
+        {
+            if (GstReportSupport.IsNonTaxableStockLine(company, voucher, valueLedger, il))
+            {
+                exempt += il.Value.Amount;
+                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc);
+                continue;
+            }
+            taxableLines.Add(il);
+        }
+
+        // Bucket the TAXABLE stock lines by their integrated rate so each line's tax comes from its OWN rate group.
+        // The single-rate collapse is now scoped to those lines: when the invoice posted exactly one rate group, every
+        // taxable line belongs to it regardless of where its own rate resolved (a rate-history override, a
+        // company-level default). A non-taxable line can never reach this line.
+        var singleRate = rateGroups.Count == 1 ? rateGroups[0].Rate : (int?)null;
+        var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
+        foreach (var il in taxableLines)
         {
             var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
             if (!linesByRate.TryGetValue(rate, out var list)) linesByRate[rate] = list = new List<VoucherInventoryLine>();
@@ -668,15 +703,15 @@ public sealed record Gstr1(
         }
 
         // 🔴 Table-12 CESS. The posted Cess legs are read SEPARATELY from the rate groups and attributed here —
-        // ReadInvoiceRateGroups still skips every Cess line (:561) and that skip stays load-bearing: a cess leg's
+        // ReadInvoiceRateGroups still skips every Cess line (the `GstTaxHead.Cess` continue in that method — the line
+        // number drifts, so it is named rather than cited) and that skip stays load-bearing: a cess leg's
         // rate key is derived from the CESS amount, so admitting it there would invent a phantom rate row and
         // double-count the group's taxable value. Reading cess on its own keeps both facts true at once.
         var postedCess = ReadPostedCessByRate(voucher);
         // Resolved ONCE per voucher and only when this voucher actually posted cess, so a book with no cess at all
         // does exactly the work it did before.
-        var cessLedger = postedCess.Count == 0
-            ? null
-            : valueLedger ?? GstReportSupport.BucketingValueLedger(company, voucher);
+        // valueLedger is now resolved unconditionally above (T1-59), so there is never a second ancestry climb here.
+        var cessLedger = postedCess.Count == 0 ? null : valueLedger;
         var cessResolver = postedCess.Count == 0 ? null : new Services.GstService(company);
 
         foreach (var (rate, group) in rateGroups)
@@ -723,7 +758,8 @@ public sealed record Gstr1(
     /// <para><b>Why adjacency, and why it is not a guess.</b> <c>GstService.ComputeInvoiceTax</c> walks the rate
     /// groups in order and, for each, emits that group's CGST/SGST or IGST head(s) and then
     /// <c>AddHead(GstTaxHead.Cess, cessRoundedByRate[bp], …)</c> — so a Cess leg always FOLLOWS the heads of the
-    /// group it belongs to. The leg cannot be keyed by its own rate (that is the <c>:561</c> problem), and it cannot
+    /// group it belongs to. The leg cannot be keyed by its own rate (that is the <c>ReadInvoiceRateGroups</c> cess-skip
+    /// problem — named, not cited by line, because the line number has already gone stale twice), and it cannot
     /// be keyed by its <c>TaxableValue</c> either, because the engine stamps it with the WHOLE group's taxable — not
     /// the cess-bearing subset's. Position is the only surviving link, and it is the same link
     /// <c>EWayBillJson.ReadRateGroups</c> already ships on. A leg seen before any head (defensive; no such ordering
@@ -937,8 +973,11 @@ public sealed record Gstr1(
     /// rate-0 group exists, so the <c>continue</c> below DISCARDED the leg: the 5,000 exempt supply was absent from
     /// Table 12 AND from the exempt bucket.</item>
     /// </list>
-    /// <para>Every non-taxable leg is therefore routed to the EXEMPT bucket + a zero-tax SAC row (mirroring the
-    /// exempt-branch treatment in <see cref="AccumulateHsn"/>), and the posted tax is apportioned across the TAXABLE
+    /// <para>Every non-taxable leg is therefore routed to the EXEMPT bucket + a zero-tax SAC row (the same treatment
+    /// <see cref="AccumulateHsn"/> now gives a non-taxable STOCK line — 🔴 note that when this was written that claim
+    /// was FALSE: <c>AccumulateHsn</c>'s exempt handling was all-or-nothing, firing only on a wholly-untaxed invoice,
+    /// so the goods path still collapsed an exempt line into the posted group. That is T1-59, fixed with the shared
+    /// per-line discriminator <see cref="GstReportSupport.IsNonTaxableStockLine"/>), and the posted tax is apportioned across the TAXABLE
     /// legs only. A wholly-exempt invoice never reaches here (it has no posted tax); a wholly-taxable one behaves
     /// exactly as before.</para>
     /// </summary>

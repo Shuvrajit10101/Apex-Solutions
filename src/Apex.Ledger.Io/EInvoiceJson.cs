@@ -431,10 +431,28 @@ public static class EInvoiceJson
         // group absorbs the remainder so Σ line tax == the group's posted tax exactly — mirrors Gstr1's HSN attribution).
         var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
         // Per-VOUCHER, so it is resolved once rather than per line (see GstReportSupport.BucketingValueLedger).
-        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
+        // 🔴 Resolved UNCONDITIONALLY, not only on the multi-rate path: the per-line taxability discriminator below
+        // needs it on every invoice, and it is one ancestry climb per voucher.
+        var valueLedger = GstReportSupport.BucketingValueLedger(company, voucher);
+
+        // 🔴 THE SAME COLLAPSE, AND HERE IT CARRIES RUPEES. ServiceLegsByRate below already excludes a non-taxable
+        // LEDGER leg before the collapse ("bucketing it into a posted rate group would both tax an exempt supply and
+        // break the payload's footing identity") — the GOODS path made exactly that mistake, because no per-line item
+        // discriminator existed. On a Widget ₹50,000 @ 18% + EXEMPT Fresh Milk ₹20,000 invoice the milk line was
+        // bucketed into the one 18% group and the INV-01 declared, against HSN 040110, GstRt 1800 with CgstAmt
+        // ₹1,285.71 and SgstAmt ₹1,285.71 — real tax, on the IRP-registered invoice, against exempt goods; and the
+        // taxed line was short by the same amount, so NIC's own item check (CGST Value = Taxable Value × GstRt / 2)
+        // failed on BOTH lines. A non-taxable line is therefore kept OUT of every rate group: it stays an INV-01 line
+        // (the goods are on the invoice) but bears zero tax and GstRt 0.
         var linesByRate = new Dictionary<int, List<VoucherInventoryLine>>();
+        var nonTaxableLines = new HashSet<VoucherInventoryLine>();
         foreach (var il in inventory)
         {
+            if (GstReportSupport.IsNonTaxableStockLine(company, voucher, valueLedger, il))
+            {
+                nonTaxableLines.Add(il);
+                continue;
+            }
             var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
             if (!linesByRate.TryGetValue(rate, out var bucket)) linesByRate[rate] = bucket = new List<VoucherInventoryLine>();
             bucket.Add(il);
@@ -507,8 +525,12 @@ public static class EInvoiceJson
                 // CGST Value = Taxable Value x GstRt / 2 and IGST Value = Taxable Value x GstRt
                 // (einv-apisandbox.nic.in/version1.01/generate-irn.html). It is therefore the rate that must
                 // reproduce THIS item's own attributed tax from THIS item's own AssAmt — the same figure the line
-                // was bucketed by, never a fresh single-rung master read that could contradict it.
-                rateBasisPoints: singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il),
+                // was bucketed by, never a fresh single-rung master read that could contradict it. 🔴 A non-taxable
+                // line belongs to no group, so its rate is 0 — stating 1800 beside CgstAmt 0 would fail that very
+                // check, and stating 1800 beside a smeared CgstAmt is the defect this closes.
+                rateBasisPoints: nonTaxableLines.Contains(il)
+                    ? 0
+                    : singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il),
                 cgstPaisa: t.Cgst, sgstPaisa: t.Sgst, igstPaisa: t.Igst,
                 cessRateBasisPoints: t.CessRateBasisPoints,
                 cessAdValoremPaisa: t.CessAdValorem, cessNonAdValoremPaisa: t.CessNonAdValorem));

@@ -110,6 +110,53 @@ public static class EWayBillJson
         return missing;
     }
 
+    /// <summary>
+    /// 🔴 The schema-mandatory members this book CAN source but sources in a shape the published schema refuses —
+    /// empty when every present value satisfies its own FORMAT constraint. The companion to
+    /// <see cref="MissingMandatory"/>, which only ever asks whether a value EXISTS.
+    ///
+    /// <para><b>Why it exists.</b> The Generate e-Way Bill screen tells the operator "The portal will reject it: …"
+    /// off <see cref="MissingMandatory"/> alone, so a payload whose nine checked members are all PRESENT was reported
+    /// as upload-ready however malformed they were. Measured: a six-character vehicle number passes every presence
+    /// check and is rejected by the schema's own <c>"vehicleNo": { "minLength": 7 }</c> — the operator was told to
+    /// upload it. A pre-flight that reassures without validating is worse than none.</para>
+    ///
+    /// <para><b>Every bound below is read off the published schema / Data Structure table at
+    /// <c>docs.ewaybillgst.gov.in/apidocs/version1.03/generate-eway-bill.html</c></b> (opened and checked by content):
+    /// <c>vehicleNo</c> minLength 7 / maxLength 15, <c>docNo</c> maxLength 16, <c>transDocNo</c> maxLength 15,
+    /// <c>transporterId</c> Text(15). For the distance the page is internally inconsistent — the schema description
+    /// reads "Distance (&lt;4000 km)" while the Data Structure table reads "Max Value = 4000" — so the check refuses
+    /// only a distance STRICTLY GREATER than 4000, the reading that cannot produce a false refusal.</para>
+    ///
+    /// <para>Deliberately NOT checked: the GSTIN pattern. <c>toGstin</c> legitimately carries NIC's own
+    /// <c>URP</c> placeholder for an unregistered counterparty, which the schema has no way to spell (it fails both
+    /// <c>minLength</c> 15 and the GSTIN pattern) — NIC's prose and NIC's schema contradict each other there, and
+    /// flagging the prose-mandated value as a defect would train the operator to ignore this list.</para>
+    /// </summary>
+    public static IReadOnlyList<string> SchemaFormatProblems(
+        Company company, Voucher voucher, EWayBillRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        ArgumentNullException.ThrowIfNull(record);
+
+        var dto = BuildEwb01Dto(company, voucher, record);
+        var problems = new List<string>();
+
+        if (dto.VehicleNo is { } veh && veh.Length is < 7 or > 15)
+            problems.Add($"vehicleNo '{veh}' is {veh.Length} characters; the schema allows 7 to 15");
+        if (dto.DocNo.Length > 16)
+            problems.Add($"docNo '{dto.DocNo}' is {dto.DocNo.Length} characters; the schema allows at most 16");
+        if (dto.TransDocNo is { } tdn && tdn.Length > 15)
+            problems.Add($"transDocNo '{tdn}' is {tdn.Length} characters; the schema allows at most 15");
+        if (dto.TransporterId is { } tid && tid.Length > 15)
+            problems.Add($"transporterId '{tid}' is {tid.Length} characters; the schema allows at most 15");
+        if (record.DistanceKm > 4000)
+            problems.Add($"transDistance {record.DistanceKm} exceeds the schema maximum of 4000 km");
+
+        return problems;
+    }
+
     /// <summary>Builds the deterministic consolidated EWB-02 request bytes (UTF-8, no BOM) for a set of already-generated
     /// children travelling in one conveyance. No monetary recomputation — a consolidation is a header over the child EWB
     /// numbers (ER-9). <b>Not</b> re-grounded by T1-29; see <see cref="Ewb02SchemaStatusFlag"/>.</summary>
@@ -193,10 +240,27 @@ public static class EWayBillJson
             ActToStateCode = StateCode(record.ShipToStateCode) ?? toStateCode,
             ToStateCode = toStateCode,
             // Master codes: 1 Regular, 2 Bill To - Ship To, 3 Bill From - Dispatch From, 4 Combination of 2 and 3
-            // (https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html). A recorded Ship-To GSTIN is exactly a
-            // Bill-To/Ship-To movement, and NIC requires it for types 2 and 4. Bill-From/Dispatch-From (3, and so 4)
-            // needs a dispatch-from PARTY, which this domain model does not carry, so it is never emitted.
-            TransactionType = string.IsNullOrWhiteSpace(record.ShipToGstin) ? 1 : 2,
+            // (https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html — verified by content: that page's
+            // "Transaction Types" table reads exactly those four). Bill-From/Dispatch-From (3, and so 4) needs a
+            // dispatch-from PARTY, which this domain model does not carry, so it is never emitted.
+            //
+            // 🔴 THE DEFECT THIS CLOSES. This read "a recorded Ship-To GSTIN is exactly a Bill-To/Ship-To movement".
+            // It is not — and the premise collapsed the moment the Ship-To GSTIN became MANDATORY:
+            // EWayBillService.PrepareRecord REFUSES a record without one for any movement dated on or after
+            // EWayShipToMandatoryFrom (01-Aug-2026), so record.ShipToGstin is ALWAYS populated and every e-Way Bill
+            // the app wrote declared transactionType 2 — including an ordinary two-party supply, which is a Regular
+            // (1) movement. That matters because NIC attaches a data contract to the 2: "In case of 'Bill to - ship
+            // to' transaction, toGstin, toTrdName and toStateCode should be passed with 'Bill To' party and toAddr1,
+            // toAddr2, toPlace, toPincode and actToStateCode values should be passed with 'Ship To' party" (verbatim
+            // from the generate-eway-bill page). We emit the BILL-TO party in all of them, so declaring 2 asserted a
+            // Bill-To/Ship-To split that the payload did not describe — and that this product cannot describe at all
+            // (census 10.2 Multi Address is ABSENT; there is no ship-to address anywhere in src/).
+            //
+            // The honest discriminator is whether the consignee differs from the party billed. A recorded Ship-To
+            // GSTIN EQUAL to the Bill-To GSTIN is the same person receiving the goods he is billed for: Regular.
+            // Only a DIFFERENT Ship-To GSTIN is a genuine Bill-To/Ship-To movement. Compared case-insensitively on
+            // the trimmed value because a GSTIN is canonically upper-case and the field is free text.
+            TransactionType = IsBillToShipTo(record.ShipToGstin, to.Gstin) ? 2 : 1,
             TotalValue = totals.Taxable,
             CgstValue = totals.Cgst,
             SgstValue = totals.Sgst,
@@ -219,6 +283,25 @@ public static class EWayBillJson
             VehicleType = Trim(record.VehicleNumber) is null ? null : record.IsOverDimensionalCargo ? "O" : "R",
             ItemList = items,
         };
+    }
+
+    /// <summary>
+    /// Whether this movement is a genuine NIC <b>Bill To - Ship To</b> (transaction type 2) rather than a
+    /// <b>Regular</b> one (type 1): true only when a Ship-To GSTIN is recorded AND it names a party OTHER than the
+    /// one the document bills. A blank Ship-To, or one equal to the Bill-To GSTIN, is a Regular movement.
+    /// <para>Kept as a named predicate so the rule is testable on its own and cannot drift back into an
+    /// "is it present" check — which is what made every bill from 01-Aug-2026 declare type 2.</para>
+    /// </summary>
+    internal static bool IsBillToShipTo(string? shipToGstin, string? billToGstin)
+    {
+        var ship = shipToGstin?.Trim();
+        if (string.IsNullOrEmpty(ship)) return false;
+        var bill = billToGstin?.Trim();
+        // No Bill-To GSTIN at all (an unregistered buyer carries URP, so this is the defensive arm): a recorded
+        // Ship-To cannot be shown to be the SAME party, and declaring the stronger claim is what we are fixing — so
+        // the conservative answer is Regular.
+        if (string.IsNullOrEmpty(bill)) return false;
+        return !string.Equals(ship, bill, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The main object's rupee value block. Every member is read off the posted lines or off the record's
@@ -261,19 +344,31 @@ public static class EWayBillJson
         // apportionment survives because the main object's *Value members are what carry the money.
         var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
         // Per-VOUCHER, so it is resolved once rather than per line (see GstReportSupport.BucketingValueLedger).
-        var valueLedger = singleRate is null ? GstReportSupport.BucketingValueLedger(company, voucher) : null;
+        // 🔴 Resolved UNCONDITIONALLY, not only on the multi-rate path: the per-line taxability discriminator below
+        // needs it on every consignment, and it is one ancestry climb per voucher.
+        var valueLedger = GstReportSupport.BucketingValueLedger(company, voucher);
 
         var byRate = groups.ToDictionary(g => g.Rate);
         var items = new List<ItemDto>();
         foreach (var il in inventory)
         {
             var item = company.FindStockItem(il.StockItemId);
+            // 🔴 EWB-01 EXEMPT-GOODS DEFECT — the `singleRate` collapse skipped per-line rate resolution whenever the
+            // voucher posted exactly ONE rate group, so EVERY line was stamped with that group's rate. On a
+            // consignment of one taxable Widget @ 18% plus one EXEMPT Fresh Milk (HSN 040110) the milk line went out
+            // with cgstRate 9 and sgstRate 9: an 18% GST declaration on exempt goods, on the document a roadside
+            // checkpoint reads. The schema cannot catch it — cgstRate carries only `type: number` and
+            // `multipleOf: 0.001`, so a 9 on exempt goods validates clean. A non-taxable line is not a member of any
+            // posted rate group (it posted no tax and contributed no taxable value), so it takes rate 0 and an empty
+            // group, and the `!nonTaxable` guard on the lookup keeps it out of a posted group even in the (unreachable
+            // today) case that a 0-rate group exists.
+            var nonTaxable = GstReportSupport.IsNonTaxableStockLine(company, voucher, valueLedger, il);
             // NIC maps the e-Way item rate onto the SAME quantity the e-invoice states — igstRate = Item.GstRt,
             // cgstRate = sgstRate = Item.GstRt/2, taxableAmount = Item.AssAmt
             // (einv-apisandbox.nic.in/Mapping_of_ewaybill_schema.html) — so the consignment and the invoice must
             // never name two different rates for one line.
-            var rate = singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
-            var group = byRate.TryGetValue(rate, out var g)
+            var rate = nonTaxable ? 0 : singleRate ?? LineIntegratedRate(company, voucher, valueLedger, il);
+            var group = !nonTaxable && byRate.TryGetValue(rate, out var g)
                 ? g
                 : new RateGroup(rate, 0, 0, 0, 0, 0, 0, 0);
             // WI-10 Gap 2 follow-on: the quantity an e-way bill declares is the quantity a checkpoint physically

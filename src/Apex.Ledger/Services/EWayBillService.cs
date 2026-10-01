@@ -373,8 +373,8 @@ public sealed class EWayBillService
     /// <c>EWayPartACodeTests.Every_triple_the_engine_can_emit_is_a_row_of_the_official_NIC_mapping</c>.
     ///
     /// <para><b>The official sources (R7 — all read live, none asserted from memory).</b>
-    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c> (Eway Bill Team, National Informatics
-    /// Centre, Karnataka, Govt. of India) enumerates the domains: <c>supplyType</c> = <c>I</c> Inward / <c>O</c>
+    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c> — 🔴 a FABRICATED publisher credit was
+    /// DELETED here (the body it named is NOT on that page; the codes ARE) — enumerates: <c>supplyType</c> = <c>I</c> Inward / <c>O</c>
     /// Outward; <c>subSupplyType</c> = 1 Supply, 2 Import, 3 Export, 4 Job Work, 5 For Own Use, 6 Job work Returns,
     /// 7 Sales Return, 8 Others, 9 SKD/CKD/Lots, 10 Line Sales, 11 Recipient Not Known, 12 Exhibition or Fairs;
     /// <c>docType</c> = <c>INV</c> Tax Invoice, <c>BIL</c> Bill of Supply, <c>BOE</c> Bill of Entry, <c>CHL</c>

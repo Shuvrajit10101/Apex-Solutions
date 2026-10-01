@@ -444,7 +444,7 @@ public sealed class OneRuleDriftLockTests
     /// It is the single place where master drift is genuinely visible on issued paper, and S2 widens what it can
     /// see. Pinning it here is what makes that exposure countable instead of incidental.</para>
     ///
-    /// <para>🔴 <b>TEN, and the count arrived in TWO independent steps that both had to be kept.</b> Two parallel
+    /// <para>🔴 <b>ELEVEN, and the count arrived in THREE independent steps that all had to be kept.</b> Two parallel
     /// tracks each raised this lock from eight to nine, for different reasons and on different files, and a merge
     /// that took either side alone would have silently under-counted by one. Both reasons stand:</para>
     /// <list type="bullet">
@@ -459,6 +459,21 @@ public sealed class OneRuleDriftLockTests
     ///     two-rung <c>item ?? ledger</c> pick with a hard-coded <c>1800</c> floor and no supply date. Both are
     ///     POSTING paths re-resolving a rate for a voucher being entered, which is what this lock permits; the
     ///     count is raised rather than the lock loosened.</item>
+    ///   <item>🔴 <b>T1-59 added the ELEVENTH: <c>GstReportSupport.IsNonTaxableStockLine</c>.</b> Report/payload
+    ///     side again, so the decision is recorded here and not only at the method. <b>It resolves TAXABILITY, not
+    ///     a rate, and it is never allowed to produce a rupee.</b> Every figure still comes from the posted
+    ///     <c>GstLineTax</c> legs; the resolution decides only whether a stock line may be a MEMBER of a posted
+    ///     rate group at all. It closes T1-59: the <c>singleRate</c> collapse in <c>Gstr1.AccumulateHsn</c>,
+    ///     <c>EWayBillJson.BuildItems</c> and <c>EInvoiceJson.BuildItems</c> stamped the one posted group's rate on
+    ///     EVERY line of a single-rate invoice, so a mixed taxable/exempt invoice filed ₹1,285.71 of CGST against an
+    ///     EXEMPT HSN, declared 18% GST on exempt goods on the EWB-01, and put real rupees of tax on them in the
+    ///     INV-01. The alternative was <b>not</b> fewer live reads but a WRONG read: <c>BucketingRateOf</c> already
+    ///     resolves these same lines live and deliberately collapses "explicitly non-taxable" and the ER-5
+    ///     "unresolved" sentinel both to <c>0</c>, so it cannot answer this question — and ER-5 turns on exactly
+    ///     that difference, because silence is not an exemption. It therefore sits beside
+    ///     <c>IsWhollyExemptItemSupply</c>, which makes the identical resolved-vs-non-taxable discrimination for the
+    ///     TAX-INVOICE-vs-BILL-OF-SUPPLY title, and it adds no master-drift exposure that method did not already
+    ///     carry on the same lines of the same voucher.</item>
     /// </list>
     ///
     /// <para>🔴 <b>Historical note, kept because the count is what surfaced it:</b> the T0-4 design's survey named
@@ -469,14 +484,16 @@ public sealed class OneRuleDriftLockTests
     /// two-argument overload is deleted outright.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheTenKnownCallSites() =>
+    public void ResolveRateHasExactlyTheElevenKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
-                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 2,
+                // 3, not 2: BucketingRateOf + IsNonTaxableStockLine (T1-59, see the list above) + the
+                // IsWhollyExemptItemSupply call this lock's own summary already documents.
+                ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 3,
                 ["src/Apex.Ledger/Services/RcmService.cs"] = 2,
             },
             "A new ResolveRate call site re-resolves a rate from LIVE masters. On a posting path that is correct; "
