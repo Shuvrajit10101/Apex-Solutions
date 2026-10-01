@@ -21,7 +21,15 @@ public sealed partial class SaveViewViewModel : ViewModelBase
     private readonly CompanyStorage _storage;
 
     /// <summary>The column title / heading for the panel.</summary>
-    public string Title => "Save View — Ctrl+S";
+    /// 🔴 THE CAPTION NAMES Ctrl+L, THE VENDOR'S CHORD, NOT THE INVENTED Ctrl+S IT USED TO NAME. The vendor
+    /// writes this verb as "Press Ctrl+L (Save View) to save the report with the specific configurations"
+    /// (help.tallysolutions.com/use-save-view-feature-in-tallyprime/, re-opened by content 2026-09-23), and this
+    /// slice bound Ctrl+L on a report. Ctrl+S still opens the panel as the legacy alias it always was — nothing
+    /// is taken away from an operator who learned it — but a caption is a PROMISE about a keystroke, and the
+    /// panel was promising a key the reference product does not have while the one it does have went unnamed.
+    /// The same correction was already made to SavedViewsViewModel's empty-state line; this is the other half of
+    /// it, and leaving the two disagreeing is how a half-corrected string survives a green gate.
+    public string Title => "Save View — Ctrl+L";
 
     /// <summary>The report this panel saves (its title, for the heading line).</summary>
     public string ReportTitle => _report.Title;

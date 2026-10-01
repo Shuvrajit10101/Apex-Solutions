@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -43,7 +44,7 @@ public sealed class ElectronicCashRowVm
 /// cash-only RCM) and the <b>Cash</b> ledger (per (major, minor)-head cell + balance). Cess is ring-fenced (ER-2); a
 /// company that never accrued reads all-zero (ER-13). MVVM boundary: engine only, no Avalonia types; deterministic.
 /// </summary>
-public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase
+public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -153,6 +154,64 @@ public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase
 
     private static ElectronicLiabilityRowVm Liab(string head, Money output, Money rcm) =>
         new() { Head = head, Output = A(output), Rcm = A(rcm) };
+
+    /// <summary>
+    /// <b>Census 6.19 — the snapshot that gives this screen an exit.</b> Named in 6.19's "Electronic Ledgers"
+    /// clause among the screens that never adopted <see cref="IMasterListExportSource"/> and so had neither
+    /// E / Alt+E nor P / Ctrl+P. The general arm (<c>TopMasterExportSource()</c>) already existed; this is the
+    /// adoption.
+    ///
+    /// <para><b>All THREE electronic ledgers ride, because the screen's meaning is the comparison.</b> Credit,
+    /// liability and cash are three separate statutory ledgers, and the question an operator brings here — can
+    /// the liability be discharged from credit, or is cash needed — cannot be answered from any one of them.
+    /// They share one widened column set with a section label rather than being exported separately.</para>
+    ///
+    /// <para>🔴 <b>THIS CLASS HAS NO UNREADABLE-CASH-CELL GUARD, and a paragraph here once said it did.</b> That
+    /// paragraph is gone: it described a placeholder constant, a reader seam and a read-failure flag that belong to
+    /// <see cref="Drc03PaymentViewModel"/> and to none of this file. This view model reads
+    /// <see cref="ElectronicLedgersView.CashCells"/>, whose every value is a <see cref="Money"/> that
+    /// <c>IndianFormat.AmountAlways</c> always formats, so there is no failure path here to describe.
+    /// <c>FalseDocCommentTests</c> now fails any view model that names that constant without owning the
+    /// machinery.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(
+            CreditRows.Count + LiabilityRows.Count + CashRows.Count + 8);
+
+        static IReadOnlyList<string> Section(string label)
+            => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty };
+
+        rows.Add(Section("Electronic Credit Ledger"));
+        foreach (var r in CreditRows)
+            rows.Add(new[] { r.Head, r.Additions, r.Utilised, r.Reversed, r.Closing });
+        rows.Add(new[] { "Total credit", string.Empty, string.Empty, string.Empty, TotalCreditText });
+
+        rows.Add(Section("Electronic Liability Ledger"));
+        foreach (var r in LiabilityRows)
+            rows.Add(new[] { r.Head, r.Output, r.Rcm, string.Empty, string.Empty });
+        rows.Add(new[] { "Total liability", TotalLiabilityText, TotalRcmLiabilityText, string.Empty, string.Empty });
+
+        rows.Add(Section("Electronic Cash Ledger"));
+        foreach (var r in CashRows)
+            rows.Add(new[] { r.Cell, string.Empty, string.Empty, string.Empty, r.Balance });
+        rows.Add(new[] { "Cash balance", string.Empty, string.Empty, string.Empty, CashBalanceText });
+
+        if (!string.IsNullOrWhiteSpace(StatusText))
+            rows.Add(Section(StatusText));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Head / Cell"),
+                MasterListColumn.Number("Additions / Output"),
+                MasterListColumn.Number("Utilised / RCM"),
+                MasterListColumn.Number("Reversed"),
+                MasterListColumn.Number("Closing / Balance"),
+            },
+            rows);
+    }
 
     private static string A(Money m) => IndianFormat.AmountAlways(m);
 }

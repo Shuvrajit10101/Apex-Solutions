@@ -32,11 +32,20 @@ public sealed partial class ScenarioTypeRow : ViewModelBase
 }
 
 /// <summary>A row in the existing-scenarios list on the Scenario master screen.</summary>
-public sealed class ScenarioListRow
+public sealed partial class ScenarioListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Actuals { get; init; } = string.Empty;
     public string Includes { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <inheritdoc/>
+    public string MasterName => Name;
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -47,11 +56,55 @@ public sealed class ScenarioListRow
 /// <see cref="CompanyStorage.Save"/>. Existing scenarios are listed below. No Avalonia types ⇒ headlessly
 /// testable; mirrors <see cref="BudgetMasterViewModel"/>.
 /// </summary>
-public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- W33 C3 (census 2.10): the shared master-list arm
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "scenario";
+
+    /// <inheritdoc/>
+    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a scenario — so it is never
+    /// mid-alteration.</remarks>
+    public bool IsAltering => false;
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>🔴 <b>NO REFERENTIAL GUARD, MEASURED — see the W33 block in <c>MasterDeletionRules</c>.</b> The only
+    /// foreign key into <c>scenarios(id)</c> is <c>scenario_voucher_types.scenario_id</c>, written from
+    /// <c>Scenario.IncludedTypeIds</c> — the parent's own graph — so it leaves with the parent on the next
+    /// delete-all + re-insert and cannot orphan. Note the direction that matters: a scenario points AT voucher
+    /// types, nothing points at a scenario.</para>
+    /// <para>Engine-only — the shell saves and reloads after this returns. A scenario has no service of its own
+    /// (create goes straight to <c>Company.AddScenario</c>), so this is the matching direct call.</para></remarks>
+    public void DeleteMaster(Guid id)
+    {
+        var scenario = _company.Scenarios.FirstOrDefault(s => s.Id == id)
+            ?? throw new InvalidOperationException($"Scenario {id} not found.");
+        _company.RemoveScenario(scenario);
+    }
+
+    private PayrollMasterHighlight<ScenarioListRow>? _highlight;
+
+    private PayrollMasterHighlight<ScenarioListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<ScenarioListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing scenario, or null.</summary>
+    public ScenarioListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -152,14 +205,20 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
 
     private void RefreshList()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var s in _company.Scenarios.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
             Existing.Add(new ScenarioListRow
             {
+                MasterId = s.Id,
                 Name = s.Name,
                 Actuals = s.IncludeActuals ? "Yes" : "No",
                 Includes = DescribeIncludes(s),
             });
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 
     /// <summary>Comma-joined names of a scenario's included voucher types (for the list column).</summary>

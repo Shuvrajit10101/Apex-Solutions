@@ -128,6 +128,166 @@ public sealed class InventoryPostingService
         return voucher;
     }
 
+    // ===================================================================== Replace — the THIRD lifecycle verb
+
+    /// <summary>
+    /// 🔴 <b>Alters a posted stock/order voucher in place (Ctrl+Enter) — the verb this service was MISSING, and
+    /// the sole reason census rows 4.9–4.16 and 9.2 could not reach <c>COMPLETE</c>.</b> <c>Post</c>,
+    /// <see cref="Cancel"/> and <see cref="Delete"/> shipped in PR #107; alteration had no engine counterpart, so
+    /// <c>VoucherEntryViewModel.ForAlter</c> refused every inventory-aggregate voucher by design and the Day Book's
+    /// Ctrl+Enter could only name the limit.
+    ///
+    /// <para><b>🔴 THE STOCK CONSEQUENCE IS THE WHOLE POINT, AND IT IS WHY THE SWAP IS STRUCTURAL RATHER THAN
+    /// ARITHMETIC.</b> A partial reversal — subtracting the old quantities and adding the new — would silently
+    /// corrupt closing stock, and closing stock moves the Balance Sheet. Nothing here computes a delta. The
+    /// outgoing voucher is removed from the timeline and the incoming one takes its slot, so <b>every</b> effect
+    /// the old voucher had (on-hand, batch and godown balances, FIFO/Avg consumption order, order fulfilment,
+    /// additional-cost apportionment, the Job Work pending figures) is reversed by the same mechanism that
+    /// created it, and the new effect is applied by the same mechanism that applies a post. There is no third
+    /// code path that could drift from either.</para>
+    ///
+    /// <para><b>It is logged as <see cref="VoucherEditVerb.Alter"/>, the SAME verb an ordinary voucher's
+    /// alteration records</b> (<c>LedgerService.Replace</c>), carrying a <c>VoucherSnapshot</c> of the OUTGOING
+    /// voucher. Deliberately not a new verb: an auditor reading the edit log must not have to know which of the
+    /// two aggregates a voucher lived in to recognise that it was amended. The entry is appended past every
+    /// guard and every throw — a REFUSED alteration logs nothing — and before the swap, so the snapshot is of the
+    /// state the operator is leaving.</para>
+    ///
+    /// <para>⚠️ <b>NS-3 — CALL SITE 5.</b> Like its three siblings this does not block on negative stock: the
+    /// alteration applies and <see cref="DetectNegativeStock"/> reports any shortfall the new figures introduced.
+    /// An interactive caller must ask, exactly as the Post and Cancel screens do.</para>
+    ///
+    /// <para><b>What it REFUSES, each by name rather than applied silently</b> — the same four identity facts
+    /// <c>LedgerService.Replace</c> refuses, for the same reasons: aliasing (handing the live voucher back as its
+    /// own replacement defeats every guard below, because each would compare a value to itself), a changed
+    /// <see cref="InventoryVoucher.Id"/> (the Guid is every order link's only handle), a changed
+    /// <see cref="InventoryVoucher.TypeId"/> (the preserved number belongs to THAT type's sequence, and carrying
+    /// it across would collide with the target type's own #n), a changed <see cref="InventoryVoucher.Number"/>,
+    /// and a changed <see cref="InventoryVoucher.Cancelled"/> flag (that is <see cref="Cancel"/>'s verb).</para>
+    /// </summary>
+    /// <returns>The replacement, now on the book at the outgoing voucher's index.</returns>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or the replacement changes one of the
+    /// identity facts above, or it fails a posting invariant. In every case <b>the original is still on the book,
+    /// unchanged, at its own index</b>, and nothing was written to the edit log.</exception>
+    public InventoryVoucher Replace(Guid voucherId, InventoryVoucher replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var existing = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        // 🔴 ALIASING — refused BEFORE anything else. Every guard below compares replacement.X to existing.X, and
+        // aliasing makes all of them compare a value to itself. Measured on the accounting sibling, the same hole
+        // renumbered a voucher, cancelled it and raised zero warnings; the pure-stock aggregate would additionally
+        // have handed ReplaceInventoryVoucherInternal a list slot holding the object it was told to overwrite.
+        if (ReferenceEquals(replacement, existing))
+            throw new InvalidOperationException(
+                $"Replace must be given a NEW inventory voucher instance: voucher {existing.Id} was passed as its "
+                + "own replacement, which defeats every identity guard (id, type, number, cancelled) because each "
+                + "would compare a value to itself. Build a replacement from the posted voucher's values.");
+
+        // Every identity fact is captured into a LOCAL before it is compared, so no later mutation of `existing`
+        // can move the thing a guard checks against.
+        var existingId = existing.Id;
+        var existingTypeId = existing.TypeId;
+        var existingNumber = existing.Number;
+        var existingCancelled = existing.Cancelled;
+
+        if (replacement.Id != existingId)
+            throw new InvalidOperationException(
+                $"Replace must preserve the voucher's identity: inventory voucher {existingId} cannot be replaced "
+                + $"by one carrying id {replacement.Id}. Order links and tracking-number links point at the "
+                + "voucher by that Guid.");
+
+        if (replacement.TypeId != existingTypeId)
+            throw new InvalidOperationException(
+                $"Replace does not retype a posted voucher: inventory voucher {existingId} is of type "
+                + $"{existingTypeId} and the replacement asks for {replacement.TypeId}. "
+                + "The preserved number belongs to the original type's numbering sequence and would collide with "
+                + "the target type's own number. Delete it and enter a fresh voucher of the type you want.");
+
+        // A caller that passes 0 (a freshly built replacement) inherits the original's number; one that passes
+        // the voucher's OWN number (the shape a ForAlter rehydration produces) is accepted; a DIFFERENT number is
+        // asking for a renumber, which alteration does not do.
+        if (replacement.Number != 0 && replacement.Number != existingNumber)
+            throw new InvalidOperationException(
+                $"Replace preserves the voucher number: inventory voucher {existingId} is #{existingNumber} and "
+                + $"the replacement asks for #{replacement.Number}. Renumbering a posted voucher is not part of "
+                + "Alter.");
+
+        if (replacement.Cancelled != existingCancelled)
+            throw new InvalidOperationException(
+                $"Replace does not cancel or un-cancel a voucher (inventory voucher {existingId}: "
+                + $"{existingCancelled} -> {replacement.Cancelled}). Cancellation is Alt+X's verb and is recorded "
+                + "as its own edit-log entry; build the replacement with the same flag.");
+
+        var type = _company.FindVoucherType(replacement.TypeId)
+            ?? throw new InvalidOperationException($"Unknown voucher type {replacement.TypeId}.");
+
+        if (replacement.Date < _company.BooksBeginFrom)
+            throw new InvalidOperationException(
+                $"Voucher date {replacement.Date:yyyy-MM-dd} is before BooksBeginFrom "
+                + $"{_company.BooksBeginFrom:yyyy-MM-dd}.");
+
+        // 🔴 Validate BEFORE the book is touched, and UNDO the number stamp if validation refuses. The stamp
+        // MUTATES the caller's object, so a rejected replacement handed back carrying the original's number would
+        // re-post as a SECOND live voucher sharing that number if the operator corrected and accepted it as new —
+        // the exact defect the accounting sibling records having measured.
+        var incomingNumber = replacement.Number;
+        replacement.Number = existingNumber;
+        try
+        {
+            EnsureContentMatchesType(replacement, type);
+            EnsureReferencesResolve(replacement);
+            if (RequiresSourceDestinationBalance(type, replacement))
+                EnsureStockJournalBalances(replacement);
+
+            // Prevent Duplicate, mirroring Post. Its loop already skips `other.Id == voucher.Id`, so the voucher
+            // being replaced cannot collide with itself — but a SIBLING of the same type that renders the same
+            // string still bites, which is the case this guard is for.
+            if (type.PreventDuplicate)
+            {
+                var rendered = VoucherNumberFormatter.Render(type, replacement.Number, replacement.Date);
+                if (rendered.Length > 0)
+                    foreach (var other in _company.InventoryVouchers)
+                    {
+                        if (other.Id == replacement.Id) continue;
+                        if (other.TypeId != replacement.TypeId) continue;
+                        if (string.Equals(
+                                VoucherNumberFormatter.Render(type, other.Number, other.Date), rendered,
+                                StringComparison.Ordinal))
+                            throw new InvalidOperationException(
+                                $"Voucher number '{rendered}' already exists for '{type.Name}' (Prevent "
+                                + "Duplicates is on).");
+                    }
+            }
+        }
+        catch
+        {
+            replacement.Number = incomingNumber;
+            throw;
+        }
+
+        // Past this point nothing throws, so the swap is safe. The log line goes first: the snapshot must be of
+        // the voucher the operator is leaving, and `existing` is still the one on the book.
+        var entry = RecordEdit(existing, VoucherEditVerb.Alter);
+
+        try
+        {
+            _company.ReplaceInventoryVoucherInternal(existing, replacement);
+        }
+        catch
+        {
+            // The swap is the only remaining throw site (an `existing` that left the list between the lookup and
+            // here). Unwinding the log entry keeps the append-only record from asserting an alteration that never
+            // happened — the same lie DiscardUncommittedCancel exists to prevent.
+            _company.RemoveLastVoucherEditLogEntryInternal(entry);
+            throw;
+        }
+
+        return replacement;
+    }
+
     /// <summary>
     /// Cancels a stock/order voucher (Alt+X): its effect drops to zero but its number is retained. ⚠️ NS-3 —
     /// CALL SITE 2 of 4: this used to be BLOCKED when removing the effect retro-drove a later movement negative.
@@ -183,9 +343,105 @@ public sealed class InventoryPostingService
         var v = _company.FindInventoryVoucher(voucherId)
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
 
+        EnsureNothingStillReferences(v);
+
         var entry = RecordEdit(v, VoucherEditVerb.Delete);
         _company.RemoveInventoryVoucherInternal(v);
         return entry;
+    }
+
+    /// <summary>
+    /// Asks <see cref="Delete"/>'s referential guard WITHOUT deleting anything, so a screen can refuse before it
+    /// puts an irreversible Y/N confirmation on the operator's screen instead of after they answer it.
+    ///
+    /// <para><b>Why a public pre-ask rather than letting the shell catch <see cref="Delete"/>'s throw.</b> The
+    /// throw is still the enforcement — every caller re-asks the rule immediately before the irreversible act,
+    /// which is what makes it safe against a book that moved while a prompt was on screen. But a refusal that
+    /// arrives only AFTER the operator has confirmed a deletion reads as a failure rather than as a rule, and the
+    /// shell's post-confirmation catch appends "Re-open the company before continuing" — advice that is wrong
+    /// here, because a refusal removes nothing. The accounting door pre-asks
+    /// <c>MasterDeletionRules.EnsureVoucherDeletable</c> for exactly this reason; this is the pure-stock
+    /// equivalent, and the two paths share one rule rather than two copies of it.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or a posted Material movement still
+    /// links to it.</exception>
+    public void EnsureDeletable(Guid voucherId)
+    {
+        var v = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+        EnsureNothingStillReferences(v);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE REFERENCED-MASTER GUARD ON <see cref="Delete"/> — the mirror of
+    /// <see cref="EnsureReferencesResolve"/>, and it exists because the two were asymmetric.</b> Posting a
+    /// Material movement REFUSES BY NAME when its <c>OrderLinks</c> do not resolve to a posted Job Work order,
+    /// while <see cref="Delete"/> would happily remove the order out from under movements that link to it —
+    /// leaving every one of them holding a dangling Guid, a state this engine's own <c>Post</c> declares invalid.
+    /// An engine that refuses to CREATE a state must not be able to DELETE its way into it.
+    ///
+    /// <para>🔴 <b>AND THE CONSEQUENCE IS NOT COSMETIC.</b> Persistence here is delete-all-and-reinsert under
+    /// <c>PRAGMA foreign_keys = ON</c>, so an orphan is not merely an ugly report: it can make the OPEN COMPANY
+    /// UNSAVABLE, with the operator's only route out being to close without saving and lose the session. The
+    /// Job Work Order Books also made Alt+D reachable from the surface where an operator would actually reach for
+    /// it, which is what turned a latent hole into one worth closing.</para>
+    ///
+    /// <para><b>Named, not counted.</b> The refusal lists the movements by voucher number so the operator knows
+    /// which entries to unlink or delete first, exactly as the master-deletion refusals do — a bare "it is in
+    /// use" leaves them hunting.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A posted Material movement still links to this voucher.</exception>
+    private void EnsureNothingStillReferences(InventoryVoucher v)
+    {
+        // Only a Job Work ORDER can be the target of an OrderLinks reference, so nothing else pays for this scan.
+        if (v.JobWorkOrder is null) return;
+
+        var linked = _company.InventoryVouchers
+            .Where(other => other.Id != v.Id && other.OrderLinks.Contains(v.Id))
+            .ToList();
+        if (linked.Count == 0) return;
+
+        var names = string.Join(", ", linked.Select(m =>
+        {
+            var type = _company.FindVoucherType(m.TypeId);
+            var rendered = type is null ? string.Empty : VoucherNumberFormatter.Render(type, m.Number, m.Date);
+            if (rendered.Length == 0) rendered = $"#{m.Number}";
+            return $"{type?.Name ?? "Material voucher"} No. {rendered}";
+        }));
+
+        throw new InvalidOperationException(
+            $"This Job Work order cannot be deleted: {linked.Count} posted material "
+            + $"movement{(linked.Count == 1 ? "" : "s")} still fulfil{(linked.Count == 1 ? "s" : "")} it "
+            + $"({names}). Deleting it would leave {(linked.Count == 1 ? "that movement" : "those movements")} "
+            + "linked to an order that no longer exists — a state posting refuses by name. Delete or re-key "
+            + $"{(linked.Count == 1 ? "it" : "them")} first, or cancel this order with Alt+X instead, which keeps "
+            + "the link intact.");
+    }
+
+    /// <summary>
+    /// Drops <paramref name="entry"/> from the edit log because <b>the save that would have made its verb durable
+    /// did not commit</b>. Refuses anything but the most recent entry. The pure-stock sibling of
+    /// <c>LedgerService.DiscardUncommittedEditLogEntry</c>, which carries the full argument for why an
+    /// append-only audit log has a removal at all; the short form is that this application's persistence is a
+    /// whole-aggregate snapshot with no transaction spanning the engine and the store, so every lifecycle verb
+    /// mutates the in-memory book BEFORE the save, and a screen that unwound the mutation without unwinding the
+    /// log line would leave the log asserting an edit that never reached disk.
+    ///
+    /// <para>🔴 <b>WHY THIS EXISTS ON THIS SERVICE AND NOT ONLY ON <c>LedgerService</c>.</b>
+    /// <see cref="Replace"/> appends an <see cref="VoucherEditVerb.Alter"/> entry, and the inventory alteration
+    /// screen's rollback calls <see cref="Replace"/> a SECOND time to put the original back — which appends a
+    /// second. Without this method that screen could unwind the swap but not the two log lines, so a later
+    /// successful save in the same session persisted TWO fictitious alterations of a voucher nobody had altered.
+    /// The accounting door has had the equivalent since v52; this is the pure-stock half, and a caller unwinding
+    /// both verbs calls this twice, <b>newest first</b>.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="entry"/> is not the last entry in the log.</exception>
+    public void DiscardUncommittedEditLogEntry(VoucherEditLogEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is not the last entry and cannot be discarded.");
     }
 
     /// <summary>
@@ -212,9 +468,7 @@ public sealed class InventoryPostingService
         // Order matters and is the opposite of Cancel's: the log line goes first, because its removal is the
         // bounded one (last-entry-only, enforced inside Company) and is the half that can legitimately refuse.
         // Clearing the flag first and then failing to remove the line would leave the two disagreeing.
-        if (!_company.RemoveLastVoucherEditLogEntryInternal(entry))
-            throw new InvalidOperationException(
-                $"Edit-log entry {entry.Id} is not the last entry and cannot be discarded.");
+        DiscardUncommittedEditLogEntry(entry);
 
         v.Cancelled = false;
     }

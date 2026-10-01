@@ -67,7 +67,114 @@ public sealed partial class SavedViewsViewModel : ViewModelBase
         foreach (var entry in _storage.ListViews(_company))
             Views.Add(new SavedViewItem(entry.Name, entry.View));
         Selected = Views.Count > 0 ? Views[0] : null;
-        Status = Views.Count == 0 ? "No saved views yet — save one from a report with Ctrl+S." : string.Empty;
+        // 🔴 THE CHORD NAMED HERE IS Ctrl+L, AND THAT IS A CORRECTION, NOT A PREFERENCE. This line used to read
+        // "with Ctrl+S" — an invented chord. The vendor's Save View chord is Ctrl+L
+        // (help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "Press Ctrl+L (Save View) to save the
+        // report with the specific configurations"), and the shell now binds it. Ctrl+S still works as the
+        // legacy alias it always was, but the empty state must name the chord the product documents.
+        Status = Views.Count == 0 ? "No saved views yet — save one from a report with Ctrl+L." : string.Empty;
+    }
+
+    /// <summary>
+    /// True while the panel was entered through Ctrl+H &gt; <b>Delete Saved Views</b> rather than
+    /// <b>Saved Views</b>. It decides what the panel's <b>Enter</b> means, which is the only difference between
+    /// the two menu rows — the vendor reaches ONE list by both.
+    /// </summary>
+    [ObservableProperty] private bool _isDeleteMode;
+
+    /// <summary>The view name the next Enter will delete, once the first Enter has armed it. Null otherwise.
+    /// This is the panel's whole confirmation state; it is cleared by any reload and by leaving delete mode.
+    /// </summary>
+    [ObservableProperty] private string? _pendingDeleteName;
+
+    /// <summary>
+    /// The Ctrl+H &gt; <b>Delete Saved Views</b> intent (see <see cref="ChangeViewMenu"/>). The vendor's Change
+    /// View menu reaches this SAME list by two rows — one to apply a view, one to remove one — so this arms the
+    /// panel's delete verb rather than opening a second, near-identical screen. A no-op on an empty list, where
+    /// the empty-state sentence is the more useful thing to read.
+    /// </summary>
+    public void EnterDeleteMode()
+    {
+        if (Views.Count == 0) return;
+        IsDeleteMode = true;
+        PendingDeleteName = null;
+        Status = "Highlight a view and press Enter to delete it.";
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE KEYBOARD DOOR FOR DELETE, AND BEFORE IT EXISTED THE <i>Delete Saved Views</i> MENU ROW LED
+    /// NOWHERE A KEYBOARD COULD FOLLOW.</b> The row is reachable — Ctrl+H, then its painted letter — and it
+    /// brought the operator to this panel with the right status line; but the only door to <c>Delete()</c> in
+    /// the entire product was a mouse <c>Click</c> handler on the panel's button
+    /// (<c>MainWindow.axaml.cs: OnDeleteSavedViewClick</c>), and the panel's Enter opened the view instead. A
+    /// menu row whose verb has no keystroke fails this project's own completeness bar, and it is the same
+    /// species of dead end census 14.4 was graded ABSENT for.
+    ///
+    /// <para><b>Two presses, because the vendor documents two and because this destroys something.</b>
+    /// help.tallysolutions.com/use-save-view-feature-in-tallyprime/ (<i>Delete Saved View of a Report</i>,
+    /// re-opened by content 2026-09-23): choose the view and press <b>Enter</b>, then <i>"Press Enter or Y to
+    /// confirm deletion"</i>. The first Enter names the view it is about to delete in the status line; only the
+    /// second removes it. Moving the highlight cancels the arming, so a stale confirmation cannot delete the
+    /// row the operator arrowed onto afterwards — that is the mis-target this shell has already filed once
+    /// (Alt+X acting on the voucher behind a stacked column).</para>
+    ///
+    /// <para><b>The vendor's <c>Y</c> is implemented too, and it lives next door.</b> This method is the Enter
+    /// half; <see cref="ConfirmDeleteWithY"/> is the Y half, and it confirms without ever arming. The quote above
+    /// is therefore fully behind code — it was not when it was first written, which is recorded there.</para>
+    ///
+    /// <para>Returns true when it consumed the keystroke, so the shell's Enter arm knows not to fall through.
+    /// Outside delete mode it returns false and Enter keeps meaning <see cref="Open"/>.</para>
+    /// </summary>
+    public bool TakeDeleteStep()
+    {
+        if (!IsDeleteMode) return false;
+        if (Selected is not { } item) return false;
+
+        if (PendingDeleteName != item.Name)
+        {
+            PendingDeleteName = item.Name;
+            Status = $"Delete “{item.Name}”? Press Enter or Y to confirm, Esc to leave it.";
+            return true;
+        }
+
+        Delete();
+        return true;
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE <c>Y</c> HALF OF THE VENDOR'S CONFIRMATION, WHICH THIS PANEL QUOTED AND DID NOT IMPLEMENT.</b>
+    /// The remark on <see cref="TakeDeleteStep"/> quotes
+    /// help.tallysolutions.com/use-save-view-feature-in-tallyprime/ verbatim — <i>"Press Enter or Y to confirm
+    /// deletion"</i> — and only Enter answered; Y was pressed on the realised window and the view survived. A
+    /// red-flagged vendor quote with half its behaviour behind it is worse than no quote, because the next reader
+    /// takes it as measured.
+    ///
+    /// <para><b>Y CONFIRMS; IT NEVER ARMS.</b> The vendor's sentence is the SECOND press, and the arming press is
+    /// documented as Enter alone ("choose the view and press Enter"). So this returns false on an unarmed panel
+    /// rather than arming one — otherwise a single stray Y over a list in delete mode would put a named
+    /// confirmation on screen that the operator never asked for, and the destructive direction would be one key
+    /// closer than the vendor puts it. It also re-checks that the armed name is still the highlighted row, so the
+    /// per-row cancellation in <see cref="OnSelectedChanged"/> governs Y exactly as it governs Enter.</para>
+    ///
+    /// <para>Returns true when it consumed the keystroke.</para>
+    /// </summary>
+    public bool ConfirmDeleteWithY()
+    {
+        if (!IsDeleteMode) return false;
+        if (PendingDeleteName is null) return false;            // Y confirms an armed delete; it does not arm one
+        if (Selected is not { } item || PendingDeleteName != item.Name) return false;
+
+        Delete();
+        return true;
+    }
+
+    /// <summary>Arming is per-row: moving the highlight throws the pending confirmation away, so the second
+    /// Enter can only ever delete the row the first Enter named.</summary>
+    partial void OnSelectedChanged(SavedViewItem? value)
+    {
+        if (PendingDeleteName is null) return;
+        PendingDeleteName = null;
+        if (IsDeleteMode) Status = "Highlight a view and press Enter to delete it.";
     }
 
     /// <summary>Opens (applies) the highlighted saved view: raises <see cref="OpenRequested"/> so the shell opens a

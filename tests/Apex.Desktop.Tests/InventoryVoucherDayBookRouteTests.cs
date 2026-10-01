@@ -684,25 +684,27 @@ public sealed class InventoryVoucherDayBookRouteTests
     /// (duplicate) both resolve through the ACCOUNTING slot, which is empty here, so both were quiet no-ops on a
     /// row the operator can plainly see. "Honestly unavailable" is not a property a silent key can have.
     ///
-    /// <para>Alteration really is unavailable: <c>VoucherEntryViewModel.ForAlter</c> refuses every
-    /// inventory-aggregate voucher (pinned for all twelve base kinds by <c>VoucherAlterRefusalTests</c>) because
-    /// no counterpart of <c>Replace</c> exists for this aggregate. That remains an open, named divergence; what
-    /// ships here is the sentence, and it points at the two routes that DO work.</para>
+    /// <para>🔴 <b>THE ALTERATION HALF OF THIS TEST IS GONE BECAUSE THE GAP IT PINNED IS CLOSED, and the
+    /// statement is kept rather than deleted so a reader can see what changed.</b> It used to read:
+    /// <i>"Alteration really is unavailable: <c>VoucherEntryViewModel.ForAlter</c> refuses every
+    /// inventory-aggregate voucher … because no counterpart of <c>Replace</c> exists for this aggregate. That
+    /// remains an open, named divergence."</i> <c>InventoryPostingService.Replace</c> and
+    /// <c>InventoryVoucherEntryViewModel.ForAlter</c> now exist, so <b>Ctrl+Enter OPENS</b> — pinned by
+    /// <c>InventoryVoucherAlterationRouteTests</c>. This theory became a single case: <b>Alt+2 (duplicate)</b>,
+    /// whose gap is real and unchanged, because <c>DetachAsDuplicate</c> is a <c>VoucherEntryViewModel</c> method
+    /// with no pure-stock counterpart.</para>
     /// </summary>
-    [AvaloniaTheory]
-    [InlineData(PhysicalKey.Enter, true)]     // Ctrl+Enter — alter
-    [InlineData(PhysicalKey.Digit2, false)]   // Alt+2      — duplicate
-    public void An_unbuilt_verb_on_a_stock_row_names_the_limit_instead_of_doing_nothing(
-        PhysicalKey key, bool control)
+    [AvaloniaFact]
+    public void An_unbuilt_verb_on_a_stock_row_names_the_limit_instead_of_doing_nothing()
     {
         var (window, vm, dir) = NewWindow();
         try
         {
-            var k = Seed(vm, $"Stock Unbuilt {key} Co");
+            var k = Seed(vm, "Stock Unbuilt Duplicate Co");
             var receipt = PostThroughTheScreen(vm, k, VoucherBaseType.ReceiptNote, qty: 6m);
             OpenDayBookOnStockRow(window, vm, receipt.Id);
 
-            window.KeyPressQwerty(key, control ? RawInputModifiers.Control : RawInputModifiers.Alt);
+            window.KeyPressQwerty(PhysicalKey.Digit2, RawInputModifiers.Alt);
             Pump(window);
 
             Assert.False(string.IsNullOrWhiteSpace(vm.Notice));
@@ -717,8 +719,8 @@ public sealed class InventoryVoucherDayBookRouteTests
         finally { Close(window, dir); }
     }
 
-    /// <summary>The refusal must not spread to the ACCOUNTING rows sharing the report: Ctrl+Enter on a normal
-    /// voucher row still opens its alteration screen.</summary>
+    /// <summary>The stock route must not spread to the ACCOUNTING rows sharing the report: Ctrl+Enter on a normal
+    /// voucher row still opens its own (accounting) alteration screen, not the inventory one.</summary>
     [AvaloniaFact]
     public void The_stock_refusal_does_not_touch_an_accounting_row_in_the_same_Day_Book()
     {
