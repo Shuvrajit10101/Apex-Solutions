@@ -223,15 +223,63 @@ public sealed class Ewb01SchemaConformanceTests
 
     private static int StateOf(string? code) => int.Parse(code!, System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>An unregistered counterparty gets NIC's own placeholder — "In case of unregistered person involved
-    /// in the transaction, pass URP in these fields" — rather than a null in a mandatory member.</summary>
+    /// <summary>
+    /// An unregistered counterparty gets NIC's own placeholder — "In case of unregistered person involved in the
+    /// transaction, pass URP in these fields" — rather than a null in a mandatory member.
+    ///
+    /// <para><b>🔴 THIS PATH DOES NOT FULLY CONFORM, AND THE CONTRADICTION IS NIC'S OWN, NOT OURS.</b> This test was
+    /// named <c>..._and_the_payload_still_conforms</c> and asserted only the literal <c>"URP"</c> — it never ran the
+    /// validator, so it claimed a conformance it had not measured. Measured: a <c>URP</c> counterparty departs from
+    /// NIC's published schema in <b>exactly two</b> ways, both on the same member —
+    /// <c>toGstin</c> is 3 characters against <c>minLength: 15</c>, and it fails
+    /// <c>pattern: [0-9]{2}[0-9|A-Z]{13}</c>. NIC's prose instruction and NIC's own JSON Schema disagree: the schema
+    /// has no way to spell the placeholder the prose mandates. We follow the <b>prose</b>, because that is the rule
+    /// the portal actually applies to an unregistered party, and we pin the deviation here rather than hide it.</para>
+    ///
+    /// <para><b>Why this is an exhaustive assertion and not a skip.</b> The two known departures are listed, so the
+    /// test still fails if a <i>third</i> appears on the unregistered path — the deviation is bounded to the one
+    /// member NIC cannot express, and nothing else is granted an exemption behind it.</para>
+    /// </summary>
     [Fact]
-    public void An_unregistered_buyer_is_URP_and_the_payload_still_conforms()
+    public void An_unregistered_buyer_is_URP_and_departs_from_the_schema_on_toGstin_ALONE()
     {
         var (company, sale, record) = Movement(unregisteredBuyer: true);
 
         using var payload = JsonDocument.Parse(EWayBillJson.BuildEwb01(company, sale, record));
         Assert.Equal("URP", payload.RootElement.GetProperty("toGstin").GetString());
+
+        using var schemaDoc = Schema();
+        var errors = JsonSchemaSubsetValidator.Validate(payload.RootElement, schemaDoc.RootElement);
+
+        // Every departure is the URP placeholder on toGstin — nothing else on this path is excused.
+        var unexpected = errors.Where(e => !e.StartsWith("$.toGstin:", StringComparison.Ordinal)).ToList();
+        Assert.True(unexpected.Count == 0,
+            "The unregistered-buyer payload departs from NIC's schema somewhere OTHER than the URP placeholder on " +
+            "toGstin, which is the only deviation this path is allowed:" + Environment.NewLine +
+            string.Join(Environment.NewLine, unexpected));
+
+        // And the URP deviation is exactly the two NIC cannot express, so a NEW toGstin defect is not absorbed here.
+        Assert.Equal(2, errors.Count);
+        Assert.Contains(errors, e => e.Contains("minLength 15", StringComparison.Ordinal));
+        Assert.Contains(errors, e => e.Contains("does not match the schema's pattern", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The mirror of the above: a <b>registered</b> counterparty has no such excuse and must conform completely.
+    /// This is what makes the URP allowance a bounded exception rather than a hole in the GSTIN checks — if the
+    /// emitter ever wrote a malformed GSTIN for a registered party, the test above would not catch it and this one
+    /// does.
+    /// </summary>
+    [Fact]
+    public void A_registered_counterparty_conforms_on_toGstin_with_no_exemption()
+    {
+        var (company, sale, record) = Movement();
+
+        using var payload = JsonDocument.Parse(EWayBillJson.BuildEwb01(company, sale, record));
+        using var schemaDoc = Schema();
+
+        Assert.Empty(JsonSchemaSubsetValidator.Validate(payload.RootElement, schemaDoc.RootElement));
+        Assert.NotEqual("URP", payload.RootElement.GetProperty("toGstin").GetString());
     }
 
     // ================================================================ the guard is not vacuous
