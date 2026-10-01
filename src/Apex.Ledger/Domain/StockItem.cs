@@ -74,6 +74,30 @@ public sealed class StockItem
     /// </summary>
     public StockValuationMethod ValuationMethod { get; set; }
 
+    /// <summary>
+    /// 🔴 <b>The item's MARKET VALUATION method (census 3.4, user ruling 26; schema v65)</b> — the basis that
+    /// auto-fills a <b>selling price</b> on a sales line. It is a separate dimension from
+    /// <see cref="ValuationMethod"/> and <b>never</b> contributes to closing stock value or to any figure on the
+    /// Balance Sheet. Defaults to <see cref="MarketValuationMethod.AtZeroPrice"/>, which auto-fills nothing — see
+    /// that member for why an inert default is the only safe one here.
+    /// </summary>
+    public MarketValuationMethod MarketValuationMethod { get; set; }
+
+    /// <summary>
+    /// 🔴 <b>THE REMEDIATION MARKER FOR USER RULING 26 — what makes the on-open warning possible, and what keeps
+    /// it OFF the books that were never affected.</b>
+    ///
+    /// <para>Set by the v64 → v65 migration to the costing method the item was moved <b>away</b> from (in
+    /// practice always <see cref="StockValuationMethod.LastSaleCost"/>), and left <c>null</c> for every item the
+    /// migration did not touch. It exists because ruling 26 obliges this build to tell an operator that their
+    /// closing stock value changed on upgrade, and a warning that cannot tell an affected book from an unaffected
+    /// one is a warning everyone sees and nobody reads.</para>
+    ///
+    /// <para>It is a historical record, not a setting: nothing reads it to compute money. Its only consumers are
+    /// the operator-facing warning and the tests that prove the warning is targeted.</para>
+    /// </summary>
+    public StockValuationMethod? ValuationRemediatedFrom { get; set; }
+
     /// <summary>GST HSN/SAC code placeholder (catalog §9) — captured but inert until the GST slice.</summary>
     public string? HsnSacCode { get; set; }
 
@@ -87,6 +111,18 @@ public sealed class StockItem
     /// last purchase cost (documented in <c>StockValuationService</c>). Paisa-exact when set.
     /// </summary>
     public Money? StandardCost { get; set; }
+
+    /// <summary>
+    /// The optional per-item <b>standard PRICE</b> (user ruling 26; schema v65): the fixed per-unit <i>selling</i>
+    /// rate that <see cref="MarketValuationMethod.StandardPrice"/> auto-fills on a sales line.
+    ///
+    /// <para>🔴 <b>Deliberately NOT the same field as <see cref="StandardCost"/>, and the distinction is
+    /// load-bearing.</b> Standard <i>cost</i> is what the stock is worth to us and it reaches the Balance Sheet;
+    /// standard <i>price</i> is what we charge and it must not. Folding the two into one column would rebuild the
+    /// exact conflation ruling 26 exists to undo, one level down. <c>null</c> ⇒ no standard price set, and the
+    /// Standard Price method then auto-fills nothing rather than falling back to a cost.</para>
+    /// </summary>
+    public Money? StandardPrice { get; set; }
 
     /// <summary>
     /// Simple reorder level: the on-hand quantity at/below which the item is flagged for reorder

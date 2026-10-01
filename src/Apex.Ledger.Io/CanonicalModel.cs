@@ -965,6 +965,23 @@ public sealed record StockItemDto
     public string? HsnSacCode { get; init; }
     public bool IsTaxable { get; init; }
     public long? StandardCostPaisa { get; init; }
+
+    // ── census 3.4 / user ruling 26 (schema v65): the MARKET VALUATION dimension ──────────────────────────────
+    // 🔴 All three are OPTIONAL so a canonical file written before v65 still reads: absent ⇒ AtZeroPrice, which
+    // auto-fills nothing and is exactly what such a file meant. They are a separate dimension from
+    // ValuationMethod above — that one values closing stock, these derive a SELLING price and never reach the
+    // Balance Sheet. StandardPricePaisa is deliberately NOT StandardCostPaisa; folding them would rebuild the
+    // conflation ruling 26 exists to undo.
+    public string? MarketValuationMethod { get; init; }   // MarketValuationMethod name; null ⇒ AtZeroPrice
+    public long? StandardPricePaisa { get; init; }        // the standard SELLING rate (never a cost)
+
+    /// <summary>
+    /// 🔴 The costing method schema v65 migrated this item AWAY from (<c>LastSaleCost</c>), or null if it was
+    /// never remediated. It must survive export/import: it is the only thing that lets an upgraded book tell its
+    /// operator that its closing stock value moved, and a round trip that dropped it would silence the warning
+    /// for exactly the books that owe one.
+    /// </summary>
+    public string? ValuationRemediatedFrom { get; init; }
     public decimal? ReorderLevel { get; init; }
     public decimal? MinimumOrderQuantity { get; init; }
     public StockItemGstDto? Gst { get; init; }

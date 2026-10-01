@@ -56,7 +56,7 @@ public sealed class IncomeTaxCessRateSchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Cess Co", FyStart));
 
             // ONE rung only — this test is about the v63 → v64 step in isolation.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(63L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks them — otherwise the "migration" below proves nothing.
@@ -91,7 +91,14 @@ public sealed class IncomeTaxCessRateSchemaTests
     {
         Assert.Equal(new[] { Table }, Schema.V64Tables);
         Assert.Equal(new[] { Index }, Schema.V64Indexes);
-        Assert.Equal(64, Schema.CurrentVersion);
+
+        // 🔴 The "v64 is the NEWEST migration" pin that used to sit here has MOVED, it was not deleted.
+        // Exactly one test in the suite pins Schema.CurrentVersion to a literal, and it belongs with the
+        // newest migration — otherwise every future bump would fail this v64-specific file for a reason
+        // that has nothing to do with the cess table it is about. Schema v65 (census 3.4 / defect T0-2 /
+        // user ruling 26) took the top rung, so the pin now lives in
+        // MarketValuationSchemaTests.The_published_v65_constants_describe_what_the_migration_creates.
+        // What THIS test is for is unchanged: v64's own published object lists still describe v64.
     }
 
     // ================================================================= 🔴 limb (c): nothing changes on upgrade
@@ -118,7 +125,7 @@ public sealed class IncomeTaxCessRateSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(seeded);
 
             // Manufacture a genuine pre-v64 book.
-            using (var conn = Open(path)) { SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.False(TableExists(path, Table));
 
             // Reopen through the production store — the migration runs — and load the company back.
@@ -252,7 +259,7 @@ public sealed class IncomeTaxCessRateSchemaTests
             // Down two rungs to a genuine v62 book.
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V64ToV63(conn);
+                SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn);
                 SchemaDowngrade.V63ToV62(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -272,7 +279,7 @@ public sealed class IncomeTaxCessRateSchemaTests
                 Assert.Contains(col, ColumnNames(path, "pay_head_computation_slabs"));
 
             // And back down one rung: v64's objects go, v63's columns stay, the marker says 63.
-            using (var conn = Open(path)) { SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(63L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.False(TableExists(path, Table));
             Assert.False(IndexExists(path, Index));
@@ -304,7 +311,7 @@ public sealed class IncomeTaxCessRateSchemaTests
 
             var before = string.Join("\n", ColumnNames(path, "companies").Select(n => ColumnContract(path, "companies", n)));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
 
             var after = string.Join("\n", ColumnNames(path, "companies").Select(n => ColumnContract(path, "companies", n)));
             Assert.Equal(before, after);
