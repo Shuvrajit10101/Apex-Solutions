@@ -200,9 +200,10 @@ public sealed class EWayPartAOrientationTests
         var root = Ewb01(f, f.Purchase);
         Assert.Equal("I", root.GetProperty("supplyType").GetString());
         Assert.Equal(GstinSupplier, root.GetProperty("fromGstin").GetString());
-        Assert.Equal("24", root.GetProperty("fromStateCode").GetString());
+        // T1-29 — the NIC schema types every State code an INTEGER, not the string our own shape emitted.
+        Assert.Equal(24, root.GetProperty("fromStateCode").GetInt32());
         Assert.Equal(GstinHome, root.GetProperty("toGstin").GetString());
-        Assert.Equal("27", root.GetProperty("toStateCode").GetString());
+        Assert.Equal(27, root.GetProperty("toStateCode").GetInt32());
     }
 
     /// <summary>The mirror: an OUTWARD sale is <c>From = Self, To = Other GSTIN/URP</c>. This half was already right
@@ -214,9 +215,9 @@ public sealed class EWayPartAOrientationTests
         var root = Ewb01(f, f.Sale);
         Assert.Equal("O", root.GetProperty("supplyType").GetString());
         Assert.Equal(GstinHome, root.GetProperty("fromGstin").GetString());
-        Assert.Equal("27", root.GetProperty("fromStateCode").GetString());
+        Assert.Equal(27, root.GetProperty("fromStateCode").GetInt32());
         Assert.Equal(GstinSupplier, root.GetProperty("toGstin").GetString());
-        Assert.Equal("24", root.GetProperty("toStateCode").GetString());
+        Assert.Equal(24, root.GetProperty("toStateCode").GetInt32());
     }
 
     /// <summary>

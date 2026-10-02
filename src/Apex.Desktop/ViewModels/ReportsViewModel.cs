@@ -3704,7 +3704,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             });
         }
 
-        // --- HSN/SAC summary: HSN | Description | UQC | Qty | Taxable | CGST | SGST | IGST ---
+        // --- HSN/SAC summary: HSN | Description | UQC | Qty | Taxable | CGST | SGST | IGST | Cess ---
+        // Cess is a statutory Table-12 column that this grid could not show at all until Col9 existed, so a
+        // cess-bearing supply displayed — and filed — a BLANK cess cell.
         Rows.Add(new ReportRow { Col1 = "HSN / SAC summary", IsHeader = true });
         foreach (var h in r.HsnSummary)
         {
@@ -3718,6 +3720,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col6 = IndianFormat.Amount(h.Cgst),
                 Col7 = IndianFormat.Amount(h.Sgst),
                 Col8 = IndianFormat.Amount(h.Igst),
+                Col9 = IndianFormat.Amount(h.Cess),
             });
         }
 

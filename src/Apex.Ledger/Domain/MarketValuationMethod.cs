@@ -26,27 +26,41 @@ namespace Apex.Ledger.Domain;
 public enum MarketValuationMethod
 {
     /// <summary>
-    /// "<i>There will be no rate included when recording the voucher</i>" — the operator types every selling
-    /// price themselves.
+    /// "<i>If you select this valuation method, by default there will be no rate included when recording the
+    /// voucher. You have to decide the price at which you should sell each item and key in the rate.</i>"
     ///
-    /// <para>🔴 <b>Ordinal 0, and therefore the column default for every item that existed before v65 — a
-    /// deliberate choice, not a guess at the vendor's factory setting.</b> This build could not source what the
-    /// reference product defaults this field to, so it does not assert one. Of the four real methods this is the
-    /// only one that needs no data and can state no wrong number: it auto-fills nothing, which is exactly what
-    /// every pre-v65 book already did, since the dimension did not exist. So the upgrade changes no sales line
-    /// anywhere (ER-13). Defaulting to any of the other three would have invented a selling price for every
-    /// existing item in every existing book.</para>
+    /// <para>🔴 <b>Ordinal 0, and therefore the column default for every item that existed before v65.</b> Of the
+    /// four methods this is the only one that needs no data and can state no wrong number: it auto-fills nothing,
+    /// which is exactly what every pre-v65 book already did, since the dimension did not exist. So the upgrade
+    /// changes no sales line anywhere (ER-13). Defaulting to any of the other three would have invented a selling
+    /// price for every existing item in every existing book.</para>
+    ///
+    /// <para>🔴 <b>AND THIS IS A LABELLED DIVERGENCE, NOT A MATCH — THE EARLIER CLAIM THAT THE VENDOR'S DEFAULT
+    /// "COULD NOT BE SOURCED" WAS WRONG AND IS CORRECTED HERE.</b> The cited page states it twice and plainly:
+    /// "<i>In TallyPrime, the Average Price is used as the default market valuation method. You can change this as
+    /// desired</i>", and again under Average Price itself, "<i>In TallyPrime, this is the default valuation method
+    /// for deciding the price at which stock items may be sold</i>". So the vendor's default is
+    /// <see cref="AveragePrice"/> and this build's is <c>AtZeroPrice</c>. The divergence is kept <b>for the
+    /// migration</b> — a persisted column cannot default to a method that would retro-price every existing item —
+    /// but <b>what a NEWLY created item should default to is a live user decision</b>, recorded in the track
+    /// report rather than silently decided here. Note also, for the costing dimension, that this build's
+    /// <see cref="StockValuationMethod.AverageCost"/> ordinal-0 default DOES match the page
+    /// ("<i>In TallyPrime, Average Cost is selected as the default costing method</i>").</para>
     /// </summary>
     AtZeroPrice = 0,
 
     /// <summary>
-    /// "<i>The average rate at which you will sell the stock item</i>" — total sale amount divided by total
-    /// quantity sold.
+    /// "<i>the average rate at which you will sell the stock item</i>", computed as the page computes it:
+    /// "<i>dividing the total amount at which the stock items were sold by the total quantity of the item sold so
+    /// far</i>".
     /// </summary>
     AveragePrice = 1,
 
     /// <summary>
-    /// "<i>The selling price of the stock item is based on the last price at which the stock item was sold.</i>"
+    /// "<i>Under this method, the selling price of the stock item is based on the last price at which the stock
+    /// item was sold.</i>" The page also attests the behaviour this build wires it to, in its own words:
+    /// "<i>the price at which the sneakers were sold earlier will be prefilled in the voucher. You can change the
+    /// selling price as required.</i>"
     ///
     /// <para>🔴 <b>THIS IS WHERE THE RETIRED <see cref="StockValuationMethod.LastSaleCost"/> BELONGED ALL
     /// ALONG.</b> The vendor files "Last Sales Price" here, under Market Valuation. This application filed the
@@ -57,9 +71,12 @@ public enum MarketValuationMethod
     LastSalesPrice = 2,
 
     /// <summary>
-    /// "<i>Set standard prices for the stock items</i>" after accounting for material costs, production expenses
-    /// and overheads — the per-item rate carried in <see cref="StockItem.StandardPrice"/>. When that is unset
-    /// this method auto-fills nothing, exactly as <see cref="AtZeroPrice"/> does, rather than substituting a cost.
+    /// "<i>You can set standard prices for the stock items. The standard price of an item is set after adding
+    /// charges like the cost of raw materials, production costs and other overhead charges that were required to
+    /// make the final product.</i>" (The earlier paraphrase here said "production expenses", a phrase that appears
+    /// nowhere on the page; it is replaced by the page's own wording.) The rate is the per-item figure carried in
+    /// <see cref="StockItem.StandardPrice"/>. When that is unset this method auto-fills nothing, exactly as
+    /// <see cref="AtZeroPrice"/> does, rather than substituting a cost.
     /// </summary>
     StandardPrice = 3,
 }

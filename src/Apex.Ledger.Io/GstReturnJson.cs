@@ -147,6 +147,7 @@ public static class GstReturnJson
                 CgstPaisa = MoneyCodec.ToPaisa(h.Cgst),
                 SgstPaisa = MoneyCodec.ToPaisa(h.Sgst),
                 IgstPaisa = MoneyCodec.ToPaisa(h.Igst),
+                CessPaisa = MoneyCodec.ToPaisa(h.Cess),
             }).ToList(),
             SchemaStatus = SchemaStatusFlag,
         };
@@ -343,10 +344,12 @@ public static class GstReturnJson
                 Description = h.Description,
                 Uqc = h.Uqc,
                 Quantity = h.Quantity,
+                TotvalPaisa = MoneyCodec.ToPaisa(h.TotalValue),
                 TxvalPaisa = MoneyCodec.ToPaisa(h.TaxableValue),
                 CamtPaisa = MoneyCodec.ToPaisa(h.Cgst),
                 SamtPaisa = MoneyCodec.ToPaisa(h.Sgst),
                 IamtPaisa = MoneyCodec.ToPaisa(h.Igst),
+                CsamtPaisa = MoneyCodec.ToPaisa(h.Cess),
             }).ToList(),
             NilExemptNonGstPaisa = MoneyCodec.ToPaisa(r.ExemptNilNonGstValue),
             Rcm4BOutwardValuePaisa = MoneyCodec.ToPaisa(r.Rcm4BOutwardValue),
@@ -484,6 +487,8 @@ public static class GstReturnJson
         [JsonPropertyName("cgst_paisa")] public long CgstPaisa { get; init; }
         [JsonPropertyName("sgst_paisa")] public long SgstPaisa { get; init; }
         [JsonPropertyName("igst_paisa")] public long IgstPaisa { get; init; }
+        /// <summary>Compensation-Cess — Table 17 carries the same cess column Table 12 does.</summary>
+        [JsonPropertyName("cess_paisa")] public long CessPaisa { get; init; }
     }
 
     private sealed record Gstr9Dto
@@ -597,10 +602,16 @@ public static class GstReturnJson
         [JsonPropertyName("desc")] public required string Description { get; init; }
         [JsonPropertyName("uqc")] public string? Uqc { get; init; }
         [JsonPropertyName("qty")] public decimal Quantity { get; init; }
+        /// <summary>Table 12 "Total Value" — taxable value plus every tax INCLUDING cess. Stated beside, not instead
+        /// of, <c>txval_paisa</c>; this payload filed the cell BLANK until it was added here.</summary>
+        [JsonPropertyName("totval_paisa")] public long TotvalPaisa { get; init; }
         [JsonPropertyName("txval_paisa")] public long TxvalPaisa { get; init; }
         [JsonPropertyName("camt_paisa")] public long CamtPaisa { get; init; }
         [JsonPropertyName("samt_paisa")] public long SamtPaisa { get; init; }
         [JsonPropertyName("iamt_paisa")] public long IamtPaisa { get; init; }
+        /// <summary>Compensation-Cess on this HSN row — Table 12 states cess in its own column beside the tax
+        /// amount, and this payload filed the cell BLANK until it was added here.</summary>
+        [JsonPropertyName("csamt_paisa")] public long CsamtPaisa { get; init; }
     }
 
     private sealed record Gstr1Dto

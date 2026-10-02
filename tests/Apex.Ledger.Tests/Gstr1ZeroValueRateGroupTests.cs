@@ -39,6 +39,15 @@ public sealed class Gstr1ZeroValueRateGroupTests
     /// <summary>The guard, as it appears at both call sites.</summary>
     private const string ZeroGroupGuard = @"if\s*\(\s*groupValue\s*==\s*0m\s*\)\s*continue\s*;";
 
+    /// <summary>
+    /// The THIRD apportionment's own zero-denominator guard. The Table-12 cess attribution
+    /// (<c>AttributeGroupCess</c>) does not divide by <c>groupValue</c> — it divides by the summed per-line CESS
+    /// WEIGHT, which is a different denominator and needs its own guard. It is reached only after the value
+    /// fallback has already replaced a zero weight-sum with the group value, so this <c>return</c> fires when BOTH
+    /// are zero and the loop below is never entered with a zero divisor.
+    /// </summary>
+    private const string CessWeightGuard = @"if\s*\(\s*weightSum\s*<=\s*0m\s*\)\s*return\s+result\s*;";
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -77,17 +86,34 @@ public sealed class Gstr1ZeroValueRateGroupTests
         var src = Gstr1Source();
         var guards = Regex.Matches(src, ZeroGroupGuard);
         var apportions = Regex.Matches(src, @"=\s*Apportion\(");
+        var cessGuards = Regex.Matches(src, CessWeightGuard);
 
         Assert.Equal(2, guards.Count);
-        Assert.Equal(6, apportions.Count); // three heads × two loops
+        // Three heads × two loops, PLUS the Table-12 cess attribution's single call. The cess call divides by the
+        // per-line cess WEIGHT sum, not by groupValue, so it is counted and guarded separately below — a new
+        // apportionment added without either guard still fails this test.
+        Assert.Equal(7, apportions.Count);
+        Assert.Equal(1, cessGuards.Count);
 
-        // Every apportionment call must be preceded by at least one guard.
+        // Every apportionment call must be preceded by at least one zero-denominator guard — whichever denominator
+        // it actually divides by.
+        var allGuards = guards.Concat(cessGuards).ToList();
         foreach (Match a in apportions)
             Assert.True(
-                guards.Any(g => g.Index < a.Index),
-                $"an Apportion call at offset {a.Index} is not preceded by a zero-group guard.");
+                allGuards.Any(g => g.Index < a.Index),
+                $"an Apportion call at offset {a.Index} is not preceded by a zero-denominator guard.");
 
-        // …and the SECOND loop's calls must be preceded by BOTH guards, i.e. the guards are not both in loop one.
+        // The cess apportionment is identified by the value it splits, NOT by its position — it sits between the
+        // two tax loops, so an index-based assumption about "the last call" would silently test the wrong one.
+        // Its OWN guard must precede it: the two groupValue guards say nothing about the weight-sum denominator.
+        var cessApportion = Regex.Match(src, @"=\s*Apportion\(\s*groupCess\s*,");
+        Assert.True(cessApportion.Success, "the Table-12 cess apportionment is no longer recognisable.");
+        Assert.True(
+            cessGuards.Single().Index < cessApportion.Index,
+            "the cess weight-sum guard does not precede the cess apportionment it protects.");
+
+        // …and the SECOND tax loop's calls must be preceded by BOTH groupValue guards, i.e. the guards are not
+        // both in loop one. The service-SAC loop's calls are the last in the file.
         var lastApportion = apportions[^1];
         Assert.True(
             guards.All(g => g.Index < lastApportion.Index),
