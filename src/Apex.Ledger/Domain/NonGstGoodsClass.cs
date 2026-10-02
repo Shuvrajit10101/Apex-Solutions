@@ -36,8 +36,11 @@ namespace Apex.Ledger.Domain;
 /// petroleum products only; <see cref="NonGstGoods.AttractsCentralExcise"/> answers "does central excise
 /// apply?" and is ALSO true for tobacco, which is inside GST at the same time.</para>
 ///
-/// <para>Stored as the ordinal in <c>stock_items.non_gst_goods_class</c>, NULLable, NULL ⇒ <see cref="None"/>,
-/// so every pre-v59 item is byte-identical (ER-13).</para>
+/// <para>Stored as the ordinal in <c>stock_items.non_gst_goods_class</c>. ⚠️ <b>The column is
+/// <c>INTEGER NOT NULL DEFAULT 0</c></b> (<c>Schema.cs</c>, the v59 <c>ALTER TABLE</c>) — <b>not</b> NULLable, as
+/// an earlier revision of this comment claimed. <c>0</c> is <see cref="None"/>, so "column absent" and "ordinary
+/// GST goods" coincide and every pre-v59 item is byte-identical (ER-13). The distinction matters to a caller
+/// deciding whether writing <see cref="None"/> is a change: it is not — the row already held 0.</para>
 /// </summary>
 public enum NonGstGoodsClass
 {
@@ -117,10 +120,16 @@ public static class NonGstGoods
     /// <see cref="IsOutsideGst"/>: tobacco is excisable and inside GST, alcoholic liquor is outside GST and is
     /// a State excise subject rather than a central one.
     ///
-    /// <para>⚠️ <b>Nothing in this build consumes this predicate yet</b> — census row 15.8 (Excise) is not
-    /// built. It is published here, next to the class it interprets, so that the excise slice cannot re-derive
-    /// a DIFFERENT set from the same enum; the alternative was leaving the distinction implicit in a comment,
+    /// <para>🔴 <b>CONSUMED, as of the excise-position slice, by <see cref="ExciseApplicability"/> and by the
+    /// Stock Item master's Central Excise block — it is no longer the unreferenced predicate the v59 note
+    /// described.</b> It is published here, next to the class it interprets, so that no consumer can re-derive a
+    /// DIFFERENT set from the same enum; the alternative was leaving the distinction implicit in a comment,
     /// which is how the two sets get conflated.</para>
+    ///
+    /// <para>⚠️ <b>Being consumed is NOT the same as census row 15.8 being built.</b> What reads this predicate
+    /// states a POSITION on a master; it computes no duty and keeps no register. Row 15.8's own three
+    /// deliverables — the F12 excise invoice format, Excise for Dealers (RG 23D / Form 2) and Excise for
+    /// Manufacturers — remain ABSENT.</para>
     /// </summary>
     public static bool AttractsCentralExcise(NonGstGoodsClass goodsClass) => goodsClass switch
     {
@@ -158,9 +167,13 @@ public static class NonGstGoods
     public static string? VatRefusalReason(NonGstGoodsClass goodsClass) => goodsClass switch
     {
         _ when IsOutsideGst(goodsClass) => null,
+        // 🔴 THE SECOND SENTENCE NO LONGER SAYS "excise is not in this build", AND THAT WORDING HAD TO GO. The
+        // Stock Item master now renders a Central Excise block RIGHT BESIDE this refusal, so a sentence telling
+        // the operator excise is absent would be contradicted by the panel under it. What is genuinely absent is
+        // the DUTY and the REGISTER, so that is what it now says — the narrower claim is also the true one.
         NonGstGoodsClass.Tobacco =>
             "Tobacco is inside GST, so State VAT does not apply to it. Central excise applies as well as GST, "
-            + "but excise is not in this build.",
+            + "but no excise duty, register or return is recorded in this build.",
         _ =>
             "State VAT and CST were subsumed by GST for ordinary goods. Set the item's class of goods to "
             + "alcoholic liquor for human consumption or to one of the five petroleum products first.",

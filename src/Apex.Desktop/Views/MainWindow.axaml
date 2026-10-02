@@ -8687,39 +8687,69 @@
                                     </StackPanel>
                                   </Border>
 
-                                  <!-- W-N1 · census 15.1 / 15.2 — STATE VAT on the stock item. Shown only for
-                                       a company that has enabled VAT (F11), so a non-VAT company sees a
-                                       byte-identical item master.
+                                  <!-- 🔴 CLASS OF GOODS — HOISTED OUT OF THE VAT BOX, AND THE HOIST IS A FIX,
+                                       NOT A TIDY-UP.
 
-                                       THE CLASS OF GOODS COMES FIRST AND THE RATE IS DISABLED UNTIL IT
-                                       PERMITS ONE. VAT and CST survive GST only for alcoholic liquor for human
-                                       consumption and the five petroleum products (CGST Act s.9(1)/s.9(2)); a
-                                       rate box an operator can fill in for ordinary goods is an invitation to
-                                       compute an abolished tax. The refusal sentence beside it is bound from
-                                       the SAME helper the engine throws with, so the screen cannot explain the
-                                       rule differently from the service that enforces it, and it WRAPS — a
-                                       refusal cut at the column edge explains nothing. -->
+                                       It used to live INSIDE the VAT border below, so it was reachable only for
+                                       a company that had enabled State VAT (F11). That gate was wrong, because
+                                       this one field decides TWO levies and the two do not agree:
+
+                                         · State VAT / CST  — Constitution Seventh Schedule, List II entry 54:
+                                           the five petroleum products AND alcoholic liquor, NOT tobacco.
+                                         · Central excise   — List I entry 84 (as substituted by the
+                                           Constitution (101st Amendment) Act 2016 s.17): the five petroleum
+                                           products AND tobacco, NOT liquor.
+
+                                       So A TOBACCO DEALER IS EXACTLY THE OPERATOR THE OLD GATE LOCKED OUT.
+                                       Tobacco is inside GST and bears no VAT, so such a dealer never enables
+                                       F11 — and tobacco is one of only two classes where the two levies
+                                       disagree. Gating the field on VatEnabled hid it from precisely the
+                                       trade that most needed it, and left them to infer their excise position
+                                       from an empty screen, which for tobacco yields the OPPOSITE of the truth.
+
+                                       The field is therefore always visible. THE VAT *RATE* BELOW IS STILL
+                                       GATED, because a rate box is an invitation to compute a tax, and a
+                                       non-VAT company must not be offered one. Classifying goods truthfully is
+                                       not the same act as pricing a levy on them.
+
+                                       ER-13 IS NOT AT RISK: stock_items.non_gst_goods_class is
+                                       INTEGER NOT NULL DEFAULT 0, and 0 is "Ordinary goods (inside GST)" — the
+                                       default this picker opens on. An operator who never touches it writes the
+                                       value the row already held. -->
+                                  <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0" Text="Class of goods" FontWeight="SemiBold"
+                                               Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" Name="StockItemGoodsClassPicker"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding NonGstGoodsClasses}"
+                                              SelectedItem="{Binding SelectedNonGstGoodsClass, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:NonGstGoodsClassOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <!-- W-N1 · census 15.1 / 15.2 — THE STATE VAT *RATE*. Still shown only for a
+                                       company that has enabled VAT (F11): a rate box offered to a dealer in
+                                       ordinary GST goods invites them to compute a tax abolished for their
+                                       trade, and then to file it.
+
+                                       THE RATE IS DISABLED UNTIL THE CLASS ABOVE PERMITS ONE. VAT and CST
+                                       survive GST only for alcoholic liquor for human consumption and the five
+                                       petroleum products (CGST Act s.9(1)/s.9(2); List II entry 54). The refusal
+                                       sentence is bound from the SAME helper the engine throws with, so the
+                                       screen cannot explain the rule differently from the service that enforces
+                                       it, and it WRAPS — a refusal cut at the column edge explains nothing. -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                           Padding="12,10" IsVisible="{Binding ShowVatBlock}">
                                     <StackPanel Spacing="8">
                                       <TextBlock Text="VAT Details (goods outside GST)" FontWeight="SemiBold" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
-                                      <Grid ColumnDefinitions="Auto,*">
-                                        <TextBlock Grid.Column="0" Text="Class of goods" FontWeight="SemiBold"
-                                                   Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center" FontSize="12.5"
-                                                   Foreground="{StaticResource BrandNavy}"/>
-                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                                  ItemsSource="{Binding NonGstGoodsClasses}"
-                                                  SelectedItem="{Binding SelectedNonGstGoodsClass, Mode=TwoWay}">
-                                          <ComboBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:NonGstGoodsClassOption">
-                                              <TextBlock Text="{Binding Display}"/>
-                                            </DataTemplate>
-                                          </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                      </Grid>
                                       <Grid ColumnDefinitions="Auto,*">
                                         <TextBlock Grid.Column="0" Text="Tax rate %" FontWeight="SemiBold"
                                                    Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
@@ -8750,15 +8780,34 @@
                                        reach — "excise does not apply to these goods" is what stops an operator
                                        inferring the opposite from an empty panel.
 
-                                       ⚠️ KNOWN LIMIT, RECORDED RATHER THAN HIDDEN: this block inherits
-                                       ShowVatBlock, so it is reachable only for a company that enabled VAT.
-                                       A tobacco dealer — inside GST, excisable, no VAT — cannot see it, because
-                                       there is no company-level excise flag to gate on and this slice had no
-                                       schema budget to add one. That flag is the first thing the excise slice
-                                       needs, and it is reported as owed rather than faked here. -->
+                                       🔴 AND IT IS UNGATED, WHICH IS THE WHOLE POINT OF THE BLOCK. An earlier
+                                       revision bound this border's IsVisible to ShowVatBlock (= VatEnabled),
+                                       which made it dead for the one trade it exists to inform: tobacco is
+                                       inside GST, bears no VAT, so a tobacco dealer never enables F11 — and
+                                       tobacco is one of only two classes where excise and VAT disagree. Gated
+                                       that way, the net new information the block gave any operator who could
+                                       SEE it was close to nil. No company-level excise flag is needed to state
+                                       a position that follows entirely from the class of the goods, and
+                                       inventing one would have been storage this slice has no budget for.
+
+                                       ⚠️ THE REAL LIMIT IS SCOPE, NOT REACHABILITY, and it is stated on screen
+                                       below rather than hidden here: no duty, no register, no return. Census
+                                       row 15.8's own three deliverables (F12 excise invoice format, Excise for
+                                       Dealers RG 23D / Form 2, Excise for Manufacturers) remain ABSENT.
+
+                                       🔴 AND THIS BLOCK IS OURS, NOT THE REFERENCE PRODUCT'S. The vendor does
+                                       NOT carry a class-of-goods field on the stock item: it enables excise at
+                                       F11 (Registration type = Dealer, a 15-digit PAN-based ECC number, RG23D
+                                       numbering) and carries excisability on separate Excise Tariff Details and
+                                       Excise Classification masters, which the page says can be applied to the
+                                       required stock items or stock groups — so the vendor DOES reach the item,
+                                       by a classification master, not a field. NO VENDOR GROUNDING IS CLAIMED
+                                       FOR THIS BLOCK'S SHAPE — see
+                                       ExciseApplicability's class comment, which cites the page it read. -->
+
                                   <Border Background="#F4F1FB"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
-                                          Padding="12,10" IsVisible="{Binding ShowVatBlock}">
+                                          Padding="12,10">
                                     <StackPanel Spacing="6">
                                       <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Grid.Column="0" Text="Central Excise" FontWeight="SemiBold"

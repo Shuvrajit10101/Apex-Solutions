@@ -24,14 +24,44 @@ namespace Apex.Ledger.Domain;
 /// when GST arrived on 01-Jul-2017, and <b>alcoholic liquor for human consumption is not in it</b> — which is
 /// precisely why the VAT gate and this gate disagree about liquor.</para>
 ///
+/// <para>🔴 <b>AND THE DISAGREEMENT IS POSITIVELY ATTESTED, not merely inferred from entry 84's silence.</b> The
+/// liquor half of the asymmetry rests on a second entry substituted by the SAME section of the SAME Act, on the
+/// same official page — <b>State List (List II) entry 54</b>, which now reads verbatim: <i>"54. Taxes on the sale
+/// of petroleum crude, high speed diesel, motor spirit (commonly known as petrol), natural gas, aviation turbine
+/// fuel and alcoholic liquor for human consumption, but not including sale in the course of inter-State trade or
+/// commerce or sale in the course of international trade or commerce of such goods."</i>
+/// (<c>taxinformation.cbic.gov.in</c>, same document, s.17.) Set the two entries side by side and the whole shape
+/// of this type falls out of them: <b>entry 54 reaches liquor and refuses tobacco; entry 84 reaches tobacco and
+/// refuses liquor</b>; both reach the five petroleum products. <b>Tobacco and liquor are therefore the ENTIRE
+/// delta between the two sets, in opposite directions</b> — so an implementation that reused one predicate for
+/// the other levy would be wrong for exactly those two classes, and correct-looking for the other six.</para>
+///
 /// <para>⚠️ <b>WHAT THIS TYPE DOES NOT DO, STATED SO IT IS NOT MISTAKEN FOR EXCISE SUPPORT.</b> It classifies
 /// and it explains. It computes no duty, posts no entry, and carries no rate — <b>no excise rate is asserted
 /// anywhere in this build</b>, because a duty rate is exactly the kind of figure this project has already had
-/// to strip out of shipped code when the citation did not hold up. Neither half of census row 15.8 — the
-/// excise invoice format at the voucher, and Excise for Dealers (RG 23D / Form 2) — ships here: both require
-/// storage this slice had no budget for (an excise registration and ECC number on the company, and per-line
-/// duty on the purchase, without which a statutory register would have seven of its twelve columns
-/// empty).</para>
+/// to strip out of shipped code when the citation did not hold up.</para>
+///
+/// <para>🔴 <b>CENSUS ROW 15.8 IS NOT CLOSED BY THIS TYPE, AND MUST NOT BE RECORDED AS IF IT WERE.</b> That row
+/// names <b>three</b> deliverables and <b>none of the three ships</b>: the <b>F12 excise invoice-format route</b>,
+/// <b>Excise for Dealers</b> (RG 23D / Form 2) and <b>Excise for Manufacturers</b>. All three need storage this
+/// slice has no budget for — an excise registration and ECC number on the company, and per-line duty on the
+/// purchase, without which a statutory register would have most of its columns empty. <b>Row 15.8 therefore
+/// stays ABSENT.</b> What this type and its one screen block actually deliver is narrower and belongs to rows
+/// 15.1/15.2: the Stock Item master used to let an operator infer the excise position of their goods from
+/// SILENCE, and for the only two classes where the two levies disagree that inference comes out BACKWARDS. This
+/// states the position instead. That is a defect fix on an existing screen, not an excise feature.</para>
+///
+/// <para>🔴 <b>THIS SHAPE IS OURS, NOT THE REFERENCE PRODUCT'S, AND IS LABELLED AS SUCH (R7).</b> The vendor
+/// documentation was checked and it does <b>not</b> put a class-of-goods field on the stock item: enabling
+/// excise there is an <b>F11 (Features)</b> company-level act with <i>Registration type = Dealer</i>, a 15-digit
+/// PAN-based <b>ECC number</b> (format <c>ABCDE1234HXM001</c>) and <i>Enable RG23D numbering</i> /
+/// <i>Set/Alter RG23D Details</i>; excisability itself is carried by separate <b>Excise Tariff Details</b> and
+/// <b>Excise Classification</b> masters, which that page says "can be applied to the required stock items or stock groups" — so the vendor DOES reach the item, through a classification master rather than a field on the item. (<c>help.tallysolutions.com/ed-enable-excise-for-dealers-tally/</c>,
+/// opened and read.) <b>So no vendor grounding is claimed for the block this type feeds</b> — deriving the
+/// position from the existing class-of-goods field is OUR divergence, chosen because it needs no new storage and
+/// still corrects a screen that was misleading. It also tells the next wave exactly what the real target is: the
+/// F11 registration + ECC + RG23D-numbering company block is the first thing row 15.8 needs, and the Tariff /
+/// Classification masters are the second.</para>
 /// </summary>
 public static class ExciseApplicability
 {

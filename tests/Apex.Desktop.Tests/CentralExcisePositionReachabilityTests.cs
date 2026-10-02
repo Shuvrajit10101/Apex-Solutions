@@ -55,10 +55,12 @@ public sealed class CentralExcisePositionReachabilityTests
         vm.CreateCompany();
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
 
-        // The class-of-goods picker lives in the VAT block, so the company must have State VAT on for the
-        // operator to reach it at all. That coupling is a KNOWN LIMIT of this slice, recorded on the block in
-        // MainWindow.axaml: there is no company-level excise flag to gate on, and adding one is storage this
-        // slice had no budget for.
+        // 🔴 State VAT is enabled HERE only so the VAT half of the asymmetry is on screen to be compared with
+        // the excise half in the same window. It is NOT a precondition for the excise block: the class-of-goods
+        // picker and the Central Excise border are both ungated, which
+        // A_tobacco_dealer_with_no_VAT_sees_the_excise_position_and_the_class_persists (below) is the test for.
+        // An earlier revision DID gate both on VatEnabled, and that was the defect: tobacco bears no VAT, so the
+        // block was invisible to the one trade whose excise position is surprising.
         new VatService(vm.Company!).EnableVat(tin: "29123456789");
 
         var inventory = new InventoryService(vm.Company!);
@@ -174,7 +176,26 @@ public sealed class CentralExcisePositionReachabilityTests
 
             // The VAT half, unchanged and still refusing — the two blocks visibly disagree, which is the truth.
             Assert.False(master.VatRateAllowed);
-            Assert.Contains(labels, l => l.Contains("inside GST", StringComparison.OrdinalIgnoreCase));
+
+            // 🔴 THIS ASSERTION USED TO READ Contains("inside GST") AND WAS VACUOUS — PROVEN BY MUTATION. The
+            // phrase "inside GST" also occurs in the picker's own caption for tobacco ("Tobacco (inside GST;
+            // central excise also applies)") AND in the new excise statement ("Tobacco is inside GST and is
+            // also named in the Union's excise entry"). A reviewer set the VAT refusal TextBlock's
+            // IsVisible=False — deleting the refusal sentence from the screen outright — and all 7 excise tests
+            // and all 15 StateVatCst tests stayed GREEN, because two OTHER labels still carried the phrase.
+            //
+            // It now asserts a clause that exists in NonGstGoods.VatRefusalReason(Tobacco) AND NOWHERE ELSE on
+            // this screen, so hiding that sentence reddens this test by name. The uniqueness is not assumed —
+            // it is asserted immediately below, so the assertion cannot quietly become vacuous again if some
+            // later label happens to adopt the same wording.
+            const string vatRefusalClause = "so State VAT does not apply to it";
+            Assert.Contains(labels, l => l.Contains(vatRefusalClause, StringComparison.Ordinal));
+            Assert.Equal(1, labels.Count(l => l.Contains(vatRefusalClause, StringComparison.Ordinal)));
+
+            // And it is the ENGINE's sentence, not a hand-copied paraphrase that could drift from it.
+            Assert.Contains(
+                labels,
+                l => l == NonGstGoods.VatRefusalReason(NonGstGoodsClass.Tobacco));
         }
         finally { Close(w, dir); }
     }
@@ -292,12 +313,30 @@ public sealed class CentralExcisePositionReachabilityTests
     }
 
     /// <summary>
-    /// A company that never enabled State VAT sees no excise block — the known limit, pinned so it is a RECORDED
-    /// consequence rather than a surprise. When the excise slice lands a company-level flag (v64), this test is
-    /// the one that must change, which is exactly the signal the next wave wants.
+    /// 🔴 <b>THE TEST THAT REPLACED A TEST PINNING A WRONG ANSWER — AND THE ONE THAT DECIDES WHETHER THIS BLOCK
+    /// IS WORTH ANYTHING AT ALL.</b>
+    ///
+    /// <para><b>What was here before, and why it had to go.</b> An earlier revision bound both the
+    /// class-of-goods picker and the Central Excise border to <c>ShowVatBlock</c> (<c>= Company.VatEnabled</c>),
+    /// and then asserted, in a PASSING test called <c>…_and_that_limit_is_pinned</c>, that a company without VAT
+    /// correctly sees no excise block. The assertion was true of the code and <b>false as a requirement</b>:
+    /// <b>tobacco is inside GST and bears no State VAT, so a real tobacco dealer never enables F11</b> — and
+    /// tobacco is one of only two classes (liquor is the other) where the excise set and the VAT set disagree at
+    /// all. The gate therefore hid the block from precisely the trade it exists to inform, leaving the net new
+    /// information for everyone who COULD see it close to nil. A green test recording that as a "limit" is worse
+    /// than no test: the next reviewer reads green and believes the shape is intended.</para>
+    ///
+    /// <para><b>And the gate had a second, worse half: the SAVE.</b> <c>Accept()</c> wrote the class of goods
+    /// inside the same <c>if (ShowVatBlock)</c> branch. Ungating only the screen would have let a tobacco dealer
+    /// classify the item, read "Excise: applies", press Accept — and have the selection <b>silently
+    /// discarded</b>. So this test does not stop at what is on screen: it saves, <b>reloads from SQLite</b>, and
+    /// asserts the stored ordinal.</para>
+    ///
+    /// <para><b>Red before the fix in BOTH directions</b> — the block is absent for this company, and the class
+    /// does not persist.</para>
     /// </summary>
     [AvaloniaFact]
-    public void A_company_without_VAT_sees_no_excise_block_and_that_limit_is_pinned()
+    public void A_tobacco_dealer_with_no_VAT_sees_the_excise_position_and_the_class_persists()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "ApexExcisePos_" + Guid.NewGuid().ToString("N"));
         var storage = new CompanyStorage(tempDir);
@@ -312,14 +351,91 @@ public sealed class CentralExcisePositionReachabilityTests
             var inventory = new InventoryService(vm.Company!);
             if (vm.Company!.Units.Count == 0) inventory.CreateSimpleUnit("Nos", "Numbers");
             if (vm.Company!.FindStockGroupByName("Primary") is null) inventory.CreateStockGroup("Primary");
+            storage.Save(vm.Company!);
+            Pump(w);
+
+            var master = OpenItemMaster(w, vm);
+
+            // The company genuinely has no VAT — so the VAT RATE box stays gated, which is still correct.
+            Assert.False(master.ShowVatBlock);
+
+            // …and yet the excise position IS on screen, for a company that will never enable VAT.
+            var labels = RealisedLabels(w);
+            Assert.Contains("Central Excise", labels);
+            Assert.Contains(labels, l => l.StartsWith("Excise: ", StringComparison.Ordinal));
+
+            // The VAT rate box and its refusal sentence are NOT — the two are now independently gated, and
+            // this is the assertion that stops the fix from being "show everything to everyone".
+            Assert.DoesNotContain("VAT Details (goods outside GST)", labels);
+            Assert.DoesNotContain(labels, l => l == NonGstGoods.VatRefusalReason(NonGstGoodsClass.Tobacco));
+
+            // The picker is reachable, so this dealer can classify their goods truthfully.
+            Choose(w, master, NonGstGoodsClass.Tobacco);
+            var afterTobacco = RealisedLabels(w);
+            Assert.Contains("Excise: applies", afterTobacco);
+            Assert.Contains(afterTobacco, l => l.Contains("AS WELL AS GST", StringComparison.Ordinal));
+
+            // 🔴 AND THE SELECTION SURVIVES ACCEPT AND A RELOAD FROM SQLITE. Asserting the view model here
+            // would pass against the broken save, which discarded the class for exactly this company.
+            master.Name = "Cigarettes 84mm";
+            master.SelectedGroup = vm.Company!.StockGroups.First();
+            master.SelectedUnit = vm.Company!.Units.First();
+            Assert.True(master.Create());
+
+            var reloadStorage = new CompanyStorage(tempDir);
+            var entry = reloadStorage.ListCompanies().Single(e => e.Name == "Plain GST Co");
+            var reloaded = reloadStorage.Load(entry);
+            var item = reloaded.StockItems.Single(i => i.Name == "Cigarettes 84mm");
+            Assert.Equal(NonGstGoodsClass.Tobacco, item.NonGstGoodsClass);
+
+            // Tobacco is inside GST, so no VAT rate may ride along with it even though the class was saved.
+            Assert.Null(item.VatTaxRateBasisPoints);
+        }
+        finally { Close(w, tempDir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>ER-13, MEASURED RATHER THAN ASSUMED.</b> Ungating the SAVE means a non-VAT company now runs
+    /// <c>SetItemGoodsClass</c> where it previously ran nothing, so the question "does an untouched item still
+    /// write the same bytes?" has to be answered, not asserted in a comment.
+    /// <c>stock_items.non_gst_goods_class</c> is <c>INTEGER NOT NULL DEFAULT 0</c> and the picker opens on
+    /// <see cref="NonGstGoodsClass.None"/> (= 0), so an operator who never touches it writes the integer the row
+    /// already held. This saves an item on a non-VAT company WITHOUT touching the picker and asserts exactly
+    /// that.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_untouched_picker_on_a_non_VAT_company_still_stores_ordinary_goods()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "ApexExcisePos_" + Guid.NewGuid().ToString("N"));
+        var storage = new CompanyStorage(tempDir);
+        var vm = new MainWindowViewModel(storage);
+        var w = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        w.Show();
+        try
+        {
+            vm.NewCompanyName = "Untouched Co";
+            vm.CreateCompany();
+
+            var inventory = new InventoryService(vm.Company!);
+            if (vm.Company!.Units.Count == 0) inventory.CreateSimpleUnit("Nos", "Numbers");
+            if (vm.Company!.FindStockGroupByName("Primary") is null) inventory.CreateStockGroup("Primary");
+            storage.Save(vm.Company!);
             Pump(w);
 
             var master = OpenItemMaster(w, vm);
             Assert.False(master.ShowVatBlock);
 
-            var labels = RealisedLabels(w);
-            Assert.DoesNotContain("Central Excise", labels);
-            Assert.DoesNotContain(labels, l => l.StartsWith("Excise: ", StringComparison.Ordinal));
+            master.Name = "Plain Widget";
+            master.SelectedGroup = vm.Company!.StockGroups.First();
+            master.SelectedUnit = vm.Company!.Units.First();
+            Assert.True(master.Create());
+
+            var reloadStorage = new CompanyStorage(tempDir);
+            var entry = reloadStorage.ListCompanies().Single(e => e.Name == "Untouched Co");
+            var item = reloadStorage.Load(entry).StockItems.Single(i => i.Name == "Plain Widget");
+
+            Assert.Equal(NonGstGoodsClass.None, item.NonGstGoodsClass);
+            Assert.Null(item.VatTaxRateBasisPoints);
         }
         finally { Close(w, tempDir); }
     }

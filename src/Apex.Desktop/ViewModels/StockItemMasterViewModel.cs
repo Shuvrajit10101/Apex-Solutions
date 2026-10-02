@@ -395,9 +395,16 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     // So the excise position is STATED, from the same published predicate the (eventual) excise slice will gate
     // on, and it can never drift from it. See ExciseApplicability, which carries entry 84 verbatim.
     //
-    // ⚠️ THIS IS A STATEMENT, NOT EXCISE SUPPORT, and the limit is deliberate and labelled. Neither half of
-    // census row 15.8 ships here — no excise invoice format at the voucher, no RG 23D, no Form 2 — because both
-    // need storage this slice had no budget for. Nothing below computes a duty or asserts a rate.
+    // ⚠️ THIS IS A STATEMENT, NOT EXCISE SUPPORT, and the limit is deliberate and labelled. NONE of census row
+    // 15.8's three deliverables ships here — no F12 excise invoice format, no Excise for Dealers (RG 23D /
+    // Form 2), no Excise for Manufacturers — because all three need storage this slice has no budget for.
+    // 🔴 ROW 15.8 STAYS ABSENT. What is fixed is rows 15.1/15.2's screen, which used to let an operator infer
+    // their excise position from silence. Nothing below computes a duty or asserts a rate.
+    //
+    // 🔴 THESE THREE MEMBERS ARE NOT GATED ON VatEnabled, AND MUST NOT BECOME SO. The class of goods decides
+    // both levies and the two disagree about exactly tobacco and liquor; a tobacco dealer is inside GST, bears
+    // no VAT, and so never enables F11. Gating the excise position on the VAT flag made it unreachable for the
+    // only trade whose excise position is surprising. See the Central Excise border in MainWindow.axaml.
 
     /// <summary>
     /// The one-sentence CENTRAL EXCISE position of the selected class of goods (census 15.8) — shown for
@@ -953,18 +960,36 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             if (TcsEnabled)
                 item.TcsNatureOfGoodsId = SelectedTcsNature?.NatureId;
 
-            // W-N1 (census 15.1 / 15.2) — the class of goods and the VAT rate, applied ONLY for a VAT company
-            // so a company that never enabled VAT writes a byte-identical item (ER-13).
+            // W-N1 (census 15.1 / 15.2) — the class of goods and the VAT rate.
             //
             // BOTH GO THROUGH VatService, WHICH IS THE THING THAT CAN REFUSE. Setting the properties directly
             // here would put the gate in the UI alone, and a UI gate is exactly the one a later screen, an
             // import or a test forgets. SetItemGoodsClass clears a rate the new class does not permit;
             // SetItemVatRate throws on ordinary goods, and the catch below surfaces its sentence.
-            if (ShowVatBlock)
+            //
+            // 🔴 THE CLASS OF GOODS IS SAVED FOR *EVERY* COMPANY, AND MOVING IT OUT OF THE VatEnabled BRANCH
+            // BELOW WAS A DEFECT FIX, NOT A REFACTOR. The picker is now always on screen (it decides central
+            // excise as well as VAT — List I entry 84 vs List II entry 54, which disagree about tobacco and
+            // about liquor). Leaving the WRITE gated on VatEnabled while the READ was ungated is the worst of
+            // both: a tobacco dealer could classify their item, read "Excise: applies", press Accept, and have
+            // the selection silently discarded — the screen would then reopen claiming ordinary GST goods.
+            //
+            // ER-13 IS UNAFFECTED, and this is the measurement rather than an assumption:
+            // stock_items.non_gst_goods_class is INTEGER NOT NULL DEFAULT 0 (Schema.cs, the v59 ALTER TABLE),
+            // and 0 == NonGstGoodsClass.None == the value this picker opens on. A non-VAT company that never
+            // touches it writes the integer the row already held, so the file is byte-identical.
             {
                 var vatService = new VatService(_company);
                 vatService.SetItemGoodsClass(
                     item, SelectedNonGstGoodsClass?.Value ?? NonGstGoodsClass.None);
+            }
+
+            // The VAT *RATE*, by contrast, stays gated: a non-VAT company is never offered the box, so there is
+            // no keyed figure to apply, and running SetItemVatRate(null) for them would CLEAR a rate preserved
+            // from a VAT era (HiddenSubFormPreservationTests is the discipline this follows).
+            if (ShowVatBlock)
+            {
+                var vatService = new VatService(_company);
 
                 var vatRateText = VatTaxRatePercentText?.Trim();
                 if (string.IsNullOrEmpty(vatRateText))
