@@ -242,6 +242,16 @@ public sealed class EInvoiceInv01SchemaConformanceTests
     /// <summary>The ad-valorem cess fixture rate: 12% (1200 bp) on the odd-paisa taxable value.</summary>
     private const int CessBasisPoints = 1200;
 
+    /// <summary>🔴 T1-73. The exempt STOCK line of the mixed item invoice — ₹20,000 of exempt goods beside a taxed
+    /// line, whose value belongs in <c>ValDtls.AssVal</c> and used to be missing from it.</summary>
+    private const decimal ExemptItemQty = 2_000m;
+    private const decimal ExemptItemRate = 10m;
+    private const decimal ExemptItemValue = 20_000m;     // 2,000 Nos × ₹10 — satisfies TotAmt == Qty × UnitPrice
+
+    /// <summary>🔴 T1-73. The exempt SERVICE leg of the mixed accounting invoice — ₹5,000, which used not to be an
+    /// INV-01 line at all.</summary>
+    private const decimal ExemptServiceValue = 5_000m;
+
     private sealed class Fx
     {
         public required Company Company { get; init; }
@@ -293,6 +303,16 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         /// <summary>An intra-state sale bearing a per-unit (SPECIFIC) compensation cess — non-ad-valorem, and the
         /// posted line carries no ad-valorem rate at all.</summary>
         public required Voucher SpecificCessSale { get; init; }
+
+        /// <summary>🔴 T1-73 — an ITEM invoice MIXING a taxed stock line with an EXEMPT one. The shape no fixture in
+        /// this file carried, which is why <see cref="Item_values_foot_to_the_document_totals"/> certified a payload
+        /// whose <c>AssVal</c> was short by the whole exempt value.</summary>
+        public required Voucher MixedExemptItemSale { get; init; }
+
+        /// <summary>🔴 T1-73 — an ACCOUNTING invoice mixing a taxed service leg with an EXEMPT one. On the ledger
+        /// path the exempt leg was dropped from the <c>ItemList</c> entirely, so the totals agreed with each other
+        /// while both understated the invoice.</summary>
+        public required Voucher MixedExemptServiceInvoice { get; init; }
     }
 
     private static Domain.Ledger Add(Company c, string name, string groupName, bool openingIsDebit)
@@ -327,6 +347,13 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         { HsnSac = "847160", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
         inv.AddOpeningBalance(gadget.Id, c.MainLocation!.Id, 100m, Money.FromRupees(200m));
 
+        // 🔴 T1-73 — an EXEMPT stock item. HSN 040110 (fresh milk) is an actual nil-rated heading, and the item
+        // declares its taxability rather than merely omitting a rate, so GstReportSupport.IsNonTaxableStockLine
+        // discriminates it EXPLICITLY and the ER-5 "unresolved is not an exemption" sentinel is not involved.
+        var exemptItem = inv.CreateStockItem("Fresh Milk", grp.Id, nos.Id);
+        exemptItem.Gst = new StockItemGstDetails { HsnSac = "040110", Taxability = GstTaxability.Exempt };
+        inv.AddOpeningBalance(exemptItem.Id, c.MainLocation!.Id, 10_000m, Money.FromRupees(ExemptItemRate));
+
         var sales = Add(c, "Sales", "Sales Accounts", false);
 
         // A SAC-bearing SERVICE income ledger (the accounting-invoice shape) …
@@ -343,6 +370,13 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         {
             HsnSac = "84713010", SupplyType = GstSupplyType.Goods,
             Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+        };
+        // 🔴 T1-73 — an EXEMPT SERVICE income ledger (SAC 999293, education services). Gstr1.ServiceLegs sees it
+        // because it declares a SalesPurchaseGst block; Gstr1.IsNonTaxableServiceLedger then classifies it exempt.
+        var exemptServiceIncome = Add(c, "Education Income", "Sales Accounts", false);
+        exemptServiceIncome.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "999293", SupplyType = GstSupplyType.Services, Taxability = GstTaxability.Exempt,
         };
 
         var b2b = Add(c, "Local Debtor", "Sundry Debtors", true);
@@ -464,6 +498,44 @@ public sealed class EInvoiceInv01SchemaConformanceTests
                     SpecificCessQuantity)),
             partyId: b2b.Id));
 
+        // 🔴 T1-73 — THE TWO MIXED taxable/EXEMPT SHAPES. Both post the exempt value into the party debit and the
+        // sales credit while keeping it OUT of the tax base, which is exactly what the entry screen does
+        // (VoucherEntryViewModel.ComputeItemInvoiceGst / ComputeAccountingInvoiceGst each skip a non-taxable line),
+        // so the voucher's own posted party debit IS the invoice total the registered document has to declare.
+        var mixedTax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(ItemTaxable), 1800, null) },
+            interState: false, GstTaxDirection.Output);
+        var mixedItemLegs = new List<EntryLine>
+        {
+            new(b2b.Id, new Money(ItemTaxable + ExemptItemValue + mixedTax.TotalTax.Amount), DrCr.Debit),
+            new(sales.Id, Money.FromRupees(ItemTaxable + ExemptItemValue), DrCr.Credit),
+        };
+        mixedItemLegs.AddRange(mixedTax.TaxLines);
+        var mixedExemptItemSale = post.Post(new Voucher(
+            Guid.NewGuid(), salesType, SaleDate.AddDays(11), mixedItemLegs, partyId: b2b.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(widget.Id, c.MainLocation!.Id, ItemQty, Money.FromRupees(ItemRate)),
+                // Ordered LAST so that, under the pre-T1-59 collapse, it was the remainder-absorbing line — the
+                // same ordering the wave-38 measurement used.
+                new VoucherInventoryLine(
+                    exemptItem.Id, c.MainLocation!.Id, ExemptItemQty, Money.FromRupees(ExemptItemRate)),
+            }));
+
+        var mixedServiceTax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(Taxable), 1800, null) },
+            interState: false, GstTaxDirection.Output);
+        var mixedServiceLegs = new List<EntryLine>
+        {
+            new(b2b.Id, new Money(Taxable + ExemptServiceValue + mixedServiceTax.TotalTax.Amount), DrCr.Debit),
+            new(serviceIncome.Id, Money.FromRupees(Taxable), DrCr.Credit),
+            new(exemptServiceIncome.Id, Money.FromRupees(ExemptServiceValue), DrCr.Credit),
+        };
+        mixedServiceLegs.AddRange(mixedServiceTax.TaxLines);
+        var mixedExemptServiceInvoice = post.Post(new Voucher(
+            Guid.NewGuid(), salesType, SaleDate.AddDays(12), mixedServiceLegs, partyId: b2b.Id,
+            isAccountingInvoice: true));
+
         return new Fx
         {
             Company = c,
@@ -478,6 +550,8 @@ public sealed class EInvoiceInv01SchemaConformanceTests
             ExportWithPayment = exportWithPayment,
             CessSale = cessSale,
             SpecificCessSale = specificCessSale,
+            MixedExemptItemSale = mixedExemptItemSale,
+            MixedExemptServiceInvoice = mixedExemptServiceInvoice,
         };
     }
 
@@ -501,6 +575,12 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         ("ExportWithPayment", f.ExportWithPayment),
         ("CessSale", f.CessSale),
         ("SpecificCessSale", f.SpecificCessSale),
+        // 🔴 T1-73 — the two mixed taxable/EXEMPT shapes. Added here deliberately rather than given private tests:
+        // Item_values_foot_to_the_document_totals ALREADY asserted NIC's two published summation rules over "every"
+        // fixture and still passed, because no fixture mixed an exempt line in. Enrolling the shapes is what turns
+        // that standing invariant from a certificate into a guard.
+        ("MixedExemptItemSale", f.MixedExemptItemSale),
+        ("MixedExemptServiceInvoice", f.MixedExemptServiceInvoice),
     };
 
     /// <summary>Every dotted path present in the emitted payload, with array indices collapsed to <c>[]</c>.</summary>

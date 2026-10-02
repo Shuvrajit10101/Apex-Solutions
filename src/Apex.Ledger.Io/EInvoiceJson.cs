@@ -177,12 +177,37 @@ public static class EInvoiceJson
         // Posted per-rate-group heads + the ring-fenced cess total, read off the tax lines (ER-9).
         var groups = ReadRateGroups(voucher);
         var cessTotalPaisa = ReadCessTotalPaisa(voucher);
-        var assessablePaisa = MoneyCodec.ToPaisa(GstReportSupport.InvoiceTaxableValue(voucher));
         var cgstPaisa = groups.Sum(g => g.CgstPaisa);
         var sgstPaisa = groups.Sum(g => g.SgstPaisa);
         var igstPaisa = groups.Sum(g => g.IgstPaisa);
 
         var items = BuildItems(company, voucher, groups);
+
+        // 🔴 T1-73 — AssVal IS Σ AssAmt OF THE LINES THIS PAYLOAD ACTUALLY CARRIES, by construction, never a second
+        // read of a different source. It used to be MoneyCodec.ToPaisa(GstReportSupport.InvoiceTaxableValue(voucher)),
+        // which reads the posted TAX LINES — the method's own doc comment warns it "returns 0 for an untaxed supply
+        // and must NOT be used for turnover". On a Widget ₹50,000 @ 18% + EXEMPT Fresh Milk ₹20,000 invoice that made
+        // the IRP-REGISTERED invoice declare AssVal ₹50,000 against an ItemList summing to ₹70,000, and TotInvVal
+        // ₹59,000 against items summing to ₹79,000 — which is the voucher's own posted party debit. Measured off the
+        // emitted bytes; short by exactly the exempt value, in the understating direction, on the document the buyer's
+        // ITC and our own declared turnover both rest on.
+        //
+        // NIC publishes BOTH equalities and they are not a matter of reading — einv-apisandbox.nic.in
+        // /version1.03/generate-irn.html, "The following summation validations are to be done on Invoice total":
+        // "Total Taxable Value = Taxable Value of all Items" and "Total Invoice Value = Sum of All Total Value of
+        // Items - Invoice Discount + Invoice Other charges + Round-off amount". v1.01 states the second as
+        // "Total Invoice Value = Total Taxable Value + Total SGST Value + Total CGST Value + Total IGST Value +
+        // Total Cess Value + …", which is the shape TotInvVal is assembled in below — so with AssVal footing to the
+        // ItemList, BOTH published formulations hold at once. The published tolerance is a rupee either side ("the
+        // rupee part of the calculated value minus one rupee … plus one rupee"), so a ₹20,000 gap is ~19,999 outside
+        // it: the IRP refuses the invoice, or registers one that understates what the buyer owes.
+        //
+        // This is NOT the EWB-01 question. There, totalValue is described "Sum of Taxable value", NIC publishes NO
+        // rule tying it to Σ itemList.taxableAmount, and Rule 138(1) Explanation 2 expressly excludes exempt value
+        // from the consignment value — so the e-Way reading is a deliberate, separately-recorded divergence. No
+        // Rule-138 exclusion reaches a tax invoice, and ValDtls has no exempt-value member at all, so on the INV-01
+        // the exempt line's value has nowhere to go but AssVal.
+        var assessablePaisa = MoneyCodec.ToPaisa(new Money(items.Sum(i => i.AssAmt)));
 
         return new Inv01Dto
         {
@@ -424,6 +449,40 @@ public static class EInvoiceJson
                     cessAdValoremPaisa: g.CessAdValoremPaisa, cessNonAdValoremPaisa: g.CessNonAdValoremPaisa));
                 slNo++;
             }
+
+            // 🔴 T1-73, THE SECOND PATH — AN EXEMPT SERVICE LEG IS A LINE OF THIS INVOICE AND MUST APPEAR ON IT.
+            // ServiceLegsByRate excludes a non-taxable leg from every rate group, which is correct and must stay
+            // (bucketing it would tax an exempt supply, the defect the goods discriminator exists to end). But its
+            // own doc comment then concluded "it is simply not an INV-01 line", and THAT was wrong: the leg vanished
+            // from the ItemList as well, so the registered invoice did not describe a supply the buyer was billed
+            // for. Measured off the emitted bytes on Consultancy ₹10,000 @ 18% + EXEMPT Education ₹5,000: ONE item,
+            // AssVal ₹10,000, TotInvVal ₹11,800 — against a posted party debit of ₹16,800. Understated by exactly
+            // the exempt value, the same ₹-for-₹ defect as the stock path and, because Σ AssAmt agreed with AssVal,
+            // the one NIC WOULD HAVE ACCEPTED. An accepted wrong invoice is worse than a refused one.
+            //
+            // The remedy is the shape the goods side already uses post-T1-59: the leg stays a line, bears GstRt 0
+            // and no tax, and so joins AssVal without joining any rate group. NIC types the field
+            // "GstRt": { "type": "number", "minimum": 0, … } (published schema, generate-irn v1.03), so 0 is in its
+            // declared domain, and "Total Value of Item = Taxable Value of Item + SGST … + Other charges" makes an
+            // untaxed line's TotItemVal its own value. Rule 46 requires the tax invoice to state the description and
+            // value of ALL services supplied, and Rule 48(4) makes this payload that invoice.
+            //
+            // Appended after the rate groups, in voucher-line order, so the taxable lines' SlNo and every existing
+            // byte are unchanged; a plain As-Voucher sale yields no leg here at all (ER-13 byte-identical).
+            foreach (var (ledger, paisa) in NonTaxableServiceLegs(company, voucher))
+            {
+                list.Add(Item(
+                    slNo,
+                    // The leg's OWN declared nature and OWN SAC — the same two reads the taxable branch above makes,
+                    // so a code and a flag cannot disagree between a taxed and an exempt line of one invoice.
+                    isService: ledger.SalesPurchaseGst?.SupplyType == GstSupplyType.Services,
+                    hsnCd: Gstr1.ServiceSacOf(ledger) ?? "",
+                    qty: null, unit: null,
+                    unitPricePaisa: paisa, taxablePaisa: paisa, rateBasisPoints: 0,
+                    cgstPaisa: 0, sgstPaisa: 0, igstPaisa: 0,
+                    cessRateBasisPoints: 0, cessAdValoremPaisa: 0, cessNonAdValoremPaisa: 0));
+                slNo++;
+            }
             return list;
         }
 
@@ -560,10 +619,18 @@ public static class EInvoiceJson
     /// belongs to — the e-invoice mirror of <c>Gstr1.AccumulateServiceHsn</c>'s bucketing, reading the SAME
     /// <see cref="Gstr1.ServiceLegs"/> definition so the payload's <c>HsnCd</c> cannot drift from the SAC the return
     /// files.
-    /// <para>A NON-taxable (exempt/nil/non-GST) leg is deliberately excluded: it contributed nothing to the posted tax
-    /// and nothing to <c>ass_val_paisa</c>, so bucketing it into a posted rate group would both tax an exempt supply
-    /// and break the payload's footing identity. It is simply not an INV-01 line (an e-invoice is projected off the
-    /// posted tax lines; the exempt value is reported through GSTR-1's exempt bucket, which now carries it — FIX-1/2).</para>
+    /// <para>A NON-taxable (exempt/nil/non-GST) leg is deliberately excluded <b>from every rate group</b>: it
+    /// contributed nothing to the posted tax, so bucketing it into a posted group would both tax an exempt supply and
+    /// break the payload's footing identity. <b>🔴 T1-73 CORRECTION: this exclusion is right, but the conclusion that
+    /// used to be written here — "it is simply not an INV-01 line" — was WRONG, and it cost ₹-for-₹.</b> The leg
+    /// disappeared from the <c>ItemList</c> as well, so on Consultancy ₹10,000 @ 18% + EXEMPT Education ₹5,000 the
+    /// emitted payload carried ONE item and declared <c>TotInvVal</c> ₹11,800 against a posted party debit of
+    /// ₹16,800 — the registered tax invoice understating the invoice by exactly the exempt value, and (because
+    /// Σ <c>AssAmt</c> agreed with <c>AssVal</c>) understating it in a form NIC would have ACCEPTED. The leg is now
+    /// emitted by <see cref="NonTaxableServiceLegs"/> as a <c>GstRt</c> 0, zero-tax line — the same shape the goods
+    /// path uses for exempt stock — which keeps it out of every rate group while putting its value on the document.
+    /// Reporting the exempt value through GSTR-1's exempt bucket is a RETURN obligation and was never a substitute
+    /// for describing the supply on the invoice itself (Rule 46 with Rule 48(4)).</para>
     /// <para>Empty for a plain As-Voucher sale, which is what keeps that path byte-identical.</para>
     /// </summary>
     private static Dictionary<int, List<(Domain.Ledger Ledger, long Paisa)>> ServiceLegsByRate(
@@ -584,6 +651,23 @@ public static class EInvoiceJson
             list.Add((ledger, MoneyCodec.ToPaisa(new Money(value))));
         }
         return byRate;
+    }
+
+    /// <summary>
+    /// The <b>NON-taxable</b> service/income ledger legs of a ledger-only voucher, in voucher-line order — the exact
+    /// complement of <see cref="ServiceLegsByRate"/>, taken over the SAME <see cref="Gstr1.ServiceLegs"/> definition
+    /// and discriminated by the SAME <see cref="Gstr1.IsNonTaxableServiceLedger"/> predicate, so no leg of an invoice
+    /// can fall into both sets or into neither (T1-73).
+    /// <para>Each becomes an INV-01 line bearing <c>GstRt</c> 0 and no tax, which is what lets its value join
+    /// <c>ValDtls.AssVal</c> without joining a posted rate group. Yields nothing for a plain As-Voucher sale, whose
+    /// sales ledger declares no GST block at all, so that path stays byte-identical (ER-13).</para>
+    /// </summary>
+    private static IEnumerable<(Domain.Ledger Ledger, long Paisa)> NonTaxableServiceLegs(
+        Company company, Voucher voucher)
+    {
+        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+            if (Gstr1.IsNonTaxableServiceLedger(ledger))
+                yield return (ledger, MoneyCodec.ToPaisa(new Money(value)));
     }
 
     /// <summary>Delegates to <see cref="ProRata.Paisa"/> — the ONE apportionment rule (drift lock D1).</summary>
